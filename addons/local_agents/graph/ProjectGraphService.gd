@@ -10,7 +10,7 @@ const DEFAULT_EXTENSIONS: Array[String] = ["gd", "tscn", "tres", "cs", "gdshader
 const AgentRuntimeAccess = preload("res://addons/local_agents/runtime/AgentRuntimeAccess.gd")
 const TextFile = preload("res://addons/local_agents/runtime/TextFile.gd")
 
-var _graph: Object = null
+var _graph: NetworkGraph = null
 
 func _ready() -> void:
     _ensure_graph()
@@ -125,10 +125,7 @@ func list_code_nodes(limit: int = 256, offset: int = 0) -> Array:
 func _ensure_graph() -> bool:
     if _graph:
         return true
-    if not ClassDB.class_exists("NetworkGraph"):
-        push_error("NetworkGraph extension unavailable")
-        return false
-    _graph = ClassDB.instantiate("NetworkGraph")   # by name: see the _graph declaration
+    _graph = NetworkGraph.new()
     DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(STORE_DIR))
     if not _graph.open(ProjectSettings.globalize_path(DB_PATH)):
         push_error("Failed to open network graph database for project graph")

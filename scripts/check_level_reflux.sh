@@ -7,6 +7,7 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+. "$REPO_ROOT/scripts/lib_capture.sh"
 GODOT="${GODOT:-godot}"
 command -v "$GODOT" >/dev/null 2>&1 || { echo "ERROR: godot not on PATH — a gate that cannot run FAILS." >&2; exit 2; }
 KERNEL="$REPO_ROOT/addons/local_agents/sim/material/kernels3d/transport.glsl"
@@ -229,17 +230,24 @@ fi
 [ "$rc" -eq 0 ] || exit 1
 
 # --- arm two: the SEEDED world takes its steps and publishes the level it took them on ---------------
-out2="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --frames "${LA_LEVEL_FRAMES:-2}" \
-  --report transport_levels 2>&1)"
-rc2=$?
+# It asks the shared lint arm for a reading of the ordinary global run, so it starts no engine of its
+# own; only the rig above needs a configuration that arm cannot give.
+if la_cap_dir >/dev/null; then
+  out2="$(la_report transport_levels 2>&1)"
+  rc2=$?
+else
+  out2="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --frames "${LA_LEVEL_FRAMES:-2}" \
+    --report transport_levels 2>&1)"
+  rc2=$?
+  # 122/123/126 are physics verdicts from a run that COMPLETED; only a failed run hides the gauge.
+  case "$rc2" in 0|122|123|126) ;; *) out2="" ;; esac
+fi
 line2="$(printf '%s\n' "$out2" | grep -m1 'transport_levels')"
-# 122/123/126 are physics verdicts from a run that COMPLETED; only a failed run hides the gauge.
-case "$rc2" in 0|122|123|126) ;; *) line2="" ;; esac
 if [ -z "$line2" ] || printf '%s' "$line2" | grep -q 'ABSENT'; then
-  echo "check_level_reflux: the seeded world published no transport_levels (sim_run exit $rc2)." >&2
-  echo "                    A level field the real world never reaches is a rig result only." >&2
+  echo "check_level_reflux: the seeded world published no transport_levels (exit $rc2) — an absent" >&2
+  echo "                    reading examined nothing, so this arm judged the world not at all." >&2
   printf '%s\n' "$out2" | tail -6 >&2
-  exit 1
+  exit 2
 fi
 echo "LEVEL_REFLUX_WORLD=$line2"
 echo "check_level_reflux: OK"

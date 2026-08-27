@@ -8,6 +8,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh"
 require_tool rg
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
 
 CH="$ROOT/addons/local_agents/sim/material/Channels.gd"
 [ -f "$CH" ] || { echo "check_gas_in_rock: MISSING Channels.gd" >&2; exit 2; }
@@ -16,7 +17,7 @@ GASES="$(rg -N -o -e '^\s*"([a-z0-9_]+)":.*"phase": "gas"' -r '$1' "$CH")"
 
 keys=""
 for g in $GASES; do keys="${keys}all_${g},open_${g},"; done
-out="$("$ROOT/scripts/sim_run.sh" --path "$ROOT" --frames "${LA_GAS_FRAMES:-2}" --report "${keys%,}" 2>&1)" || true
+out="$(la_report "${keys%,}" --path "$ROOT" --frames "${LA_GAS_FRAMES:-2}" 2>&1)" || true
 # A gauge publishes {'cur': x, 'min': y, 'max': z}; the stock now is 'cur'.
 reading() {
 	printf '%s\n' "$out" | sed -n "s/^$1  *= *//p" | head -1 \

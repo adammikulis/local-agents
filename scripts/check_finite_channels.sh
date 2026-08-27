@@ -20,11 +20,12 @@
 # EXIT 0 the conserved state is finite · 1 it is not · 2 the gate could not run.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
 command -v python3 >/dev/null 2>&1 || { echo "check_finite_channels: python3 absent." >&2; exit 2; }
 [ -x "$ROOT/scripts/sim_run.sh" ] || { echo "check_finite_channels: no scripts/sim_run.sh." >&2; exit 2; }
 
 FRAMES="${LA_FINITE_FRAMES:-20}"
-out="$("$ROOT/scripts/sim_run.sh" --path "$ROOT" --frames "$FRAMES" --raw 2>/dev/null)"
+out="$(la_report_raw --path "$ROOT" --frames "$FRAMES" 2>/dev/null)"
 if [ -z "$out" ]; then
   echo "check_finite_channels: the run published no SIM_REPORT, so nothing was measured." >&2
   exit 2

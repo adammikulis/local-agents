@@ -9,8 +9,7 @@
 # output says the numbers are fiction.
 
 # The sweep is scripts/parse_all_scripts.gd, which load()s every .gd under a root in one headless
-# process. check_library_only.sh runs it against a staged tree with game/ DELETED; this gate runs it
-# against the REAL project, game/ included, and does not need the compiled GDExtension present.
+# process, against the REAL project, game/ included.
 
 #   scripts/check_parse_all.sh                # sweep the repo
 #   scripts/check_parse_all.sh --path <dir>   # sweep a staged copy or a worktree
@@ -23,6 +22,7 @@
 # script, no project, no verdict, or zero scripts examined). A gate that cannot run must fail.
 set -uo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
 
 # Pure-bash, no `dirname`: this must still resolve when PATH is broken, or the missing-tool check below
 # never gets a chance to report exit 2.
@@ -37,8 +37,6 @@ QUIET=0
 # Everything first-party the runtime ships lives under here. zylann.voxel is third party and outside it.
 PARSE_ROOT="res://addons/local_agents"
 SWEEP="$SCRIPT_DIR/parse_all_scripts.gd"
-# Kept identical to check_library_only.sh's grep so the two gates cannot drift into disagreeing about
-# what a parse failure looks like.
 ERR_PATTERN='parse error|script error|failed to load|could not resolve class'
 
 while [[ $# -gt 0 ]]; do
@@ -63,8 +61,14 @@ fi
 LOG="$(mktemp)"
 trap 'rm -f "$LOG"' EXIT
 
-la_godot --headless --path "$PROJECT" -s "$SWEEP" -- "--root=$PARSE_ROOT" > "$LOG" 2>&1
-sweep_rc=$?
+if la_cap_dir >/dev/null && [ "$(cd "$PROJECT" && pwd)" = "$ROOT" ]; then
+  la_headless parse_all > "$LOG" 2>&1
+  sweep_rc=$?
+  [ "$sweep_rc" -eq 0 ] || { echo "ERROR: the batch published no parse sweep." >&2; exit 2; }
+else
+  la_godot --headless --path "$PROJECT" -s "$SWEEP" -- "--root=$PARSE_ROOT" > "$LOG" 2>&1
+  sweep_rc=$?
+fi
 
 verdict="$(grep -a '^PARSE_ALL=' "$LOG" | tail -n 1)"
 if [[ -z "$verdict" ]]; then

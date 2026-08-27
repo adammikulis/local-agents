@@ -128,9 +128,6 @@ func _check_known_entry(key: String, native: bool, gdscript_src: String) -> void
 # the path ALONE - one argument instead of two - is a shipped bug this pins down: the binding declares
 # two required parameters and no default, so a one-argument call cannot work.
 func _check_load_model_binding() -> void:
-	if not ClassDB.class_exists("AgentRuntime"):
-		_fail("AgentRuntime class is not registered; the native extension did not load.")
-		return
 	var found: bool = false
 	for method_variant in ClassDB.class_get_method_list("AgentRuntime", true):
 		var method: Dictionary = method_variant

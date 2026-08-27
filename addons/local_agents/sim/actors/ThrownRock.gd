@@ -144,7 +144,7 @@ func _deposit_stone() -> void:
 		if side <= 0.0:
 			return
 		# The stone's own volume against a cell's, at rock's full amount (mol/m^3 of a cell of rock).
-		mineral_mass = LANativeTables.subs().full_mol_m3("silicate") \
+		mineral_mass = LASubstances.full_mol_m3("silicate") \
 			* (STONE_SIDE * STONE_SIDE * STONE_SIDE) / (side * side * side)
 	inject.deposit_sediment(global_position, mineral_mass)
 

@@ -26,7 +26,7 @@ static func rain_threshold() -> float:
 
 ## SATURATION AMOUNT at `t` °C and `p` Pa, in the h2o channel's own unit: e_sat / RT, mol/m^3.
 func _sat(t: float, p_pa: float) -> float:
-	var e: float = LANativeTables.mixture().vapour_p_at("h2o", t, p_pa)
+	var e: float = LAMixtureEnthalpy.vapour_p_at("h2o", t, p_pa)
 	if e <= 0.0:
 		return 0.0
 	return e / (LAPhysical.GAS_CONSTANT_J_MOL_K * maxf(t + LAPhysical.KELVIN_OFFSET, 1.0))
@@ -160,7 +160,7 @@ func dewpoint_at(x: float, z: float) -> float:
 	var e: float = _f._queries.vapour_at(c) * LAPhysical.GAS_CONSTANT_J_MOL_K \
 		* (_f._temp[c] + LAPhysical.KELVIN_OFFSET)
 	# The dewpoint is the boiling point at the vapour's own partial pressure: one curve, inverted.
-	return LANativeTables.subs().boil_c_at("h2o", e)
+	return LASubstances.boil_c_at("h2o", e)
 
 
 ## The cell's own air pressure, Pa. Missing means unresolved, and the caller gets zero rather than a guess.

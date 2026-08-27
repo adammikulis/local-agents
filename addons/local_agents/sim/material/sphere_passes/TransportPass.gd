@@ -126,10 +126,7 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	_zero = _scratch(tc)
 	_no_h = _scratch(tc)
 	_one = _storage_buffer(_filled(tc, 1.0))
-	# By name through ClassDB: the library must parse with the extension unbuilt, and a missing
-	# extension still fails hard here on the null call.
-	var bands: Variant = LANativeTables.bands()
-	var rad_table: PackedFloat32Array = bands.packed()
+	var rad_table: PackedFloat32Array = LAAbsorptionBands.packed()
 	_band_count = int(rad_table[0])
 	_rad_table = _storage_buffer(rad_table.to_byte_array())
 	_lw_emis = _scratch(tc)
@@ -519,7 +516,7 @@ func _pc_at(r: int, cc: int, pass_id: int, cell_m: float, dt_s: float, sun: Vect
 func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float,
 		sun: Vector3, level: int = 0, substep_k: int = 0, substep_n: int = 1) -> PackedByteArray:
 	var substance: String = String(row["substance"])
-	var entry: Dictionary = LANativeTables.subs().table().get(substance, {})
+	var entry: Dictionary = LASubstances.table().get(substance, {})
 	var fluid: Vector2 = LATransportRecords.fluid_properties(
 		int(row.get("fluid", LATransportRecords.Fluid.VACUUM)))
 	var flags: int = LATransportRecords.Flag.VEL if _vel_row(row) else 0

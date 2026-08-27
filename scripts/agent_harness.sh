@@ -56,7 +56,7 @@ Commands:
                 e.g. agent_harness.sh score --frames 300
   lint          Run every structural gate: file length (soft 1300 warn / hard 1500 fail),
                 no-direct-refcounted, no ':=' typing, @tool write safety, demo catalogue,
-                public surface, whole-tree parse, library-only parse, physical constants
+                public surface, whole-tree parse, no native class reached by name, physical constants
                 (GLSL kernel copies must equal LAPhysical), reaction balance. Policy markers
                 stay advisory. CI runs this exact command, so a green here is a green there.
                 Exit 0 clean · 1 a gate reported a violation · 2 a gate COULD NOT RUN.
@@ -78,6 +78,13 @@ if [[ -z "$cmd" || "$cmd" == "-h" || "$cmd" == "--help" ]]; then
   exit 0
 fi
 shift || true
+
+# EVERY ENGINE LAUNCH THIS LINT MAKES, one line each: lib_godot.sh appends, check_launch_count.sh counts.
+if [[ "$cmd" == "lint" && -z "${LA_LAUNCH_LOG:-}" ]]; then
+  mkdir -p "$LOG_DIR" 2>/dev/null || true
+  export LA_LAUNCH_LOG="$LOG_DIR/launches_$$.log"
+  : > "$LA_LAUNCH_LOG"
+fi
 
 # --- A LINKED WORKTREE REPAIRS ITSELF HERE, BEFORE ANY COMMAND RUNS ----------------------------------
 # `git worktree add` gives you the source and none of the build state: no `bin/` symlink, no imported
@@ -212,6 +219,15 @@ if [[ "$cmd" == "lint" ]]; then
       gate "$1"
     }
 
+    # ONE RUN PER LINT. Every gate below reads this capture instead of starting its own engine.
+    if LA_CAPTURE_DIR="$("$SCRIPT_DIR/lint_capture.sh")"; then
+      export LA_LINT_CAPTURE="$LA_CAPTURE_DIR"
+      echo "LINT_CAPTURE=$LA_LINT_CAPTURE"
+    else
+      echo "LINT_UNRUNNABLE: lint_capture.sh (2)"
+      lint_unrunnable=$((lint_unrunnable + 1))
+    fi
+
     gate check_max_file_length
     gate check_no_direct_refcounted_invocation
     gate check_no_inferred_typing
@@ -260,7 +276,7 @@ if [[ "$cmd" == "lint" ]]; then
     gate check_reaction_rate_units
     gate check_framerate_independence
     gate check_parse_all
-    gate check_library_only
+    gate check_no_native_by_name
     gate check_step_quantum
     gate check_no_global_cfl
     gate check_comment_claims
@@ -284,6 +300,7 @@ if [[ "$cmd" == "lint" ]]; then
     gpu_gate check_level_reflux
     gate check_shaders_compile
     gate check_reaction_energy
+    gate check_launch_count
     # EVERY GATE RUNS. Fail-fast meant one red gate hid every gate after it.
     if [[ $lint_unrunnable -gt 0 ]]; then
       echo "LINT_SUMMARY: $lint_unrunnable gate(s) COULD NOT RUN, $lint_failed violation(s). Every gate ran;"
@@ -366,6 +383,19 @@ fi
 # Smoke: treat script/parse/dependency errors as failure even if exit was 0.
 if [[ "$cmd" == "smoke" && "$status" == "pass" ]]; then
   if grep -qiE 'SCRIPT ERROR|Parse Error|dependency error|Failed loading resource' "$LOG_FILE" 2>/dev/null; then
+    status="fail"
+    if [[ "$exit_code" -eq 0 ]]; then exit_code=1; fi
+  fi
+fi
+
+# A test run reports its own verdict and cannot see a GDScript runtime fault, so a suite can print
+# SCRIPT ERROR and still say pass. push_error renders as plain "ERROR:" and is how a test reports its
+# OWN failure, so it is not counted here.
+if [[ "$cmd" =~ ^(fast|all|bounded|single)$ && "$status" == "pass" ]]; then
+  script_errs="$(grep -acE '^(SCRIPT ERROR:|.*Parse Error)' "$LOG_FILE" 2>/dev/null || true)"
+  if [[ "${script_errs:-0}" -gt 0 ]]; then
+    echo "agent_harness: ${script_errs} SCRIPT ERROR/Parse Error line(s) in a suite that reported pass." >&2
+    grep -aE '^(SCRIPT ERROR:|.*Parse Error)' "$LOG_FILE" 2>/dev/null | head -10 >&2
     status="fail"
     if [[ "$exit_code" -eq 0 ]]; then exit_code=1; fi
   fi

@@ -13,7 +13,7 @@ func _ready() -> void:
 
 
 func seed_row() -> Dictionary:
-	return LANativeTables.body_seeds().of(_seed_key)
+	return LABodySeeds.of(_seed_key)
 
 
 func center() -> Vector3:
@@ -27,7 +27,7 @@ func mass() -> float:
 ## The moon is not on a grid of its own, so its size comes from its seeded mass and the density of the rock
 ## it is made of rather than from a measurement it has no way to take.
 func radius() -> float:
-	var rho: float = LANativeTables.subs().table().get("silicate", {}).get("density_solid", 0.0)
+	var rho: float = LASubstances.table().get("silicate", {}).get("density_solid", 0.0)
 	if rho <= 0.0:
 		return -1.0
 	return pow(3.0 * mass() / (4.0 * PI * rho), 1.0 / 3.0)

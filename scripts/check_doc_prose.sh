@@ -11,7 +11,7 @@ command -v rg >/dev/null 2>&1 || { echo "check_doc_prose: rg absent." >&2; exit 
 # A DECLARED TARGET THAT IS MISSING IS EXIT 2, NOT A NARROWER GATE. Every rule below is "the map must not
 # contain X", and a rule of that shape is satisfied by the file not existing.
 TARGETS=()
-for d in HANDOFF.md docs/PHYSICS_TODO.md; do
+for d in HANDOFF.md docs/PHYSICS_TODO.md PHYSICS_RUBRIC.md; do
 	[ -f "$ROOT/$d" ] || { echo "check_doc_prose: no $d. A tracker is not optional." >&2; exit 2; }
 	TARGETS+=("$ROOT/$d")
 done
@@ -80,5 +80,20 @@ if true; then
 		echo "No dates, no strikethroughs, no settled list, no struck claims. Say what to do next." >&2
 		exit 1
 	fi
+fi
+# THE RUBRIC RECORDS NO SCORE WHILE A TRACKER HOLDS AN OPEN ITEM (CLAUDE.md Rule 1b), and carries no date.
+RUBRIC="$ROOT/PHYSICS_RUBRIC.md"
+rows="$(rg -n -e '^\| `?[0-9a-f]{7,}`? \|' "$RUBRIC" 2>/dev/null || true)"
+open_items="$(rg -n -e '^## [0-9]+\.' "$HANDOFF" -e '^- \[ \]' "$ROOT/docs/PHYSICS_TODO.md" 2>/dev/null | head -1 || true)"
+if [ -n "$rows" ] && [ -n "$open_items" ]; then
+	echo "check_doc_prose: PHYSICS_RUBRIC.md carries a score row while a tracker holds an open item." >&2
+	printf '%s\n' "$rows" | sed 's/^/  /' >&2
+	exit 1
+fi
+dated="$(rg -n -e '20[0-9]{2}-[0-9]{2}-[0-9]{2}' "$RUBRIC" 2>/dev/null || true)"
+if [ -n "$dated" ]; then
+	echo "check_doc_prose: PHYSICS_RUBRIC.md carries a date. The tree is the record." >&2
+	printf '%s\n' "$dated" | sed 's/^/  /' >&2
+	exit 1
 fi
 echo "check_doc_prose: OK (${#TARGETS[@]} doc(s), no narrator, no changelog, the map has no past tense)"

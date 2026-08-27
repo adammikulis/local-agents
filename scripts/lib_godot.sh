@@ -72,6 +72,10 @@ la_godot() {
 	# The bundle id every launch runs under; the extension prohibits activation for exactly this id.
 	export __CFBundleIdentifier="com.localagents.godot-agent"
 	la_extension_current "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" || return 2
+	# One line per engine launch. check_launch_count.sh counts them.
+	if [ -n "${LA_LAUNCH_LOG:-}" ]; then
+		printf '%s\n' "$*" >> "$LA_LAUNCH_LOG" 2>/dev/null || true
+	fi
 	local pre=()
 	if [ -n "${LA_GODOT_TIMEOUT:-}" ]; then
 		pre=(timeout "$LA_GODOT_TIMEOUT")

@@ -77,7 +77,7 @@ func seed_tick() -> bool:
 	LakesScript.new().seed(_f)    # priority-flood standing lakes in enclosed land basins
 	# The lakes poured water into already-seeded cells: displace the gas it occupies, and re-derive
 	# the enthalpy so the water arrives WITH its heat.
-	LANativeTables.lithostatic().displace_gas_from_water(_f)
+	LAFieldLithostaticSeed.displace_gas_from_water(_f)
 	LAFieldEnthalpySeed.seed(_f, LAMaterialField3D.INITIAL_TEMP)
 	if _f._gpu != null:                                # hand the device what those three walks produced
 		_f._gpu._seed_regolith()                       # permeability mask + grain size

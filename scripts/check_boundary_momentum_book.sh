@@ -7,6 +7,7 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
 GODOT="${GODOT:-godot}"
 command -v "$GODOT" >/dev/null 2>&1 || { echo "ERROR: godot not on PATH — a gate that cannot run FAILS." >&2; exit 2; }
 KERNEL="$REPO_ROOT/addons/local_agents/sim/material/kernels3d/transport.glsl"
@@ -277,23 +278,32 @@ fi
 # The same run records the face-state capture ARM THREE replays.
 # ---------------------------------------------------------------------------------------------------
 SIM_FRAMES="${LA_BND_MOM_FRAMES:-20}"
-CAP="${LA_BND_MOM_CAP:-$(mktemp "${TMPDIR:-/tmp}/bnd_mom_cap.XXXXXX")}"
-sim_out="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --frames "$SIM_FRAMES" \
-  --slice-capture "$CAP" --report momentum_book_bnd 2>&1)"
-sim_rc=$?
+OWN_CAP=0
+if la_cap_dir >/dev/null; then
+  CAP="$(la_cap_state)" || exit 2
+  sim_out="$(la_report momentum_book_bnd 2>&1)"
+  sim_rc=$?
+else
+  CAP="${LA_BND_MOM_CAP:-$(mktemp "${TMPDIR:-/tmp}/bnd_mom_cap.XXXXXX")}"
+  OWN_CAP=1
+  sim_out="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --frames "$SIM_FRAMES" \
+    --slice-capture "$CAP" --report momentum_book_bnd 2>&1)"
+  sim_rc=$?
+fi
+drop_cap() { [ "$OWN_CAP" -eq 1 ] && rm -f "$CAP"; return 0; }
 reading="$(printf '%s\n' "$sim_out" | sed -n 's/^momentum_book_bnd  *= *//p' | head -1)"
 printf 'momentum_book_bnd = %s\n' "${reading:-<none>}"
 if [ -z "$reading" ] || printf '%s' "$reading" | grep -q '<ABSENT>'; then
   echo "ERROR: the run published no momentum_book_bnd (sim_run exit $sim_rc) — the boundary fold is" >&2
   echo "       unwired or the report is dead. Refusing to report a pass." >&2
   printf '%s\n' "$sim_out" | tail -20 >&2
-  rm -f "$CAP"
+  drop_cap
   exit 2
 fi
 if printf '%s' "$reading" | grep -qiE 'nan|inf|null|None'; then
   echo
   echo "The seeded world's momentum boundary book reads $reading — the fold is poisoned."
-  rm -f "$CAP"
+  drop_cap
   exit 1
 fi
 
@@ -304,14 +314,14 @@ fi
 # ---------------------------------------------------------------------------------------------------
 if [ ! -s "$CAP" ] || ! grep -q '"samples"' "$CAP"; then
   echo "ERROR: the global run recorded no face-state capture at $CAP — the REPLAY arm cannot run." >&2
-  rm -f "$CAP"
+  drop_cap
   exit 2
 fi
 REPLAY_FRAMES="${LA_BND_MOM_REPLAY_FRAMES:-15}"
 replay_out="$(LA_SLICE_REPLAY=1 "$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --slice --keep \
   --slice-state "$CAP" --frames "$REPLAY_FRAMES" --report momentum_book_bnd 2>&1)"
 replay_rc=$?
-rm -f "$CAP"
+drop_cap
 # SLICE_BOUNDARY prints inside the engine log, which sim_run does not forward; --keep names it.
 replay_log="$(printf '%s\n' "$replay_out" | sed -n 's/^sim_run: log kept at //p' | head -1)"
 faces="$(grep -m1 '^SLICE_BOUNDARY=' "$replay_log" 2>/dev/null)"
@@ -330,11 +340,10 @@ fi
 rreading="$(printf '%s\n' "$replay_out" | sed -n 's/^momentum_book_bnd  *= *//p' | head -1)"
 printf 'replay momentum_book_bnd = %s\n' "${rreading:-<none>}"
 if [ -z "$rreading" ] || printf '%s' "$rreading" | grep -q '<ABSENT>'; then
-  echo
-  echo "The REPLAY slice published no momentum_book_bnd (sim_run exit $replay_rc): the rim's nudge is"
-  echo "booked on the device but the fold never reaches the report, so nothing holds the booking."
+  echo "ERROR: the REPLAY slice published no momentum_book_bnd (sim_run exit $replay_rc) — an absent" >&2
+  echo "       book examined nothing. A violation is a book that EXISTS and does not close." >&2
   printf '%s\n' "$replay_out" | tail -20 >&2
-  exit 1
+  exit 2
 fi
 if printf '%s' "$rreading" | grep -qiE 'nan|inf|null|None'; then
   echo

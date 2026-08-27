@@ -31,6 +31,7 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
 GODOT="${GODOT:-godot}"
 command -v "$GODOT" >/dev/null 2>&1 || { echo "ERROR: godot not on PATH — a gate that cannot run FAILS." >&2; exit 2; }
 KERNEL="$REPO_ROOT/addons/local_agents/sim/material/kernels3d/transport.glsl"
@@ -40,6 +41,8 @@ PASS="$REPO_ROOT/addons/local_agents/sim/material/sphere_passes/TransportPass.gd
 grep -q "rad_emitted" "$KERNEL" || { echo "ERROR: transport.glsl writes no rad_emitted — nothing to check." >&2; exit 2; }
 
 PROBE="$REPO_ROOT/addons/local_agents/tests/zz_radiative_gate.gd"
+# The probe lands in the scanned tree, so an early exit must not leave it for other gates to count.
+trap 'rm -f "$PROBE"' EXIT INT TERM
 cat > "$PROBE" <<'GD'
 extends SceneTree
 
@@ -335,8 +338,8 @@ fi
 SIM_FRAMES="${LA_RADIATIVE_FRAMES:-20}"
 # float32 rounding between the send stamp and the gather's independent recomputation; not a fit.
 SB_REL_TOL="0.001"
-sim_out="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --frames "$SIM_FRAMES" \
-  --report rad_emitted,rad_absorbed,solid_cells,rad_sb_rel_max,sw_reflected 2>&1)"
+sim_out="$(la_report rad_emitted,rad_absorbed,solid_cells,rad_sb_rel_max,sw_reflected \
+  --path "$REPO_ROOT" --frames "$SIM_FRAMES" 2>&1)"
 sim_rc=$?
 printf '%s\n' "$sim_out" | grep -E '^(rad_emitted|rad_absorbed|solid_cells|rad_sb_rel_max|sw_reflected)' || true
 # A reduce row arrives as a gauge, so the value is behind a 'cur' key; a plain scalar has none.

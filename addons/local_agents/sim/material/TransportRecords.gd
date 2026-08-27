@@ -151,4 +151,4 @@ static func fluid_properties(fluid: int) -> Vector2:
 
 ## Amount at which a cell is full: mol/m^3 of the pure substance.
 static func max_fill(substance: String) -> float:
-	return LANativeTables.subs().full_mol_m3(substance)
+	return LASubstances.full_mol_m3(substance)

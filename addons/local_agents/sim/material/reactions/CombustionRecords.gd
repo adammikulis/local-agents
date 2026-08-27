@@ -18,7 +18,7 @@ static func records() -> Array:
 	# CH_yO_z + (1 + y/4 - z/2) O2 -> CO2 + (y/2) H2O, per mole of FUEL carbon. One-way: FERT (fixed_n)
 	# has no standard-state data, and combustion's reverse does not occur below thousands of kelvin.
 	var organic_n: float = float(LAReactionBalance.composition()[FUEL]["N"])
-	var dh: Vector3 = LANativeTables.subs().organic_oxidation_parts()
+	var dh: Vector3 = LASubstances.organic_oxidation_parts()
 	return [
 		rec(TB_PER_SECOND, "mol m^-3 driver^-1 driver2^-1 s^-1", RM_ARRHENIUS, _rate_k_per_s(), FUEL,
 			[[FUEL, 1.0], [ORG_H, 0.0, 1.0, 0.0], [ORG_O, 0.0, 0.0, 1.0],

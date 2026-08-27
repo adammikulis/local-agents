@@ -8,10 +8,7 @@ const CONVERSATION_SPACE: String = "conversation"
 const MESSAGE_SPACE: String = "message"
 const AgentRuntimeAccess = preload("res://addons/local_agents/runtime/AgentRuntimeAccess.gd")
 
-# Typed Object, not NetworkGraph. That class comes from the native GDExtension, so annotating against
-# it makes this file a PARSE error for anyone who enabled the plugin before building the binary. The
-# ClassDB.class_exists() guard below was always right; the annotation was what broke a first install.
-var _graph: Object = null
+var _graph: NetworkGraph = null
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 
 func _ready() -> void:
@@ -176,10 +173,7 @@ func clear_all() -> void:
 func _ensure_graph() -> bool:
     if _graph:
         return true
-    if not ClassDB.class_exists("NetworkGraph"):
-        push_error("NetworkGraph extension unavailable")
-        return false
-    _graph = ClassDB.instantiate("NetworkGraph")   # by name: see the _graph declaration
+    _graph = NetworkGraph.new()
     DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(STORE_DIR))
     var ok: bool = _graph.open(ProjectSettings.globalize_path(DB_PATH))
     if not ok:
