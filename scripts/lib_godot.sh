@@ -7,12 +7,10 @@
 LA_OFFSCREEN_POS="${LA_WIN_POS:-99999,99999}"
 LA_OFFSCREEN_RES="${LA_RES:-1x1}"
 
-# macOS ACTIVATES a launched GUI app, which yanks the user out of their Space; no window flag prevents
-# that, because `no_focus` governs the WINDOW and activation governs the APP. LSUIElement only hides the
-# Dock icon, so the bundle declares LSBackgroundOnly, which cannot be activated at all. Nothing here may
-# activate an app back either. dyld resolves symlinks before bundle lookup, so the executable is a hard
-# copy; it lands on a temp name and is MOVED into place, because a half-copied 300 MB binary is what a
-# concurrent lane would exec. The plist is rewritten every time: it is bytes, and its content is the point.
+# Godot sets its own activation policy to Regular at startup, over any plist, and activates itself when
+# the main window shows. The extension sets the policy to Prohibited at CORE init under LA_OFFSCREEN;
+# __CFBundleIdentifier must match the bundle id or Godot runs its unbundled activation hack. dyld resolves
+# symlinks before bundle lookup, so the executable is a hard copy, moved into place whole.
 
 la_agent_exe() {
 	local real="$1"
@@ -37,6 +35,26 @@ PLIST
 	echo "$exe"
 }
 
+# Hash of the extension sources; build_extension.sh writes it beside the dylib.
+la_extension_hash() {
+	local ext="$1/addons/local_agents/gdextensions/localagents"
+	(cd "$ext" && cat CMakeLists.txt $(ls src/* include/* | sort) | md5 -q)
+}
+
+# A dylib built from other sources is a stale binary: refuse, never run it.
+la_extension_current() {
+	local ext="$1/addons/local_agents/gdextensions/localagents"
+	[ -d "$ext/src" ] || return 0
+	local want have
+	want="$(la_extension_hash "$1")"
+	have="$(cat "$ext/bin/SOURCE_HASH" 2>/dev/null)"
+	if [ "$want" != "$have" ]; then
+		echo "la_godot: $ext/bin was built from other sources (SOURCE_HASH ${have:-missing}, sources $want)." >&2
+		echo "          Rebuild: $ext/scripts/build_extension.sh --platform macos" >&2
+		return 1
+	fi
+}
+
 la_godot() {
 	local binary="${GODOT:-godot}"
 	# NO FALLBACK TO THE REAL BINARY. Launching the ordinary Godot app is precisely the focus theft this
@@ -51,6 +69,9 @@ la_godot() {
 		}
 		binary="$agent"
 	fi
+	# The bundle id every launch runs under; the extension prohibits activation for exactly this id.
+	export __CFBundleIdentifier="com.localagents.godot-agent"
+	la_extension_current "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" || return 2
 	local pre=()
 	if [ -n "${LA_GODOT_TIMEOUT:-}" ]; then
 		pre=(timeout "$LA_GODOT_TIMEOUT")

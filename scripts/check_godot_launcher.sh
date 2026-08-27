@@ -50,6 +50,27 @@ if [ -f "$HOOK" ] && rg -q 'agent_harness\.sh" lint' "$HOOK"; then
 	}
 fi
 
+# NOTHING MAY ACTIVATE AN APP BACK: a stale "front app" re-activated after a run is a second theft.
+if rg -q -g '!check_godot_launcher.sh' 'tell application .* to activate' "$ROOT/scripts"; then
+	echo "FAIL  a script under scripts/ activates an application; delete it." >&2
+	launcher_fail=1
+fi
+# Godot sets the activation policy to Regular at startup, over the plist. The extension must set it to
+# Prohibited at CORE init, and the bundle id env must match or Godot runs its unbundled activation hack.
+EXT="$ROOT/addons/local_agents/gdextensions/localagents"
+rg -q 'NSApplicationActivationPolicyProhibited' "$EXT/src/LANoActivation.mm" 2>/dev/null || {
+	echo "FAIL  $EXT/src/LANoActivation.mm does not prohibit activation." >&2; launcher_fail=1; }
+rg -q 'la_prohibit_activation\(\)' "$EXT/src/LocalAgentsRegister.cpp" || {
+	echo "FAIL  LocalAgentsRegister.cpp never calls la_prohibit_activation()." >&2; launcher_fail=1; }
+rg -q 'export __CFBundleIdentifier="com\.localagents\.godot-agent"' "$LIB" || {
+	echo "FAIL  $LIB does not set __CFBundleIdentifier to the bundle id for every launch." >&2; launcher_fail=1; }
+rg -q 'la_extension_current .* \|\| return' "$LIB" || {
+	echo "FAIL  $LIB launches a bin without checking it was built from the current sources." >&2; launcher_fail=1; }
+rg -q 'write_source_hash$' "$EXT/scripts/build_extension.sh" || {
+	echo "FAIL  build_extension.sh does not write bin/SOURCE_HASH." >&2; launcher_fail=1; }
+rg -q 'isEqualToString:@"com\.localagents\.godot-agent"' "$EXT/src/LANoActivation.mm" || {
+	echo "FAIL  LANoActivation.mm does not key the prohibition on the agent bundle id." >&2; launcher_fail=1; }
+
 [ "$launcher_fail" -eq 0 ] || exit 1
 
 SCAN="${1:-$ROOT/scripts}"

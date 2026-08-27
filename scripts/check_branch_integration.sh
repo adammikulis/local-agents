@@ -57,6 +57,8 @@ grep -qE '^\| Branch \| Ahead \|' "$REGISTRY" \
   || { echo "check_branch_integration: $REGISTRY carries no branch table." >&2; exit 2; }
 
 now="$(git -C "$ROOT" log -1 --format=%ct "$DEV")"
+# The branch checked out in the linted tree is a live lane; the session that made it reaps it.
+LANE="$(git -C "$ROOT" symbolic-ref -q --short HEAD 2>/dev/null)"
 seen=""
 while read -r b; do
   case "$b" in worktree-agent-*|worktree-wf_*|"$DEV") continue ;; esac
@@ -64,7 +66,7 @@ while read -r b; do
   # Both are deleted before that run returns, so one surviving is a leak the gate must still catch --
   # which is why this keys on the environment of the run, not on a name pattern. Exempting a PATTERN
   # exempts every branch that ever matches it.
-  case "$b" in "${LA_INTEGRATE_BRANCH:-__none__}"|"${LA_INTEGRATE_SOURCE:-__none__}") continue ;; esac
+  case "$b" in "${LA_INTEGRATE_BRANCH:-__none__}"|"${LA_INTEGRATE_SOURCE:-__none__}"|"$LANE") continue ;; esac
   ahead="$(git -C "$ROOT" rev-list --count "$DEV..$b")"
   [ "$ahead" -eq 0 ] && continue
   seen="$seen $b"

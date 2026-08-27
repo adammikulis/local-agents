@@ -16,6 +16,7 @@
 #include "LASubstances.hpp"
 #include "NetworkGraph.hpp"
 #include "LAProcess.hpp"
+#include "LANoActivation.hpp"
 
 using namespace godot;
 
@@ -39,6 +40,7 @@ void initialize_local_agents(ModuleInitializationLevel p_level) {
                 break;
             }
         }
+        la_prohibit_activation();
         if (!saves_settings && OS::get_singleton()->get_environment("LA_OFFSCREEN") != String()) {
             ProjectSettings *ps = ProjectSettings::get_singleton();
             // Initial value too: a save writes only what differs from it, so this cannot reach the tree

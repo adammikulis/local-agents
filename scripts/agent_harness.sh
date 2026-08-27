@@ -202,7 +202,7 @@ if [[ "$cmd" == "lint" ]]; then
     # GATES THAT NEED A REAL GPU, declared ONCE. Each launches a sim through run_sim_offscreen.sh, and
     # create_local_rendering_device() is null without one. LA_NO_GPU=1 skips exactly these and says which;
     # check_gpu_gate_list.sh holds this list to the gates that actually launch a run, both ways.
-    GPU_GATES="check_quiet_window check_body_measured check_gravity_solve check_finite_channels check_radiative_row check_alt_bands check_weathering_rate_law check_lifeless_planet check_boundary_momentum_book check_boundary_wrap check_boundary_books check_escape_law check_slice_exterior check_gas_in_rock"
+    GPU_GATES="check_no_focus_theft check_quiet_window check_body_measured check_gravity_solve check_finite_channels check_radiative_row check_alt_bands check_weathering_rate_law check_lifeless_planet check_boundary_momentum_book check_boundary_wrap check_boundary_books check_escape_law check_slice_exterior check_gas_in_rock"
     gpu_gate() {
       if [[ "${LA_NO_GPU:-0}" == "1" ]]; then
         echo "LINT_SKIPPED_NO_GPU: $1.sh (declared in GPU_GATES; run it on a machine with a GPU)"
@@ -217,6 +217,7 @@ if [[ "$cmd" == "lint" ]]; then
     gate check_no_inferred_typing
     gate check_tool_safety
     gate check_godot_launcher
+    gpu_gate check_no_focus_theft
     gate check_api_version
     gate check_gpu_gate_list
     gpu_gate check_quiet_window

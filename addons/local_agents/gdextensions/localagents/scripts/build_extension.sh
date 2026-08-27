@@ -62,6 +62,11 @@ collect_from_build_bin() {
     shopt -u nullglob
 }
 
+# The sources this bin was built from; lib_godot.sh refuses to launch a bin whose hash differs.
+write_source_hash() {
+    (cd "${EXT_DIR}" && cat CMakeLists.txt $(ls src/* include/* | sort) | md5 -q) > "${BIN_DIR}/SOURCE_HASH"
+}
+
 patch_macos_install_names() {
     if ! command_exists install_name_tool || ! command_exists otool; then
         warn "install_name_tool/otool unavailable; skipping macOS install-name patching."
@@ -176,6 +181,7 @@ package_artifacts() {
             warn "unknown platform '${platform}'; skipping packaging steps."
             ;;
     esac
+    write_source_hash
 }
 
 while [[ $# -gt 0 ]]; do
