@@ -24,6 +24,9 @@ DEV="${LA_DEV_BRANCH:-$(dev_branch "$ROOT")}"
 [ -n "$DEV" ] || exit 2
 MAX_AHEAD="${LA_MAX_AHEAD:-15}"
 MAX_AGE_DAYS="${LA_MAX_BRANCH_AGE_DAYS:-7}"
+# How long a tree may sit in a conflicted merge without anyone touching it. A merge is finished in one
+# sitting, so an untouched one is stalled; a fresh one is a lane at work.
+MERGE_IDLE_LIMIT_S="${LA_MERGE_IDLE_LIMIT_S:-3600}"
 
 command -v git >/dev/null 2>&1 || { echo "check_branch_integration: git absent." >&2; exit 2; }
 [ -f "$REGISTRY" ] || { echo "check_branch_integration: MISSING $REGISTRY" >&2; exit 2; }
@@ -116,9 +119,16 @@ while read -r wt; do
   [ "$wt" = "$HERE" ] && continue
   # --absolute-git-dir: --git-dir is relative to the caller's cwd.
   gitdir="$(git -C "$wt" rev-parse --absolute-git-dir 2>/dev/null)" || continue
+  # "A conflict nobody finished" is a claim about time. Failing the instant a MERGE_HEAD exists fails
+  # every OTHER lane's commit for as long as one lane is merging, so this reads the index's own clock --
+  # wall clock, because `now` above is the dev branch's commit date and this question is about minutes.
   if [ -e "$gitdir/MERGE_HEAD" ]; then
-    echo "FAIL  worktree $wt holds an unresolved merge. Finish it or remove the tree." >&2
-    fail=1
+    idle=$(( $(date +%s) - $(mtime "$gitdir/index") ))
+    if [ "$idle" -gt "$MERGE_IDLE_LIMIT_S" ]; then
+      echo "FAIL  worktree $wt has held an unresolved merge untouched for $((idle / 60))m. Finish it or" >&2
+      echo "      remove the tree." >&2
+      fail=1
+    fi
   fi
   if ! git -C "$wt" symbolic-ref -q HEAD >/dev/null; then
     echo "FAIL  worktree $wt is on a detached HEAD, so it maps to no branch." >&2

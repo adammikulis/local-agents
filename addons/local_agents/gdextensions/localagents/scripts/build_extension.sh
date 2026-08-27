@@ -90,6 +90,44 @@ patch_macos_install_names() {
     shopt -u nullglob
 }
 
+# An absolute path into a package manager is the build machine's, not the user's: a dylib linked against
+# /opt/homebrew is missing on every Mac without that exact install. Copy each such dependency in beside
+# the binaries and point at it with @loader_path, following the copies' own dependencies as they arrive.
+vendor_macos_dependencies() {
+    if ! command_exists install_name_tool || ! command_exists otool; then
+        warn "install_name_tool/otool unavailable; skipping macOS dependency vendoring."
+        return
+    fi
+    local queue=() i=0 target dep name
+    shopt -s nullglob
+    for target in "${BIN_DIR}"/*.dylib "${BIN_DIR}"/llama-cli "${BIN_DIR}"/llama-server; do
+        [[ -f "${target}" ]] && queue+=("${target}")
+    done
+    shopt -u nullglob
+    while (( i < ${#queue[@]} )); do
+        target="${queue[$i]}"
+        i=$((i + 1))
+        while IFS= read -r dep; do
+            [[ -n "${dep}" ]] || continue
+            name=$(basename "${dep}")
+            if [[ ! -f "${BIN_DIR}/${name}" ]]; then
+                if [[ ! -f "${dep}" ]]; then
+                    warn "vendoring: ${target} needs ${dep}, which is not on this machine."
+                    continue
+                fi
+                cp -f "${dep}" "${BIN_DIR}/${name}"
+                chmod u+w "${BIN_DIR}/${name}"
+                install_name_tool -id "@loader_path/${name}" "${BIN_DIR}/${name}" 2>/dev/null || true
+                queue+=("${BIN_DIR}/${name}")
+            fi
+            install_name_tool -change "${dep}" "@loader_path/${name}" "${target}" 2>/dev/null || true
+        done < <(otool -L "${target}" | tail -n +2 | awk '{print $1}' | grep -E '^/(opt/homebrew|usr/local)/' || true)
+        # install_name_tool invalidates the signature, and an arm64 binary without one will not load.
+        command_exists codesign && codesign --force --sign - "${target}" >/dev/null 2>&1 || true
+    done
+}
+
+
 patch_linux_rpath() {
     if ! command_exists patchelf; then
         warn "patchelf unavailable; skipping linux RPATH normalization."
@@ -161,6 +199,7 @@ package_artifacts() {
             collect_from_build_bin "libmtmd*.dylib"
             patch_macos_install_names
             stage_tools "$platform"
+            vendor_macos_dependencies
             ;;
         linux)
             mv -f "${BIN_DIR}/liblocalagents.linux.so" "${BIN_DIR}/localagents.linux.so" 2>/dev/null || true

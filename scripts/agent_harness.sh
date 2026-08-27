@@ -219,6 +219,7 @@ if [[ "$cmd" == "lint" ]]; then
     gate check_godot_launcher
     gpu_gate check_no_focus_theft
     gate check_api_version
+    gate check_bin_relocatable
     gate check_gpu_gate_list
     gpu_gate check_quiet_window
     gate check_demo_catalog
