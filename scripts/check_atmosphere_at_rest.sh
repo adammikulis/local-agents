@@ -53,7 +53,8 @@ measure() {
 	lv="$(reading transport_levels "$out")"
 	# The run's own guard says it first: a reduced row that went non-finite is refused as fiction, and
 	# sim_run then withholds every number. That IS the reading — the column did not stay at rest.
-	if printf '%s\n' "$out" | rg -N -q -e 'reduced to (inf|-inf|nan)'; then
+	# A row the clock refuses because its own cells signal at light is the same reading by another name.
+	if printf '%s\n' "$out" | rg -N -q -e 'reduced to (inf|-inf|nan)|signal speed at or past light'; then
 		echo "0 0 0 0"
 		return 0
 	fi
