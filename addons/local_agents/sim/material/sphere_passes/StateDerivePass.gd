@@ -119,8 +119,7 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: in
 	pc.encode_float(44, ORG_MIN_POOL_MOL)
 	pc.encode_float(48, _fresh_h_per_c)
 	pc.encode_float(52, _fresh_o_per_c)
-	# Below TransportPass.MIN_FILL_FRAC of occupied volume a cell donates nothing and holds no bulk state.
-	pc.encode_float(56, TransportPassScript.MIN_FILL_FRAC)
+	pc.encode_float(56, TransportPassScript.EMPTY_RHO_KG_M3)
 	# W/kg of each distinct radiogenic trace mix at the run's epoch: the store is finite, so the rate falls.
 	var epoch: float = _decay.epoch_years()
 	for i in RAD_GROUPS:
