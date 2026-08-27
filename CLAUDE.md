@@ -478,7 +478,7 @@ When removing files:
 ## Validation defaults
 
 - **THE PHYSICS IS BUILT AND VERIFIED ONE RUNG AT A TIME.** A run declares which processes its world
-  contains — `addons/local_agents/sim/material/ProcessSet.gd` — and a process outside the set is ABSENT:
+  contains — `addons/local_agents/gdextensions/localagents/src/LAProcessSet.cpp` — and a process outside the set is ABSENT:
   never allocated, dispatched, reduced or booked. A rung is enabled only when the rung below it is green.
   Reproduce a defect at the LOWEST rung that shows it and fix it there. `scripts/check_process_ladder.sh`
   climbs them and names the first red one; the demo world runs at `docs/PLAYABLE_RUNG`.

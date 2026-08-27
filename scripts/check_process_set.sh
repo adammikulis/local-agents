@@ -11,8 +11,9 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GODOT="${GODOT:-godot}"
 command -v "$GODOT" >/dev/null 2>&1 || { echo "ERROR: godot not on PATH — a gate that cannot run FAILS." >&2; exit 2; }
-[ -f "$REPO_ROOT/addons/local_agents/sim/material/ProcessSet.gd" ] || {
-  echo "ERROR: ProcessSet.gd missing — there is no ladder to check." >&2; exit 2; }
+LADDER_SRC="addons/local_agents/gdextensions/localagents/src/LAProcessSet.cpp"
+[ -f "$REPO_ROOT/$LADDER_SRC" ] || {
+  echo "ERROR: $LADDER_SRC missing — there is no ladder to check." >&2; exit 2; }
 
 PROBE_REL="addons/local_agents/tests/gate_process_set.gd"
 [ -f "$REPO_ROOT/$PROBE_REL" ] || { echo "ERROR: MISSING $PROBE_REL." >&2; exit 2; }

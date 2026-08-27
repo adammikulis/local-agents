@@ -1,0 +1,77 @@
+#ifndef LOCAL_AGENTS_LA_PROCESS_SET_HPP
+#define LOCAL_AGENTS_LA_PROCESS_SET_HPP
+
+#include <godot_cpp/classes/ref_counted.hpp>
+#include <godot_cpp/core/binder_common.hpp>
+#include <godot_cpp/variant/dictionary.hpp>
+#include <godot_cpp/variant/packed_string_array.hpp>
+#include <godot_cpp/variant/string.hpp>
+
+namespace godot {
+
+// Which processes a world contains. A rung is a smaller, physically complete world; a process outside
+// the set is absent -- never allocated, dispatched, reduced or booked. Resolved once at seeding, so no
+// pass reads a flag per step.
+class LAProcessSet : public RefCounted {
+	GDCLASS(LAProcessSet, RefCounted);
+
+public:
+	enum Rung {
+		STATE = 0,
+		GRAVITY = 1,
+		HYDROSTATIC = 2,
+		ACOUSTIC = 3,
+		CONDUCTION = 4,
+		ADVECT = 5,
+		WATER = 6,
+		RADIATION = 7,
+		CHEMISTRY = 8,
+	};
+
+	static const int TOP = CHEMISTRY;
+	static const int UNSET = -1;
+	// A `rung` argument meaning "whatever this world declared".
+	static const int ANY = -2;
+
+	static Array rungs();
+
+	static int resolve(int p_node);
+	static PackedStringArray records_from_args();
+	static int playable();
+
+	static void declare(int p_rung);
+	static void declare_records(const PackedStringArray &p_ids);
+	static int active();
+	static PackedStringArray custom();
+	static String name_of(int p_rung);
+
+	static Array records();
+	static String record_id(const Dictionary &p_rec);
+	static PackedStringArray records_upto(int p_rung);
+	static bool has_record(const String &p_kind, const String &p_label, int p_rung);
+	static Array live_rungs();
+
+	static PackedStringArray pass_paths(const PackedStringArray &p_all_paths, int p_rung);
+	static Array transport_rows(int p_rung);
+	static Array reduce_rows(int p_rung);
+	static int reduce_rung(const String &p_key, const PackedStringArray &p_book);
+	static int channel_rung(const String &p_channel);
+	static PackedStringArray booked(int p_rung);
+	static bool books(const String &p_channel);
+	static Array reaction_records(int p_rung);
+
+	// `@amounts` expands to the conserved stock pair of every LAReduceRecords.AMOUNTS entry.
+	static String amounts_token();
+
+	// Drops the reduce-row cache before the engine tears its memory down.
+	static void release();
+
+protected:
+	static void _bind_methods();
+};
+
+} // namespace godot
+
+VARIANT_ENUM_CAST(LAProcessSet::Rung);
+
+#endif // LOCAL_AGENTS_LA_PROCESS_SET_HPP

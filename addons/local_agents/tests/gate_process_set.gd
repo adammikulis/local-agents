@@ -45,7 +45,7 @@ func _admits(patterns: Array, key: String) -> bool:
 		return false
 	for p in patterns:
 		var pat: String = String(p)
-		if pat == LAProcessSet.AMOUNTS_TOKEN:
+		if pat == LAProcessSet.amounts_token():
 			for n in LAReduceRecords.AMOUNTS:
 				if key == "all_" + String(n) or key == "open_" + String(n):
 					return true

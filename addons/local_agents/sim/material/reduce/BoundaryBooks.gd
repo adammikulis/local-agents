@@ -7,9 +7,6 @@ extends RefCounted
 const AMOUNT: String = LAReduceBoundaryRows.BOOKED_PREFIX
 const HEAT: String = LAReduceBoundaryRows.HEAT_PREFIX
 
-static var _declared: PackedStringArray = PackedStringArray()
-static var _scanned_rung: int = LAProcessSet.UNSET
-
 var missing: PackedStringArray = PackedStringArray()
 var heat_net: float = 0.0
 var heat_gross: float = 0.0
@@ -17,29 +14,15 @@ var _net: Dictionary = {}
 var _gross: Dictionary = {}
 
 
-## Channels a reduce row promises a crossing for. An OPEN wall declaring none is not silent either: its
-## crossing goes unbooked, reads as drift, and the conservation gate fires.
+## The matter channels this world books a crossing for. An OPEN wall declaring none is not silent
+## either: its crossing goes unbooked, reads as drift, and the conservation gate fires. A BOOKED_SIGNED
+## channel is not matter, carries no heat leg, and `sample` folds it amount-only below.
 static func declared() -> PackedStringArray:
-	if _scanned_rung == LAProcessSet.active():
-		return _declared
-	_scanned_rung = LAProcessSet.active()
-	_declared = PackedStringArray()
-	var names: PackedStringArray = PackedStringArray()
-	for row: Dictionary in LAProcessSet.reduce_rows():
-		var key: String = String(row["key"])
-		if key.begins_with(AMOUNT):
-			names.append(key.substr(AMOUNT.length()))
-	# A name is a heat leg, not a channel, exactly when it is "h_" + another declared name — so a channel
-	# itself named "h_*" (h_j_m3) still declares.
-	# A BOOKED_SIGNED channel is not matter: it declares no heat leg, so `sample` folds it amount-only.
-	for n in names:
-		var s: String = String(n)
-		if s.begins_with("h_") and names.has(s.substr(2)):
-			continue
-		if LAReduceBoundaryRows.BOOKED_SIGNED.has(s):
-			continue
-		_declared.append(s)
-	return _declared
+	var out: PackedStringArray = PackedStringArray()
+	for ch in LAProcessSet.booked():
+		if not LAReduceBoundaryRows.BOOKED_SIGNED.has(ch):
+			out.append(String(ch))
+	return out
 
 
 ## Accumulate ONE step's crossings. Called on the field step, so the sum IS the integral and no window is

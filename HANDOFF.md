@@ -34,15 +34,6 @@ The slice reaches non-finite state and publishes no `momentum_book_bnd`, so
 `scripts/sim_run.sh --slice --slice-state C --frames 20 --report rho_max_open,celerity_max`.
 An offset component of `surface` puts a box on the body without naming a radius.
 
-## 0b. THE LADDER TABLE COSTS GDSCRIPT UNDER sim/ AND THE CEILING MAY NOT RISE
-
-`bash scripts/check_gdscript_budget.sh` is red: `LAProcessSet` is a new declarative module under
-`addons/local_agents/sim/`, and `docs/GDSCRIPT_LINES_CEILING` may only fall. It is the one gate this tree
-leaves red, and the pre-commit hook blocks on it.
-
-The table is the same shape as `LASubstances`, which lives in the GDExtension. Move `LAProcessSet.rungs()`
-and its resolution there, or lower the count somewhere else under `sim/` by the same amount.
-
 ## 1. BUILD THE GRADED GRID. IT IS THE TRUNK AND ITEM 0 WAITS ON IT
 
 `LAFieldLithostaticSeed.shape_atmosphere` seeds the whole atmosphere into one cell shell with vacuum above
@@ -154,7 +145,7 @@ stanzas. Mutation-test it both ways. Delete the claim below with this item.
 ## How to run
 
 Reproduce at the LOWEST rung that shows the defect: `scripts/agent_harness.sh sim --rung=N --frames 20`
-runs a world holding only the processes up to rung N (`ProcessSet.gd` names them);
+runs a world holding only the processes up to rung N (`LAProcessSet` names them);
 `scripts/agent_harness.sh ladder` climbs every rung and names the first red one.
 
 `scripts/agent_harness.sh sim [--frames N] [--seed N] [--rung N] [--path DIR] [--fauna] [--full] [--raw]` — off-screen,
