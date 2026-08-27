@@ -230,6 +230,7 @@ if [[ "$cmd" == "lint" ]]; then
     gate check_no_stored_derived
     gate check_no_privileged_axis
     gate check_pressure_split
+    gate check_one_empty_floor
     gate check_gdscript_budget
     gate check_run_budget
     gate check_comment_ratio

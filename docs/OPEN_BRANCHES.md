@@ -12,3 +12,4 @@ merge, or has not moved inside the age limit.
 
 | Branch | Ahead | Holds | Merges when |
 |---|---|---|---|
+| `feature/typed-native` | 2 | the native tables typed as identifiers rather than looked up by name | its lane reports and `scripts/integrate.sh` lands it |
