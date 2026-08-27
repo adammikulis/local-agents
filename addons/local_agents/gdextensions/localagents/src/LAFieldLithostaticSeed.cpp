@@ -115,16 +115,16 @@ double stack_p(double z, double edge, double g, double f_cond, double m_cond, do
 	double z_gas = (1.0 - fc) * edge;
 	double m_gas = MAX(m_total - m_cond, 0.0);
 	double h = (z_gas > 0.0 && m_gas > 0.0) ? p_mean * (1.0 - fc) / (m_gas * g) : 0.0;
-	double e2a = h > 0.0 ? exp(z_gas / h) : 1.0;
+	double decay = h > 0.0 ? exp(-z_gas / h) : 1.0;
 	double rho_l = fc > 0.0 ? m_cond / fc : 0.0;
 	double tail = edge - z_gas;
-	double mean_over_top = (h > 0.0 ? h * (e2a - 1.0) : 0.0) + e2a * tail;
-	double p_top = (p_mean * edge - 0.5 * rho_l * g * tail * tail) / mean_over_top;
+	double p_gas_bot = (p_mean * edge - 0.5 * rho_l * g * tail * tail)
+		/ ((h > 0.0 ? h * (1.0 - decay) : 0.0) + tail);
 	double s = CLAMP(z, 0.0, edge);
 	if (s <= z_gas && h > 0.0) {
-		return p_top * exp(s / h);
+		return p_gas_bot * exp((s - z_gas) / h);
 	}
-	return p_top * e2a + rho_l * g * MAX(s - z_gas, 0.0);
+	return p_gas_bot + rho_l * g * MAX(s - z_gas, 0.0);
 }
 
 // kernels3d/eos.glsli INVERTED: the factor every amount in a cell is multiplied by so that cell's own

@@ -885,8 +885,7 @@ void main() {
 	}
 	if (params.pass_id == PASS_ACOUSTIC_APPLY) {
 		if (gidx < params.cell_count) {
-			// la_eos_p's domain is p >= 0, and the linear step can cross what the exact decay never does.
-			pressure[gidx] = max(pressure[gidx] + send[gidx * N_SLOTS], 0.0);
+			pressure[gidx] = pressure[gidx] + send[gidx * N_SLOTS];
 			// This substep's share of the body impulse, beside the pressure gradient it stands against.
 			float sf = exp2(-float(tlevel[gidx]));
 			mom_x[gidx] += bodyf_x[gidx] * sf;
@@ -1300,10 +1299,11 @@ void main() {
 			if (params.sub_cap_j_m3k > 0.0) {
 				cap_sensible[gidx] = max(cap_sensible[gidx] + da * params.sub_cap_j_m3k, 0.0);
 			}
-			if (solid[gidx] == 0.0) {
-				// dp = K_s da: the MIXTURE's bulk modulus rho c^2 times the volume share that arrived.
-				pressure[gidx] = max(pressure[gidx]
-					+ rho_bulk[gidx] * cel_m_s[gidx] * cel_m_s[gidx] * (da / params.max_fill), 0.0);
+			// dp = K_s da: the mixture's bulk modulus times the VOLUME SHARE that arrived. A row whose
+			// substance declares no full amount has no volume share, and 0/0 is not a pressure.
+			if (solid[gidx] == 0.0 && params.max_fill > 0.0 && !isinf(params.max_fill)) {
+				pressure[gidx] = pressure[gidx]
+					+ rho_bulk[gidx] * cel_m_s[gidx] * cel_m_s[gidx] * (da / params.max_fill);
 			}
 		}
 	}

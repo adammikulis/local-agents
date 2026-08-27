@@ -193,11 +193,12 @@ void main() {
 			v = abs(v - refv[i]);
 		}
 		if (params.op == OP_MAX_REL_DIFF) {
-			// A cell with no reference has no relative deviation to take, so it is not a reading.
-			if (!(refv[i] > 0.0)) {
+			// Outside the row's mask a cell was never referenced; inside it, a negative reference is
+			// still a departure to take rather than an absence.
+			if (refv[i] == 0.0) {
 				continue;
 			}
-			v = abs(v - refv[i]) / refv[i];
+			v = abs(v - refv[i]) / abs(refv[i]);
 		}
 		if (params.op == OP_SUM_ABS) {
 			v = abs(v);
