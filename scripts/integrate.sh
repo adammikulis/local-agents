@@ -147,7 +147,12 @@ fi
 git -C "$ROOT" merge --no-ff "$BRANCH" -m "$SUBJECT" >/dev/null 2>&1 || {
 	echo "integrate: $DEV moved under this run. Re-run." >&2; exit 1; }
 # The PRIMARY has just moved, so its .godot is stale: a new class_name is unregistered and a new .glsl
-# unimported, which makes check_parse_all red and a GPU field silently dead.
+# unimported, which makes check_parse_all red and a GPU field silently dead. Its bin is stale the same
+# way: the lane's bin was linted against the tree that landed, so it is the one every tree copies next.
+BIN_REL="addons/local_agents/gdextensions/localagents/bin"
+if [ -d "$LANE_WT/$BIN_REL" ] && [ ! -L "$LANE_WT/$BIN_REL" ]; then
+	rm -rf "$ROOT/$BIN_REL" && cp -R "$LANE_WT/$BIN_REL" "$ROOT/$BIN_REL"
+fi
 "$SCRIPT_DIR/godot_import.sh" "$ROOT" || true
 "$SCRIPT_DIR/editor_scan.sh" --path "$ROOT" >/dev/null 2>&1 || \
 	echo "integrate: the post-merge editor scan was not clean; run scripts/editor_scan.sh." >&2

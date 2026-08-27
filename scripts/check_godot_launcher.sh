@@ -62,8 +62,14 @@ rg -q 'NSApplicationActivationPolicyProhibited' "$EXT/src/LANoActivation.mm" 2>/
 	echo "FAIL  $EXT/src/LANoActivation.mm does not prohibit activation." >&2; launcher_fail=1; }
 rg -q 'la_prohibit_activation\(\)' "$EXT/src/LocalAgentsRegister.cpp" || {
 	echo "FAIL  LocalAgentsRegister.cpp never calls la_prohibit_activation()." >&2; launcher_fail=1; }
-rg -q '__CFBundleIdentifier="com\.localagents\.godot-agent"' "$LIB" || {
-	echo "FAIL  $LIB does not set __CFBundleIdentifier to the bundle id." >&2; launcher_fail=1; }
+rg -q 'export __CFBundleIdentifier="com\.localagents\.godot-agent"' "$LIB" || {
+	echo "FAIL  $LIB does not set __CFBundleIdentifier to the bundle id for every launch." >&2; launcher_fail=1; }
+rg -q 'la_extension_current .* \|\| return' "$LIB" || {
+	echo "FAIL  $LIB launches a bin without checking it was built from the current sources." >&2; launcher_fail=1; }
+rg -q 'write_source_hash$' "$EXT/scripts/build_extension.sh" || {
+	echo "FAIL  build_extension.sh does not write bin/SOURCE_HASH." >&2; launcher_fail=1; }
+rg -q 'isEqualToString:@"com\.localagents\.godot-agent"' "$EXT/src/LANoActivation.mm" || {
+	echo "FAIL  LANoActivation.mm does not key the prohibition on the agent bundle id." >&2; launcher_fail=1; }
 
 [ "$launcher_fail" -eq 0 ] || exit 1
 
