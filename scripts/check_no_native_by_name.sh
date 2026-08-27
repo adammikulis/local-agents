@@ -54,7 +54,8 @@ for f in sorted(pathlib.Path(sys.argv[2]).rglob("*.gd")):
     if "/thirdparty/" in str(f):
         continue
     src = f.read_text(errors="ignore")
-    if "Engine.register_singleton(" in src or ": GDExtension" in src:
+    code = "\n".join(l for l in src.split("\n") if not l.lstrip().startswith("#"))
+    if "Engine.register_singleton(" in code or ": GDExtension" in code:
         continue
     for i, ln in enumerate(src.split("\n"), 1):
         for m in call.finditer(ln):
