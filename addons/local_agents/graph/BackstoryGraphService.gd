@@ -411,6 +411,4 @@ func _timestamp() -> int:
     return int(Time.get_unix_time_from_system())
 
 func _agent_runtime() -> Object:
-    if not Engine.has_singleton("AgentRuntime"):
-        return null
     return Engine.get_singleton("AgentRuntime")

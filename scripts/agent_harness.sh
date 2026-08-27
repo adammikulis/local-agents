@@ -369,6 +369,19 @@ if [[ "$cmd" == "smoke" && "$status" == "pass" ]]; then
   fi
 fi
 
+# A test run reports its own verdict and cannot see a GDScript runtime fault, so a suite can print
+# SCRIPT ERROR and still say pass. push_error renders as plain "ERROR:" and is how a test reports its
+# OWN failure, so it is not counted here.
+if [[ "$cmd" =~ ^(fast|all|bounded|single)$ && "$status" == "pass" ]]; then
+  script_errs="$(grep -acE '^(SCRIPT ERROR:|.*Parse Error)' "$LOG_FILE" 2>/dev/null || true)"
+  if [[ "${script_errs:-0}" -gt 0 ]]; then
+    echo "agent_harness: ${script_errs} SCRIPT ERROR/Parse Error line(s) in a suite that reported pass." >&2
+    grep -aE '^(SCRIPT ERROR:|.*Parse Error)' "$LOG_FILE" 2>/dev/null | head -10 >&2
+    status="fail"
+    if [[ "$exit_code" -eq 0 ]]; then exit_code=1; fi
+  fi
+fi
+
 # --- emit exactly one machine-parseable result line --------------------------
 extra=""
 printf 'AGENT_HARNESS_RESULT={"command":"%s","status":"%s","exit_code":%d,"duration_s":%d,"log":"%s","passed":%s,"failed":%s%s}\n' \

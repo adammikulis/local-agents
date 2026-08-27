@@ -9,9 +9,6 @@ func run_test(tree: SceneTree) -> bool:
     if not ExtensionLoader.ensure_initialized():
         push_error("AgentNode init failed: %s" % ExtensionLoader.get_error())
         return false
-    if not ClassDB.class_exists("AgentNode"):
-        push_error("AgentNode missing after extension initialization.")
-        return false
 
     var root := tree.get_root()
     var manager := AgentManagerScript.new()

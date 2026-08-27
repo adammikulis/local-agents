@@ -36,9 +36,6 @@ func run_test(tree: SceneTree) -> bool:
 	if not ExtensionLoader.ensure_initialized():
 		push_error("NetworkGraph init failed: %s" % ExtensionLoader.get_error())
 		return false
-	if not ClassDB.class_exists("NetworkGraph"):
-		push_error("NetworkGraph class missing after extension init.")
-		return false
 
 	# Set the path BEFORE the service enters the tree: _ready() is what opens the handle.
 	var svc: Node = SvcScript.new()
