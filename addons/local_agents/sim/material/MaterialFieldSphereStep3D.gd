@@ -16,6 +16,10 @@ const AttributionScript: GDScript = preload("res://addons/local_agents/sim/mater
 const ElementProbeScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldElementProbe3D.gd")
 const PassProbeScript: GDScript = preload("res://addons/local_agents/runtime/FieldPassProbe3D.gd")
 
+## The pass that solves the potential. Without it this world has no vertical, so the walks that read one
+## do not run at all rather than reading a flat field.
+const GRAVITY_PASS: String = "GravityPass.gd"
+
 var _f = null                                          # back-reference to the owning LAMaterialField3D
 var _mineral_profile = null
 # The driver's ONE between-pass probe.
@@ -68,6 +72,25 @@ func seed_tick() -> bool:
 	_f.sample_solidity()          # solid mask -> the bedrock silicate + cement the gravity solve weighs
 	_f._seed_sea()                # fills the ocean basin with real, flowing water
 	_f.activate()                 # builds the GPU driver, which owns the solve the walks below read
+	if LAProcessSet.has_record("pass", GRAVITY_PASS):
+		_seed_under_gravity()
+	LAFieldEnthalpySeed.seed(_f, LAMaterialField3D.INITIAL_TEMP)
+	if _f._gpu != null:                                # hand the device what those walks produced
+		_f._gpu._seed_regolith()                       # permeability mask + grain size
+		_f._gpu._seed("porosity", _f._porosity)        # Athy pore fraction
+		_f._gpu.seed_field("h2o", _f._h2o, _f._seal)   # ocean + water table + lakes, declared once
+		_f._gpu.seed_field("o2", _f._o2, _f._seal)     # what the poured water displaced
+		_f._gpu.seed_field("co2", _f._co2, _f._seal)
+		_f._gpu.seed_field("n2", _f._n2, _f._seal)
+		_f._gpu.mark_h_dirty()
+	if LAProcessSet.has_record("pass", GRAVITY_PASS):
+		_f._gravity.solve_seed()  # the ocean just landed: relax the potential over the WHOLE seeded mass
+	return true
+
+
+## The seed steps that need a vertical, and so need the solve. A world with no gravity solve has no
+## "below": no water table, no basins to flood, and no gas for water to displace out of.
+func _seed_under_gravity() -> void:
 	_f._gravity.solve_seed()      # g FIRST: every "below"/"above" below here is a slot chosen from it
 	_f._compute_regolith()        # the permeable aquifer band (+ initial water table) for groundwater flow
 	if not _f._regolith.has(1):
@@ -78,17 +101,6 @@ func seed_tick() -> bool:
 	# The lakes poured water into already-seeded cells: displace the gas it occupies, and re-derive
 	# the enthalpy so the water arrives WITH its heat.
 	LAFieldLithostaticSeed.displace_gas_from_water(_f)
-	LAFieldEnthalpySeed.seed(_f, LAMaterialField3D.INITIAL_TEMP)
-	if _f._gpu != null:                                # hand the device what those three walks produced
-		_f._gpu._seed_regolith()                       # permeability mask + grain size
-		_f._gpu._seed("porosity", _f._porosity)        # Athy pore fraction
-		_f._gpu.seed_field("h2o", _f._h2o, _f._seal)   # ocean + water table + lakes, declared once
-		_f._gpu.seed_field("o2", _f._o2, _f._seal)     # what the poured water displaced
-		_f._gpu.seed_field("co2", _f._co2, _f._seal)
-		_f._gpu.seed_field("n2", _f._n2, _f._seal)
-		_f._gpu.mark_h_dirty()
-	_f._gravity.solve_seed()      # the ocean just landed: relax the potential over the WHOLE seeded mass
-	return true
 
 
 ## ONE step: SIM_SECONDS_PER_STEP of simulated time. Every per-step term happens once here, so a

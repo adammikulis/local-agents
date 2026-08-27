@@ -12,11 +12,14 @@ const HelpOverlayScript: GDScript = preload("res://addons/local_agents/game/ui/P
 @onready var _save_button: Button = $Center/Panel/VBox/Save
 @onready var _help_button: Button = $Center/Panel/VBox/Help
 @onready var _quit_button: Button = $Center/Panel/VBox/Quit
+@onready var _vbox: VBoxContainer = $Center/Panel/VBox
 
 var _speed_buttons: Array[Button] = []
+var _processes: LAProcessSetPanel = null
 
 
 func _ready() -> void:
+	_build_process_panel()
 	_resume_button.pressed.connect(close)
 	_save_button.pressed.connect(_on_save)
 	_help_button.pressed.connect(open_controls_help)
@@ -70,6 +73,18 @@ func _unhandled_input(event: InputEvent) -> void:
 			and (event as InputEventKey).keycode == KEY_ESCAPE:
 		close()
 		get_viewport().set_input_as_handled()
+
+
+## The world's process set, above the actions. A change reseeds, so the panel carries the restart.
+func _build_process_panel() -> void:
+	var gm: Node = get_node_or_null("/root/GameMode")
+	var rec: LAGameSettings = gm.get("settings") if gm != null else null
+	if rec == null:
+		return
+	_processes = LAProcessSetPanel.new()
+	_vbox.add_child(_processes)
+	_vbox.move_child(_processes, _vbox.get_child_count() - 2)
+	_processes.build(rec, true)
 
 
 func _on_speed_pressed(n: int) -> void:

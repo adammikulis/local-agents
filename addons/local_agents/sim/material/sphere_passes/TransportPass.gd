@@ -84,17 +84,16 @@ func _buffers(cc: int) -> Dictionary:
 	var out: Dictionary = {"col_e": cc, "strike": cc, "radiogenic": cc,
 		"sw_space": cc, "rad_residual": cc,
 		"bnd_void": cc, "bnd_h_void": cc, "rim_ghost": cc, "rim_w": cc}
-	for ch in BoundaryRowsScript.BOOKED:
-		out["bnd_" + String(ch)] = cc
-		out["bnd_h_" + String(ch)] = cc
-	for ch in BoundaryRowsScript.BOOKED_SIGNED:
-		out["bnd_" + String(ch)] = cc
+	for ch in LAProcessSet.booked():
+		out[BoundaryRowsScript.BOOKED_PREFIX + String(ch)] = cc
+		if BoundaryRowsScript.BOOKED.has(ch):
+			out[BoundaryRowsScript.HEAT_PREFIX + String(ch)] = cc
 	for lrow: Dictionary in LATransportRecords.lists():
 		var keys: Dictionary = LATransportRecords.list_buffers(String(lrow["label"]))
 		out[String(keys["idx"])] = cc
 		out[String(keys["flag"])] = cc
 		out[String(keys["args"])] = {"n": int(Arg.SLOTS), "indirect": true}
-	out.merge(LevelsScript.buffers(cc + ghost_count, _grouping(LATransportRecords.rows()).size()))
+	out.merge(LevelsScript.buffers(cc + ghost_count, _grouping(LAProcessSet.transport_rows()).size()))
 	return out
 
 
@@ -111,7 +110,7 @@ func _grouping(rows: Array) -> Array:
 
 func _setup(bufs: Dictionary, cc: int) -> void:
 	_pipe = _kernel(KERNEL_PATH)
-	_rows = LATransportRecords.rows()
+	_rows = LAProcessSet.transport_rows()
 	_row_groups = _grouping(_rows)
 	_peaks.resize(_row_groups.size())
 	_args_rid = _single(bufs, LevelsScript.KEYS.args)
@@ -425,9 +424,8 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 		[47, _single(bufs, "cap_sensible")],
 		# A booked channel's boundary crossings; an unbooked row writes a void pair nothing reads.
 		# A signed channel books its amount leg only; the kernel never writes its heat leg.
-		[48, _single(bufs, ("bnd_" + channel) if (BoundaryRowsScript.BOOKED.has(channel)
-			or BoundaryRowsScript.BOOKED_SIGNED.has(channel)) else "bnd_void")],
-		[49, _single(bufs, ("bnd_h_" + channel) if BoundaryRowsScript.BOOKED.has(channel) else "bnd_h_void")],
+		[48, _single(bufs, _book(channel, false))],
+		[49, _single(bufs, _book(channel, true))],
 		# The REPLAY relaxation rim, filled by LAFieldBoundary3D.attach; all-zero weights without one.
 		[50, _single(bufs, "rim_ghost")],
 		[51, _single(bufs, "rim_w")],
@@ -451,9 +449,9 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 		[68, _single(bufs, "bodyf_z")],
 		# The momentum riding a mass row's exterior crossing; a signed row books through binding 48
 		# and binds the void here.
-		[69, _single(bufs, "bnd_void" if bool(row.get("signed", false)) else "bnd_mom_x")],
-		[70, _single(bufs, "bnd_void" if bool(row.get("signed", false)) else "bnd_mom_y")],
-		[71, _single(bufs, "bnd_void" if bool(row.get("signed", false)) else "bnd_mom_z")],
+		[69, _single(bufs, "bnd_void" if bool(row.get("signed", false)) else _book("mom_x", false))],
+		[70, _single(bufs, "bnd_void" if bool(row.get("signed", false)) else _book("mom_y", false))],
+		[71, _single(bufs, "bnd_void" if bool(row.get("signed", false)) else _book("mom_z", false))],
 		[72, _single(bufs, "co")],
 		[73, _single(bufs, "so2")],
 		[74, _single(bufs, "h2s")],
@@ -463,7 +461,8 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 		# The solved potential, J/kg: -phi is the escape energy LAW_ESCAPE lifts against.
 		[78, _single(bufs, "grav_phi")],
 		# The charge riding a mass row's crossing; a signed channel books its own through binding 48.
-		[79, _single(bufs, "bnd_void" if BoundaryRowsScript.BOOKED_SIGNED.has(channel) else "bnd_charge")],
+		[79, _single(bufs, "bnd_void" if BoundaryRowsScript.BOOKED_SIGNED.has(channel)
+			else _book("charge", false))],
 		# The temporal level field, the cells sorted by it, the per-level args, and the group peaks.
 		[80, _single(bufs, LevelsScript.KEYS.level)],
 		[81, _single(bufs, LevelsScript.KEYS.idx)],
@@ -471,6 +470,18 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 		[83, _single(bufs, LevelsScript.KEYS.peak)],
 	]
 	return _uset(_pipe, entries)
+
+
+## The book a channel's crossings land in. A channel this world cannot move cannot cross, so it books
+## into the void pair no reduce row reads.
+func _book(channel: String, heat: bool) -> String:
+	var void_key: String = BoundaryRowsScript.HEAT_PREFIX + "void" if heat \
+		else BoundaryRowsScript.BOOKED_PREFIX + "void"
+	if not LAProcessSet.books(channel):
+		return void_key
+	if heat and not BoundaryRowsScript.BOOKED.has(channel):
+		return void_key
+	return (BoundaryRowsScript.HEAT_PREFIX if heat else BoundaryRowsScript.BOOKED_PREFIX) + channel
 
 
 ## The buffer holding the enthalpy of the mixture entry a substance's heat sits in.

@@ -239,8 +239,9 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       this is downstream of the grid, D and `HANDOFF.md` item 1.
       And it GROWS with run
       length rather than relaxing, so it is not a seed transient settling — something adds energy.
-      **Reproduce:** `scripts/check_wind_subsonic.sh` — a world driven only by pressure and gravity, which
-      cancel at balance, may not blow itself past its own sound speed.
+      **Reproduce:** `scripts/check_rung_acoustic.sh`, or `scripts/agent_harness.sh sim --rung=3
+      --frames 8` — the smallest world that shows it, driven only by pressure and gravity, which cancel
+      at balance and so may not blow it past its own sound speed.
 - [ ] **`mineral_total` still trips the conservation gate**, and the pass its per-pass probe once named no
       longer exists. Re-localise it against the surviving passes before theorising.
 - [ ] **No per-pass attribution for ELEMENTS.** Mineral and energy each have a probe, and each named its

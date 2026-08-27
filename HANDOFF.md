@@ -20,7 +20,10 @@ on the file it named. If you know the cause you are close enough to fix it, so f
 their own cells carry a signal speed at or past light, so no timestep integrates them and the harness
 withholds every number.
 
-`scripts/check_wind_subsonic.sh` is red at Mach 455 and is the acceptance test.
+`scripts/check_rung_acoustic.sh` is the acceptance test, and it names the smallest world that shows it:
+`scripts/agent_harness.sh sim --rung=3 --frames 8` holds state, gravity, the hydrostatic pressure and the
+acoustic group and nothing else, and the wind is already past the substrate's own sound speed there. The
+rungs under it are green, so nothing below the acoustic group is party to it.
 `docs/PHYSICS_TODO.md` E carries the wind as its own item, and E is downstream of item 1. Until it reads a physical speed no run's numbers
 mean anything. `rho_max_open` is the reading that shows it: an open cell may not be denser than the densest
 substance the table declares, and that is this item's acceptance test.
@@ -141,7 +144,11 @@ stanzas. Mutation-test it both ways. Delete the claim below with this item.
 
 ## How to run
 
-`scripts/agent_harness.sh sim [--frames N] [--seed N] [--path DIR] [--fauna] [--full] [--raw]` — off-screen,
+Reproduce at the LOWEST rung that shows the defect: `scripts/agent_harness.sh sim --rung=N --frames 20`
+runs a world holding only the processes up to rung N (`LAProcessSet` names them);
+`scripts/agent_harness.sh ladder` climbs every rung and names the first red one.
+
+`scripts/agent_harness.sh sim [--frames N] [--seed N] [--rung N] [--path DIR] [--fauna] [--full] [--raw]` — off-screen,
 streamer off, re-imports when a kernel changed, and refuses to print if the run logged an engine error. Exit
 codes are listed at the top of `scripts/run_sim_offscreen.sh`.
 

@@ -4,7 +4,6 @@ extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/reactions_sphere3d.glsl"
-const REACTIONS_SCRIPT: String = "res://addons/local_agents/sim/material/MaterialReactions3D.gd"
 
 var _pipe: RID = RID()
 var _n_records: int = 0
@@ -16,16 +15,10 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	if not _pipe.is_valid():
 		return
 
-	# Test-rig seam: a table under this key replaces MaterialReactions3D.records(). The driver never sets it.
+	# Test-rig seam: a table under this key replaces the rung's records. The driver never sets it.
 	var recs: Array = bufs.get("reaction_records", [])
 	if recs.is_empty():
-		var defs_script: GDScript = load(REACTIONS_SCRIPT)
-		if defs_script == null:
-			push_error("ReactionsPass: could not load %s — the reaction table is GONE and all same-cell chemistry "
-				% REACTIONS_SCRIPT + "would silently stop. Run scripts/editor_scan.sh (a new class_name only "
-				+ "registers after a scan).")
-			return
-		recs = defs_script.records()
+		recs = LAProcessSet.reaction_records()
 	if recs.is_empty():
 		push_error("ReactionsPass: the reaction table is EMPTY — every same-cell reaction is disabled. A load "
 			+ "failure, not a configuration: check material/reactions/ and run scripts/editor_scan.sh.")

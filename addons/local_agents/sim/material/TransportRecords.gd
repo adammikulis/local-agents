@@ -19,90 +19,93 @@ enum Flag { SIGNED = 1, SETTLE = 2, EFIELD = 4, DRIVEN = 8, FRACTION = 16, DILUT
 
 ## `settle` adds the grain's terminal velocity to the advecting fluid; `frac` is the derived share moved.
 ## `relax` carries the boundary rim's nudge toward a REPLAY face's driving state — once per channel.
+## `label` is the row's one name; LAProcessSet assigns each to exactly one rung.
 static func rows() -> Array:
 	return [
 		# FIRST: the riming pair separates charge before anything relaxes or carries it.
-		{"channel": "charge", "substance": "", "mode": SEPARATE, "signed": true},
+		{"label": "charge_separate", "channel": "charge", "substance": "", "mode": SEPARATE,
+			"signed": true},
 
-		{"channel": "h2o", "substance": "h2o", "mode": POTENTIAL, "law": Law.SHALLOW,
-			"frac": "h2o_liquid"},
+		{"label": "h2o_surface", "channel": "h2o", "substance": "h2o", "mode": POTENTIAL,
+			"law": Law.SHALLOW, "frac": "h2o_liquid"},
 
-		{"channel": "h2o", "substance": "h2o", "mode": POTENTIAL, "law": Law.DARCY,
-			"fluid": Fluid.WATER, "frac": "h2o_liquid"},
+		{"label": "h2o_groundwater", "channel": "h2o", "substance": "h2o", "mode": POTENTIAL,
+			"law": Law.DARCY, "fluid": Fluid.WATER, "frac": "h2o_liquid"},
 
 		# One silicate channel, four laws. Cemented rock has no row: that is what being rock means.
 		# `list` dispatches this row over the compacted melt list — O(molten) rather than O(grid).
-		{"channel": "silicate", "substance": "silicate", "mode": POTENTIAL, "law": Law.FILM,
-			"frac": "silicate_melt", "dilute": true, "list": "melt"},
+		{"label": "silicate_melt_film", "channel": "silicate", "substance": "silicate", "mode": POTENTIAL,
+			"law": Law.FILM, "frac": "silicate_melt", "dilute": true, "list": "melt"},
 
-		{"channel": "silicate", "substance": "silicate", "mode": ADVECT, "fluid": Fluid.WATER,
-			"settle": true, "frac": "silicate_susp_water", "dilute": true},
+		{"label": "silicate_susp_water", "channel": "silicate", "substance": "silicate", "mode": ADVECT,
+			"fluid": Fluid.WATER, "settle": true, "frac": "silicate_susp_water", "dilute": true},
 
-		{"channel": "silicate", "substance": "silicate", "mode": ADVECT, "fluid": Fluid.AIR,
-			"settle": true, "frac": "silicate_susp_air", "dilute": true, "relax": true},
+		{"label": "silicate_susp_air", "channel": "silicate", "substance": "silicate", "mode": ADVECT,
+			"fluid": Fluid.AIR, "settle": true, "frac": "silicate_susp_air", "dilute": true, "relax": true},
 
-		{"channel": "silicate", "substance": "silicate", "mode": POTENTIAL, "law": Law.SHALLOW,
-			"repose_tan": LAPhysical.REPOSE_TAN_DRY_GRANULAR,
+		{"label": "silicate_bed", "channel": "silicate", "substance": "silicate", "mode": POTENTIAL,
+			"law": Law.SHALLOW, "repose_tan": LAPhysical.REPOSE_TAN_DRY_GRANULAR,
 			"frac": "silicate_bed", "dilute": true},
 
-		{"channel": "fungus", "substance": "cellulose", "mode": ADVECT, "fluid": Fluid.AIR,
-			"relax": true},
+		{"label": "fungus_wind", "channel": "fungus", "substance": "cellulose", "mode": ADVECT,
+			"fluid": Fluid.AIR, "relax": true},
 
-		{"channel": "fert", "substance": "fixed_n", "mode": DIFFUSE, "law": Law.DARCY,
-			"fluid": Fluid.WATER, "relax": true},
+		{"label": "fert_soil", "channel": "fert", "substance": "fixed_n", "mode": DIFFUSE,
+			"law": Law.DARCY, "fluid": Fluid.WATER, "relax": true},
 
-		{"channel": "shock", "substance": "", "mode": DIFFUSE, "law": Law.SOUND, "fluid": Fluid.AIR},
+		{"label": "shock_sound", "channel": "shock", "substance": "", "mode": DIFFUSE, "law": Law.SOUND,
+			"fluid": Fluid.AIR},
 
-		{"channel": "charge", "substance": "", "mode": DIFFUSE, "law": Law.OHMIC, "fluid": Fluid.AIR,
-			"efield": true},
+		{"label": "charge_ohmic", "channel": "charge", "substance": "", "mode": DIFFUSE, "law": Law.OHMIC,
+			"fluid": Fluid.AIR, "efield": true},
 
 		# The heat equation: conduction down the temperature gradient, and the rock's own decay as the
 		# volumetric source term beside it.
-		{"channel": "h_j_m3", "substance": "", "mode": CONDUCT,
+		{"label": "heat_conduct", "channel": "h_j_m3", "substance": "", "mode": CONDUCT,
 			"drive": "temp", "aux": "conductivity", "radiogenic": true, "relax": true},
 
-		{"channel": "h_j_m3", "substance": "", "mode": RADIATE},
+		{"label": "heat_radiate", "channel": "h_j_m3", "substance": "", "mode": RADIATE},
 
 		# THE ACOUSTIC GROUP: compressible matter and its momentum advance together on the acoustic
 		# substep — a mass flux at frame cadence against a stiff equation of state has loop gain c dt/L.
-		{"channel": "h2o", "substance": "h2o", "mode": ADVECT, "fluid": Fluid.WATER,
-			"frac": "h2o_liquid", "acoustic": true},
+		{"label": "h2o_liquid_advect", "channel": "h2o", "substance": "h2o", "mode": ADVECT,
+			"fluid": Fluid.WATER, "frac": "h2o_liquid", "acoustic": true},
 
-		{"channel": "h2o", "substance": "h2o", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
-			"frac": "h2o_vapour", "relax": true, "acoustic": true},
+		{"label": "h2o_vapour_eddy", "channel": "h2o", "substance": "h2o", "mode": BOTH, "law": Law.EDDY,
+			"fluid": Fluid.AIR, "frac": "h2o_vapour", "relax": true, "acoustic": true},
 
-		{"channel": "o2", "substance": "o2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
-			"relax": true, "acoustic": true},
-		{"channel": "co2", "substance": "co2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
-			"relax": true, "acoustic": true},
-		{"channel": "n2", "substance": "n2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
-			"relax": true, "acoustic": true},
-		{"channel": "h2", "substance": "h2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
-			"relax": true, "acoustic": true},
-		{"channel": "co", "substance": "co", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
-			"relax": true, "acoustic": true},
-		{"channel": "so2", "substance": "so2", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
-			"relax": true, "acoustic": true},
-		{"channel": "h2s", "substance": "h2s", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
-			"relax": true, "acoustic": true},
-		{"channel": "ch4", "substance": "ch4", "mode": BOTH, "law": Law.EDDY, "fluid": Fluid.AIR,
-			"relax": true, "acoustic": true},
+		{"label": "o2_eddy", "channel": "o2", "substance": "o2", "mode": BOTH, "law": Law.EDDY,
+			"fluid": Fluid.AIR, "relax": true, "acoustic": true},
+		{"label": "co2_eddy", "channel": "co2", "substance": "co2", "mode": BOTH, "law": Law.EDDY,
+			"fluid": Fluid.AIR, "relax": true, "acoustic": true},
+		{"label": "n2_eddy", "channel": "n2", "substance": "n2", "mode": BOTH, "law": Law.EDDY,
+			"fluid": Fluid.AIR, "relax": true, "acoustic": true},
+		{"label": "h2_eddy", "channel": "h2", "substance": "h2", "mode": BOTH, "law": Law.EDDY,
+			"fluid": Fluid.AIR, "relax": true, "acoustic": true},
+		{"label": "co_eddy", "channel": "co", "substance": "co", "mode": BOTH, "law": Law.EDDY,
+			"fluid": Fluid.AIR, "relax": true, "acoustic": true},
+		{"label": "so2_eddy", "channel": "so2", "substance": "so2", "mode": BOTH, "law": Law.EDDY,
+			"fluid": Fluid.AIR, "relax": true, "acoustic": true},
+		{"label": "h2s_eddy", "channel": "h2s", "substance": "h2s", "mode": BOTH, "law": Law.EDDY,
+			"fluid": Fluid.AIR, "relax": true, "acoustic": true},
+		{"label": "ch4_eddy", "channel": "ch4", "substance": "ch4", "mode": BOTH, "law": Law.EDDY,
+			"fluid": Fluid.AIR, "relax": true, "acoustic": true},
 
 		# -grad(p) alone: bulk momentum advection EMERGES from the mass fluxes, each of which carries
 		# the donor's momentum share exactly as it carries heat and charge.
-		{"channel": "mom_x", "substance": "", "mode": POTENTIAL, "law": Law.PGF, "axis": 0,
-			"drive": "pressure", "signed": true},
-		{"channel": "mom_y", "substance": "", "mode": POTENTIAL, "law": Law.PGF, "axis": 1,
-			"drive": "pressure", "signed": true},
-		{"channel": "mom_z", "substance": "", "mode": POTENTIAL, "law": Law.PGF, "axis": 2,
-			"drive": "pressure", "signed": true},
+		{"label": "mom_x_pgf", "channel": "mom_x", "substance": "", "mode": POTENTIAL,
+			"law": Law.PGF, "axis": 0, "drive": "pressure", "signed": true},
+		{"label": "mom_y_pgf", "channel": "mom_y", "substance": "", "mode": POTENTIAL,
+			"law": Law.PGF, "axis": 1, "drive": "pressure", "signed": true},
+		{"label": "mom_z_pgf", "channel": "mom_z", "substance": "", "mode": POTENTIAL,
+			"law": Law.PGF, "axis": 2, "drive": "pressure", "signed": true},
 
-		{"channel": "mom_x", "substance": "", "mode": DIFFUSE, "law": Law.EDDY, "axis": 0,
-			"fluid": Fluid.AIR, "signed": true, "relax": true},
-		{"channel": "mom_y", "substance": "", "mode": DIFFUSE, "law": Law.EDDY, "axis": 1,
-			"fluid": Fluid.AIR, "signed": true, "relax": true},
-		{"channel": "mom_z", "substance": "", "mode": DIFFUSE, "law": Law.EDDY, "axis": 2,
-			"fluid": Fluid.AIR, "signed": true, "relax": true},
+		{"label": "mom_x_eddy", "channel": "mom_x", "substance": "", "mode": DIFFUSE,
+			"law": Law.EDDY, "axis": 0, "fluid": Fluid.AIR, "signed": true, "relax": true},
+		{"label": "mom_y_eddy", "channel": "mom_y", "substance": "", "mode": DIFFUSE,
+			"law": Law.EDDY, "axis": 1, "fluid": Fluid.AIR, "signed": true, "relax": true},
+		{"label": "mom_z_eddy", "channel": "mom_z", "substance": "", "mode": DIFFUSE,
+			"law": Law.EDDY, "axis": 2, "fluid": Fluid.AIR, "signed": true, "relax": true},
 	] + escape_rows()
 
 
@@ -110,9 +113,10 @@ static func rows() -> Array:
 static func escape_rows() -> Array:
 	var out: Array = []
 	for gas: String in LAMatterChannels.GASES:
-		out.append({"channel": gas, "substance": gas, "mode": POTENTIAL, "law": Law.ESCAPE})
-	out.append({"channel": "h2o", "substance": "h2o", "mode": POTENTIAL, "law": Law.ESCAPE,
-		"frac": "h2o_vapour"})
+		out.append({"label": "escape_" + gas, "channel": gas, "substance": gas, "mode": POTENTIAL,
+			"law": Law.ESCAPE})
+	out.append({"label": "escape_h2o", "channel": "h2o", "substance": "h2o", "mode": POTENTIAL,
+		"law": Law.ESCAPE, "frac": "h2o_vapour"})
 	return out
 
 

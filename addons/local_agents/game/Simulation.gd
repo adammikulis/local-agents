@@ -21,6 +21,10 @@ extends Node3D
 @onready var _save: LAWorldSaveController = $WorldSaveController
 @onready var _timeline: LAVoxelTimeline = $Timeline
 
+## The rung this world runs at, and so which processes it contains. UNSET defers to the world record,
+## then `--rung=N`, the project setting, LA_RUNG and docs/PLAYABLE_RUNG, in that order.
+@export var process_rung: int = LAProcessSet.UNSET
+
 var _terrain = null
 var _actors_root: Node3D = null
 
@@ -31,8 +35,27 @@ var _overview: bool = false
 var _farview: bool = false
 
 
+## WHICH PROCESSES THIS WORLD CONTAINS, settled before anything is built and never touched again. An
+## explicit set outranks a rung; the node's export outranks the world record the launcher wrote, and
+## LAProcessSet.resolve carries the rest.
+func _declare_processes() -> void:
+	var gm: Node = get_node_or_null("/root/GameMode")
+	var rec: LAGameSettings = gm.get("settings") if gm != null else null
+	var ids: PackedStringArray = LAProcessSet.records_from_args()
+	if ids.is_empty() and rec != null:
+		ids = rec.process_records
+	if not ids.is_empty():
+		LAProcessSet.declare_records(ids)
+		return
+	var rung: int = process_rung
+	if rung == LAProcessSet.UNSET and rec != null:
+		rung = rec.process_rung
+	LAProcessSet.declare(LAProcessSet.resolve(rung))
+
+
 ## Wire the world. `opts` carries the planet's shape.
 func build(opts: Dictionary) -> void:
+	_declare_processes()
 	_settings_applier.read_settings()
 
 	_star.setup({})
