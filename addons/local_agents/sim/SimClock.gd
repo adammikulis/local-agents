@@ -95,7 +95,13 @@ func serialize() -> Dictionary:
 
 
 func restore(data: Dictionary) -> void:
-	_step = int(maxf(0.0, float(data.get("elapsed", 0.0))) / LAMaterialFieldSphereStep3D.SIM_SECONDS_PER_STEP)
+	var seconds: float = float(data.get("elapsed", 0.0))
+	if not is_finite(seconds):
+		push_error("LASimClock.restore: elapsed is %s. A clock is not restored to a time nobody has." % seconds)
+		return
+	# NEAREST step, not the one below: truncating biases every restore backwards by up to a whole step,
+	# which lands the calendar on the day before whenever the save sits near a day boundary.
+	_step = roundi(maxf(0.0, seconds) / LAMaterialFieldSphereStep3D.SIM_SECONDS_PER_STEP)
 	var len_s: float = day_length()
 	_day = 0 if not is_finite(len_s) else int(elapsed() / len_s)
 	var loop: LASimLoop = LASimLoop.active()
