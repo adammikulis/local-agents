@@ -47,7 +47,8 @@ fi
 
 # --raw so the report reaches the capture through sim_run's OWN error census: a run that logged engine
 # errors prints no JSON, and the capture then holds no numbers for any gate to read.
-"$SCRIPT_DIR/sim_run.sh" --path "$ROOT" --frames "$FRAMES" --seed "$SEED" --keep --raw \
+# Lint measures the whole world under test, never the demo's declared rung.
+"$SCRIPT_DIR/sim_run.sh" --path "$ROOT" --frames "$FRAMES" --seed "$SEED" --rung 8 --keep --raw \
 	--slice-capture "$CAP/slice_state.json" > "$CAP/report.raw" 2> "$CAP/sim_run.err"
 SIM_RC=$?
 if [ -n "$POLL" ]; then kill "$POLL" 2>/dev/null; wait "$POLL" 2>/dev/null; fi
