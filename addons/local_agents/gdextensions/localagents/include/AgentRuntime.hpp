@@ -23,8 +23,6 @@ struct llama_sampler;
 
 namespace godot {
 
-class ModelDownloadManager;
-
 class AgentRuntime : public Node {
     GDCLASS(AgentRuntime, Node);
 
@@ -45,8 +43,6 @@ public:
     Dictionary synthesize_speech(const Dictionary &request);
     Dictionary transcribe_audio(const Dictionary &request);
 
-    Dictionary download_model(const Dictionary &request);
-    Dictionary download_model_hf(const String &repo, const Dictionary &options = Dictionary());
     String get_model_cache_directory() const;
 
     void set_default_model_path(const String &path);
@@ -78,7 +74,6 @@ private:
     llama_model *model_ = nullptr;
     llama_context *context_ = nullptr;
     std::unique_ptr<llama_sampler, void(*)(llama_sampler*)> sampler_;
-    std::unique_ptr<ModelDownloadManager> download_manager_;
 
     String default_model_path_;
     String runtime_directory_;
