@@ -152,15 +152,16 @@ bool la_keep(uint i) {
 	if (mode == 2u) {
 		g *= gate_aux[i];
 	}
-	// A vertical row's gate reads the PAIR: its larger value, so gate_lo asks "either end" and gate_hi
-	// asks "both ends".
+	// A vertical row's gate reads the PAIR. On its larger value gate_lo asks "either end"; on its smaller
+	// value it asks "BOTH ends", which is what a row comparing two cells needs when one of them may hold
+	// nothing: a pressure difference across a vacuum boundary compares a reading with an absence.
 	if (params.nbr == NBR_BELOW || params.nbr == NBR_ABOVE) {
 		uint j = uint(la_vertical(i));
 		float gj = gatev[j];
 		if (mode == 2u) {
 			gj *= gate_aux[j];
 		}
-		g = max(g, gj);
+		g = ((params.has_gate & 8u) != 0u) ? min(g, gj) : max(g, gj);
 	}
 	bool lo_ok = ((params.has_gate & 4u) != 0u) ? (g > params.gate_lo) : (g >= params.gate_lo);
 	return lo_ok && g < params.gate_hi;

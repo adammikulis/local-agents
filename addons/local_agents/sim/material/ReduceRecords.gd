@@ -40,8 +40,8 @@ static func row(key: String) -> Dictionary:
 
 
 ## Value per cell is `source` * (`aux` + `aux2`), read against `nbr`; `weight` = cell volume, m^3; `ref` is
-## the diff base. `gate`(* `gate_aux`) admits cells inside [`gate_lo`, `gate_hi`), strict at the low end
-## under `gate_strict_lo`, and a BELOW/ABOVE row gates on the PAIR's larger value.
+## the diff base. `gate`(* `gate_aux`) admits [`gate_lo`, `gate_hi`), strict low under `gate_strict_lo`; a
+## BELOW/ABOVE row gates on the PAIR's larger value, or its smaller under `gate_both_ends`.
 static func rows() -> Array:
 	var out: Array = []
 	for name in AMOUNTS:

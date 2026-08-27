@@ -179,7 +179,7 @@ func _init() -> void:
 	# The flux this planet actually receives: the epoch star's luminosity over the sphere it has spread
 	# across by the time it arrives. No solar constant, because a constant is a fact about one orbit.
 	var s0: float = LABodySeeds.irradiance_w_m2(
-		LABodySeeds.luminosity_at_epoch_w(), LABodySeeds.ASTRONOMICAL_UNIT_M)
+		LABodySeeds.luminosity_at_epoch_w(), LABodySeeds.astronomical_unit_m())
 	var albedo: float = LAPhysical.ALBEDO_BARE_GROUND
 	var absorbed: float = (1.0 - albedo) * s0 / 4.0
 	var t_skin: float = pow(absorbed / LAPhysical.STEFAN_BOLTZMANN, 0.25) * pow(0.5, 0.25)

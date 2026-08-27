@@ -172,7 +172,7 @@ func _init() -> void:
 	var up: Vector3 = Vector3(1.0, 0.0, 0.0)
 	# The epoch star's XUV at this planet's own separation; the sun vector carries direction only.
 	var XUV: float = LABodySeeds.irradiance_w_m2(
-		LABodySeeds.xuv_luminosity_at_epoch_w(), LABodySeeds.ASTRONOMICAL_UNIT_M)
+		LABodySeeds.xuv_luminosity_at_epoch_w(), LABodySeeds.astronomical_unit_m())
 	var stock: float = N_GAS * float(_cc)
 
 	# (b) COLD: bound hard, the epoch's XUV shining — nothing may leave.

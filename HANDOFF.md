@@ -54,6 +54,16 @@ corners. Item 0 cannot be read either way until this lands.
   samples. The vacuum corners and the quiet interior stay coarsest, which is what makes it affordable.
 - The slice box becomes a refinement region rather than a second construction path.
 
+**Before any kernel is touched: every kernel rig hardcodes `CELL = 1.0`, so dx, face area and cell volume
+are all numerically 1 and no rig can tell which role a quantity carries.** `check_gravity_solve.sh`,
+`check_boundary_books.sh`, `check_boundary_momentum_book.sh`, `check_escape_law.sh` and
+`check_radiative_row.sh` all build their grid that way; `check_radiative_row.sh` hardcodes the collapsed
+`6.0 * emis * sigma * T^4 * dt / CELL`. Move them to a non-unit cell first, or the conversion is unverifiable.
+
+**`check_voxel_grid.sh` asserts `volume_ratio == 1.0`** — a gate holding the grid uniform. It is INVERTED,
+not deleted: it becomes the gate that a 2:1 neighbour's volume ratio is exactly 8 and that every transfer
+goes through `cellvol.glsli`'s existing `vol_ratio(donor, receiver)`.
+
 **The well-balanced scheme is required work, not a hope, and it decides whether the atmosphere is real.**
 `transport.glsl`'s `face_p()` already reconstructs face pressure hydrostatically; it has to be good enough
 in the stratified direction. Its gate is the only test that matters: an atmosphere at rest, in balance,
@@ -112,12 +122,9 @@ GDScript keeps bindings. `gdextensions/localagents/` already builds; a class is 
 - **Do not move `PhysicalConstants.gd`.** godot-cpp binds only INTEGER class constants, so its floats
   have no native form a GDScript `const` can fold; native code reads it through
   `include/LAPhysicalRead.hpp`.
-- **Blocking `check_gdscript_budget` right now:** `LABodySeeds`, `LABodyMeasure`, `LAOrbitState` and
-  `LAFieldCellMass3D`. Their line count is the whole of the lane's overage, and the gate's own message
-  names the GDExtension as where serial seed-time work belongs.
-- The seed-time serial work: `MaterialFieldLakes3D`'s priority flood, `MaterialFieldSolidCache3D`'s SDF
-  spot check and file hashing, `MaterialFieldRegolith3D.compute`'s burial march, `FieldEnthalpySeed3D`'s
-  per-cell mixture walk and its dynamic `f.get("_" + name)` lookup.
+- The seed-time serial work still in GDScript: `MaterialFieldLakes3D`'s priority flood,
+  `MaterialFieldSolidCache3D`'s SDF spot check and file hashing, `MaterialFieldRegolith3D.compute`'s
+  burial march, `FieldEnthalpySeed3D`'s per-cell mixture walk and its dynamic `f.get("_" + name)` lookup.
 - The driver: `MaterialSphereGPU3D.gd` and `MaterialField3D.gd`. Last, after the pass seam settles.
 
 ## 7. Build the binding registry

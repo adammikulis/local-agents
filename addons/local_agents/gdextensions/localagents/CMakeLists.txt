@@ -38,6 +38,9 @@ set(SRC
     src/LAAbsorptionBands.cpp
     src/LAMixtureEnthalpy.cpp
     src/LAPlanetTables.cpp
+    src/LABodySystem.cpp
+    src/LAFieldCellMass.cpp
+    src/LAFieldLithostaticSeed.cpp
     src/LASubstances.cpp
     src/ModelDownloadManager.cpp
     src/NetworkGraph.cpp

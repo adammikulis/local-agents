@@ -55,24 +55,8 @@ func airborne_gradient(substance: String, world_pos: Vector3) -> Vector3:
 		return Vector3.ZERO
 	if _f._gpu != null:
 		_f._gpu.request_channel(substance)
-	var c: int = _f.world_to_cell(world_pos)
-	var here: float = _airborne_at_cell(substance, c)
-	if c < 0 or is_nan(here):
-		return Vector3.ZERO
-	var pos_c: Vector3 = _f.cell_world_pos_linear(c)
-	var nbr: PackedInt32Array = _f._grid.neighbours
-	var grad: Vector3 = Vector3.ZERO
-	for d in range(6):
-		var nb: int = nbr[c * 6 + d]
-		if nb < 0 or _f._solid[nb] != 0:
-			continue
-		var dir: Vector3 = _f.cell_world_pos_linear(nb) - pos_c
-		if dir.length_squared() < 1.0e-8:
-			continue
-		grad += dir.normalized() * (_airborne_at_cell(substance, nb) - here)
-	if grad.length_squared() < 1.0e-8:
-		return Vector3.ZERO
-	return grad.normalized()
+	return LAFieldGeometry.gradient_at(_f, _f.world_to_cell(world_pos),
+		func(i: int) -> float: return _airborne_at_cell(substance, i))
 
 
 # --- Emergent atmospheric OXYGEN: O₂ level at a point + depletion diagnostics -------------------------

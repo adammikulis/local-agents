@@ -174,6 +174,7 @@ func _pc(cc: int, row: Dictionary, base: int, cell_m: float) -> PackedByteArray:
 	if gate != "":
 		has_gate = 2 if String(row.get("gate_aux", "")) != "" else 1
 		has_gate += 4 if bool(row.get("gate_strict_lo", false)) else 0
+		has_gate += 8 if bool(row.get("gate_both_ends", false)) else 0
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(PC_BYTES)
 	pc.encode_u32(0, cc)

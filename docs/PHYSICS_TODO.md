@@ -208,10 +208,10 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       equation to work against, and the open cells that remain are mostly the cube's corners.
       **Reproduce:** `scripts/sim_run.sh --frames 10` — the DRY open-pair class carries the whole
       `PRESSURE_BROKEN` count while rock and surface read zero.
-- [ ] **The grid cannot resolve its own aquifer.** `LAVoxelGrid.cell_size` is one number for all three axes,
-      so the few cells of regolith between the surface and the water table are as coarse as the sky.
-      Non-uniform radial spacing is the physically correct fix for both this and the atmosphere above —
-      fine near the surface, coarse aloft and at depth — and `cell_size` becomes per-shell.
+- [ ] **The grid cannot resolve its own aquifer.** `LAVoxelGrid.cell_size` is one number for all three axes
+      and for every cell, so the few cells of regolith between the surface and the water table are as coarse
+      as the sky. The same axis-aligned refinement the atmosphere above needs answers this one: resolution
+      follows position, and `cell_size` becomes per-cell.
 
 ## E. Conservation, open
 

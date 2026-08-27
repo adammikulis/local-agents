@@ -1,4 +1,8 @@
-# A number in an authority file is claimed to be a MEASUREMENT, and a measurement with no source is a
-# value somebody chose. These two files are exempt from check_model_parameters.sh, so this is what holds
-# them instead. May fall, may not rise.
-119
+# Constants in the authority files with no source beside them. May fall, may not rise.
+#
+# RE-BASED because the instrument was repaired, not because the tree got worse. The old number was
+# measured by a gate that searched the constant's OWN LINE for a citation, where `[0-9]{4}` matched the
+# digits inside the value: 1.98847e30 cited itself. It also demanded a source for constants DERIVED from
+# other constants, which its own comment says are held by their expression. With both holes closed the
+# true count is what stands below, and it may only fall from here.
+229

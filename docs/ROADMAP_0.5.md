@@ -33,10 +33,9 @@ deposits. All emergent field/physics — roll into `MaterialField3D` where possi
 
 ## 3. Full 3D groundwater aquifer → emergent, head-pressured springs
 0.4 shipped the **vertical** water table (soil infiltration/storage/baseflow + the dry-crust flash-flood hump).
-The **lateral / 3D** half is deferred here because the surface-following sphere grid makes it hard: a ridge's
-surface-soil sits several radial shells *above* the adjacent valley's, so true ridge→valley groundwater flow
-must go *through* the rock (full 3D Darcy), and without a modeled **impermeable bedrock floor** naive downward
-percolation just sinks all the water to the core.
+The **lateral / 3D** half is deferred here because ridge→valley groundwater flow must go *through* the rock
+(full 3D Darcy), and without a modeled **impermeable bedrock floor** naive downward percolation just sinks
+all the water to the core.
 - Model a bedrock floor (a permeable regolith depth) so groundwater pools in a shallow surface-following band.
 - Head-driven Darcy flow through the aquifer (head = water-table elevation): water recharged high flows down
   through the rock and **daylights as springs** wherever the table meets the surface, pressured by the head.

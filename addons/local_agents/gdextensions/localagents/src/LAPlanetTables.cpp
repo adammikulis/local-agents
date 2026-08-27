@@ -1,5 +1,7 @@
 #include "LAPlanetTables.hpp"
 
+#include "LAScriptCall.hpp"
+
 #include <cmath>
 #include <vector>
 
@@ -20,13 +22,6 @@
 using namespace godot;
 
 namespace {
-
-// Static GDScript entry points this table still consults — the substance table and the sim clock.
-Variant call_gd(const char *p_path, const StringName &p_method, const Array &p_args) {
-	Ref<Script> s = ResourceLoader::get_singleton()->load(p_path);
-	ERR_FAIL_COND_V_MSG(s.is_null(), Variant(), String("LAPlanetTables: failed to load ") + p_path);
-	return s->callv(p_method, p_args);
-}
 
 struct Row {
 	const char *el;
@@ -491,7 +486,7 @@ void LAPlanetComposition::seed(Object *p_field, double p_t_c) {
 	const double metal_full = substance_density("metal", p_t_c, p_std) / substance_molar_mass("metal");
 	Array cargs;
 	cargs.push_back(p_field);
-	const Vector3 centre = Vector3(call_gd(
+	const Vector3 centre = Vector3(la_call_gd(
 			"res://addons/local_agents/sim/material/FieldGeometry3D.gd", "centre", cargs));
 	const int cc = int(p_field->get("_cell_count"));
 	const PackedByteArray solid = PackedByteArray(p_field->get("_solid"));
@@ -588,7 +583,7 @@ Dictionary two_daughters(const char *p_a, double p_na, const char *p_b, double p
 // The abundances every entry in LASubstances is quoted at: today. Years run forward from there, so this
 // world's own epoch — the declared 4.4 Ga referent — is NEGATIVE and the store fuller than Earth's now.
 double LARadiogenicDecay::epoch_years() {
-	const Variant clock = call_gd("res://addons/local_agents/sim/SimClock.gd", "active", Array());
+	const Variant clock = la_call_gd("res://addons/local_agents/sim/SimClock.gd", "active", Array());
 	const double anchor = -la_physical("PLANET_EPOCH_YEARS_BEFORE_PRESENT");
 	Object *c = clock;
 	if (c == nullptr) {

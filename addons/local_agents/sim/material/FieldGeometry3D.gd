@@ -156,3 +156,25 @@ static func spin_axis(field) -> Vector3:
 		if v.length() > 0.001:
 			return v.normalized()
 	return Vector3.ZERO
+
+
+## Unit world direction UP the gradient of `value_at` around cell `c`, from the OPEN six-neighbour
+## differences. Zero where the field is uniform, which is the honest answer: there is nothing to follow.
+static func gradient_at(field, c: int, value_at: Callable) -> Vector3:
+	if field == null or field._grid == null or c < 0:
+		return Vector3.ZERO
+	var here: float = value_at.call(c)
+	if is_nan(here):
+		return Vector3.ZERO
+	var pos_c: Vector3 = field.cell_world_pos_linear(c)
+	var nbr: PackedInt32Array = field._grid.neighbours
+	var grad: Vector3 = Vector3.ZERO
+	for d in range(LAVoxelGrid.SLOTS):
+		var nb: int = nbr[c * LAVoxelGrid.SLOTS + d]
+		if nb < 0 or field._solid[nb] != 0:
+			continue
+		var dir: Vector3 = field.cell_world_pos_linear(nb) - pos_c
+		if dir.length_squared() < 1.0e-8:
+			continue
+		grad += dir.normalized() * (value_at.call(nb) - here)
+	return Vector3.ZERO if grad.length_squared() < 1.0e-8 else grad.normalized()
