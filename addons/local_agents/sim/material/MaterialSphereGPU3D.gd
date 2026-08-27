@@ -223,17 +223,6 @@ func set_sea_radius(m: float) -> void:
 	_ctx["sea_radius"] = m
 
 
-## The drained maxima the substep budget reads. A reading it has no value for is LEFT UNSET, so the budget
-## falls to its a-priori floor instead of reading an invented zero as "nothing is moving".
-func set_cfl_inputs(maxima: Dictionary) -> void:
-	for key: String in ["cfl_speed_max", "cfl_temp_max_k", "cfl_mean_g", "cfl_celerity_max"]:
-		if not maxima.has(key):
-			_ctx.erase(key)
-			continue
-		_ctx[key] = maxf(float(maxima[key]), 0.0)
-
-
-
 ## Mark the CPU enthalpy mirror dirty so the next begin_frame re-uploads it.
 func mark_h_dirty() -> void:
 	_h_dirty = true
@@ -248,6 +237,7 @@ func step() -> void:
 		_read_gpu_pass_timings()
 	_ctx["step_index"] = _step_index
 	_ctx["dt_s"] = LAMaterialFieldSphereStep3D.real_seconds_per_step()
+	_pre_step()
 	for key in _bnd_keys:
 		_rd.buffer_clear(_bufs[key], 0, _cc * 4)
 	if _step_probe.is_valid():
@@ -265,6 +255,14 @@ func step() -> void:
 	_rd.submit()                        # deferred sync — drained at the next begin_frame (GPU overlaps CPU frame work)
 	_pending = true
 	_step_index += 1
+
+## A pass that must READ the device before the step records takes its own submit here. The step's first
+## act is a sync, so nothing is in flight and the reading is of the state this step starts in.
+func _pre_step() -> void:
+	for p in _passes:
+		if p.has_method("pre_step"):
+			p.pre_step(_rd, _ctx, _cc, _groups)
+
 
 ## Signature: `probe.call(pass_index: int, pass_name: String)`, pass_index -1 = before any pass ran.
 func set_step_probe(cb: Callable) -> void:
@@ -297,10 +295,9 @@ func read_raw(name: String) -> PackedFloat32Array:
 	return _rd.buffer_get_data(_bufs[name]).to_float32_array()
 
 
-func end_frame(_rv: bool = true, _rc: bool = true, _rf: bool = true, _rr: bool = true, _rl: bool = true, _rs: bool = true) -> Dictionary:
-	if _rd == null:
-		return _empty_result()
-	return _cached if not _cached.is_empty() else _empty_result()
+## A channel this drain did not read is ABSENT from the result, never an empty stand-in.
+func end_frame() -> Dictionary:
+	return {} if _rd == null else _cached
 
 
 ## Sync an in-flight step submit WITHOUT reading channels — for save/load/dispose paths that touch buffers
@@ -347,8 +344,7 @@ func _drain_pending() -> void:
 ## The seeded field's derived state and its maxima, before any time passes, so the first step's substep
 ## budget is a reading of the world instead of a value invented for it.
 func derive_seeded() -> void:
-	if _rd == null or _grid == null:
-		return
+	if _rd == null or _grid == null: return
 	_ctx["cell_size"] = _grid.cell_size
 	for i in _passes.size():
 		if not (_pass_names[i] in ["StateDerivePass", "ReducePass"]): continue
@@ -422,7 +418,7 @@ func _read_cells(name: String) -> PackedFloat32Array:
 
 
 func _read_channels(read_slow: bool) -> Dictionary:
-	var out: Dictionary = _empty_result()
+	var out: Dictionary = {}
 	for k in ["h_j_m3", "h2o", "o2"]:
 		out[k] = _read_cells(k)
 	# Derived: recomputed by StateDerivePass this step rather than carried.
@@ -746,18 +742,3 @@ func _zeros(n: int) -> PackedByteArray:
 	var a: PackedFloat32Array = PackedFloat32Array()
 	a.resize(n)
 	return a.to_byte_array()
-
-func _empty_result() -> Dictionary:
-	return {
-		"h_j_m3": PackedFloat32Array(), "temp": PackedFloat32Array(), "h2o": PackedFloat32Array(),
-		"h2o_solid": PackedFloat32Array(), "h2o_liquid": PackedFloat32Array(),
-		"h2o_vapour": PackedFloat32Array(), "silicate": PackedFloat32Array(),
-		"fire": PackedFloat32Array(), "fuel": PackedFloat32Array(),
-		"o2": PackedFloat32Array(),
-		"co2": PackedFloat32Array(), "charge": PackedFloat32Array(),
-		"fert": PackedFloat32Array(),
-		"detritus": PackedFloat32Array(), "shock": PackedFloat32Array(),
-		"biomass": PackedFloat32Array(), "cement": PackedFloat32Array(),
-		"silicate_melt": PackedFloat32Array(),
-		"silicate_susp_water": PackedFloat32Array(), "silicate_susp_air": PackedFloat32Array(),
-	}

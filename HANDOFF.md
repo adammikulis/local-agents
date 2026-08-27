@@ -14,14 +14,11 @@ on the file it named. If you know the cause you are close enough to fix it, so f
 
 ---
 
-## 0. THE TRANSPORT SUBSTEP BUDGET IS DENIED ON EVERY RUN, AND THE DEFAULT BOX IS NOT EXEMPT
+## 0. THE WIND BLOWS PAST ITS OWN SOUND SPEED, AND THE DEFAULT BOX IS NOT EXEMPT
 
-`scripts/agent_harness.sh sim --frames 6` logs `SUBSTEPS_DENIED` for every matter row: the budget asks
-for more substeps than the cap, so the rows run under-resolved and the harness withholds the numbers.
-The denial names its inputs, and they are MEASURED now — the celerity and the temperature of the field
-itself, with `wind` reading zero.
-
-The default box is denied too, by a smaller factor, so twenty frames do not show it.
+`scripts/sim_run.sh --slice --frames 5` refuses to transport the h2o, silicate, fungus and shock rows:
+their own cells carry a signal speed at or past light, so no timestep integrates them and the harness
+withholds every number.
 
 `scripts/check_wind_subsonic.sh` is red and is the acceptance test.
 `docs/PHYSICS_TODO.md` E carries the wind as its own item, and E is downstream of item 1. Until it reads a physical speed no run's numbers

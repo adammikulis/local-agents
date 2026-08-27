@@ -87,6 +87,7 @@
 #define TF_LIST_HALO 512u
 #define TF_RELAX 1024u
 #define TF_VEL 2048u
+#define TF_LEVEL 4096u
 
 // ReduceRecords.gd Op enum
 #define OP_SUM 0u

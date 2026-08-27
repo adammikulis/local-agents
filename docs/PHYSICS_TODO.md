@@ -238,8 +238,7 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       cell by cell along the solved gravity, so a sealed column reads zero wind at every drain. What is
       left is a cell the derive pins at the basalt liquidus and non-finite state in thin air, on every box
       size. **Reproduce:** `bash scripts/check_atmosphere_at_rest.sh`.
-      It is NOT the substep cap either: raising `SUBSTEP_MAX` until no row is denied leaves the peak where
-      it was, so the momentum equation produces this with its CFL budget fully met. And it GROWS with run
+      And it GROWS with run
       length rather than relaxing, so it is not a seed transient settling — something adds energy.
       **Reproduce:** `scripts/check_wind_subsonic.sh` — a world driven only by pressure and gravity, which
       cancel at balance, may not blow itself past its own sound speed.

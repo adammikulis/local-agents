@@ -134,6 +134,14 @@ layout(set = 0, binding = 77, std430) readonly buffer H2Buf { float h2_gas[]; };
 layout(set = 0, binding = 78, std430) restrict readonly buffer GravPhi { float grav_phi[]; };  // J/kg, zero at infinity
 // The charge riding a mass row's exterior crossing, C/m^3 per step.
 layout(set = 0, binding = 79, std430) buffer BndQ { float bnd_q[]; };
+// TEMPORAL LEVELS. A cell's own stable timestep is dt/2^tlevel; the ghost tail is level 0. `level_idx`
+// holds every cell sorted by level, and `level_args` per level: indirect groups, the histogram count,
+// the sorted offset, the scatter cursor and the suffix count of cells at that level or finer.
+layout(set = 0, binding = 80, std430) buffer TLevel { uint tlevel[]; };
+layout(set = 0, binding = 81, std430) buffer LevelIdx { uint level_idx[]; };
+layout(set = 0, binding = 82, std430) buffer LevelArgs { uint level_args[]; };
+// Per row group: the coarsest level its state can afford, atomically reduced.
+layout(set = 0, binding = 83, std430) buffer LevelPeak { uint level_peak[]; };
 
 #include "march.glsli"
 
@@ -165,9 +173,22 @@ layout(push_constant, std430) uniform Params {
 	float sub_cap_j_m3k;
 	uint total_count;     // interior cells plus ghost tail cells; pass 0 runs the ghosts too
 	uint axis;            // which momentum component a signed PGF row carries: 0=x 1=y 2=z
-	float substep_frac;   // this substep's share of the field step, 1/n
 	float xuv_w_m2;       // XUV irradiance AT THIS BODY, W/m^2 — LAW_ESCAPE's driver
+	uint level;           // the coarsest temporal level advancing on this substep; PEAK: the group slot
+	uint substep_k;       // this substep's index on the finest level's axis
+	uint substep_n;       // substeps the finest level takes across the field step, 2^levels
 } params;
+
+// The seconds THIS invocation integrates. A cell's own is dt/2^tlevel; a face's is the coarser of the
+// pair's, so both sides of it write the same flux on the same substep and the books close across levels.
+float la_dt;
+
+// LEVEL_SLOTS: TransportPass.Arg.SLOTS. GROUPS_X 0, COUNT 3, OFFSET 4, CURSOR 5, SUFFIX 6.
+const uint LEVEL_SLOTS = 8u;
+
+float la_level_dt(uint lv) {
+	return params.dt_s * exp2(-float(lv));
+}
 
 // TransportPass's PASS_* tags past outflow (0) and gather (1).
 const uint PASS_GRAIN = 2u;
@@ -177,6 +198,15 @@ const uint PASS_LIST_ARGS = 5u;
 const uint PASS_SW = 6u;
 const uint PASS_ACOUSTIC = 7u;
 const uint PASS_ACOUSTIC_APPLY = 8u;
+// The temporal-level machinery: seed a cell's level off its own state, relax it 2:1 against its
+// neighbours, then counting-sort every cell by level so a substep dispatches over a suffix.
+const uint PASS_LEVEL_SEED = 9u;
+const uint PASS_LEVEL_RELAX = 10u;
+const uint PASS_LEVEL_RESET = 11u;
+const uint PASS_LEVEL_HIST = 12u;
+const uint PASS_LEVEL_SCAN = 13u;
+const uint PASS_LEVEL_SORT = 14u;
+const uint PASS_LEVEL_PEAK = 15u;
 
 const float KELVIN = 273.15;                        // LAPhysical.KELVIN_OFFSET
 const float STEFAN = 5.670374419e-8;                // LAPhysical.STEFAN_BOLTZMANN
@@ -235,6 +265,7 @@ const float LAMBDA_HYDRO = 3.0;                     // LAPhysical.ESCAPE_PARAM_H
 const float XUV_EFF = 0.15;                         // LAPhysical.XUV_HEATING_EFFICIENCY
 const float SQRT_PI = sqrt(radians(180.0));
 const int GHOST_SPACE = -2;                         // LAFieldBoundary3D.SPACE_REDIRECT
+const float C_LIGHT = 299792458.0;                  // LAPhysical.SPEED_OF_LIGHT_M_S
 
 
 vec3 g_at(uint c) {
@@ -306,7 +337,7 @@ float separation_dq(uint c, vec3 up) {
 		0.0, 1.0);
 	float wet = clamp(cloud_water_kg_m3(c) / CHARGING_LWC, 0.0, 1.0);
 	float lift = clamp(dot(vel_at(c), up) / CONVECTIVE_UPDRAFT, 0.0, 1.0);
-	return NIC_CHARGE_RATE * band * wet * lift * params.dt_s;
+	return NIC_CHARGE_RATE * band * wet * lift * la_dt;
 }
 
 // Volume fraction of the cell that is condensed, so a beam meets it geometrically.
@@ -408,7 +439,7 @@ float ohmic_conductivity_at(uint c, float e) {
 // evaluated on this cell's own state; nothing here is a chosen rate.
 float mobility_at(uint c, float amt) {
 	float L = params.cell_m;
-	float dt = params.dt_s;
+	float dt = la_dt;
 	float g = length(g_at(c));
 	// The matter's depth: its volume fraction of the cell (amount over the row's full amount) times the
 	// cell edge, metres.
@@ -464,7 +495,7 @@ float darcy_mobility(uint a, uint b) {
 	if (r <= 0.0) {
 		return 0.0;
 	}
-	return params.fluid_rho * length(g_at(a)) * params.dt_s
+	return params.fluid_rho * length(g_at(a)) * la_dt
 		/ (r * max(params.fluid_visc, 1.0e-30) * params.cell_m);
 }
 
@@ -550,7 +581,7 @@ float escape_fraction(uint c, uint d, out float tail_j_mol) {
 		}
 		v_eff = XUV_EFF * params.xuv_w_m2 * mu / (depth * rho_wind);
 	}
-	return min(v_eff * params.dt_s / params.cell_m, 1.0) * cosf;
+	return min(v_eff * la_dt / params.cell_m, 1.0) * cosf;
 }
 
 #include "transport_radiate.glsli"
@@ -591,6 +622,47 @@ void grain_state(uint g) {
 	silicate_susp_water[g] = loose * in_water;
 	silicate_susp_air[g] = loose * in_air;
 	silicate_bed[g] = loose * clamp(1.0 - in_water - in_air, 0.0, 1.0);
+}
+
+
+// Substeps this row's stability asks of THIS cell, off the cell's own state: per-face share <= 1/6,
+// donor courant v dt <= L, acoustic c dt sqrt(3)/L <= 1, gravity adjustment g h (dt/n)^2/L^2 <= 1/6.
+float la_row_need(uint c) {
+	float L = params.cell_m;
+	float dt = params.dt_s;
+	float tk = t_k(c);
+	float need = 0.0;
+	if ((params.flags & TF_VEL) != 0u) {
+		float cm = max(max(cel_m_s[c], 0.0), sqrt(AIR_GAMMA * DRY_AIR_R * tk));
+		need = sqrt(3.0) * cm * dt / L;
+	}
+	if (params.mode == MODE_ADVECT || params.mode == MODE_BOTH) {
+		float v = max(speed[c], 0.0);
+		if ((params.flags & TF_SETTLE) != 0u) {
+			v += max(params.density - params.fluid_rho, 0.0) * length(g_at(c))
+				* params.grain_d * params.grain_d / (18.0 * max(params.fluid_visc, 1.0e-30));
+		}
+		need += v * dt / L;
+	}
+	if (params.law == LAW_SHALLOW || params.law == LAW_FILM) {
+		need = max(need, sqrt(6.0 * length(g_at(c)) * L) * dt / L);
+	}
+	if (params.law == LAW_EDDY && (params.flags & TF_VEL) == 0u) {
+		float nu_mol = params.fluid_rho > 0.0 ? params.fluid_visc / params.fluid_rho : 0.0;
+		float mix = SMAGORINSKY_COEFF * L;
+		float nu = nu_mol + mix * mix * sqrt(18.0) * max(speed[c], 0.0) / L;
+		need += 6.0 * nu * dt / (L * L);
+	}
+	if (params.law == LAW_SOUND) {
+		need = max(need, 6.0 * sqrt(AIR_GAMMA * DRY_AIR_R * tk) * dt / L);
+	}
+	// NO SIGNAL CROSSES A CELL FASTER THAN LIGHT: a state asking for a shorter step is not a timestep.
+	return min(need, params.dt_s * C_LIGHT / L);
+}
+
+uint la_row_level(uint c) {
+	float need = la_row_need(c);
+	return need > 1.0 ? uint(ceil(log2(need))) : 0u;
 }
 
 
@@ -644,6 +716,7 @@ void list_append(uint g) {
 
 void main() {
 	uint gidx = gl_GlobalInvocationID.x;
+	la_dt = params.dt_s;
 	// pass_id is a push constant, so each branch here is uniform and APPEND's barriers are legal.
 	if (params.pass_id == PASS_LIST_RESET) {
 		if (gidx == 0u) {
@@ -664,12 +737,101 @@ void main() {
 		}
 		return;
 	}
+	// THE TEMPORAL LEVELS. `params.level` carries the bin count on RESET and SCAN, the group slot on
+	// PEAK, and the coarsest level advancing on every row dispatch.
+	if (params.pass_id == PASS_LEVEL_PEAK) {
+		if (gidx < params.cell_count) {
+			atomicMax(level_peak[params.level], la_row_level(gidx));
+		}
+		return;
+	}
+	if (params.pass_id == PASS_LEVEL_RESET) {
+		if (gidx < params.total_count) {
+			tlevel[gidx] = 0u;
+		}
+		if (gidx < params.level) {
+			uint b = gidx * LEVEL_SLOTS;
+			level_args[b] = 1u;
+			level_args[b + 1u] = 1u;
+			level_args[b + 2u] = 1u;
+			level_args[b + 3u] = 0u;
+			level_args[b + 4u] = 0u;
+			level_args[b + 5u] = 0u;
+			level_args[b + 6u] = 0u;
+		}
+		return;
+	}
+	if (params.pass_id == PASS_LEVEL_SEED) {
+		if (gidx < params.cell_count) {
+			tlevel[gidx] = max(tlevel[gidx], la_row_level(gidx));
+		}
+		return;
+	}
+	if (params.pass_id == PASS_LEVEL_RELAX) {
+		// 2:1 IN TIME. A level only ever rises here, so an in-place sweep converges whichever order
+		// the invocations land in.
+		if (gidx < params.cell_count) {
+			uint rbase = gidx * N_SLOTS;
+			uint mx = tlevel[gidx];
+			for (uint d = 0u; d < N_SLOTS; ++d) {
+				int rnb = nbr[rbase + d];
+				if (rnb < 0) { rnb = ghost[rbase + d]; }
+				if (rnb >= 0 && rnb < int(params.cell_count)) {
+					uint ln = tlevel[uint(rnb)];
+					mx = max(mx, ln > 0u ? ln - 1u : 0u);
+				}
+			}
+			tlevel[gidx] = mx;
+		}
+		return;
+	}
+	if (params.pass_id == PASS_LEVEL_HIST) {
+		if (gidx < params.cell_count) {
+			atomicAdd(level_args[tlevel[gidx] * LEVEL_SLOTS + 3u], 1u);
+		}
+		return;
+	}
+	if (params.pass_id == PASS_LEVEL_SCAN) {
+		if (gidx == 0u) {
+			uint run = 0u;
+			for (uint b = 0u; b < params.level; ++b) {
+				level_args[b * LEVEL_SLOTS + 4u] = run;
+				run += level_args[b * LEVEL_SLOTS + 3u];
+			}
+			for (uint b = 0u; b < params.level; ++b) {
+				uint suffix = run - level_args[b * LEVEL_SLOTS + 4u];
+				level_args[b * LEVEL_SLOTS + 6u] = suffix;
+				level_args[b * LEVEL_SLOTS] = max(1u, (suffix + 63u) / 64u);
+			}
+		}
+		return;
+	}
+	if (params.pass_id == PASS_LEVEL_SORT) {
+		if (gidx < params.cell_count) {
+			uint lv = tlevel[gidx];
+			uint slot = level_args[lv * LEVEL_SLOTS + 4u]
+				+ atomicAdd(level_args[lv * LEVEL_SLOTS + 5u], 1u);
+			if (slot < params.cell_count) {
+				level_idx[slot] = gidx;
+			}
+		}
+		return;
+	}
+	// EVERY PASS PAST HERE walks the level sort's suffix while its group subcycles: the cells at
+	// params.level or finer are the ones advancing on this substep.
+	if ((params.flags & TF_LEVEL) != 0u) {
+		if (gidx >= level_args[params.level * LEVEL_SLOTS + 6u]) {
+			return;
+		}
+		gidx = level_idx[level_args[params.level * LEVEL_SLOTS + 4u] + gidx];
+	}
 	// Acoustic half-step per momentum substep: dp = -rho c^2 div(u*) dt, in two passes.
 	// LA_APPROX: split_explicit_acoustics
 	if (params.pass_id == PASS_ACOUSTIC) {
 		if (gidx >= params.cell_count) {
 			return;
 		}
+		la_dt = la_level_dt(tlevel[gidx]);
 		uint abase = gidx * N_SLOTS;
 		send[abase] = 0.0;
 		if (solid[gidx] != 0.0) {
@@ -704,7 +866,7 @@ void main() {
 			// Subtractive form of the same average: exact at equilibrium for any impedance pair.
 			div_u += ua + (zb * (ub - ua) + (face_p(gidx, d) - face_p(nb, d ^ 1u))) / zs;
 		}
-		send[abase] = -ks * div_u * params.dt_s / params.cell_m;
+		send[abase] = -ks * div_u * la_dt / params.cell_m;
 		return;
 	}
 	if (params.pass_id == PASS_ACOUSTIC_APPLY) {
@@ -712,14 +874,19 @@ void main() {
 			// la_eos_p's domain is p >= 0, and the linear step can cross what the exact decay never does.
 			pressure[gidx] = max(pressure[gidx] + send[gidx * N_SLOTS], 0.0);
 			// This substep's share of the body impulse, beside the pressure gradient it stands against.
-			mom_x[gidx] += bodyf_x[gidx] * params.substep_frac;
-			mom_y[gidx] += bodyf_y[gidx] * params.substep_frac;
-			mom_z[gidx] += bodyf_z[gidx] * params.substep_frac;
+			float sf = exp2(-float(tlevel[gidx]));
+			mom_x[gidx] += bodyf_x[gidx] * sf;
+			mom_y[gidx] += bodyf_y[gidx] * sf;
+			mom_z[gidx] += bodyf_z[gidx] * sf;
 		}
 		return;
 	}
 	bool listed = (params.flags & TF_LISTED) != 0u;
-	if (listed) {
+	if (listed && (params.flags & TF_LEVEL) != 0u) {
+		if (active_flag[gidx] == 0u) {
+			return;
+		}
+	} else if (listed) {
 		// The dispatch is indirect over ceil(count/64) groups, so the tail of the last group is past the end.
 		if (gidx >= active_args[3]) {
 			return;
@@ -732,6 +899,8 @@ void main() {
 	if (gidx >= limit) {
 		return;
 	}
+	uint la_lv = tlevel[gidx];
+	la_dt = la_level_dt(la_lv);
 	if (params.pass_id == PASS_GRAIN) {
 		grain_state(gidx);
 		return;
@@ -778,7 +947,7 @@ void main() {
 				? la_step_len(-normalize(gsw), params.cell_m) : params.cell_m;
 			sw_keep[gidx] = shortwave_absorbed_frac(gidx, up_len) * (1.0 - shortwave_albedo(gidx));
 			float tk = t_k(gidx);
-			float leaving = eps * STEFAN * tk * tk * tk * tk * params.dt_s / params.cell_m;
+			float leaving = eps * STEFAN * tk * tk * tk * tk * la_dt / params.cell_m;
 			for (uint d = 0u; d < N_SLOTS; ++d) {
 				send[base + d] = leaving;
 			}
@@ -835,7 +1004,7 @@ void main() {
 		if (open <= 0.0) {
 			return;
 		}
-		float mob = mobility_at(gidx, abs(remaining));
+		float amt0 = abs(remaining);
 
 		for (uint d = 0u; d < N_SLOTS; ++d) {
 			if (!is_signed && remaining <= donor_floor) {
@@ -844,6 +1013,18 @@ void main() {
 			int inb = nbr[base + d];
 			if (inb < 0) {
 				inb = ghost[base + d];
+			}
+			// LA_APPROX: level_seam_coarse_clock
+			// A face runs on the COARSER of the pair's clocks, so both sides write it on the same
+			// substep with the same seconds; a coarser neighbour is not stepping now at all.
+			if (inb >= 0 && uint(inb) < params.total_count) {
+				uint lvn = tlevel[uint(inb)];
+				if (lvn < params.level) {
+					continue;
+				}
+				la_dt = la_level_dt(min(la_lv, lvn));
+			} else {
+				la_dt = la_level_dt(la_lv);
 			}
 			if (params.law == LAW_ESCAPE) {
 				if (inb != GHOST_SPACE || gidx >= params.cell_count) {
@@ -895,7 +1076,7 @@ void main() {
 							+ za * (face_p(nb, d ^ 1u) - p_face + zb * (ua - ub)) / (za + zb);
 					}
 					float ni = params.axis == 0u ? nrm.x : (params.axis == 1u ? nrm.y : nrm.z);
-					sflux = p_face * ni * params.dt_s / params.cell_m;
+					sflux = p_face * ni * la_dt / params.cell_m;
 				} else {
 					// VISCOSITY DIFFUSES VELOCITY, mu grad(v): the pair's exact frozen-coefficient
 					// relaxation moves momentum toward equal velocities and never past them.
@@ -911,7 +1092,7 @@ void main() {
 						// All six faces relax from ONE pre-state, so each takes at most a sixth of full
 						// equalization; the summed pull can then never pass the neighbours' mean.
 						sflux = m_red * (va - vb)
-							* (1.0 - exp(-float(N_SLOTS) * k * params.dt_s)) / float(N_SLOTS) * open;
+							* (1.0 - exp(-float(N_SLOTS) * k * la_dt)) / float(N_SLOTS) * open;
 					}
 				}
 				send[base + d] = sflux;
@@ -930,8 +1111,11 @@ void main() {
 			}
 			float flow = 0.0;
 			if (drop > 0.0) {
-				float mob_face = through_pores ? darcy_mobility(gidx, nb) : mob;
-				flow = drop * mob_face * open / params.cell_m;
+				float mob_face = through_pores
+					? darcy_mobility(gidx, nb) : mobility_at(gidx, amt0);
+				// The pair's imbalance decays as exp(-k t), so the share that crosses approaches it
+				// rather than passing it. LA_APPROX: exponential_pair_relaxation
+				flow = drop * (1.0 - exp(-mob_face * open / params.cell_m));
 			}
 			if (params.mode == MODE_CONDUCT) {
 				// Series half-cells, so the interface conductivity is the harmonic mean, and
@@ -939,7 +1123,7 @@ void main() {
 				float a = aux[gidx];
 				float b = aux[nb];
 				float lam = 2.0 * a * b / max(a + b, 1.0e-12);
-				flow = lam * (drive[gidx] - drive[nb]) * params.dt_s
+				flow = lam * (drive[gidx] - drive[nb]) * la_dt
 					/ (params.cell_m * params.cell_m);
 			}
 			if (advective) {
@@ -955,7 +1139,7 @@ void main() {
 					: ua + (zb * (ub - ua) + (face_p(gidx, d) - face_p(nb, d ^ 1u))) / (za + zb);
 				vn += dot(transport_velocity(gidx) - vel_at(gidx), nrm_a);
 				if (vn > 0.0) {
-					flow += remaining * vn * params.dt_s / params.cell_m;
+					flow += remaining * vn * la_dt / params.cell_m;
 				}
 			}
 			flow = clamp(flow, 0.0, remaining);
@@ -1016,6 +1200,11 @@ void main() {
 			continue;
 		}
 		uint nb = uint(inb);
+		// The same face rule as the outflow: a neighbour coarser than this substep did not run, so its
+		// face scratch is not this substep's and nothing crossed.
+		if (nb < params.total_count && tlevel[nb] < params.level) {
+			continue;
+		}
 		if (is_signed && solid[nb] != 0.0 && blocks_solid) {
 			bnd_amt[gidx] -= send[base + d];
 			continue;
@@ -1064,7 +1253,7 @@ void main() {
 		float sun_w = solar_incident(gidx);
 		float intercepted = sun_w * sw_absorbed[gidx];
 		float albedo = shortwave_albedo(gidx);
-		gained += intercepted * (1.0 - albedo) * params.dt_s / params.cell_m;
+		gained += intercepted * (1.0 - albedo) * la_dt / params.cell_m;
 		rad_absorbed[gidx] = gained;
 		rad_emitted[gidx] = lost;
 		// What the beam march removed and this cell did not keep: PASS_SW carries it back out.
@@ -1072,7 +1261,7 @@ void main() {
 		// Stefan-Boltzmann, recomputed against the published emission: six faces of e*sigma*T^4.
 		float tk_sb = t_k(gidx);
 		float sb = 6.0 * lw_emis[gidx] * STEFAN * tk_sb * tk_sb * tk_sb * tk_sb
-			* params.dt_s / params.cell_m;
+			* la_dt / params.cell_m;
 		rad_residual[gidx] = abs(lost - sb) / max(sb, 1.0e-30);
 	}
 	// No floor: clamping a negative up here would create the mass it is short of.
@@ -1105,7 +1294,8 @@ void main() {
 		}
 	}
 	// LA_APPROX: boundary_relaxation_zone
-	if ((params.flags & TF_RELAX) != 0u && rim_w[gidx] > 0.0
+	bool la_last = params.substep_k + (params.substep_n >> la_lv) >= params.substep_n;
+	if ((params.flags & TF_RELAX) != 0u && la_last && rim_w[gidx] > 0.0
 			&& !(solid[gidx] != 0.0 && blocks_solid)) {
 		int rg = rim_ghost[gidx];
 		if (rg >= int(params.cell_count) && rg < int(params.total_count)) {
@@ -1164,7 +1354,7 @@ void main() {
 	}
 	if ((params.flags & TF_RADIOGENIC) != 0u) {
 		// The rock warms itself, at this epoch's rate. This row carries h_j_m3, so `amount` IS enthalpy.
-		float dq = max(rad_w_m3[gidx], 0.0) * params.dt_s;
+		float dq = max(rad_w_m3[gidx], 0.0) * la_dt;
 		amount[gidx] += dq;
 		radiogenic[gidx] = dq;
 	}
