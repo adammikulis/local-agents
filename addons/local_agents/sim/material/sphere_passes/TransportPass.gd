@@ -28,7 +28,6 @@ const SUBSTEP_MAX: int = 256
 
 var _pipe: RID = RID()
 ## The stiffest declared substance's celerity sqrt(K/rho), m/s: the budget's a-priori acoustic bound.
-var _c_static: float = 0.0
 ## Per row: its uniform set. An invalid entry is a row whose buffers the driver has not got.
 var _sets: Array = []
 var _rows: Array = []
@@ -86,13 +85,6 @@ func _buffers(cc: int) -> Dictionary:
 func _setup(bufs: Dictionary, cc: int) -> void:
 	_pipe = _kernel(KERNEL_PATH)
 	_rows = LATransportRecords.rows()
-	for s: Dictionary in LASubstances.table().values():
-		for pair: Array in [["bulk_modulus_pa", "density"], ["bulk_modulus_solid_pa", "density_solid"]]:
-			var k_pa: float = float(s.get(String(pair[0]), 0.0))
-			var rho: float = float(s.get(String(pair[1]), float(s.get("density", 0.0))))
-			if k_pa > 0.0 and rho > 0.0:
-				_c_static = maxf(_c_static, sqrt(k_pa / rho))
-
 	# Ghost tail cells run pass 0, so every buffer the kernel indexes by cell carries the tail.
 	var tc: int = cc + ghost_count
 	_send = _scratch(tc * 6)
@@ -242,13 +234,15 @@ func _substeps(row: Dictionary, cell_m: float, dt_s: float, ctx: Dictionary) -> 
 	var vmax: float = maxf(float(ctx.get("cfl_speed_max", 0.0)), 0.0)
 	var tk_max: float = maxf(float(ctx.get("cfl_temp_max_k", 0.0)), 0.0)
 	var need: float = 0.0
-	# The peak celerity, floored a-priori: no mixture outruns its stiffest pure constituent, and a
-	# one-step drain lag at the water sound speed is all a runaway needs.
+	# The peak celerity is MEASURED. A mixture can outrun its stiffest pure constituent — Wood's speed
+	# rises as the mixture thins — so no a-priori value bounds it and an unmeasured one is unknown.
 	if _vel_row(row):
-		var c_max: float = maxf(float(ctx.get("cfl_celerity_max", 0.0)), _c_static)
+		var c_max: float = float(ctx.get("cfl_celerity_max", 0.0))
 		if tk_max > 0.0:
 			c_max = maxf(c_max, sqrt(LAPhysical.AIR_ADIABATIC_INDEX
 				* LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK * tk_max))
+		if not (c_max > 0.0):
+			_deny(row, SUBSTEP_MAX, "no celerity measured: the acoustic budget is unknown, not small")
 		need = sqrt(3.0) * c_max * dt_s / cell_m
 	if mode == LATransportRecords.ADVECT or mode == LATransportRecords.BOTH:
 		var v: float = vmax
@@ -280,7 +274,7 @@ func _substeps(row: Dictionary, cell_m: float, dt_s: float, ctx: Dictionary) -> 
 	var want: int = int(ceil(need))
 	if want > SUBSTEP_MAX:
 		_deny(row, want, "celerity=%s wind=%s temp_k=%s cell_m=%s dt_s=%s"
-			% [_c_static, vmax, tk_max, cell_m, dt_s])
+			% [float(ctx.get("cfl_celerity_max", 0.0)), vmax, tk_max, cell_m, dt_s])
 	return clampi(want, 1, SUBSTEP_MAX)
 
 

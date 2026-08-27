@@ -16,13 +16,14 @@ on the file it named. If you know the cause you are close enough to fix it, so f
 
 ## 0. THE TRANSPORT SUBSTEP BUDGET IS DENIED ON EVERY RUN, AND THE DEFAULT BOX IS NOT EXEMPT
 
-`scripts/agent_harness.sh sim --frames 6` logs `SUBSTEPS_DENIED` for every matter row: the budget asks for
-thousands of substeps and the cap is 256, so the rows run under-resolved and the harness withholds the
-numbers. The denial names its inputs; `wind` is the term that blows it.
+`scripts/agent_harness.sh sim --frames 6` logs `SUBSTEPS_DENIED` for every matter row: the budget asks
+for more substeps than the cap, so the rows run under-resolved and the harness withholds the numbers.
+The denial names its inputs, and they are MEASURED now — the celerity and the temperature of the field
+itself, with `wind` reading zero.
 
 The default box is denied too, by a smaller factor, so twenty frames do not show it.
 
-`scripts/check_wind_subsonic.sh` is red at Mach 455 and is the acceptance test.
+`scripts/check_wind_subsonic.sh` is red and is the acceptance test.
 `docs/PHYSICS_TODO.md` E carries the wind as its own item, and E is downstream of item 1. Until it reads a physical speed no run's numbers
 mean anything. `rho_max_open` is the reading that shows it: an open cell may not be denser than the densest
 substance the table declares, and that is this item's acceptance test.

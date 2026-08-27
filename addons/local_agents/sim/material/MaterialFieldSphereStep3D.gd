@@ -96,6 +96,8 @@ func seed_tick() -> bool:
 			_f._gpu.seed_field(String(name), _f.get("_" + String(name)), _f._seal)
 		_f._gpu.mark_h_dirty()
 	_f._gravity.solve_seed()      # the ocean just landed: relax the potential over the WHOLE seeded mass
+	if _f._gpu != null:
+		_f._gpu.derive_seeded()   # the world's own celerity, before the first step is budgeted against it
 	return true
 
 
