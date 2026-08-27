@@ -117,26 +117,6 @@ double eos_scale(double p_pa, double p_vol, double p_a_rt, double p_b_vol, doubl
 	return den > 0.0 ? p_vol * p_pa / den : std::numeric_limits<double>::infinity();
 }
 
-// The pressure a cell's own amounts already state: eos_scale's root at s = 1, bisected. The scale rises
-// with pressure on every branch, and finding the forward value this way keeps eos.glsli the ONE statement
-// of the equation of state.
-double eos_rest_p(double p_vol, double p_a_rt, double p_b_vol, double p_c_comp, double p_std) {
-	double hi = p_std;
-	for (int i = 0; i < 200 && eos_scale(hi, p_vol, p_a_rt, p_b_vol, p_c_comp, p_std) < 1.0; i++) {
-		hi *= 2.0;
-	}
-	double lo = 0.0;
-	for (int i = 0; i < 100; i++) {
-		const double mid = 0.5 * (lo + hi);
-		if (eos_scale(mid, p_vol, p_a_rt, p_b_vol, p_c_comp, p_std) < 1.0) {
-			lo = mid;
-		} else {
-			hi = mid;
-		}
-	}
-	return 0.5 * (lo + hi);
-}
-
 PackedFloat32Array unit_factor(int p_cc) {
 	PackedFloat32Array f;
 	f.resize(p_cc);
@@ -254,30 +234,32 @@ double LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32Arra
 		const Vector3 down = -slot_normal(d);
 		const double a_c = double(g_c.dot(down));
 		const int u = nbr[c * 6 + d];
-		const bool from_above = u >= 0 && u < cc && done[u] != 0 && rho[u] > 0.0 && p_at[u] > 0.0;
+		const bool from_above = u >= 0 && u < cc && done[u] != 0 && rho[u] > 0.0;
 		if (rho[c] <= 0.0) {
 			continue;      // vacuum: no matter to carry a pressure, and state_derive reads it as none
 		}
-		if (!from_above) {
-			// The top of a column stands under nothing, so its own matter states its pressure.
-			p_at[c] = eos_rest_p(vol, a_rt[c], b_vol[c], c_comp[c], p_std);
-			continue;
+		// A CELL'S PRESSURE IS THE WEIGHT OF WHAT STANDS OVER IT. Over the outermost cell holding matter
+		// stands nothing, so that weight is its own upper half, and the same march carries it down.
+		double p_u = 0.0;
+		double load_u = 0.0;
+		if (from_above) {
+			const Vector3 g_u(p_gravity[u * 3], p_gravity[u * 3 + 1], p_gravity[u * 3 + 2]);
+			p_u = p_at[u];
+			load_u = rho[u] * double(g_u.dot(down));
 		}
-		const Vector3 g_u(p_gravity[u * 3], p_gravity[u * 3 + 1], p_gravity[u * 3 + 2]);
-		const double load_u = rho[u] * double(g_u.dot(down));
 		if (solid[c] != 0) {
 			// Rock is quasi-static and kernels3d/pressure.glsl owns its pressure; what the seed owes it is
 			// the DENSITY that pressure implies, through the substance table's own equation of state.
-			p_at[c] = p_at[u] + 0.5 * dr * (load_u + rho[c] * a_c);
+			p_at[c] = p_u + 0.5 * dr * (load_u + rho[c] * a_c);
 			continue;
 		}
 		// An open cell's pressure IS its matter, so the balance is solved for the amount that states it.
 		// The iteration contracts by 0.5 * dx / H; a cell it cannot reach is one the grid cannot resolve.
-		double p = p_at[u] + dr * rho[c] * a_c;
+		double p = p_u + dr * rho[c] * a_c;
 		bool settled = false;
 		for (int it = 0; it < 200; it++) {
 			const double s = eos_scale(p, vol, a_rt[c], b_vol[c], c_comp[c], p_std);
-			const double next = p_at[u] + 0.5 * dr * (load_u + s * rho[c] * a_c);
+			const double next = p_u + 0.5 * dr * (load_u + s * rho[c] * a_c);
 			if (!(next > 0.0) || !std::isfinite(next)) {
 				break;
 			}
@@ -290,13 +272,18 @@ double LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32Arra
 		}
 		if (!settled) {
 			unresolved++;
-			const double span = p_at[u] > 0.0 ? dr * rho[c] * a_c / p_at[u] : 0.0;
+			const double span = p_u > 0.0 ? dr * rho[c] * a_c / p_u : 0.0;
 			worst_span = MAX(worst_span, span);
 			continue;
 		}
+		const double s = eos_scale(p, vol, a_rt[c], b_vol[c], c_comp[c], p_std);
+		if (!std::isfinite(s) || !(s > 0.0)) {
+			unresolved++;      // no finite amount states that pressure, so this cell has no balanced state
+			continue;
+		}
 		p_at[c] = p;
-		scale[c] = eos_scale(p, vol, a_rt[c], b_vol[c], c_comp[c], p_std);
-		rho[c] *= scale[c];
+		scale[c] = s;
+		rho[c] *= s;
 	}
 	if (unresolved > 0) {
 		UtilityFunctions::push_error(String("LAFieldLithostaticSeed.compress: ")

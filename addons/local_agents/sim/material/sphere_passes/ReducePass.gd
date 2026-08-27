@@ -145,9 +145,10 @@ func _fold_rows(rd: RenderingDevice) -> Dictionary:
 		if base + _groups > raw.size():
 			continue
 		var acc: float = _fold(raw, base, op)
-		# A MIN/MAX lane that kept no cell returns its IDENTITY, and no cell anywhere means no measurement.
-		# An infinity at the other end is a reading: the field went non-finite and the row is how you see it.
-		if acc == _identity(op):
+		# A MIN/MAX lane that kept no cell returns its INFINITE identity, and no cell anywhere means no
+		# measurement. An infinity at the other end is a reading: the field went non-finite. A summing
+		# lane's identity is zero, and a total of zero is a reading like any other.
+		if is_inf(_identity(op)) and acc == _identity(op):
 			continue
 		out[String(row["key"])] = acc
 	out["reduce_step"] = float(_step)

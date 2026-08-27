@@ -14,19 +14,8 @@ The addon is one plugin, and the game is deletable. Copy `addons/local_agents/` 
 delete `game/`, and the agent, creature and simulation nodes keep working. No script outside `game/`
 names a path inside it.
 
-`scripts/check_library_only.sh` proves that on every run rather than asking you to trust it. It stages
-the install for you, deletes `game/`, and then does two passes. First an editor scan, which catches an
-unresolved `class_name`. Then a force-load of every script in the tree through
-`scripts/parse_all_scripts.gd`, because a scan only loads what something references, so a script
-nothing instantiates can preload a deleted file and never be looked at. That is not hypothetical: the
-gate reported OK for days while `streamer/StreamerHost.gd` preloaded `game/ui/SceneEnergyGraph.gd`.
-That file has since moved to `streamer/`, next to the only code that used it.
-
-Two details of that gate are worth knowing if you write one like it. `load()` on a script whose preload
-target is missing returns a NON-null Script and prints the parse error to stderr, so loading is what
-makes the engine parse but the stderr grep is what notices. And zylann.voxel is symlinked into the
-staged project rather than omitted, because `sim/` genuinely needs it for SPHERE mode and leaving it
-out buried the one real break under 26 unresolved types.
+The compiled GDExtension in `gdextensions/localagents/` is a hard dependency. Build it before you run
+anything: `sim/` and the agent nodes name its classes as typed identifiers. INSTALL.md covers the build.
 
 Core library directories:
 
@@ -116,7 +105,7 @@ Seven are the scripts already attached to a demo scene: `examples/TutorialDemo.g
 The other two are game-only: `game/world/VoxelViewControls.gd` and `game/menu/GameMode.gd`.
 
 `project.godot` in this repo also registers `GameMode` and `AppExit`. Both live under `game/` and are
-game-only. Do not register them in a library-only project.
+game-only. Do not register them in a project that deletes `game/`.
 
 ## Project settings
 

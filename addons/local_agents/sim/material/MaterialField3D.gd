@@ -155,7 +155,7 @@ func set_sun(light) -> void:
 var _body = null                                         # LAPlanetBody
 ## Which row of LABodySeeds this field's matter was seeded from. One field, one body.
 var _body_key: String = "planet"
-var _body_measure: Object = null
+var _body_measure: LABodyMeasure = null
 var _body_basis: Basis = Basis.IDENTITY                  # body->world rotation, refreshed once per step
 var _body_basis_inv: Basis = Basis.IDENTITY
 
@@ -167,7 +167,7 @@ func set_body(body) -> void:
 
 ## Bulk properties measured off the seeded matter: mass, surface radius, inertia, the air's gas
 ## constant. Null until the field is seeded, and every reader takes that as unmeasured.
-func body_measure() -> Object:
+func body_measure() -> LABodyMeasure:
 	return _body_measure
 
 
@@ -403,12 +403,12 @@ func _seed_silicate() -> void:
 	if _silicate.size() != _cell_count or _cement.size() != _cell_count \
 			or _solid.size() != _cell_count:
 		return
-	LANativeTables.composition().seed(self, INITIAL_TEMP)
+	LAPlanetComposition.seed(self, INITIAL_TEMP)
 	# Shape the CPU arrays BEFORE the driver's seed_field reads them. The hydrostatic balance waits for
 	# the gravity solve; LAMaterialFieldSphereStep3D.seed_tick marches it once g exists.
-	LANativeTables.lithostatic().clear_gas_in_rock(self)
-	_body_measure = ClassDB.instantiate(&"LABodyMeasure")
-	_body_measure.measure(self, LANativeTables.body_seeds().spin_axis_of(_body_key))
+	LAFieldLithostaticSeed.clear_gas_in_rock(self)
+	_body_measure = LABodyMeasure.new()
+	_body_measure.measure(self, LABodySeeds.spin_axis_of(_body_key))
 
 
 func _seed_sea() -> void:
@@ -424,7 +424,7 @@ func _seed_sea() -> void:
 			continue
 		if (_grid.cell_world_pos(c) - pivot).length_squared() <= sea_sq:
 			_h2o[c] = MAX_MASS
-	LANativeTables.lithostatic().displace_gas_from_water(self)
+	LAFieldLithostaticSeed.displace_gas_from_water(self)
 
 # Athy pore fraction per cell (0 outside regolith), GPU-written and read back on the slow cadence.
 var _porosity: PackedFloat32Array = PackedFloat32Array()

@@ -12,9 +12,6 @@ func run_test(tree: SceneTree) -> bool:
     if not ExtensionLoader.ensure_initialized():
         push_error("NetworkGraph init failed: %s" % ExtensionLoader.get_error())
         return false
-    if not ClassDB.class_exists("NetworkGraph"):
-        push_error("NetworkGraph class missing after extension init.")
-        return false
 
     var service: Node = BackstoryGraphService.new()
     var test_db_path := "user://local_agents/network_backstory_test_%d.sqlite3" % int(Time.get_unix_time_from_system())

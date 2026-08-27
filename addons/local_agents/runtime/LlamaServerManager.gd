@@ -327,11 +327,7 @@ func _normalize_path(path: String) -> String:
     return path
 
 func _runtime_health_binary(key: String) -> String:
-    if not Engine.has_singleton("AgentRuntime"):
-        return ""
-    var runtime = Engine.get_singleton("AgentRuntime")
-    if runtime == null or not runtime.has_method("get_runtime_health"):
-        return ""
+    var runtime: Object = Engine.get_singleton("AgentRuntime")
     var health: Dictionary = runtime.call("get_runtime_health")
     var binaries: Dictionary = health.get("binaries", {})
     var path := String(binaries.get(key, "")).strip_edges()

@@ -19,9 +19,9 @@ static func entry_enthalpies(masses: Dictionary, n_gas_mol: float, t_c: float, p
 			continue
 		match LAMatterChannels.entry_of(String(id)):
 			LAMatterChannels.Entry.H2O:
-				h_h2o += m * LANativeTables.mixture().specific_enthalpy(String(id), t_c, p_pa, m, n_gas_mol)
+				h_h2o += m * LAMixtureEnthalpy.specific_enthalpy(String(id), t_c, p_pa, m, n_gas_mol)
 			LAMatterChannels.Entry.SILICATE:
-				h_sil += m * LANativeTables.mixture().specific_enthalpy(String(id), t_c, p_pa, m, n_gas_mol)
+				h_sil += m * LAMixtureEnthalpy.specific_enthalpy(String(id), t_c, p_pa, m, n_gas_mol)
 			_:
 				mc += m * LAMatterChannels.specific_heat(String(id))
 	return {"h_h2o": h_h2o, "h_silicate": h_sil,
@@ -43,9 +43,8 @@ static func seed(f, t_c: float) -> void:
 		var cell_m3: float = vol[c]
 		if cell_m3 <= 0.0:
 			continue
-		var mass = LANativeTables.cell_mass()
-		var e: Dictionary = entry_enthalpies(mass.masses_at(f, c, cell_m3),
-			mass.gas_moles_at(f, c, cell_m3), t_c, PC.STANDARD_PRESSURE_PA)
+		var e: Dictionary = entry_enthalpies(LAFieldCellMass3D.masses_at(f, c, cell_m3),
+			LAFieldCellMass3D.gas_moles_at(f, c, cell_m3), t_c, PC.STANDARD_PRESSURE_PA)
 		var h_j: float = float(e["h_h2o"]) + float(e["h_silicate"]) + float(e["h_sensible"])
 		f._h[c] = h_j / cell_m3
 		total_j += h_j

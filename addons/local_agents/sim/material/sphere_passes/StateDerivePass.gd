@@ -47,7 +47,6 @@ var _set: RID = RID()
 var _fresh_h_per_c: float = 0.0
 var _fresh_o_per_c: float = 0.0
 var _rad_mixes: Array = []
-var _decay: Object = LANativeTables.decay()
 
 
 ## Device-read only, so this pass's own rather than drained LAChannels.derived_buffers() entries.
@@ -71,8 +70,8 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 	var props: PackedFloat32Array = _props()
 	if props.is_empty():
 		return
-	_fresh_h_per_c = LANativeTables.subs().fresh_litter_per_carbon("H")
-	_fresh_o_per_c = LANativeTables.subs().fresh_litter_per_carbon("O")
+	_fresh_h_per_c = LASubstances.fresh_litter_per_carbon("H")
+	_fresh_o_per_c = LASubstances.fresh_litter_per_carbon("O")
 	if _fresh_h_per_c <= 0.0 or _fresh_o_per_c <= 0.0:
 		push_error("StateDerivePass: LASubstances gives fresh litter no H or O per carbon, so the organic "
 			+ "ratio buffers would divide by nothing.")
@@ -119,15 +118,14 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: in
 	pc.encode_float(44, ORG_MIN_POOL_MOL)
 	pc.encode_float(48, _fresh_h_per_c)
 	pc.encode_float(52, _fresh_o_per_c)
-	# Below TransportPass.MIN_FILL_FRAC of occupied volume a cell donates nothing and holds no bulk state.
-	pc.encode_float(56, TransportPassScript.MIN_FILL_FRAC)
+	pc.encode_float(56, TransportPassScript.EMPTY_RHO_KG_M3)
 	# W/kg of each distinct radiogenic trace mix at the run's epoch: the store is finite, so the rate falls.
-	var epoch: float = _decay.epoch_years()
+	var epoch: float = LARadiogenicDecay.epoch_years()
 	for i in RAD_GROUPS:
 		var w_kg: float = 0.0
 		if i < _rad_mixes.size():
 			var mix: Array = _rad_mixes[i]
-			w_kg = _decay.heat_w_kg_of({"U": mix[0], "Th": mix[1], "K": mix[2]}, epoch)
+			w_kg = LARadiogenicDecay.heat_w_kg_of({"U": mix[0], "Th": mix[1], "K": mix[2]}, epoch)
 		pc.encode_float(60 + i * 4, w_kg)
 	pc.encode_float(76, float(ctx.get("sea_radius", 0.0)))
 	rd.compute_list_bind_compute_pipeline(cl, _pipe)
@@ -147,7 +145,7 @@ func _props() -> PackedFloat32Array:
 	var out: PackedFloat32Array = PackedFloat32Array()
 	out.resize(channels.size() * PROP_STRIDE)
 	var rows: Dictionary = LAChannels.rows()
-	var table: Dictionary = LANativeTables.subs().table()
+	var table: Dictionary = LASubstances.table()
 	for i in channels.size():
 		var name: String = channels[i]
 		var row: Dictionary = rows[name]

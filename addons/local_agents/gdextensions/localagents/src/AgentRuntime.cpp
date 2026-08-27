@@ -1,6 +1,5 @@
 #include "AgentRuntime.hpp"
 
-#include "ModelDownloadManager.hpp"
 #include "RuntimeStringUtils.hpp"
 
 #include <godot_cpp/classes/engine.hpp>
@@ -700,7 +699,6 @@ AgentRuntime::AgentRuntime()
     if (!singleton_) {
         singleton_ = this;
     }
-    download_manager_ = std::make_unique<ModelDownloadManager>();
     system_prompt_ = String("You are Local Agents, an offline assistant running inside a Godot game. Be concise and helpful.");
 }
 
@@ -724,8 +722,6 @@ void AgentRuntime::_bind_methods() {
     ClassDB::bind_method(D_METHOD("synthesize_speech", "request"), &AgentRuntime::synthesize_speech);
     ClassDB::bind_method(D_METHOD("transcribe_audio", "request"), &AgentRuntime::transcribe_audio);
     ClassDB::bind_method(D_METHOD("embed_text", "text", "options"), &AgentRuntime::embed_text, DEFVAL(Dictionary()));
-    ClassDB::bind_method(D_METHOD("download_model", "request"), &AgentRuntime::download_model);
-    ClassDB::bind_method(D_METHOD("download_model_hf", "repo", "options"), &AgentRuntime::download_model_hf, DEFVAL(Dictionary()));
     ClassDB::bind_method(D_METHOD("get_model_cache_directory"), &AgentRuntime::get_model_cache_directory);
 
     ClassDB::bind_method(D_METHOD("set_default_model_path", "path"), &AgentRuntime::set_default_model_path);
@@ -734,23 +730,6 @@ void AgentRuntime::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_runtime_directory"), &AgentRuntime::get_runtime_directory);
     ClassDB::bind_method(D_METHOD("set_system_prompt", "prompt"), &AgentRuntime::set_system_prompt);
     ClassDB::bind_method(D_METHOD("get_system_prompt"), &AgentRuntime::get_system_prompt);
-
-    ADD_SIGNAL(MethodInfo("download_started",
-        PropertyInfo(Variant::STRING, "label"),
-        PropertyInfo(Variant::STRING, "path")));
-    ADD_SIGNAL(MethodInfo("download_progress",
-        PropertyInfo(Variant::STRING, "label"),
-        PropertyInfo(Variant::FLOAT, "progress"),
-        PropertyInfo(Variant::INT, "received_bytes"),
-        PropertyInfo(Variant::INT, "total_bytes"),
-        PropertyInfo(Variant::STRING, "path")));
-    ADD_SIGNAL(MethodInfo("download_log",
-        PropertyInfo(Variant::STRING, "line"),
-        PropertyInfo(Variant::STRING, "path")));
-    ADD_SIGNAL(MethodInfo("download_finished",
-        PropertyInfo(Variant::BOOL, "ok"),
-        PropertyInfo(Variant::STRING, "error"),
-        PropertyInfo(Variant::STRING, "path")));
 
     ADD_PROPERTY(PropertyInfo(Variant::STRING, "default_model_path"), "set_default_model_path", "get_default_model_path");
     ADD_PROPERTY(PropertyInfo(Variant::STRING, "runtime_directory"), "set_runtime_directory", "get_runtime_directory");
@@ -1029,34 +1008,6 @@ PackedFloat32Array AgentRuntime::embed_text(const String &text, const Dictionary
     return embedding;
 }
 
-Dictionary AgentRuntime::download_model(const Dictionary &request) {
-    if (!download_manager_) {
-        download_manager_ = std::make_unique<ModelDownloadManager>();
-    }
-
-    ModelDownloadManager::Callbacks callbacks;
-    callbacks.started = [this](const String &label, const String &path) {
-        emit_signal("download_started", label, path);
-    };
-    callbacks.progress = [this](const String &label, double progress, int64_t received, int64_t total, const String &path) {
-        emit_signal("download_progress", label, progress, received, total, path);
-    };
-    callbacks.log = [this](const String &line, const String &path) {
-        emit_signal("download_log", line, path);
-    };
-    callbacks.finished = [this](bool ok, const String &error, const String &path) {
-        emit_signal("download_finished", ok, error, path);
-    };
-
-    String runtime_dir_copy;
-    {
-        std::scoped_lock lock(mutex_);
-        runtime_dir_copy = runtime_directory_;
-    }
-
-    return download_manager_->download(request, callbacks, runtime_dir_copy);
-}
-
 String AgentRuntime::get_model_cache_directory() const {
     ProjectSettings *settings = ProjectSettings::get_singleton();
     if (!settings) {
@@ -1070,105 +1021,6 @@ String AgentRuntime::get_model_cache_directory() const {
     std::error_code ec;
     std::filesystem::create_directories(dir_path, ec);
     return String::utf8(dir_path.string().c_str());
-}
-
-Dictionary AgentRuntime::download_model_hf(const String &repo, const Dictionary &options) {
-    Dictionary request;
-    request["hf_repo"] = repo;
-
-    String hf_file;
-    if (options.has("hf_file")) {
-        hf_file = options["hf_file"];
-    } else if (options.has("file")) {
-        hf_file = options["file"];
-    }
-
-    if (hf_file.is_empty()) {
-        Dictionary error;
-        error["ok"] = false;
-        error["error"] = String("missing_hf_file");
-        return error;
-    }
-    request["hf_file"] = hf_file;
-
-    if (options.has("hf_tag")) {
-        request["hf_tag"] = options["hf_tag"];
-    } else if (options.has("tag")) {
-        request["hf_tag"] = options["tag"];
-    }
-
-    if (options.has("label")) {
-        request["label"] = options["label"];
-    } else {
-        request["label"] = hf_file;
-    }
-
-    auto copy_option = [&](const char *key) {
-        if (options.has(key)) {
-            request[key] = options[key];
-        }
-    };
-
-    copy_option("force");
-    copy_option("skip_existing");
-    copy_option("offline");
-    copy_option("bearer_token");
-    copy_option("hf_endpoint");
-    copy_option("timeout_seconds");
-    copy_option("no_mmproj");
-    copy_option("headers");
-
-    ProjectSettings *settings = ProjectSettings::get_singleton();
-    auto globalize = [&](const String &path) -> String {
-        if (!settings || path.is_empty()) {
-            return path;
-        }
-        if (path.begins_with("user://") || path.begins_with("res://")) {
-            return settings->globalize_path(path);
-        }
-        return path;
-    };
-
-    String output_path = options.get("output_path", String());
-    if (!output_path.is_empty()) {
-        output_path = globalize(output_path);
-    }
-
-    if (output_path.is_empty()) {
-        String output_dir = options.get("output_dir", String());
-        if (output_dir.is_empty()) {
-            output_dir = get_model_cache_directory();
-        } else {
-            output_dir = globalize(output_dir);
-        }
-
-        if (output_dir.is_empty()) {
-            Dictionary error;
-            error["ok"] = false;
-            error["error"] = String("missing_output_path");
-            return error;
-        }
-
-        std::filesystem::path dir_path(local_agents::runtime::to_utf8(output_dir));
-        String folder_override = options.get("folder", String());
-        if (!folder_override.is_empty()) {
-            dir_path /= local_agents::runtime::to_utf8(folder_override);
-        } else {
-            String folder = repo;
-            folder = folder.replace("/", "_");
-            folder = folder.replace(":", "_");
-            dir_path /= local_agents::runtime::to_utf8(folder);
-        }
-
-        std::error_code ec;
-        std::filesystem::create_directories(dir_path, ec);
-        dir_path /= local_agents::runtime::to_utf8(hf_file);
-        output_path = String::utf8(dir_path.string().c_str());
-    }
-
-    request["output_path"] = output_path;
-
-    return download_model(request);
 }
 
 Dictionary AgentRuntime::synthesize_speech(const Dictionary &request) {

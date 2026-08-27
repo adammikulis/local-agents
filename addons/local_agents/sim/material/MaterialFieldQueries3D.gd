@@ -276,7 +276,7 @@ func water_force_at(pos: Vector3) -> Vector3:
 	if speed <= 0.0:
 		return Vector3.ZERO
 	# Mass density of the moving water, kg/m^3: its amount (mol/m^3) times its molar mass.
-	var rho: float = float(LANativeTables.subs().table().get("h2o", {}).get("molar_mass", 0.0)) * liquid_at(c)
+	var rho: float = float(LASubstances.table().get("h2o", {}).get("molar_mass", 0.0)) * liquid_at(c)
 	return v.normalized() * (0.5 * rho * speed * speed)
 
 

@@ -9,7 +9,8 @@ signal message_emitted(role, content)
 signal action_requested(action, params)
 signal think_completed(result)
 
-var agent_node: Object
+## The native node, or a test double standing in for it so a unit test loads no model.
+var agent_node: Object = null
 var history: Array = []
 ## Sampling settings (temperature, penalties, backend). configure() replaces this wholesale when it
 ## is handed an inference preset, so nothing else may store state here.
@@ -339,9 +340,7 @@ func _emit_think_completed(result: Dictionary) -> void:
     _post_think(result)
     emit_signal("think_completed", result)
 
-func _agent_runtime():
-    if not Engine.has_singleton("AgentRuntime"):
-        return null
+func _agent_runtime() -> Object:
     return Engine.get_singleton("AgentRuntime")
 
 # Mirror onto the shared runtime singleton the same model/dir config AgentNode.think sets each call, so
@@ -464,11 +463,7 @@ func _ensure_agent_node() -> bool:
         return true
     if not ExtensionLoader.ensure_initialized():
         return false
-    if not ClassDB.class_exists("AgentNode"):
-        return false
-    agent_node = ClassDB.instantiate("AgentNode")
-    if agent_node == null:
-        return false
+    agent_node = AgentNode.new()
     add_child(agent_node)
     _sync_agent_node_properties()
     return true
