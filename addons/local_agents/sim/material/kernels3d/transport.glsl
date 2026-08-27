@@ -958,7 +958,7 @@ void main() {
 				}
 			}
 			flow = clamp(flow, 0.0, remaining);
-			// Free volume is finite and shared among the faces: at most a sixth each, off one pre-state.
+			// LA_APPROX: shared_face_headroom
 			if (!is_signed && params.max_fill > 0.0 && !isinf(params.max_fill)) {
 				flow = min(flow, max(params.max_fill - amount[nb], 0.0) / float(N_SLOTS));
 			}

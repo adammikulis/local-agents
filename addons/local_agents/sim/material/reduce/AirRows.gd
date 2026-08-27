@@ -25,6 +25,10 @@ static func rows() -> Array:
 			"threshold": LAMaterialField3D.CONDENSE_COVER_MIN}, true).merged(cool, true),
 		# The peak, not the mean: a jet is local, and a mean over the box cannot say how fast the wind got.
 		{"key": "wind_speed_max", "source": "speed", "op": Rec.Op.MAX, "mask": Rec.Mask.OPEN},
+		{"key": "wind_over_air", "source": "speed", "op": Rec.Op.MAX, "mask": Rec.Mask.OPEN,
+			"gate": "rho_bulk", "gate_lo": 0.1},
+		{"key": "wind_over_water", "source": "speed", "op": Rec.Op.MAX, "mask": Rec.Mask.OPEN,
+			"gate": "rho_bulk", "gate_lo": 500.0},
 		{"key": "wind_x_sum", "source": "vel_x", "op": Rec.Op.SUM, "mask": Rec.Mask.OPEN},
 		{"key": "wind_z_sum", "source": "vel_z", "op": Rec.Op.SUM, "mask": Rec.Mask.OPEN},
 		{"key": "shock_cells", "source": "shock", "op": Rec.Op.COUNT_GT, "mask": Rec.Mask.OPEN,

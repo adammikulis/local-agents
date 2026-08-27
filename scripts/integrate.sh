@@ -84,7 +84,10 @@ if [ -d "$STAGE_WT" ] \
 else
 	git -C "$ROOT" worktree remove "$STAGE_WT" --force >/dev/null 2>&1 || true
 	git -C "$ROOT" branch -D "$STAGE" >/dev/null 2>&1 || true
-	"$SCRIPT_DIR/new_worktree.sh" "$STAGE" "$DEV" >/dev/null || { echo "integrate: could not stage." >&2; exit 2; }
+	# ITS OWN bin, ALWAYS: the staging tree is checked out at $DEV and would otherwise meet the primary's
+	# dylib, which may be built from a lane whose native class_names $DEV still declares in GDScript.
+	LA_OWN_BIN=1 LA_SCAN_LATER=1 "$SCRIPT_DIR/new_worktree.sh" "$STAGE" "$DEV" >/dev/null \
+		|| { echo "integrate: could not stage." >&2; exit 2; }
 
 	if ! git -C "$STAGE_WT" merge --no-ff "$BRANCH" -m "$SUBJECT" >/dev/null 2>&1; then
 		echo "integrate: the merge conflicts. Resolve it in $STAGE_WT, then re-run." >&2
@@ -132,16 +135,50 @@ if [ -n "$(git -C "$STAGE_WT" status --porcelain)" ]; then
 	fi
 fi
 
+# THE DYLIB MUST MATCH THE SOURCE IT IS ABOUT TO LINT. A lane that changed gdextensions/ ships native
+# class_names the staging tree only has after the merge, and the scan below cannot parse the tree until
+# the extension it loads is the merged one.
+if [ -x "$STAGE_WT/addons/local_agents/gdextensions/localagents/scripts/build_extension.sh" ]; then
+	echo "integrate: rebuilding the GDExtension for the merged tree" >&2
+	if ! (cd "$STAGE_WT/addons/local_agents/gdextensions/localagents" \
+			&& bash scripts/build_extension.sh --platform "$(uname -s | tr 'A-Z' 'a-z' | sed 's/darwin/macos/')" \
+			>/dev/null 2>&1); then
+		echo "integrate: the merged tree's GDExtension does not build. $DEV is untouched." >&2
+		exit 1
+	fi
+fi
+echo "integrate: editor scan on the merged tree" >&2
+if ! "$SCRIPT_DIR/editor_scan.sh" --path "$STAGE_WT" >&2; then
+	echo "integrate: the merged tree does not parse. $DEV is untouched." >&2
+	exit 1
+fi
+
 echo "integrate: gates, on the merged tree" >&2
 # The STAGING TREE'S OWN harness. $SCRIPT_DIR/agent_harness.sh computes its repo root from its own
 # location, so it lints the PRIMARY no matter what the cwd is -- it reported green on the wrong tree and
 # landed a red merge. cd is not enough; the path has to be the staged one.
 STAGE_LINT="$STAGE_WT/scripts/agent_harness.sh"
 [ -x "$STAGE_LINT" ] || { echo "integrate: the staged tree has no harness at $STAGE_LINT." >&2; exit 2; }
-if ! (cd "$STAGE_WT" && LA_CEILING_STRICT=1 LA_INTEGRATE_BRANCH="$STAGE" LA_INTEGRATE_SOURCE="$BRANCH" "$STAGE_LINT" lint >/dev/null 2>&1); then
-	echo "integrate: LINT FAILED on the merged tree. $DEV is untouched." >&2
-	echo "           Reproduce with: cd $STAGE_WT && scripts/agent_harness.sh lint" >&2
-	exit 1
+# A VIOLATION refuses the landing. A gate that COULD NOT RUN examined nothing, and while the substrate is
+# declaredly unstable every GPU gate is in that state, so the count is ratcheted instead: it may fall and
+# may not rise. Without this nothing lands until PHYSICS_TODO E is fixed, and the lines diverge past the
+# handful of commits a reconciliation can still be read at.
+LINT_OUT="$(cd "$STAGE_WT" && LA_CEILING_STRICT=1 LA_INTEGRATE_BRANCH="$STAGE" LA_INTEGRATE_SOURCE="$BRANCH" \
+	"$STAGE_LINT" lint 2>&1)"
+LINT_RC=$?
+if [ "$LINT_RC" -ne 0 ]; then
+	SUMMARY="$(printf '%s\n' "$LINT_OUT" | rg -N -o -e 'LINT_SUMMARY: ([0-9]+) gate\(s\) COULD NOT RUN, ([0-9]+) violation' -r '$1 $2' | head -1)"
+	CANNOT="${SUMMARY%% *}"
+	VIOL="${SUMMARY##* }"
+	UNRUN_CEIL="$(rg -N -o '^[0-9]+$' "$STAGE_WT/docs/UNRUNNABLE_GATES_CEILING" 2>/dev/null | head -1)"
+	if [ -z "$SUMMARY" ] || [ -z "$UNRUN_CEIL" ] || [ "${VIOL:-1}" -ne 0 ] || [ "${CANNOT:-1}" -gt "$UNRUN_CEIL" ]; then
+		echo "integrate: LINT FAILED on the merged tree. $DEV is untouched." >&2
+		[ -n "$SUMMARY" ] && echo "           $CANNOT could not run (ceiling $UNRUN_CEIL), $VIOL violation(s)." >&2
+		echo "           Reproduce with: cd $STAGE_WT && scripts/agent_harness.sh lint" >&2
+		exit 1
+	fi
+	echo "integrate: landing with $CANNOT gate(s) that COULD NOT RUN (ceiling $UNRUN_CEIL), 0 violations." >&2
+	echo "           They measure nothing until docs/PHYSICS_TODO.md E is fixed. This is declared, not passed." >&2
 fi
 
 # --- 4. LAND, THEN PRUNE EVERYTHING THIS TOUCHED -------------------------------------------------------

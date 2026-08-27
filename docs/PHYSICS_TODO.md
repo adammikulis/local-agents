@@ -229,8 +229,9 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       per-pass probe wants the same volume weight the reduce rows carry.
 - [ ] **The wind is supersonic and always has been**, against a real jet stream of ~70 m/s. `MAX_WIND` was
       deleted on purpose (wind speed is an output), so this is the momentum equation or its timebase, not a
-      missing clamp. **Reproduce:** `scripts/agent_harness.sh sim --frames 200`, then read the peak off the
-      derived `speed` channel.
+      missing clamp. **THIS IS WHAT DENIES THE TRANSPORT SUBSTEP BUDGET**, so it is upstream of every number
+      the substrate prints and of `HANDOFF.md` item 0. **Reproduce:** `scripts/agent_harness.sh sim
+      --frames 6` — the `SUBSTEPS_DENIED` lines name `wind` as the term that blows the budget.
 - [ ] **`mineral_total` still trips the conservation gate**, and the pass its per-pass probe once named no
       longer exists. Re-localise it against the surviving passes before theorising.
 - [ ] **No per-pass attribution for ELEMENTS.** Mineral and energy each have a probe, and each named its

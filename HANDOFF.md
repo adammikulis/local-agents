@@ -156,5 +156,7 @@ full lint, so a commit per step is a lint per step. A run past `docs/RUN_TIMEOUT
 
 Make every worktree with `scripts/new_worktree.sh`, which symlinks the compiled `bin/`, imports the `.glsl`
 kernels and editor-scans. Without the import the GPU field is dead and the report still looks fine.
+**A lane that will touch `gdextensions/` needs `LA_OWN_BIN=1`**: one shared `bin/` cannot serve two trees
+whose native `class_name`s differ, and the other tree stops parsing with "hides a native class".
 
 A gate that passes with the feature disabled is not a gate. Mutation-test every gate you write, both ways.

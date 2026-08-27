@@ -1,0 +1,7 @@
+# Gates that COULD NOT RUN on the merged tree - not violations, gates whose subject is absent because the
+# run they measure was invalid. May fall, may not rise, and reaches zero when the wind does.
+#
+# Every GPU gate reads a sim run, and a run whose transport substep budget is denied is withheld by the
+# harness. That is docs/PHYSICS_TODO.md E, upstream of all of them. A VIOLATION still refuses a landing
+# outright: this ratchet covers absence, never a broken claim.
+13

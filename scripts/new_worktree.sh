@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
-# Create a READY-TO-BUILD git worktree off the dev branch in ONE command, instead of the 4-step dance
-# (add worktree · symlink the compiled bin · import shaders · editor-scan). Crucially it runs `--import`,
-# WITHOUT which a fresh worktree's .glsl compute kernels don't compile → load() returns null → the GPU
-# MaterialField is SILENTLY DEAD (biomass=0) and the log fills with "get_spirv on a null value". So always
-# make worktrees with this, then trust SIM_REPORT.
+# Create a READY-TO-BUILD git worktree off the dev branch in ONE command. Crucially it runs `--import`,
+# WITHOUT which a fresh worktree's .glsl kernels don't compile → load() returns null → the GPU
+# MaterialField is SILENTLY DEAD (biomass=0). So always make worktrees with this, then trust SIM_REPORT.
 #
 #   scripts/new_worktree.sh feature/my-thing            # off the dev branch CLAUDE.md names
 #   scripts/new_worktree.sh feature/my-thing <base>     # explicit base
+#   LA_OWN_BIN=1 scripts/new_worktree.sh feature/my-thing   # a lane that will touch gdextensions/
 #
 # Prints the worktree path on success. Safe to source the path: WT=$(scripts/new_worktree.sh ... | tail -1)
 set -euo pipefail
@@ -43,7 +42,15 @@ abort() {  # abort <what failed> <rc>
 # A DANGLING LINK IS WORSE THAN NO LINK: the extension silently fails to load and every class_name reports
 # MISSING, which reads as a broken branch rather than an unbuilt one.
 [ -d "$BIN" ] || abort "no compiled bin at ${BIN}: build the GDExtension in the primary checkout first." 2
-ln -sfn "$BIN" "$WT/addons/local_agents/gdextensions/localagents/bin"
+# ONE SHARED bin/ CANNOT SERVE TWO TREES WHOSE EXTENSION SOURCES DIFFER. The moment a lane adds or removes
+# a class_name that also exists natively, the other tree reports "hides a native class" and stops parsing.
+# A lane that will touch gdextensions/ takes a COPY and builds into it.
+if [ "${LA_OWN_BIN:-0}" = "1" ]; then
+	rm -rf "$WT/addons/local_agents/gdextensions/localagents/bin"
+	cp -R "$BIN" "$WT/addons/local_agents/gdextensions/localagents/bin"
+else
+	ln -sfn "$BIN" "$WT/addons/local_agents/gdextensions/localagents/bin"
+fi
 if [ -d "$DEPS" ]; then
 	ln -sfn "$DEPS" "$WT/addons/local_agents/gdextensions/localagents/thirdparty"
 else
@@ -56,11 +63,17 @@ echo "[new_worktree] importing shaders (compiles .glsl kernels — required or t
 # the same .godot/ segfault, and a fresh worktree is exactly when several agents start at once; the
 # wrapper takes the per-project lock. It also force-loads
 # every script, so a worktree that does not parse is reported here instead of at the first SIM_REPORT.
-echo "[new_worktree] editor scan + parse sweep (registers new class_name / .gdextension)…" >&2
-scan_rc=0
-"$PRIMARY/scripts/editor_scan.sh" --path "$WT" >&2 || scan_rc=$?
-if [ "$scan_rc" -ne 0 ]; then
-	abort "editor scan exited $scan_rc: the tree does not parse, so a new class_name is MISSING and the lane would start red for a reason it did not cause." 1
+# LA_SCAN_LATER is for a caller that must still change the tree before it can parse - the integrator
+# merges and rebuilds the extension first. The scan is not skipped, it MOVES to that caller.
+if [ "${LA_SCAN_LATER:-0}" = "1" ]; then
+	echo "[new_worktree] editor scan deferred to the caller (LA_SCAN_LATER)." >&2
+else
+	echo "[new_worktree] editor scan + parse sweep (registers new class_name / .gdextension)…" >&2
+	scan_rc=0
+	"$PRIMARY/scripts/editor_scan.sh" --path "$WT" >&2 || scan_rc=$?
+	if [ "$scan_rc" -ne 0 ]; then
+		abort "editor scan exited $scan_rc: the tree does not parse, so a new class_name is MISSING and the lane would start red for a reason it did not cause." 1
+	fi
 fi
 echo "[new_worktree] ready: branch '$BRANCH' off '$BASE'" >&2
 echo "$WT"

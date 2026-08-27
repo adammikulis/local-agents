@@ -281,7 +281,7 @@ func _substeps(row: Dictionary, cell_m: float, dt_s: float, ctx: Dictionary) -> 
 			* LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK * tk_max) * dt_s / cell_m)
 	var want: int = int(ceil(need))
 	if want > SUBSTEP_MAX:
-		_deny(row, want, "celerity=%.4g wind=%.4g temp_k=%.4g cell_m=%.4g dt_s=%.4g"
+		_deny(row, want, "celerity=%s wind=%s temp_k=%s cell_m=%s dt_s=%s"
 			% [_c_static, vmax, tk_max, cell_m, dt_s])
 	return clampi(want, 1, SUBSTEP_MAX)
 
