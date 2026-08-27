@@ -32,7 +32,7 @@ func _ready() -> void:
 		return
 
 	_wire_actions()
-	add_child(LAMenuShooter.new())
+	add_child(LASceneShooter.new())
 
 
 func _direct_launch_arg() -> String:

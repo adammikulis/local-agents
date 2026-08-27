@@ -113,9 +113,8 @@ func parse_cmdline() -> void:
 			_render = true
 		elif arg.begins_with("--shoot-frames="):
 			_shoot_frames = int(arg.substr("--shoot-frames=".length()))
-		elif arg.begins_with("--shoot-size="):
-			var wh: PackedStringArray = arg.substr("--shoot-size=".length()).split("x")
-			_shoot_size = Vector2i(int(wh[0]), int(wh[1]))
+		elif arg.begins_with(LocalAgentDemoHarness.ARG_SHOOT_SIZE):
+			_shoot_size = LocalAgentDemoHarness.parse_shoot_size(_shoot_size)
 		elif arg.begins_with(LocalAgentDemoHarness.ARG_RUN_FRAMES):
 			# One owner for this flag's spelling. This scene cannot use LocalAgentDemoHarness itself,
 			# because it also needs --perf-frames, the --bench timelines and the framerate uncap below,

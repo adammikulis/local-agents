@@ -6,6 +6,8 @@ extends Node
 const ARG_RUN_FRAMES: String = "--run-frames="
 const ARG_SHOOT: String = "--shoot="
 const ARG_SHOOT_FRAMES: String = "--shoot-frames="
+const ARG_SHOOT_SIZE: String = "--shoot-size="
+const DEFAULT_SHOOT_SIZE: Vector2i = Vector2i(1280, 800)
 
 @export_group("Headless run")
 ## Frames to run before printing the report and quitting. 0 = never auto-quit (normal interactive play).
@@ -201,6 +203,28 @@ func _quit(code: int) -> void:
 			app_exit.call("quit", code)
 			return
 	tree.quit(code)
+
+
+## The off-screen surface a scene is photographed on, sized by --shoot-size. The OS window stays at the
+## one pixel LAQuietWindow gives it, so no screenshot needs a window that can land on a monitor.
+static func offscreen_shot_viewport(scene: Node) -> SubViewport:
+	var vp: SubViewport = SubViewport.new()
+	vp.name = "ShotViewport"
+	vp.size = parse_shoot_size()
+	vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	scene.get_tree().root.add_child(vp)
+	scene.reparent(vp)
+	return vp
+
+
+static func parse_shoot_size(fallback: Vector2i = DEFAULT_SHOOT_SIZE) -> Vector2i:
+	for arg_v in OS.get_cmdline_user_args():
+		var arg: String = String(arg_v)
+		if arg.begins_with(ARG_SHOOT_SIZE):
+			var wh: PackedStringArray = arg.substr(ARG_SHOOT_SIZE.length()).split("x")
+			if wh.size() == 2:
+				return Vector2i(maxi(1, int(wh[0])), maxi(1, int(wh[1])))
+	return fallback
 
 
 static func parse_run_frames(fallback: int = 0) -> int:

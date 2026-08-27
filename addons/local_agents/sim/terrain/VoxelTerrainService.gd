@@ -97,6 +97,8 @@ func build_planet(parent: Node3D, opts: Dictionary = {}) -> void:
 	var rr: float = _planet_radius + _planet_relief + 80.0     # sphere-enclosing box (+ atmosphere headroom)
 	terrain.voxel_bounds = AABB(
 		_center - Vector3(rr, rr, rr), Vector3(rr * 2.0, rr * 2.0, rr * 2.0))
+	# The field's solid mask is a VoxelTool query; full load mode is what lets it answer away from a viewer.
+	terrain.full_load_mode_enabled = true
 	parent.add_child(terrain)
 	_terrain = terrain
 	_gen_opts = gen_opts

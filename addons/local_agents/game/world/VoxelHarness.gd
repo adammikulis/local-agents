@@ -183,3 +183,14 @@ static func _scan_presentation(n: Node, found: PackedStringArray) -> int:
 	for ch in n.get_children():
 		seen += _scan_presentation(ch, found)
 	return seen
+
+
+## Appended to SHOT_SAVED: where the picture was taken from, so a shot says what it is looking at.
+static func shot_info(w) -> String:
+	var cam: Camera3D = w._camera
+	if cam == null:
+		return "cam=absent"
+	var up: Vector3 = w._body.up_at(cam.global_position)
+	var fwd: Vector3 = -cam.global_transform.basis.z
+	return "cam_alt_m=%.0f cam_pitch_deg=%.1f" % [
+		w._sim.terrain().altitude_at(cam.global_position), rad_to_deg(asin(clampf(fwd.dot(up), -1.0, 1.0)))]
