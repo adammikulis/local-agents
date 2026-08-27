@@ -17,15 +17,20 @@ KERNEL="$REPO_ROOT/addons/local_agents/sim/material/kernels3d/transport.glsl"
 
 # --- the capture: a short GLOBAL run records the slice box's exterior --------------------------------
 # BSD mktemp only accepts XXXXXX at the END of the template, so the .json arrives by rename.
+# A CROSSING NEEDS A WORLD THAT CAN CROSS: the rows that move matter through a face. Both arms run at
+# the rung the capture was recorded in, or the exterior and the interior are two different worlds.
 OWN_CAP=0
+CAP_RUNG="${LA_BND_RUNG:-8}"
 if la_cap_dir >/dev/null; then
   CAP="$(la_cap_state)" || exit 2
+  CAP_RUNG="$(la_cap_rung)" || {
+    echo "ERROR: the shared capture does not say which rung it was recorded in." >&2; exit 2; }
   cap_out=""
 else
   CAP="$(mktemp "${TMPDIR:-/tmp}/la_bnd_cap.XXXXXX")" && mv "$CAP" "$CAP.json" && CAP="$CAP.json"
   OWN_CAP=1
   cap_out="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --frames "${LA_BND_CAP_FRAMES:-20}" \
-    --slice-capture "$CAP" --report h2o_total 2>&1)"
+    --rung "$CAP_RUNG" --slice-capture "$CAP" --report h2o_total 2>&1)"
 fi
 drop_cap() { [ "$OWN_CAP" -eq 1 ] && rm -f "$CAP"; return 0; }
 if ! python3 -c "
@@ -248,7 +253,7 @@ fi
 # --- arm two: the real slice consumes the same capture and the crossings reach the ledger -------------
 ERRLOG="$(mktemp "${TMPDIR:-/tmp}/la_bnd_books.XXXXXX")"
 slice_out="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --slice --slice-state "$CAP" \
-  --frames "${LA_BND_SLICE_FRAMES:-60}" --raw 2>"$ERRLOG")"
+  --rung "$CAP_RUNG" --frames "${LA_BND_SLICE_FRAMES:-60}" --raw 2>"$ERRLOG")"
 slice_rc=$?
 drop_cap
 case "$slice_rc" in

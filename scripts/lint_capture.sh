@@ -47,7 +47,12 @@ fi
 
 # --raw so the report reaches the capture through sim_run's OWN error census: a run that logged engine
 # errors prints no JSON, and the capture then holds no numbers for any gate to read.
-"$SCRIPT_DIR/sim_run.sh" --path "$ROOT" --frames "$FRAMES" --seed "$SEED" --keep --raw \
+# THE WHOLE WORLD, not the demo's rung: a gate that asks after a process reads a world that has it.
+# The rung is written beside the capture, because a face state replayed into another rung's interior is
+# an exterior from a different world.
+CAP_RUNG="${LA_CAPTURE_RUNG:-8}"
+printf '%s\n' "$CAP_RUNG" > "$CAP/rung"
+"$SCRIPT_DIR/sim_run.sh" --path "$ROOT" --frames "$FRAMES" --seed "$SEED" --rung "$CAP_RUNG" --keep --raw \
 	--slice-capture "$CAP/slice_state.json" > "$CAP/report.raw" 2> "$CAP/sim_run.err"
 SIM_RC=$?
 if [ -n "$POLL" ]; then kill "$POLL" 2>/dev/null; wait "$POLL" 2>/dev/null; fi
