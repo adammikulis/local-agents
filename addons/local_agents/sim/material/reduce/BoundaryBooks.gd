@@ -4,12 +4,11 @@ extends RefCounted
 ## `bnd_<channel>` is units crossing the domain edge per step, `bnd_h_<channel>` the joules with them.
 ## POSITIVE IS INTO THE DOMAIN. A shut wall declares no row, so every book here reads zero.
 
-const Rec: GDScript = preload("res://addons/local_agents/sim/material/ReduceRecords.gd")
-const AMOUNT: String = "bnd_"
-const HEAT: String = "bnd_h_"
+const AMOUNT: String = LAReduceBoundaryRows.BOOKED_PREFIX
+const HEAT: String = LAReduceBoundaryRows.HEAT_PREFIX
 
 static var _declared: PackedStringArray = PackedStringArray()
-static var _scanned: bool = false
+static var _scanned_rung: int = LAProcessSet.UNSET
 
 var missing: PackedStringArray = PackedStringArray()
 var heat_net: float = 0.0
@@ -21,11 +20,12 @@ var _gross: Dictionary = {}
 ## Channels a reduce row promises a crossing for. An OPEN wall declaring none is not silent either: its
 ## crossing goes unbooked, reads as drift, and the conservation gate fires.
 static func declared() -> PackedStringArray:
-	if _scanned:
+	if _scanned_rung == LAProcessSet.active():
 		return _declared
-	_scanned = true
+	_scanned_rung = LAProcessSet.active()
+	_declared = PackedStringArray()
 	var names: PackedStringArray = PackedStringArray()
-	for row: Dictionary in Rec.rows():
+	for row: Dictionary in LAProcessSet.reduce_rows():
 		var key: String = String(row["key"])
 		if key.begins_with(AMOUNT):
 			names.append(key.substr(AMOUNT.length()))
@@ -61,7 +61,9 @@ func sample(f: Dictionary) -> void:
 		_gross[ch] = float(_gross.get(ch, 0.0)) + absf(d)
 		heat_net += dh
 		heat_gross += absf(dh)
-	for sch in LAReduceBoundaryRows.BOOKED_SIGNED:
+	for sch in LAProcessSet.booked():
+		if not LAReduceBoundaryRows.BOOKED_SIGNED.has(sch):
+			continue
 		var sa: String = AMOUNT + String(sch)
 		if not f.has(sa):
 			missing.append(sa)

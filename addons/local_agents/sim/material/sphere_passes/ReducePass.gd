@@ -23,7 +23,7 @@ var _last: Dictionary = {}              # the last drain, for the query modules 
 ## One partial per workgroup per row, plus the crust reference the diff row is taken from.
 func _buffers(cc: int) -> Dictionary:
 	var g: int = maxi(int(ceil(float(cc) / float(GROUP))), 1)
-	return {PARTIALS: g * LAReduceRecords.rows().size(), CRUST_REF: maxi(cc, 1)}
+	return {PARTIALS: g * LAProcessSet.reduce_rows().size(), CRUST_REF: maxi(cc, 1)}
 
 
 func _setup(bufs: Dictionary, cc: int) -> void:
@@ -43,7 +43,7 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 		push_error("ReducePass: the driver allocated no \"nbr\"/\"vert_up\"/\"vert_down\"; no row can ask "
 			+ "what is beside a cell, and none can ask what is below it.")
 		return
-	for row: Dictionary in LAReduceRecords.rows():
+	for row: Dictionary in LAProcessSet.reduce_rows():
 		var src: String = String(row["source"])
 		var aux: String = String(row.get("aux", ""))
 		var aux2: String = String(row.get("aux2", ""))

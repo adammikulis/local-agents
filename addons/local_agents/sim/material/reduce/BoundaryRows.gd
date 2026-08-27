@@ -11,6 +11,10 @@ const BOOKED: PackedStringArray = ["h2o", "silicate", "o2", "co2", "n2", "h2", "
 ## Channels booked amount-only: neither momentum nor charge is matter, so neither carries a heat leg.
 const BOOKED_SIGNED: PackedStringArray = ["mom_x", "mom_y", "mom_z", "charge"]
 
+## The one spelling of a boundary book's key.
+const BOOKED_PREFIX: String = "bnd_"
+const HEAT_PREFIX: String = "bnd_h_"
+
 
 ## `bnd_<ch>` is the channel's units crossing the domain edge per step, `bnd_h_<ch>` the joules riding
 ## with them, both volume-integrated to match the stock rows. Positive is into the domain.

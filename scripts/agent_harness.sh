@@ -46,10 +46,14 @@ Commands:
   dropin        Prove the addon works as a drop-in: stage a consumer project holding only
                 addons/local_agents/, author a scene with no script in it, and run it.
                 Set LA_GATE_MODEL=/path/to/model.gguf to also require a real reply.
+  ladder        Run scripts/check_process_ladder.sh: every rung of the process ladder, bottom-up,
+                stopping at the first red one. A landing-time command, not a per-change one.
   sim [args]    Run the planet and print its books via scripts/sim_run.sh. Off-screen, streamer off,
                 re-imports first so stale kernels cannot fake a report. Defaults to the standard
                 verification arm (200 steps, seed 4242, --planet-only --no-fauna).
-                e.g. agent_harness.sh sim --frames 600      agent_harness.sh sim --raw
+                --rung=N picks which processes the world contains (LAProcessSet); without it the
+                world runs at docs/PLAYABLE_RUNG.
+                e.g. agent_harness.sh sim --frames 600      agent_harness.sh sim --rung=0 --frames 20
   score [args]  PHYSICS_RUBRIC.md, all ten criteria, COMPUTED. Never hand-enter a row: the half a person
                 scores is the half that moves. Prints the table row ready to paste. Takes its own
                 comparison runs for determinism and observer independence, so it is minutes.
@@ -103,7 +107,7 @@ if [[ -x "$SCRIPT_DIR/ensure_worktree_ready.sh" ]]; then
 fi
 
 case "$cmd" in
-  fast|all|bounded|single|smoke|extension|lint|demo|dropin|sim|score) ;;
+  fast|all|bounded|single|smoke|extension|lint|demo|dropin|sim|score|ladder) ;;
   *)
     echo "agent_harness: unknown command '$cmd'" >&2
     usage >&2
@@ -169,6 +173,9 @@ case "$cmd" in
   # it is minutes, not seconds — a landing-time command, not a per-change one.
   score)
     child=("$SCRIPT_DIR/physics_score.sh" "$@")
+    ;;
+  ladder)
+    child=("$SCRIPT_DIR/check_process_ladder.sh" "$@")
     ;;
   lint)
     : # handled specially below
@@ -294,6 +301,8 @@ if [[ "$cmd" == "lint" ]]; then
     gate check_comment_history
     gate check_comment_block
     gate check_neighbour_slots
+    gate check_process_set
+    gate check_process_ui
     gpu_gate check_alt_bands
     gpu_gate check_gas_in_rock
     gate check_sim_determinism

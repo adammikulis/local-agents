@@ -14,9 +14,15 @@ const BalanceScript: GDScript = preload("res://addons/local_agents/sim/material/
 
 
 static func records() -> Array:
+	return records_from(RECORD_MODULES)
+
+
+## The table `paths` declares, balance-checked as one whole. A rung runs a subset of the modules, and the
+## table it forms has to balance on its own.
+static func records_from(paths: PackedStringArray) -> Array:
 	var out: Array = []
 	var labels: PackedStringArray = PackedStringArray()
-	for path in RECORD_MODULES:
+	for path in paths:
 		var scr: GDScript = load(path)
 		if scr == null:
 			push_error("LAMaterialReactions3D: record module missing: " + path)

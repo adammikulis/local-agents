@@ -63,10 +63,11 @@ SIBLINGS = [g for g in sorted(os.listdir(sdir)) if g.endswith(".gd")]
 FIXTURE = re.compile(r"create_local_rendering_device|storage_buffer_create|LAVoxelGrid\.new\(|\bbufs\b")
 DISPATCH = re.compile(r"compute_list_begin|\.dispatch\(|_buffers\(")
 HARNESS_SIM = re.compile(r"agent_harness\.sh[\"']?\s+sim\b")
-CAPTURE_ARM = re.compile(r"la_report(_raw)?\b")
+CAPTURE_ARM = re.compile(r"la_report(_raw)?\b|la_rung_report\b")
 
 def seeded_arm(text):
-    # la_report reads the shared arm scripts/lint_capture.sh records; it is the same seeded world.
+    # la_report reads the shared arm scripts/lint_capture.sh records, and la_rung_report launches
+    # sim_run.sh at a declared rung; both are the world the sim seeds.
     if CAPTURE_ARM.search(text):
         return True
     boots = "sim_run.sh" in text or HARNESS_SIM.search(text) is not None

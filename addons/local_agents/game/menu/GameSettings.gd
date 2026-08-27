@@ -33,6 +33,11 @@ const SAVE_PATH: String = "user://game_settings.cfg"
 @export var invert_rotate_x: bool = false   ## flip the horizontal drag direction when rotating the planet
 @export var invert_rotate_y: bool = false   ## flip the vertical drag direction when rotating the planet
 
+## WHICH PROCESSES THE WORLD CONTAINS. The rung is a height on LAProcessSet's ladder; `process_records`
+## is an explicit set of record ids and outranks it when it is not empty. Both apply on reseed.
+@export var process_rung: int = LAProcessSet.UNSET
+@export var process_records: PackedStringArray = PackedStringArray()
+
 const GRAPHICS_PRESETS: Dictionary = {
 	GraphicsPreset.POTATO: {
 		"grid_resolution": 24, "effects_level": EffectsLevel.LOW, "shadow_quality": ShadowQuality.OFF,
@@ -175,6 +180,9 @@ static func load_or_default() -> LAGameSettings:
 	settings.sfx_volume = float(config.get_value("audio", "sfx_volume", settings.sfx_volume))
 	settings.invert_rotate_x = bool(config.get_value("controls", "invert_rotate_x", settings.invert_rotate_x))
 	settings.invert_rotate_y = bool(config.get_value("controls", "invert_rotate_y", settings.invert_rotate_y))
+	settings.process_rung = int(config.get_value("physics", "process_rung", settings.process_rung))
+	settings.process_records = PackedStringArray(
+		config.get_value("physics", "process_records", settings.process_records))
 	return settings
 
 
@@ -200,16 +208,19 @@ func save() -> int:
 	config.set_value("audio", "sfx_volume", sfx_volume)
 	config.set_value("controls", "invert_rotate_x", invert_rotate_x)
 	config.set_value("controls", "invert_rotate_y", invert_rotate_y)
+	config.set_value("physics", "process_rung", process_rung)
+	config.set_value("physics", "process_records", process_records)
 	return config.save(SAVE_PATH)
 
 
 ## A compact human-readable snapshot (for logs / the settings-saved confirmation line).
 func summary() -> String:
-	return "gfx=%d grid=%d fx=%d shadow=%d ssao=%s glow=%s ocean=%d fog=%s veg=%.2f draw=%.0f | sim=%d actors=%d ai=%d llm=%.1f field=%d | vol[m=%.2f mu=%.2f s=%.2f] | ctrl[invx=%s invy=%s]" % [
+	return "gfx=%d grid=%d fx=%d shadow=%d ssao=%s glow=%s ocean=%d fog=%s veg=%.2f draw=%.0f | sim=%d actors=%d ai=%d llm=%.1f | rung=%d set=%d | vol[m=%.2f mu=%.2f s=%.2f] | ctrl[invx=%s invy=%s]" % [
 		int(graphics_preset), grid_resolution, int(effects_level), int(shadow_quality),
 		str(ssao_enabled), str(glow_enabled), int(ocean_quality), str(fog_enabled),
 		vegetation_density, draw_distance,
 		int(sim_preset), actor_budget, ai_tick_frames, llm_cadence,
+		process_rung, process_records.size(),
 		master_volume, music_volume, sfx_volume,
 		str(invert_rotate_x), str(invert_rotate_y),
 	]

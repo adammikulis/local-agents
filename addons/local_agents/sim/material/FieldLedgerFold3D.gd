@@ -56,7 +56,7 @@ func fold() -> Dictionary:
 	# Joules over one step, volume-weighted. A book the device did not deliver is NAMED, never skipped:
 	# skipping one nulls the whole radiative block and the conservation row reads UNMEASURED instead of red.
 	var absent: PackedStringArray = out.get("energy_missing", PackedStringArray())
-	for row: Dictionary in LAReduceRecords.rows():
+	for row: Dictionary in LAProcessSet.reduce_rows():
 		if not bool(row.get("energy_book", false)):
 			continue
 		var key: String = String(row["key"])

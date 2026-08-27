@@ -477,6 +477,11 @@ When removing files:
 
 ## Validation defaults
 
+- **THE PHYSICS IS BUILT AND VERIFIED ONE RUNG AT A TIME.** A run declares which processes its world
+  contains — `addons/local_agents/sim/material/ProcessSet.gd` — and a process outside the set is ABSENT:
+  never allocated, dispatched, reduced or booked. A rung is enabled only when the rung below it is green.
+  Reproduce a defect at the LOWEST rung that shows it and fix it there. `scripts/check_process_ladder.sh`
+  climbs them and names the first red one; the demo world runs at `docs/PLAYABLE_RUNG`.
 - **A VERIFICATION RUN IS SHORT, AND A LONG ONE IS A DECLARED SOAK NOBODY BLOCKS ON.** The arm a lane waits
   on to learn whether its change is good must answer inside `docs/RUN_TIMEOUT_CEILING`. A run that needs
   longer is a real long-running sim — a conservation audit, a determinism pair, the score — and it says so
