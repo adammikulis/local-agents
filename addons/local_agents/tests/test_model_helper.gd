@@ -101,9 +101,7 @@ func _normalize_path(path: String) -> String:
     return path
 
 func _get_runtime() -> Object:
-    if Engine.has_singleton("AgentRuntime"):
-        return Engine.get_singleton("AgentRuntime")
-    return null
+    return Engine.get_singleton("AgentRuntime")
 
 func _download_with_curl(repo: String, file: String, output_path: String) -> bool:
     if repo.strip_edges() == "" or file.strip_edges() == "" or output_path.strip_edges() == "":

@@ -56,7 +56,7 @@ Commands:
                 e.g. agent_harness.sh score --frames 300
   lint          Run every structural gate: file length (soft 1300 warn / hard 1500 fail),
                 no-direct-refcounted, no ':=' typing, @tool write safety, demo catalogue,
-                public surface, whole-tree parse, library-only parse, physical constants
+                public surface, whole-tree parse, no native class reached by name, physical constants
                 (GLSL kernel copies must equal LAPhysical), reaction balance. Policy markers
                 stay advisory. CI runs this exact command, so a green here is a green there.
                 Exit 0 clean · 1 a gate reported a violation · 2 a gate COULD NOT RUN.
@@ -231,6 +231,7 @@ if [[ "$cmd" == "lint" ]]; then
     gate check_no_stored_derived
     gate check_no_privileged_axis
     gate check_pressure_split
+    gate check_one_empty_floor
     gate check_gdscript_budget
     gate check_run_budget
     gate check_comment_ratio
@@ -244,7 +245,6 @@ if [[ "$cmd" == "lint" ]]; then
     gate check_transport_alias
     gate check_declared_and_dispatched
     gate check_gate_fixtures
-    gate check_branch_integration
     gate check_doc_claims
     gate check_doc_prose
     gate check_approximations
@@ -261,7 +261,7 @@ if [[ "$cmd" == "lint" ]]; then
     gate check_reaction_rate_units
     gate check_framerate_independence
     gate check_parse_all
-    gate check_library_only
+    gate check_no_native_by_name
     gate check_step_quantum
     gate check_comment_claims
     gate check_no_silent_fallback
@@ -365,6 +365,19 @@ fi
 # Smoke: treat script/parse/dependency errors as failure even if exit was 0.
 if [[ "$cmd" == "smoke" && "$status" == "pass" ]]; then
   if grep -qiE 'SCRIPT ERROR|Parse Error|dependency error|Failed loading resource' "$LOG_FILE" 2>/dev/null; then
+    status="fail"
+    if [[ "$exit_code" -eq 0 ]]; then exit_code=1; fi
+  fi
+fi
+
+# A test run reports its own verdict and cannot see a GDScript runtime fault, so a suite can print
+# SCRIPT ERROR and still say pass. push_error renders as plain "ERROR:" and is how a test reports its
+# OWN failure, so it is not counted here.
+if [[ "$cmd" =~ ^(fast|all|bounded|single)$ && "$status" == "pass" ]]; then
+  script_errs="$(grep -acE '^(SCRIPT ERROR:|.*Parse Error)' "$LOG_FILE" 2>/dev/null || true)"
+  if [[ "${script_errs:-0}" -gt 0 ]]; then
+    echo "agent_harness: ${script_errs} SCRIPT ERROR/Parse Error line(s) in a suite that reported pass." >&2
+    grep -aE '^(SCRIPT ERROR:|.*Parse Error)' "$LOG_FILE" 2>/dev/null | head -10 >&2
     status="fail"
     if [[ "$exit_code" -eq 0 ]]; then exit_code=1; fi
   fi

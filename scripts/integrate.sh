@@ -97,14 +97,6 @@ if [ -z "$LANE_WT" ]; then
 fi
 echo "integrate: verifying $LANE_WT" >&2
 
-# A landed lane's declaration lands with it: pruning the branch and leaving its row standing makes the
-# next lane trip on a branch that no longer exists.
-LANE_DECL="$LANE_WT/docs/OPEN_BRANCHES.md"
-if [ -f "$LANE_DECL" ]; then
-	rg -N -v -e "^\| \`$(printf '%s' "$BRANCH" | sed 's/[].[^$\\*\/]/\\&/g')\` \|" "$LANE_DECL" > "$LANE_DECL.tmp" \
-		&& mv "$LANE_DECL.tmp" "$LANE_DECL"
-fi
-
 # The integrator owns the ceilings. --no-verify because the hook's whole job is the lint that runs three
 # lines below, on this same tree: without it every landing pays for two.
 LANE_CEILINGS="$LANE_WT/scripts/write_ceilings.sh"

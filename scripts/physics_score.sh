@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
-# PHYSICS_RUBRIC.md criteria 1, 2 and 5, COMPUTED from a run rather than judged.
-#
-# WHY THIS IS A SCRIPT AND NOT A PARAGRAPH. The rubric exists because a session was spent making nine copies
-# of one formula agree and calling that correctness. The person scoring the work is the person who did it,
-# so the parts that can be measured must be measured. Criteria 3, 4 and 6 are audit counts and stay
-# hand-entered in PHYSICS_RUBRIC.md — they are the ones to distrust.
+# PHYSICS_RUBRIC.md, all ten criteria, COMPUTED from a run and the registries rather than judged.
 #
 #   1  MATTER    per-element |drift| since the world seal, mask-free, in MOLES. A raw channel sum is not
 #                admissible: carbon_total read +1261% while the mole count read -10.7%, opposite signs.

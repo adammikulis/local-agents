@@ -15,7 +15,7 @@ const PLANET_RELIEF: float = 9.4e3                # peak-to-trough continental r
 const PLANET_FEATURE: float = 5.2e4               # continental wavelength
 # OCEAN-heavy world: sea shell at the mean radius.
 static func planet_radius() -> float:
-	return LANativeTables.body_seeds().seed_radius_m("planet")
+	return LABodySeeds.seed_radius_m("planet")
 const PLANET_OCEAN_BIAS: float = 1.0e3
 # BASIN relief.
 const PLANET_BASIN_RELIEF: float = 4.0e3

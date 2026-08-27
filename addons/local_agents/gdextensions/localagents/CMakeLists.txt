@@ -42,7 +42,6 @@ set(SRC
     src/LAFieldCellMass.cpp
     src/LAFieldLithostaticSeed.cpp
     src/LASubstances.cpp
-    src/ModelDownloadManager.cpp
     src/NetworkGraph.cpp
     src/LAProcess.cpp
     src/LANoActivation.cpp

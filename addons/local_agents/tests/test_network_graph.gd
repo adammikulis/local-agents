@@ -4,8 +4,6 @@ extends RefCounted
 const TEST_DIR := "user://tests"
 
 func run_test(_tree: SceneTree) -> bool:
-    assert(ClassDB.class_exists("NetworkGraph"))
-
     DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(TEST_DIR))
     var db_path := TEST_DIR.path_join("network_graph_%d.sqlite3" % Time.get_ticks_msec())
     var graph := NetworkGraph.new()

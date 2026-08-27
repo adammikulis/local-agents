@@ -96,7 +96,7 @@ layout(push_constant, std430) uniform Params {
 	float org_min_pool_mol; // moles of dead organic carbon below which a cell's C:H:O is fp32 noise
 	float fresh_h_per_c;    // LASubstances.fresh_litter_per_carbon("H")
 	float fresh_o_per_c;    // LASubstances.fresh_litter_per_carbon("O")
-	float min_fill;         // TransportPass.MIN_AMOUNT: below this total fill a cell is EMPTY
+	float rho_floor;        // TransportPass.EMPTY_RHO_KG_M3: below this bulk density a cell is EMPTY
 	float rad_w_kg_1;       // W/kg of radiogenic trace mix 1 at this epoch (PROP_RAD_GROUP indexes)
 	float rad_w_kg_2;
 	float rad_w_kg_3;
@@ -319,7 +319,7 @@ void main() {
 	vec3 v = vec3(0.0);
 	// Below the donation floor the cell is EMPTY by the declared model: trace matter keeps its mass
 	// and enthalpy and holds no bulk state — a momentum residue over vanishing mass is any velocity.
-	if (v_used < params.min_fill) {
+	if (rho < params.rho_floor) {
 		temp[g] = -LA_KELVIN_OFFSET;   // no matter, so no temperature
 		if (solid[g] == 0.0) {
 			pressure[g] = 0.0;

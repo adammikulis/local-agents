@@ -23,21 +23,19 @@ func run_test(_tree: SceneTree) -> bool:
     ok = ok and bool(opts.get("cache_prompt", false))
     ok = ok and typeof(opts.get("server_extra_body", null)) == TYPE_DICTIONARY
 
-    if Engine.has_singleton("AgentRuntime"):
-        var runtime := Engine.get_singleton("AgentRuntime")
-        if runtime != null:
-            var response: Dictionary = runtime.call("generate", {
-                "prompt": "Ping",
-                "options": opts,
-            })
-            ok = ok and String(response.get("provider", "")) == "llama_server"
-            ok = ok and not bool(response.get("ok", false))
-            ok = ok and String(response.get("error", "")) in [
-                "http_request_failed",
-                "http_status_error",
-                "missing_server_base_url",
-                "missing_messages",
-            ]
+    var runtime: Object = Engine.get_singleton("AgentRuntime")
+    var response: Dictionary = runtime.call("generate", {
+        "prompt": "Ping",
+        "options": opts,
+    })
+    ok = ok and String(response.get("provider", "")) == "llama_server"
+    ok = ok and not bool(response.get("ok", false))
+    ok = ok and String(response.get("error", "")) in [
+        "http_request_failed",
+        "http_status_error",
+        "missing_server_base_url",
+        "missing_messages",
+    ]
 
     if ok:
         print("Local Agents llama server provider test passed")
