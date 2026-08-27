@@ -27,7 +27,7 @@ static func slot_substance() -> Dictionary: return LAChannels.slot_substance()
 ## Atoms per mole of each slot's substance, from `LASubstances.formula`.
 static func composition() -> Dictionary:
 	var out: Dictionary = {}
-	var tbl: Dictionary = LANativeTables.subs().table()
+	var tbl: Dictionary = LASubstances.table()
 	var subs: Dictionary = slot_substance()
 	for slot in subs:
 		var id: String = String(subs[slot])

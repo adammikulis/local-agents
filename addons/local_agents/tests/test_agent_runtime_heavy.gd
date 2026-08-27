@@ -4,14 +4,7 @@ extends RefCounted
 const TestModelHelper := preload("res://addons/local_agents/tests/test_model_helper.gd")
 
 func run_test(_tree: SceneTree) -> bool:
-    if not Engine.has_singleton("AgentRuntime"):
-        push_error("AgentRuntime singleton unavailable. Build the GDExtension before running tests.")
-        return false
-
-    var runtime := Engine.get_singleton("AgentRuntime")
-    if runtime == null:
-        push_error("AgentRuntime singleton missing.")
-        return false
+    var runtime: Object = Engine.get_singleton("AgentRuntime")
 
     var model_helper := TestModelHelper.new()
     var model_path := model_helper.ensure_local_model()

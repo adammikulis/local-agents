@@ -41,6 +41,8 @@ PASS="$REPO_ROOT/addons/local_agents/sim/material/sphere_passes/TransportPass.gd
 grep -q "rad_emitted" "$KERNEL" || { echo "ERROR: transport.glsl writes no rad_emitted — nothing to check." >&2; exit 2; }
 
 PROBE="$REPO_ROOT/addons/local_agents/tests/zz_radiative_gate.gd"
+# The probe lands in the scanned tree, so an early exit must not leave it for other gates to count.
+trap 'rm -f "$PROBE"' EXIT INT TERM
 cat > "$PROBE" <<'GD'
 extends SceneTree
 

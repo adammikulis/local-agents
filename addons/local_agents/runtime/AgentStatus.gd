@@ -241,8 +241,6 @@ static func _headline_for(level: int, blockers: PackedStringArray, warnings: Pac
 
 
 static func _runtime() -> Object:
-	if not Engine.has_singleton("AgentRuntime"):
-		return null
 	return Engine.get_singleton("AgentRuntime")
 
 

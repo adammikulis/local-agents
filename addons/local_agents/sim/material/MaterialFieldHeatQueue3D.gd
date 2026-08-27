@@ -111,8 +111,8 @@ func _credit_companions(gpu, channel: String, cells: PackedInt32Array, amounts: 
 	if landed.size() == 0 or requested <= 0.0:
 		return
 	var f: float = minf(applied / requested, 1.0)
-	for e in [["org_h", LANativeTables.subs().fresh_litter_per_carbon("H")],
-			["org_o", LANativeTables.subs().fresh_litter_per_carbon("O")]]:
+	for e in [["org_h", LASubstances.fresh_litter_per_carbon("H")],
+			["org_o", LASubstances.fresh_litter_per_carbon("O")]]:
 		var deltas: PackedFloat32Array = PackedFloat32Array()
 		for v in landed_amounts:
 			deltas.append(v * f * float(e[1]))

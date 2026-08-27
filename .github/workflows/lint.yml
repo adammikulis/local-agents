@@ -66,7 +66,7 @@ jobs:
 
       - name: Import project assets
         # A fresh checkout has no .godot cache, so the .glsl kernels are unimported and every class_name is
-        # unregistered. The Godot-backed gates (reaction balance, library-only parse) read both.
+        # unregistered. The Godot-backed gates (reaction balance, whole-tree parse) read both.
         run: |
           godot --headless --path . --import 2>&1 | tail -5 || true
 

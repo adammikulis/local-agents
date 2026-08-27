@@ -22,10 +22,6 @@ class MockRuntime extends Object:
         return float(parts.size() - 1)
 
 func run_test(tree: SceneTree) -> bool:
-    if not ClassDB.class_exists("NetworkGraph"):
-        push_error("NetworkGraph unavailable; build the native extension.")
-        return false
-
     _prepare_test_files()
 
     var swap := RuntimeSingletonSwap.new()

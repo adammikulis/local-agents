@@ -156,7 +156,7 @@ func spawn_world() -> void:
 ## The radius the seeded matter fills before it is laid down: its mass over the density of what it is made
 ## of. Only the terrain generator needs it — after the seal the body measures its own.
 func seed_radius() -> float:
-	return LANativeTables.body_seeds().seed_radius_m(body_seed)
+	return LABodySeeds.seed_radius_m(body_seed)
 
 
 ## Edge of one field cell, metres: the box spans the body plus its air column, cut grid_res ways.

@@ -715,7 +715,7 @@ func _seed_regolith() -> void:
 func _seed_silicate() -> void:
 	seed_field("silicate", _field._silicate, _field._seal)
 	seed_field("cement", _field._cement, _field._seal)
-	for name in LANativeTables.composition().shell_channels():
+	for name in LAPlanetComposition.shell_channels():
 		if String(name) != "silicate":
 			seed_field(String(name), _field.get("_" + String(name)), _field._seal)
 	seed_field("metal", _field._metal, _field._seal)

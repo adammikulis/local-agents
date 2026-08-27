@@ -41,9 +41,6 @@ func quit(code: int = 0) -> void:
 	# SIM_REPORT has already printed; give one idle frame so any in-flight disk writes settle.
 	if tree != null:
 		await tree.process_frame
-	if ClassDB.class_exists("LAProcess"):
-		var proc: Object = ClassDB.instantiate("LAProcess")
-		if proc != null and proc.has_method("exit_now"):
-			proc.call("exit_now", code)
+	LAProcess.exit_now(code)
 	if tree != null:
 		tree.quit(code)

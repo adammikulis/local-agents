@@ -86,7 +86,7 @@ func _buffers(cc: int) -> Dictionary:
 func _setup(bufs: Dictionary, cc: int) -> void:
 	_pipe = _kernel(KERNEL_PATH)
 	_rows = LATransportRecords.rows()
-	for s: Dictionary in LANativeTables.subs().table().values():
+	for s: Dictionary in LASubstances.table().values():
 		for pair: Array in [["bulk_modulus_pa", "density"], ["bulk_modulus_solid_pa", "density_solid"]]:
 			var k_pa: float = float(s.get(String(pair[0]), 0.0))
 			var rho: float = float(s.get(String(pair[1]), float(s.get("density", 0.0))))
@@ -102,10 +102,7 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	_zero = _scratch(tc)
 	_no_h = _scratch(tc)
 	_one = _storage_buffer(_filled(tc, 1.0))
-	# By name through ClassDB: the library must parse with the extension unbuilt, and a missing
-	# extension still fails hard here on the null call.
-	var bands: Variant = LANativeTables.bands()
-	var rad_table: PackedFloat32Array = bands.packed()
+	var rad_table: PackedFloat32Array = LAAbsorptionBands.packed()
 	_band_count = int(rad_table[0])
 	_rad_table = _storage_buffer(rad_table.to_byte_array())
 	_lw_emis = _scratch(tc)
@@ -258,7 +255,7 @@ func _substeps(row: Dictionary, cell_m: float, dt_s: float, ctx: Dictionary) -> 
 		if bool(row.get("settle", false)):
 			var fl: Vector2 = LATransportRecords.fluid_properties(
 				int(row.get("fluid", LATransportRecords.Fluid.VACUUM)))
-			var rho_s: float = float(LANativeTables.subs().table().get(String(row["substance"]), {})
+			var rho_s: float = float(LASubstances.table().get(String(row["substance"]), {})
 				.get("density", 0.0))
 			# Stokes terminal velocity at the row's seed grain; mean solved g is the only g drained.
 			v += maxf(rho_s - fl.x, 0.0) * maxf(float(ctx.get("cfl_mean_g", 0.0)), 0.0) \
@@ -467,7 +464,7 @@ func _carried_key(substance: String) -> String:
 func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float,
 		sun: Vector3, relax_ok: bool = true, substep_frac: float = 1.0) -> PackedByteArray:
 	var substance: String = String(row["substance"])
-	var entry: Dictionary = LANativeTables.subs().table().get(substance, {})
+	var entry: Dictionary = LASubstances.table().get(substance, {})
 	var fluid: Vector2 = LATransportRecords.fluid_properties(
 		int(row.get("fluid", LATransportRecords.Fluid.VACUUM)))
 	var flags: int = 0

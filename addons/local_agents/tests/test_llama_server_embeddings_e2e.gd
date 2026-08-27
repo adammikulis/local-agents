@@ -5,13 +5,7 @@ const TestModelHelper := preload("res://addons/local_agents/tests/test_model_hel
 const LlamaServerManager := preload("res://addons/local_agents/runtime/LlamaServerManager.gd")
 
 func run_test(_tree: SceneTree) -> bool:
-    if not Engine.has_singleton("AgentRuntime"):
-        push_error("AgentRuntime unavailable for llama-server embeddings e2e test")
-        return false
-    var runtime := Engine.get_singleton("AgentRuntime")
-    if runtime == null or not runtime.has_method("embed_text"):
-        push_error("AgentRuntime.embed_text unavailable")
-        return false
+    var runtime: Object = Engine.get_singleton("AgentRuntime")
 
     var helper := TestModelHelper.new()
     var model_path := helper.ensure_local_model()

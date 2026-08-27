@@ -24,7 +24,7 @@ static func specific_heat(id: String) -> float:
 	# A row naming no substance carries no matter, so it has no capacity to look up.
 	if id == "" or entry_of(id) != Entry.SENSIBLE:
 		return 0.0
-	var s: Dictionary = LANativeTables.subs().table().get(id, {})
+	var s: Dictionary = LASubstances.table().get(id, {})
 	var c: float = float(s.get("specific_heat_gas", 0.0)) if GASES.has(id) else 0.0
 	if c <= 0.0:
 		# A sensible-entry substance has no ladder, so it holds heat at the capacity of the phase it is
@@ -81,7 +81,7 @@ static func _per_channel(prop: String) -> PackedFloat32Array:
 	var out: PackedFloat32Array = PackedFloat32Array()
 	out.resize(CHANNELS.size())
 	var rows: Dictionary = LAChannels.rows()
-	var table: Dictionary = LANativeTables.subs().table()
+	var table: Dictionary = LASubstances.table()
 	for i in CHANNELS.size():
 		var id: String = String(rows.get(CHANNELS[i], {}).get("substance", ""))
 		var v: float = float(table.get(id, {}).get(prop, 0.0))

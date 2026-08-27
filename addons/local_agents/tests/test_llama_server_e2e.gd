@@ -5,10 +5,6 @@ const AgentScript := preload("res://addons/local_agents/agents/Agent.gd")
 const TestModelHelper := preload("res://addons/local_agents/tests/test_model_helper.gd")
 
 func run_test(tree: SceneTree) -> bool:
-    if not ClassDB.class_exists("AgentNode"):
-        push_error("AgentNode unavailable; build the native extension.")
-        return false
-
     var helper := TestModelHelper.new()
     var model_path := helper.ensure_local_model()
     if model_path.strip_edges() == "":

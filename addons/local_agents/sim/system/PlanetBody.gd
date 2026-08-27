@@ -36,17 +36,17 @@ func set_field(field) -> void:
 
 
 func seed_row() -> Dictionary:
-	return LANativeTables.body_seeds().of(_seed_key)
+	return LABodySeeds.of(_seed_key)
 
 
 ## THE MASS THE MATTER ADDS UP TO. Negative until the field has seeded, which a caller reads as unmeasured
 ## and refuses to size anything with; a body's mass is never a number somebody typed.
 func mass() -> float:
-	var m: Object = _measure()
+	var m: LABodyMeasure = _measure()
 	return -1.0 if m == null else m.mass_kg
 
 
-func _measure() -> Object:
+func _measure() -> LABodyMeasure:
 	if _field == null or not is_instance_valid(_field) or not _field.has_method("body_measure"):
 		return null
 	return _field.body_measure()
@@ -57,16 +57,16 @@ func is_gravity_reference() -> bool:
 
 ## The direction the seeded angular momentum points. Obliquity is an initial condition, not a property.
 func spin_axis() -> Vector3:
-	return LANativeTables.body_seeds().spin_axis_of(_seed_key)
+	return LABodySeeds.spin_axis_of(_seed_key)
 
 
 ## Spin rate, rad/s: seeded angular momentum over measured inertia, so a body that moves its mass about
 ## changes its own day. NAN until measured.
 func angular_velocity_rad_s() -> float:
-	var m: Object = _measure()
+	var m: LABodyMeasure = _measure()
 	if m == null:
 		return NAN
-	return m.angular_velocity_rad_s(LANativeTables.body_seeds().spin_l_of(_seed_key))
+	return m.angular_velocity_rad_s(LABodySeeds.spin_l_of(_seed_key))
 
 
 ## Coriolis parameter is f = two_omega() * sin(latitude).

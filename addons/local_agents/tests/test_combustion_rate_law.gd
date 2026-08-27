@@ -6,7 +6,7 @@ const CombustionScript: GDScript = preload("res://addons/local_agents/sim/materi
 const DefsScript: GDScript = preload("res://addons/local_agents/sim/material/reactions/ReactionDefs.gd")
 
 # The condition the sweep is evaluated at: a cell holding litter, in ambient air. mol/m^3.
-var FUEL_AT_CELL: float = 0.02 * LANativeTables.subs().full_mol_m3("organic_c")
+var FUEL_AT_CELL: float = 0.02 * LASubstances.full_mol_m3("organic_c")
 ## The rate law is tested in AIR. The planet no longer seeds free oxygen — it is a product of life — so
 ## this cannot borrow the world's seed without testing combustion in a vacuum.
 var O2_IN_AIR: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.AIR_MOLE_FRAC_O2
@@ -200,8 +200,8 @@ func run_test(_tree: SceneTree) -> bool:
 			+ "is the reason wet fuel does not light.")
 		ok = false
 	# Channiwala & Parikh's per-element heating values dotted with CH2O, read through LASubstances.
-	var want_enthalpy: float = LANativeTables.subs().organic_energy_j_mol("C") \
-		+ 2.0 * LANativeTables.subs().organic_energy_j_mol("H") + 1.0 * LANativeTables.subs().organic_energy_j_mol("O")
+	var want_enthalpy: float = LASubstances.organic_energy_j_mol("C") \
+		+ 2.0 * LASubstances.organic_energy_j_mol("H") + 1.0 * LASubstances.organic_energy_j_mol("O")
 	if absf(enthalpy - want_enthalpy) > 1.0e-6 * absf(want_enthalpy):
 		push_error("combustion's enthalpy at fresh CH2O is %s J/mol of extent, expected %s = the cell's C:H:O "
 			% [String.num_scientific(enthalpy), String.num_scientific(want_enthalpy)]

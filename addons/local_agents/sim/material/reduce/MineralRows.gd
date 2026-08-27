@@ -23,9 +23,9 @@ static func rows() -> Array:
 		{"key": "suspended_cells", "source": "silicate", "aux": "silicate_susp_water", "mask": Rec.Mask.OPEN,
 			"op": Rec.Op.COUNT_GT, "threshold": LAMaterialFieldMineralProfile3D.SUSP_ACTIVE},
 		melt.merged({"key": "lava_hot", "op": Rec.Op.COUNT_GE,
-			"threshold": 0.001 * LANativeTables.subs().full_mol_m3("silicate")}, true),
+			"threshold": 0.001 * LASubstances.full_mol_m3("silicate")}, true),
 		melt.merged({"key": "lava_thick", "op": Rec.Op.COUNT_GE,
-			"threshold": 0.5 * LANativeTables.subs().full_mol_m3("silicate")}, true),
+			"threshold": 0.5 * LASubstances.full_mol_m3("silicate")}, true),
 		melt.merged({"key": "lava_maxmass", "op": Rec.Op.MAX}, true),
 		# An open cell walled in by rock and no longer melt-filled — a drained lava tube.
 		drained.merged({"key": "enclosed_void4", "source": "solid", "op": Rec.Op.COUNT_GE,
