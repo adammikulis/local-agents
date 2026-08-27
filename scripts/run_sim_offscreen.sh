@@ -44,8 +44,6 @@ EXIT_GRACE="${LA_EXIT_GRACE:-10}"
 # and no progress line can spoof it. Override LA_DONE_RE only for a scene with no harness at all.
 DONE_RE="${LA_DONE_RE:-^LA_RUN_COMPLETE=}"
 
-FRONT_BID="$(osascript -e 'tell application "System Events" to get bundle identifier of first application process whose frontmost is true' 2>/dev/null)"
-
 # Off-view far enough that no window width puts an edge back on screen. lib_godot.sh applies it.
 DEFAULT_WIN_POS="99999,99999"
 WIN_POS="${LA_WIN_POS:-$DEFAULT_WIN_POS}"
@@ -253,15 +251,6 @@ GODOT_PID=$!
 ) &
 WATCHDOG_PID=$!
 
-if [ -n "$FRONT_BID" ]; then
-  # Godot grabs focus during startup; reclaim it for the user's app a few times as it comes up.
-  # The `>/dev/null 2>&1` is on the SUBSHELL, not just osascript: these outlive a fast run, and while
-  # they hold this script's inherited stdout they hold open the write end of any pipe the caller reads
-  # us through, which stalls the caller until they expire.
-  for d in 0.4 1.0 2.0 3.5; do
-    ( sleep "$d"; osascript -e "tell application id \"$FRONT_BID\" to activate" >/dev/null 2>&1 ) >/dev/null 2>&1 &
-  done
-fi
 wait "$GODOT_PID"
 GODOT_RC=$?
 # Godot exited on its own (finished, crashed, or was watchdog-killed) — cancel the watchdog and reap it.
