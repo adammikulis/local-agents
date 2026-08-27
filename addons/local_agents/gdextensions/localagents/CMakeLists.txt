@@ -45,6 +45,7 @@ set(SRC
     src/ModelDownloadManager.cpp
     src/NetworkGraph.cpp
     src/LAProcess.cpp
+    src/LANoActivation.cpp
     src/LocalAgentsRegister.cpp
 )
 
@@ -99,6 +100,8 @@ target_compile_definitions(localagents PRIVATE
 if (WIN32)
     set_target_properties(localagents PROPERTIES OUTPUT_NAME "localagents.windows")
 elseif (APPLE)
+    target_sources(localagents PRIVATE src/LANoActivation.mm)
+    target_link_libraries(localagents PRIVATE "-framework AppKit")
     set_target_properties(localagents PROPERTIES
         OUTPUT_NAME "localagents.macos"
         INSTALL_RPATH "@loader_path")

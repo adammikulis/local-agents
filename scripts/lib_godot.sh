@@ -7,12 +7,10 @@
 LA_OFFSCREEN_POS="${LA_WIN_POS:-99999,99999}"
 LA_OFFSCREEN_RES="${LA_RES:-1x1}"
 
-# macOS ACTIVATES a launched GUI app, which yanks the user out of their Space; no window flag prevents
-# that, because `no_focus` governs the WINDOW and activation governs the APP. LSUIElement only hides the
-# Dock icon, so the bundle declares LSBackgroundOnly, which cannot be activated at all. Nothing here may
-# activate an app back either. dyld resolves symlinks before bundle lookup, so the executable is a hard
-# copy; it lands on a temp name and is MOVED into place, because a half-copied 300 MB binary is what a
-# concurrent lane would exec. The plist is rewritten every time: it is bytes, and its content is the point.
+# Godot sets its own activation policy to Regular at startup, over any plist, and activates itself when
+# the main window shows. The extension sets the policy to Prohibited at CORE init under LA_OFFSCREEN;
+# __CFBundleIdentifier must match the bundle id or Godot runs its unbundled activation hack. dyld resolves
+# symlinks before bundle lookup, so the executable is a hard copy, moved into place whole.
 
 la_agent_exe() {
 	local real="$1"
@@ -63,6 +61,8 @@ la_godot() {
 		fi
 	done
 	# This branch creates a WINDOW, and the extension reads LA_OFFSCREEN at CORE to make it unfocusable.
-	LA_OFFSCREEN="${LA_OFFSCREEN:-1}" command ${pre[@]+"${pre[@]}"} "$binary" \
+	# Godot activates SystemUIServer and itself when the bundle id does not match this env var.
+	LA_OFFSCREEN="${LA_OFFSCREEN:-1}" __CFBundleIdentifier="com.localagents.godot-agent" \
+		command ${pre[@]+"${pre[@]}"} "$binary" \
 		--position "$LA_OFFSCREEN_POS" --resolution "$LA_OFFSCREEN_RES" "$@"
 }
