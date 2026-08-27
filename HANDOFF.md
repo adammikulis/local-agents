@@ -14,23 +14,23 @@ on the file it named. If you know the cause you are close enough to fix it, so f
 
 ---
 
-## 0. PRESSURE_BROKEN EXITS 122, AND THE COUNT GROWS WHILE THE RUN STEPS
+## 0. THE TRANSPORT SUBSTEP BUDGET IS DENIED ON EVERY RUN, AND THE DEFAULT BOX IS NOT EXEMPT
 
-`scripts/sim_run.sh --frames 10` exits 122. The DRY open-pair class carries the whole count, rock and
-surface read zero, and the count RISES across the run's own reports while `pressure_audited` barely moves.
+`scripts/agent_harness.sh sim --frames 6` logs `SUBSTEPS_DENIED` for every matter row: the budget asks for
+thousands of substeps and the cap is 256, so the rows run under-resolved and the harness withholds the
+numbers. The denial names its inputs; `wind` is the term that blows it.
 
-The audit cannot say how big an inversion is: `LAReducePressureRows` counts `Op.COUNT_GT` on the raw pair
-difference against a bare `0.0`, and its numerator gates on `h2o` while its denominator gates on
-`pressure`, so the two span different cells.
+The default box is denied too, by a smaller factor, so twenty frames do not show it.
 
-**A slice goes non-finite while the default box stays finite,** and the momentum run never starts, so
-`momentum_book_bnd` is absent and `check_boundary_momentum_book.sh`'s replay arm fails on it. Reproduce:
+`docs/PHYSICS_TODO.md` E carries the wind as its own item. Until it reads a physical speed, no run's numbers
+mean anything, and `scripts/check_open_cell_density.sh` cannot run at all — it is this item's acceptance
+test and it is deliberately NOT wired into `lint` while it can only exit 2.
+
+The slice reaches non-finite state and publishes no `momentum_book_bnd`, so
+`check_boundary_momentum_book.sh`'s replay arm fails on its absence. Reproduce:
 `scripts/sim_run.sh --frames 20 --slice-capture C`, then
-`scripts/sim_run.sh --slice --slice-state C --frames 20 --report nonfinite_cells,momentum_live`.
-The cells flanking the wrap seam accumulate multiple fills of h2o first, and `celerity_max` leaves the
-physical range before the momentum does. `LA_PASS_PROBE=nonfinite LA_PASS_PROBE_STEPS=12` prints each
-pass's peak-cell state and per-channel non-finite counts. An offset component of `surface` puts a box on
-the body without naming a radius.
+`scripts/sim_run.sh --slice --slice-state C --frames 20 --report rho_max_open,celerity_max`.
+An offset component of `surface` puts a box on the body without naming a radius.
 
 ## 1. BUILD THE GRADED GRID. IT IS THE TRUNK AND ITEM 0 WAITS ON IT
 

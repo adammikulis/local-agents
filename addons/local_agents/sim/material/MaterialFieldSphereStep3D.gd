@@ -116,13 +116,7 @@ func step() -> void:
 	# The transport substep budget reads last step's drained maxima; before the first drain the field
 	# is the seed, whose hottest cell is the declared seed temperature.
 	if _f._gpu.has_method("set_cfl_inputs") and _f._queries != null:
-		var tk_max: float = _f._queries.row_f("all_temp_max")
-		if not is_finite(tk_max):
-			tk_max = LAMaterialField3D.INITIAL_TEMP
-		_f._gpu.set_cfl_inputs(_f._queries.row_f("wind_speed_max"),
-			tk_max + LAPhysical.KELVIN_OFFSET,
-			_f._gravity.mean_g() if _f._gravity != null else 0.0,
-			_f._queries.row_f("celerity_max"))
+		_f._gpu.set_cfl_inputs(_cfl_maxima())
 	if _f._inject != null and not _f._inject.queue.is_empty():
 		if _armed("LA_INJECT_AUDIT"):
 			# Diagnostic.
@@ -196,3 +190,25 @@ func _apply_readback(res: Dictionary) -> void:
 	if res.has("pressure") and res["pressure"].size() == n: _f._pressure = res["pressure"]
 	if res.has("detritus") and res["detritus"].size() == n: _f._detritus = res["detritus"]
 	if res.has("fungus") and res["fungus"].size() == n: _f._fungus = res["fungus"]
+
+
+## The drained maxima the substep budget reads. An unreduced row is ABSENT; one that reduced to a
+## non-number is reported and left absent, never passed on as a permissive zero.
+func _cfl_maxima() -> Dictionary:
+	var out: Dictionary = {}
+	for pair: Array in [["cfl_speed_max", "wind_speed_max"], ["cfl_temp_max_k", "all_temp_max"],
+			["cfl_celerity_max", "celerity_max"]]:
+		var key: String = String(pair[1])
+		if not _f._queries.has_row(key):
+			continue
+		var v: float = _f._queries.row_f(key)
+		if not is_finite(v):
+			push_error("LAMaterialField3D: %s reduced to %f. The field has produced a non-number, " % [key, v]
+				+ "so every reading after this one is fiction. Run with LA_PASS_PROBE=nonfinite.")
+			continue
+		out[String(pair[0])] = v + (LAPhysical.KELVIN_OFFSET if key == "all_temp_max" else 0.0)
+	if _f._gravity != null:
+		var g: float = _f._gravity.mean_g()
+		if is_finite(g):
+			out["cfl_mean_g"] = g
+	return out

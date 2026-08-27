@@ -279,7 +279,24 @@ func _substeps(row: Dictionary, cell_m: float, dt_s: float, ctx: Dictionary) -> 
 	if law == LATransportRecords.Law.SOUND and tk_max > 0.0:
 		need = maxf(need, 6.0 * sqrt(LAPhysical.AIR_ADIABATIC_INDEX
 			* LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK * tk_max) * dt_s / cell_m)
-	return clampi(int(ceil(need)), 1, SUBSTEP_MAX)
+	var want: int = int(ceil(need))
+	if want > SUBSTEP_MAX:
+		_deny(row, want, "celerity=%.4g wind=%.4g temp_k=%.4g cell_m=%.4g dt_s=%.4g"
+			% [_c_static, vmax, tk_max, cell_m, dt_s])
+	return clampi(want, 1, SUBSTEP_MAX)
+
+
+## A SUBSTEP BUDGET THAT CANNOT BE MET IS A FAILURE, NEVER A CLAMP. Silently capping it runs the row at
+## thousands of times its stable timestep and every number after that is fiction.
+func _deny(row: Dictionary, want: int, terms: String) -> void:
+	var label: String = String(row.get("label", row.get("substance", "?")))
+	if _denied.has(label):
+		return
+	_denied[label] = want
+	push_error("SUBSTEPS_DENIED row=%s want=%d cap=%d %s" % [label, want, SUBSTEP_MAX, terms])
+
+
+var _denied: Dictionary = {}
 
 
 

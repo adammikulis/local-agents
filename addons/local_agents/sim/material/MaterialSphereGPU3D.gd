@@ -222,12 +222,14 @@ func set_sea_radius(m: float) -> void:
 	_ctx["sea_radius"] = m
 
 
-## The drained maxima the substep budget reads; before any drain there are none, so no extra substeps.
-func set_cfl_inputs(speed_max: float, temp_max_k: float, mean_g: float, celerity_max: float) -> void:
-	_ctx["cfl_speed_max"] = speed_max if is_finite(speed_max) else 0.0
-	_ctx["cfl_temp_max_k"] = temp_max_k if is_finite(temp_max_k) else 0.0
-	_ctx["cfl_mean_g"] = mean_g if is_finite(mean_g) else 0.0
-	_ctx["cfl_celerity_max"] = celerity_max if is_finite(celerity_max) else 0.0
+## The drained maxima the substep budget reads. A reading it has no value for is LEFT UNSET, so the budget
+## falls to its a-priori floor instead of reading an invented zero as "nothing is moving".
+func set_cfl_inputs(maxima: Dictionary) -> void:
+	for key: String in ["cfl_speed_max", "cfl_temp_max_k", "cfl_mean_g", "cfl_celerity_max"]:
+		if not maxima.has(key):
+			_ctx.erase(key)
+			continue
+		_ctx[key] = maxf(float(maxima[key]), 0.0)
 
 
 
