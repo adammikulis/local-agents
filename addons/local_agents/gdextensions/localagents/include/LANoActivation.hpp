@@ -1,4 +1,4 @@
 #pragma once
 
-// Makes this process impossible to activate: macOS may never bring it or its windows to the front.
+// The agent bundle (com.localagents.godot-agent) may never be activated. No-op in any other process.
 void la_prohibit_activation();

@@ -4,10 +4,10 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 [ "$(uname)" = "Darwin" ] || { echo "check_no_focus_theft: OK (not macOS)"; exit 0; }
-command -v osascript >/dev/null 2>&1 || { echo "check_no_focus_theft: no osascript" >&2; exit 2; }
+command -v lsappinfo >/dev/null 2>&1 || { echo "check_no_focus_theft: no lsappinfo" >&2; exit 2; }
 SAMPLES="$(mktemp -t la_front)"
-front() { osascript -e 'tell application "System Events" to get bundle identifier of first application process whose frontmost is true' 2>/dev/null; }
-( while :; do front >> "$SAMPLES"; sleep 0.1; done ) &
+front() { lsappinfo info -only bundleid "$(lsappinfo front)" 2>/dev/null | sed 's/.*=//'; }
+( while :; do front >> "$SAMPLES"; sleep 0.02; done ) &
 POLL=$!
 LOG="$(mktemp -t la_focus_run)"
 "$ROOT/scripts/run_sim_offscreen.sh" --path "$ROOT" addons/local_agents/game/VoxelWorld.tscn -- \

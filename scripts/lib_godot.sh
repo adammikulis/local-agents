@@ -35,6 +35,26 @@ PLIST
 	echo "$exe"
 }
 
+# Hash of the extension sources; build_extension.sh writes it beside the dylib.
+la_extension_hash() {
+	local ext="$1/addons/local_agents/gdextensions/localagents"
+	(cd "$ext" && cat CMakeLists.txt $(ls src/* include/* | sort) | md5 -q)
+}
+
+# A dylib built from other sources is a stale binary: refuse, never run it.
+la_extension_current() {
+	local ext="$1/addons/local_agents/gdextensions/localagents"
+	[ -d "$ext/src" ] || return 0
+	local want have
+	want="$(la_extension_hash "$1")"
+	have="$(cat "$ext/bin/SOURCE_HASH" 2>/dev/null)"
+	if [ "$want" != "$have" ]; then
+		echo "la_godot: $ext/bin was built from other sources (SOURCE_HASH ${have:-missing}, sources $want)." >&2
+		echo "          Rebuild: $ext/scripts/build_extension.sh --platform macos" >&2
+		return 1
+	fi
+}
+
 la_godot() {
 	local binary="${GODOT:-godot}"
 	# NO FALLBACK TO THE REAL BINARY. Launching the ordinary Godot app is precisely the focus theft this
@@ -49,6 +69,9 @@ la_godot() {
 		}
 		binary="$agent"
 	fi
+	# The bundle id every launch runs under; the extension prohibits activation for exactly this id.
+	export __CFBundleIdentifier="com.localagents.godot-agent"
+	la_extension_current "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" || return 2
 	local pre=()
 	if [ -n "${LA_GODOT_TIMEOUT:-}" ]; then
 		pre=(timeout "$LA_GODOT_TIMEOUT")
@@ -61,8 +84,6 @@ la_godot() {
 		fi
 	done
 	# This branch creates a WINDOW, and the extension reads LA_OFFSCREEN at CORE to make it unfocusable.
-	# Godot activates SystemUIServer and itself when the bundle id does not match this env var.
-	LA_OFFSCREEN="${LA_OFFSCREEN:-1}" __CFBundleIdentifier="com.localagents.godot-agent" \
-		command ${pre[@]+"${pre[@]}"} "$binary" \
+	LA_OFFSCREEN="${LA_OFFSCREEN:-1}" command ${pre[@]+"${pre[@]}"} "$binary" \
 		--position "$LA_OFFSCREEN_POS" --resolution "$LA_OFFSCREEN_RES" "$@"
 }
