@@ -13,12 +13,21 @@ command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 not on PATH — a g
 KERNEL="$REPO_ROOT/addons/local_agents/sim/material/kernels3d/transport.glsl"
 [ -f "$KERNEL" ] || { echo "ERROR: transport.glsl missing." >&2; exit 2; }
 [ -f "$REPO_ROOT/scripts/sim_run.sh" ] || { echo "ERROR: sim_run.sh missing." >&2; exit 2; }
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
 
 # --- the capture: a short GLOBAL run records the slice box's exterior --------------------------------
 # BSD mktemp only accepts XXXXXX at the END of the template, so the .json arrives by rename.
-CAP="$(mktemp "${TMPDIR:-/tmp}/la_bnd_cap.XXXXXX")" && mv "$CAP" "$CAP.json" && CAP="$CAP.json"
-cap_out="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --frames "${LA_BND_CAP_FRAMES:-20}" \
-  --slice-capture "$CAP" --report h2o_total 2>&1)"
+OWN_CAP=0
+if la_cap_dir >/dev/null; then
+  CAP="$(la_cap_state)" || exit 2
+  cap_out=""
+else
+  CAP="$(mktemp "${TMPDIR:-/tmp}/la_bnd_cap.XXXXXX")" && mv "$CAP" "$CAP.json" && CAP="$CAP.json"
+  OWN_CAP=1
+  cap_out="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --frames "${LA_BND_CAP_FRAMES:-20}" \
+    --slice-capture "$CAP" --report h2o_total 2>&1)"
+fi
+drop_cap() { [ "$OWN_CAP" -eq 1 ] && rm -f "$CAP"; return 0; }
 if ! python3 -c "
 import json, sys
 d = json.load(open('$CAP'))
@@ -27,7 +36,7 @@ assert s and '0' in s[0].get('faces', {}), 'no face-0 sample'
 " 2>/dev/null; then
   echo "ERROR: the capture run wrote no usable capture — refusing to report a pass." >&2
   printf '%s\n' "$cap_out" | tail -8 >&2
-  rm -f "$CAP"
+  drop_cap
   exit 2
 fi
 
@@ -221,18 +230,18 @@ line="$(printf '%s\n' "$out" | grep -m1 '^BOUNDARY_BOOKS=')"
 if [ -z "$line" ]; then
   echo "ERROR: the probe produced no BOUNDARY_BOOKS line — refusing to report a pass." >&2
   printf '%s\n' "$out" | tail -20 >&2
-  rm -f "$CAP"
+  drop_cap
   exit 2
 fi
 echo "$line"
 printf '%s\n' "$out" | grep '^check_boundary_books:' >&2 || true
 if [ "$rc" -eq 2 ]; then
-  rm -f "$CAP"
+  drop_cap
   echo "The gate could not run. See the probe output above." >&2
   exit 2
 fi
 if [ "$rc" -ne 0 ]; then
-  rm -f "$CAP"
+  drop_cap
   exit 1
 fi
 
@@ -241,7 +250,7 @@ ERRLOG="$(mktemp "${TMPDIR:-/tmp}/la_bnd_books.XXXXXX")"
 slice_out="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --slice --slice-state "$CAP" \
   --frames "${LA_BND_SLICE_FRAMES:-60}" --raw 2>"$ERRLOG")"
 slice_rc=$?
-rm -f "$CAP"
+drop_cap
 case "$slice_rc" in
   0|122|123|126) ;;
   *) echo "ERROR: the slice run failed (exit $slice_rc) — refusing to report a pass." >&2

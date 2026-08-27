@@ -17,12 +17,14 @@ declared="$(rg -N -o -e 'GPU_GATES="[^"]*"' "$H" | head -1 | sed -e 's/GPU_GATES
 in_lint="$(rg -N -o -e '^[[:space:]]+(gpu_)?gate [a-z_]+' "$H" | rg -N -o -e '[a-z_]+$' | sort -u)"
 [ -n "$in_lint" ] || { echo "check_gpu_gate_list: parsed no gate list from $H." >&2; exit 2; }
 
-# A gate needs a GPU when it EXECUTES a run — a quoted \$var path to the runner, not a mention of one.
+# A gate needs a GPU when it EXECUTES a run — a quoted \$var path to the runner, not a mention of one —
+# or when it READS the shared arm lint_capture.sh records, which only a GPU could have produced.
 actual=""
 for b in $in_lint; do
 	f="$ROOT/scripts/$b.sh"
 	[ -f "$f" ] || continue
-	if rg -q -e '"\$[A-Za-z_][A-Za-z_0-9]*[^"]*/(run_sim_offscreen|sim_run)\.sh"' "$f"; then
+	if rg -q -e '"\$[A-Za-z_][A-Za-z_0-9]*[^"]*/(run_sim_offscreen|sim_run)\.sh"' "$f" \
+		|| rg -q -e '[$][(]la_(report|report_raw|marker|cap_state|cap_front)\b' "$f"; then
 		actual="$actual $b"
 	fi
 done

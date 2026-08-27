@@ -35,6 +35,7 @@ SCRIPT_DIR="$(cd "${BASH_SOURCE[0]%/*}" && pwd)"
 source "$SCRIPT_DIR/lib_require.sh"
 # shellcheck source=lib_godot.sh
 source "$SCRIPT_DIR/lib_godot.sh"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
 require_tool awk   # every comparison below is an awk numeric compare; without it the gate is vacuous
 require_tool godot # the substance half of the authority is dumped out of the BUILT table
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -84,7 +85,11 @@ if [[ ! -f "$DUMPER" ]]; then
 fi
 SUBSTANCES="$(mktemp -t la_substances.XXXXXX)"
 trap 'rm -f "$AUTH_MAP" "$SUBSTANCES"' EXIT
-la_godot --headless --path "$REPO_ROOT" -s "$DUMPER" > "$SUBSTANCES" 2>/dev/null || true
+if la_cap_dir >/dev/null; then
+  la_headless substances > "$SUBSTANCES" 2>/dev/null || true
+else
+  la_godot --headless --path "$REPO_ROOT" -s "$DUMPER" > "$SUBSTANCES" 2>/dev/null || true
+fi
 sub_rows="$(awk -F= '/^SUBSTANCE_DUMP_ROWS=/ { print $2; exit }' "$SUBSTANCES")"
 if [[ -z "${sub_rows:-}" || "$sub_rows" -le 0 ]]; then
   echo "ERROR: the substance dump produced no rows. LASubstances is in the GDExtension, so either it" >&2

@@ -5,6 +5,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh"
 require_tool rg
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
 HELPER="$ROOT/addons/local_agents/runtime/QuietWindow.gd"
 [ -f "$HELPER" ] || { echo "check_quiet_window: MISSING $HELPER" >&2; exit 2; }
 
@@ -33,16 +34,18 @@ fi
 
 [ "$fail" -eq 0 ] || exit 1
 
-[ "$fail" -eq 0 ] || exit 1
-
-out="$(LA_RUN_TIMEOUT="${LA_QW_TIMEOUT:-180}" "$ROOT/scripts/run_sim_offscreen.sh" --path "$ROOT" \
-	addons/local_agents/game/VoxelWorld.tscn --fixed-fps 60 \
-	-- --sandbox --planet-only --no-fauna --bare --run-frames=6 2>&1)"
-line="$(printf '%s\n' "$out" | grep -m1 '^LA_WINDOW_STATE=')"
-if [ -z "$line" ]; then
-	echo "check_quiet_window: the run published no LA_WINDOW_STATE, so nothing was measured." >&2
-	printf '%s\n' "$out" | tail -20 >&2
-	exit 2
+if la_cap_dir >/dev/null; then
+	line="$(la_marker '^LA_WINDOW_STATE=')" || exit 2
+else
+	out="$(LA_RUN_TIMEOUT="${LA_QW_TIMEOUT:-180}" "$ROOT/scripts/run_sim_offscreen.sh" --path "$ROOT" \
+		addons/local_agents/game/VoxelWorld.tscn --fixed-fps 60 \
+		-- --sandbox --planet-only --no-fauna --bare --run-frames=6 2>&1)"
+	line="$(printf '%s\n' "$out" | grep -m1 '^LA_WINDOW_STATE=')"
+	if [ -z "$line" ]; then
+		echo "check_quiet_window: the run published no LA_WINDOW_STATE, so nothing was measured." >&2
+		printf '%s\n' "$out" | tail -20 >&2
+		exit 2
+	fi
 fi
 echo "$line"
 w="$(printf '%s' "$line" | rg -N -o -e '"w":[0-9]+' | rg -N -o -e '[0-9]+')"

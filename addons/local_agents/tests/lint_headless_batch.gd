@@ -1,0 +1,48 @@
+extends SceneTree
+
+## ONE HEADLESS LAUNCH FOR EVERY RUNNER THAT ONLY READS TABLES. Output is fenced with
+## LA_BATCH_BEGIN=/LA_BATCH_END= so lint_capture.sh can split the log per runner, and each runner
+## prints the verdict marker its gate reads.
+
+const RUNNERS: Array = [
+	["engine_version", ""],
+	["substances", "res://scripts/dump_substances.gd"],
+	["element_composition", "res://scripts/check_element_composition.gd"],
+	["reaction_balance", "res://scripts/check_reaction_balance.gd"],
+	["reaction_rate_units", "res://scripts/check_reaction_rate_units.gd"],
+	["reaction_energy", "res://scripts/check_reaction_energy.gd"],
+	["faint_young_sun", "res://scripts/check_faint_young_sun.gd"],
+	["voxel_grid", "res://addons/local_agents/tests/gate_voxel_grid.gd"],
+	["slice_exterior_geom", "res://addons/local_agents/tests/gate_slice_exterior_geom.gd"],
+	["shaders_compile", "res://addons/local_agents/tests/gate_shaders_compile.gd"],
+	["parse_all", "res://scripts/parse_all_scripts.gd"],
+]
+
+
+func _run(path: String) -> void:
+	var scr: GDScript = load(path)
+	if scr == null:
+		printerr("lint_headless_batch: %s did not load." % path)
+		return
+	var inst: Object = scr.new()
+	if inst == null:
+		printerr("lint_headless_batch: %s did not instantiate." % path)
+		return
+	if inst.has_method("_initialize"):
+		inst.call("_initialize")
+	if not (inst is RefCounted):
+		inst.free()
+
+
+func _initialize() -> void:
+	var version: Dictionary = Engine.get_version_info()
+	for row in RUNNERS:
+		var name: String = String(row[0])
+		var path: String = String(row[1])
+		print("LA_BATCH_BEGIN=%s" % name)
+		if path == "":
+			print("ENGINE_VERSION=%d.%d" % [int(version["major"]), int(version["minor"])])
+		else:
+			_run(path)
+		print("LA_BATCH_END=%s" % name)
+	quit(0)

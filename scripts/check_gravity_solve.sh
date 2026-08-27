@@ -19,6 +19,7 @@
 # EXIT 0 within tolerance · 1 the solver is wrong · 2 could not run.
 set -uo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GODOT="${GODOT:-godot}"
@@ -30,7 +31,7 @@ PASS="$REPO_ROOT/addons/local_agents/sim/material/sphere_passes/GravityPass.gd"
 
 # A .glsl edited since its last import leaves the compiled .res stale, and the probe below would then
 # check the PREVIOUS kernel and report a pass on it.
-la_godot --headless --path "$REPO_ROOT" --import >/dev/null 2>&1
+la_cap_dir >/dev/null || la_godot --headless --path "$REPO_ROOT" --import >/dev/null 2>&1
 
 PROBE="$REPO_ROOT/addons/local_agents/tests/zz_gravity_gate.gd"
 cat > "$PROBE" <<'GD'
@@ -254,8 +255,8 @@ fi
 # ARM TWO — the field the SIM seeds, not one this script built.
 # ---------------------------------------------------------------------------------------------------
 SIM_FRAMES="${LA_GRAVITY_FRAMES:-20}"
-sim_out="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --frames "$SIM_FRAMES" \
-  --report gravity_gauss_rel,gravity_total_mass_kg 2>&1)"
+sim_out="$(la_report gravity_gauss_rel,gravity_total_mass_kg \
+  --path "$REPO_ROOT" --frames "$SIM_FRAMES" 2>&1)"
 sim_rc=$?
 printf '%s\n' "$sim_out" | grep -E '^gravity_' || true
 # A pass reading arrives as a gauge, so the value is behind a 'cur' key; a plain scalar has none.

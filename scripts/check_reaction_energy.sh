@@ -22,6 +22,7 @@
 # =====================================================================================================
 set -uo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUNNER_REL="scripts/check_reaction_energy.gd"
@@ -39,7 +40,11 @@ if [[ ! -f "$REPO_ROOT/$RUNNER_REL" ]]; then
   exit 2
 fi
 
-out="$(cd "$REPO_ROOT" && LA_GODOT_TIMEOUT=180 la_godot --headless --path . -s "res://$RUNNER_REL" 2>&1)"
+if la_cap_dir >/dev/null; then
+  out="$(la_headless reaction_energy)" || exit 2
+else
+  out="$(cd "$REPO_ROOT" && LA_GODOT_TIMEOUT=180 la_godot --headless --path . -s "res://$RUNNER_REL" 2>&1)"
+fi
 echo "$out" | grep -E '^REACTION_ENERGY_FAIL=|^REACTION_ENERGY_ERROR|^REACTION_ENERGY=' || true
 
 line="$(echo "$out" | grep -E '^REACTION_ENERGY=' | tail -1)"

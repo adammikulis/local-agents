@@ -32,7 +32,14 @@ DEV="$(rg -N -o -e '\*\*The current development branch is `[^`]+`' "$ROOT/CLAUDE
 
 # Integration runs from the PRIMARY checkout: it is the only tree whose branch is the dev branch.
 PRIMARY="$(git -C "$ROOT" worktree list --porcelain | awk '/^worktree /{print $2; exit}')"
-[ "$PRIMARY" = "$ROOT" ] || { echo "integrate: run this from the primary checkout ($PRIMARY), not $ROOT." >&2; exit 2; }
+[ -n "$PRIMARY" ] || { echo "integrate: no primary checkout in this worktree list." >&2; exit 2; }
+# It KNOWS where the primary is, so it goes there rather than refusing. The lane is still verified by its
+# own path below; only the merge moves to the tree whose branch is the dev branch.
+if [ "$PRIMARY" != "$ROOT" ]; then
+	echo "integrate: run from $ROOT; merging in the primary checkout $PRIMARY." >&2
+	ROOT="$PRIMARY"
+	cd "$ROOT" || { echo "integrate: cannot enter $ROOT." >&2; exit 2; }
+fi
 git -C "$ROOT" show-ref --verify --quiet "refs/heads/$BRANCH" || { echo "integrate: no branch '$BRANCH'." >&2; exit 2; }
 
 # --- 1. REFUSE A TREE SOMEBODY IS STILL WRITING IN -----------------------------------------------------
@@ -145,8 +152,8 @@ BIN_REL="addons/local_agents/gdextensions/localagents/bin"
 if [ -d "$LANE_WT/$BIN_REL" ] && [ ! -L "$LANE_WT/$BIN_REL" ]; then
 	rm -rf "$ROOT/$BIN_REL" && cp -R "$LANE_WT/$BIN_REL" "$ROOT/$BIN_REL"
 fi
-"$SCRIPT_DIR/godot_import.sh" "$ROOT" || true
-"$SCRIPT_DIR/editor_scan.sh" --path "$ROOT" >/dev/null 2>&1 || \
+"$ROOT/scripts/godot_import.sh" "$ROOT" || true
+"$ROOT/scripts/editor_scan.sh" --path "$ROOT" >/dev/null 2>&1 || \
 	echo "integrate: the post-merge editor scan was not clean; run scripts/editor_scan.sh." >&2
 for wt in $(git -C "$ROOT" worktree list --porcelain | rg -N '^worktree ' | sed 's/^worktree //'); do
 	[ "$wt" = "$PRIMARY" ] && continue
