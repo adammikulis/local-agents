@@ -36,10 +36,17 @@ An offset component of `surface` puts a box on the body without naming a radius.
 
 ## 1. BUILD THE GRADED GRID. IT IS THE TRUNK AND ITEM 0 WAITS ON IT
 
-`LAFieldLithostaticSeed.shape_atmosphere` seeds the whole atmosphere into one cell shell with vacuum above
-whenever the scale height is under a cell edge, and that holds at every resolution the project offers: no
-lapse rate, no vertical structure, and the open cells the pressure audit compares are mostly the cube's
-corners. Item 0 cannot be read either way until this lands.
+At every resolution the project offers, no open cell centre lies within a scale height of the surface, so
+the seeded atmosphere is one shell with vacuum above it: no lapse rate, no vertical structure, and the
+open cells the pressure audit compares are mostly the cube's corners. Item 0 cannot be read either way
+until this lands.
+
+Two readings hold on the default box and not on the sealed column, and `docs/PHYSICS_TODO.md` D carries
+both: the hydrostatic rung does not stay in the balance it is seeded into
+(`bash scripts/check_process_ladder.sh` stops at rung `hydrostatic`;
+`scripts/agent_harness.sh sim --rung=2 --frames 8` prints `PRESSURE_BROKEN`), and the hydrosphere is
+seeded by fill rather than by the body's water mass
+(`rg -n MAX_MASS addons/local_agents/sim/material/MaterialField3D.gd addons/local_agents/sim/material/MaterialFieldLakes3D.gd`).
 
 **The grid is Cartesian with axis-aligned refinement. That is settled, with the reasoning, in
 `docs/PHYSICS_TODO.md` — do not re-open it.** What is left is to build it:
@@ -56,27 +63,18 @@ corners. Item 0 cannot be read either way until this lands.
   samples. The vacuum corners and the quiet interior stay coarsest, which is what makes it affordable.
 - The slice box becomes a refinement region rather than a second construction path.
 
-**Before any kernel is touched: every kernel rig hardcodes `CELL = 1.0`, so dx, face area and cell volume
-are all numerically 1 and no rig can tell which role a quantity carries.** `check_gravity_solve.sh`,
-`check_boundary_books.sh`, `check_boundary_momentum_book.sh`, `check_escape_law.sh` and
-`check_radiative_row.sh` all build their grid that way; `check_radiative_row.sh` hardcodes the collapsed
-`6.0 * emis * sigma * T^4 * dt / CELL`. Move them to a non-unit cell first, or the conversion is unverifiable.
-
 **`check_voxel_grid.sh` asserts `volume_ratio == 1.0`** — a gate holding the grid uniform. It is INVERTED,
 not deleted: it becomes the gate that a 2:1 neighbour's volume ratio is exactly 8 and that every transfer
 goes through `cellvol.glsli`'s existing `vol_ratio(donor, receiver)`.
 
 **The well-balanced scheme is required work, not a hope, and it decides whether the atmosphere is real.**
-`transport.glsl`'s `face_p()` already reconstructs face pressure hydrostatically; it has to be good enough
-in the stratified direction. Its gate is the only test that matters: an atmosphere at rest, in balance,
-stays at rest. Build that gate first and watch it fail.
+`scripts/check_atmosphere_at_rest.sh` is its gate and it is RED: the sealed column's own reading is
+reproducible only when the run draws no ambient event, and a cell's pressure leaves the value it was
+seeded with. Reproduce: `bash scripts/check_atmosphere_at_rest.sh`.
 
 `check_alt_bands.sh` already fails on this: every populated altitude band reads the same minimum
 temperature, because the bands hold one isothermal population and mostly the cube's corners. It goes
 green when the atmosphere has vertical structure, so treat it as this item's acceptance test.
-
-`shape_atmosphere`'s `flat` branch is DELETED when this lands. If it cannot come out, the root is not
-fixed.
 
 ## 2. The open-boundary books do not close at run level
 

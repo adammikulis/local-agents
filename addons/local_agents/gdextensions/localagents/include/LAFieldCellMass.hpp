@@ -3,6 +3,7 @@
 
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/variant/array.hpp>
+#include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_string_array.hpp>
 
 namespace godot {
@@ -13,6 +14,9 @@ class LAFieldCellMass3D : public RefCounted {
 	GDCLASS(LAFieldCellMass3D, RefCounted);
 
 public:
+	// Kilograms per LASubstances id in one cell, and the moles of gas in it.
+	static Dictionary masses_at(Object *p_field, int p_c, double p_cell_m3);
+	static double gas_moles_at(Object *p_field, int p_c, double p_cell_m3);
 	// [mirror array, molar mass kg/mol] for every channel the field carries as an amount of matter.
 	static Array mirrors(Object *p_field);
 	// The channel names mirrors() returned, in the same order, so a per-mirror total can be named.

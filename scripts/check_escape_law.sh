@@ -23,7 +23,7 @@ extends SceneTree
 const QuietWindow: GDScript = preload("res://addons/local_agents/runtime/QuietWindow.gd")
 
 const PASS_PATH: String = "res://addons/local_agents/sim/material/sphere_passes/TransportPass.gd"
-const CELL: float = 1.0
+const CELL: float = 0.5
 const DT: float = 1.0e-4
 const T_C: float = 26.85
 const T_K: float = 300.0
@@ -118,7 +118,7 @@ func _init() -> void:
 		quit(2)
 		return
 	var grid: LAVoxelGrid = LAVoxelGrid.new()
-	grid.build(2, 1, 1, CELL, Vector3(-1.0, -0.5, -0.5))
+	grid.build(2, 1, 1, CELL, Vector3(-CELL, -0.5 * CELL, -0.5 * CELL))
 	_cc = grid.cell_count
 	var owned: Array[RID] = []
 	for name in LAChannels.channels():

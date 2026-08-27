@@ -136,6 +136,7 @@ func setup(field) -> void:
 		var p: RefCounted = scr.new()
 		if p.has_method("setup"):
 			p.ghost_count = _ng
+			p.grid_dims = Vector3i(_grid.nx, _grid.ny, _grid.nz)
 			_passes.append(p)
 			_pass_names.append(path.get_file().get_basename())   # e.g. "TransportPass" — timestamp label
 	# A pass declares the buffers it needs and the DRIVER allocates them, so they are driver-owned and can be
@@ -339,6 +340,21 @@ func _drain_pending() -> void:
 	_read_gpu_pass_timings()   # real GPU execution time for the step just sync()'d — see field vars above
 	LASimReport.gauge("field_cells", float(_cc))
 	_drain_passes()
+
+
+## The seeded field's derived state and its maxima, before any time passes, so the first step's substep
+## budget is a reading of the world instead of a value invented for it.
+func derive_seeded() -> void:
+	if _rd == null or _grid == null: return
+	_ctx["cell_size"] = _grid.cell_size
+	for i in _passes.size():
+		if not (_pass_names[i] in ["StateDerivePass", "ReducePass"]): continue
+		var cl: int = _rd.compute_list_begin()
+		_passes[i].dispatch(_rd, cl, _ctx, _cc, _groups)
+		_rd.compute_list_end()
+		_rd.submit()
+		_rd.sync()
+		_passes[i]._drain(_rd)
 
 
 ## Each pass's own readings, taken here because the device was just synced. A pass owns its keys; two passes

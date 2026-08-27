@@ -15,18 +15,25 @@ LA_RUN_TIMEOUT="${LA_RUN_TIMEOUT:-120}" "$ROOT/scripts/run_sim_offscreen.sh" --p
 	-- --sandbox "--run-frames=${LA_WIND_FRAMES:-12}" --seed=4242 --bare --planet-only --no-fauna \
 	> "$LOG" 2>&1 || true
 
-read -r WIND CEL <<EOF
+read -r WIND CEL NF <<EOF
 $(rg -N -o 'SIM_REPORT=.*' "$LOG" | tail -1 | python3 -c "
 import sys, json
 try:
     d = json.loads(sys.stdin.read()[len('SIM_REPORT='):])['gauges']
-    print(d['wind_speed_max']['max'], d['celerity_max']['max'])
+    print(d['wind_speed_max']['max'], d['celerity_max']['max'], d['nonfinite_cells']['max'])
 except Exception:
-    print('', '')
+    print('', '', '')
 ")
 EOF
-case "${WIND:-}${CEL:-}" in "" ) echo "check_wind_subsonic: the run published no wind_speed_max/celerity_max." >&2; exit 2 ;; esac
-[ -n "$WIND" ] && [ -n "$CEL" ] || { echo "check_wind_subsonic: the run published no wind_speed_max/celerity_max." >&2; exit 2; }
+case "${WIND:-}${CEL:-}${NF:-}" in "" ) echo "check_wind_subsonic: the run published no wind_speed_max/celerity_max/nonfinite_cells." >&2; exit 2 ;; esac
+[ -n "$WIND" ] && [ -n "$CEL" ] && [ -n "$NF" ] || { echo "check_wind_subsonic: the run published no wind_speed_max/celerity_max/nonfinite_cells." >&2; exit 2; }
+# A MACH NUMBER OFF A POISONED FIELD IS TWO FICTIONS DIVIDED. Both readings are the substrate's, so a
+# run that put a NaN or an infinity in any cell says nothing about either, whatever their ratio is.
+if ! awk -v n="$NF" 'BEGIN{exit !(n == 0)}'; then
+	echo "check_wind_subsonic: the run left non-finite state in the field, so neither the wind nor the" >&2
+	echo "                     sound speed is a reading. Their ratio is not a verdict." >&2
+	exit 1
+fi
 
 awk -v w="$WIND" -v c="$CEL" 'BEGIN {
 	if (c <= 0) { print "check_wind_subsonic: celerity_max is not positive; no sound speed to compare against." > "/dev/stderr"; exit 2 }

@@ -33,9 +33,9 @@ rg -qU 'if \(solid\[g\] == 0\.0\) \{\s*\n\s*return;' "$LITHO" || {
 	fail=1
 }
 
-# 3. THE SEAM. A wall face takes the FLUID cell's own pressure. Reading a solid neighbour's here is what
-#    puts a lithostatic gigapascal into the momentum of the air touching it.
-rg -qU 'float p_face = face_p\(gidx, d\);\s*\n\s*if \(!wall\) \{' "$TRANSPORT" || {
+# 3. THE SEAM. A wall face — and a face onto nothing — takes the FLUID cell's own pressure. Reading a
+#    solid neighbour's here is what puts a lithostatic gigapascal into the momentum of the air touching it.
+rg -qU 'float p_face = face_p\(gidx, d\);\s*\n\s*if \(!wall[^{]*\) \{' "$TRANSPORT" || {
 	echo "FAIL  transport.glsl's wall face no longer takes the fluid cell's own pressure. Rock is" >&2
 	echo "      quasi-static and its pressure is not on the same scale; feeding it to -grad(p) is" >&2
 	echo "      what the split exists to prevent." >&2

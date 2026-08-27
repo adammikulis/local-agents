@@ -347,8 +347,6 @@ func _cells_filled(v: float) -> PackedFloat32Array:
 
 ## Begin simulating + rendering (called after setup + sample_solidity + seed_sea).
 func activate() -> void:
-	# The state the device is seeded FROM, so it is filled before the driver reads it.
-	LAFieldEnthalpySeed.seed(self, INITIAL_TEMP)
 	_boundary = BoundaryScript.new()
 	_boundary.setup(self)                 # appends ghost rows before the driver reads grid.ghost_rows
 	if _grid != null and SphereGPUScript.available():
@@ -404,13 +402,11 @@ func _seed_silicate() -> void:
 			or _solid.size() != _cell_count:
 		return
 	LAPlanetComposition.seed(self, INITIAL_TEMP)
-	# Shape the CPU arrays BEFORE the driver's seed_field reads them, so the declared upload is the
-	# compressed rock and the shell atmosphere, not the flat fill.
-	LAFieldLithostaticSeed.compress(self)
+	# Shape the CPU arrays BEFORE the driver's seed_field reads them. The hydrostatic balance waits for
+	# the gravity solve; LAMaterialFieldSphereStep3D.seed_tick marches it once g exists.
 	LAFieldLithostaticSeed.clear_gas_in_rock(self)
 	_body_measure = LABodyMeasure.new()
 	_body_measure.measure(self, LABodySeeds.spin_axis_of(_body_key))
-	LAFieldLithostaticSeed.shape_atmosphere(self, INITIAL_TEMP, _body_measure)
 
 
 func _seed_sea() -> void:

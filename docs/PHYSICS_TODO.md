@@ -199,15 +199,28 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
 ## D. Transport and geometry
 
 - [ ] **The modelled atmosphere is one cell thick, at every resolution the project offers.**
-      `LAFieldLithostaticSeed.shape_atmosphere` branches on `scale_h < cell_size`; when it holds, the whole
-      atmosphere is seeded into the first open shell and everything above it is vacuum. It always holds:
-      the field box is `2 * (PLANET_RADIUS + MODELLED_ATMOSPHERE_HEIGHT_M) / N` per cell with `N` clamped
+      `LAFieldLithostaticSeed.shape_atmosphere` falls off over the scale height the solved gravity states,
+      and no open cell centre is within one of them of the surface, so the whole atmosphere lands in the
+      first open shell and everything above it is vacuum. The field box is
+      `2 * (PLANET_RADIUS + MODELLED_ATMOSPHERE_HEIGHT_M) / N` per cell with `N` clamped
       to `[GRID_EDGE_MIN, GRID_EDGE_MAX]`, so the finest cell available is tens of kilometres larger than
       any scale height this planet can have, and `MODELLED_ATMOSPHERE_HEIGHT_M` is itself under one cell.
       There is no lapse rate, no vertical structure and no honest pressure gradient for the momentum
       equation to work against, and the open cells that remain are mostly the cube's corners.
       **Reproduce:** `scripts/sim_run.sh --frames 10` — the DRY open-pair class carries the whole
       `PRESSURE_BROKEN` count while rock and surface read zero.
+- [ ] **The hydrostatic rung does not stay in the balance it is seeded into, on the sphere.** The pressure
+      audit counts open-cell inversions on the default box while the rock and surface classes read zero,
+      and the sealed one-cell-wide column on the body axis is the arm that does not show it.
+      **Reproduce:** `bash scripts/check_process_ladder.sh` stops at rung `hydrostatic`, and
+      `scripts/agent_harness.sh sim --rung=2 --frames 8` prints the `PRESSURE_BROKEN` line directly.
+- [ ] **The hydrosphere is seeded by fill, not by the planet's water mass.** Every open cell below sea
+      level and every flooded basin cell is written brim-full of liquid, so the seeded H2O mass is set by
+      how many cells the grid puts under sea level rather than by how much water the body has.
+      **Reproduce:** `rg -n MAX_MASS addons/local_agents/sim/material/MaterialField3D.gd
+      addons/local_agents/sim/material/MaterialFieldLakes3D.gd`, then compare `h2o_total` from
+      `scripts/agent_harness.sh sim --frames 6 --rung=1 --report h2o_total` against the body's own
+      hydrosphere.
 - [ ] **The grid cannot resolve its own aquifer.** `LAVoxelGrid.cell_size` is one number for all three axes
       and for every cell, so the few cells of regolith between the surface and the water table are as coarse
       as the sky. The same axis-aligned refinement the atmosphere above needs answers this one: resolution
@@ -233,10 +246,12 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       prints and of `HANDOFF.md` item 0. It is NOT a near-vacuum division artifact: the peak falls with
       density but survives it, so gating the gauge hides it rather than fixing it.
       `transport.glsl`'s `face_p()` reconstruction and the `bodyf_*` body force cancel exactly for a column
-      already in discrete hydrostatic balance — and an OPEN cell's pressure is a state function of its own
-      matter, so two stacked cells of equal fill carry equal pressure and no gradient at all to stand
-      against gravity. There is no vertical column to balance while the atmosphere is one cell thick, so
-      this is downstream of the grid, D and `HANDOFF.md` item 1.
+      already in discrete hydrostatic balance, and `LAFieldLithostaticSeed.compress` marches that balance
+      cell by cell along the solved gravity, so a sealed column reads zero wind at every drain. What is
+      left is the PRESSURE: after the transport pass every open cell reads zero, so `pressure_aud_open`
+      audits no pair and `pressure_rest_rel` reads its whole seeded value, while a solid cell keeps a
+      sane one. **Reproduce:** `bash scripts/check_atmosphere_at_rest.sh`, or
+      `LA_PASS_PROBE=n2 scripts/sim_run.sh --slice --slice-box "0,surface,0,1,20,1,2000" --frames 2`.
       And it GROWS with run
       length rather than relaxing, so it is not a seed transient settling — something adds energy.
       **Reproduce:** `scripts/check_rung_acoustic.sh`, or `scripts/agent_harness.sh sim --rung=3

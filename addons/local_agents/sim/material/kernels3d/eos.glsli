@@ -4,29 +4,29 @@
 #ifndef LA_EOS_GLSLI
 #define LA_EOS_GLSLI
 
-float la_eos_p(float vol, float a_gas_rt, float b_vol, float c_comp, float p_std) {
+// A CONDENSED PHASE WITH VOID OVER IT EVAPORATES INTO IT until the vapour it makes reads its own
+// saturation pressure, so `p_sat` is a FLOOR the solved pressure cannot fall below. Zero where the cell
+// holds no condensed phase that boils.
+float la_eos_p(float vol, float a_gas_rt, float b_vol, float c_comp, float p_std, float p_sat) {
 	if (vol <= 0.0) {
 		return 0.0;
 	}
 	// Nothing compressible: the gas fills what the condensed phases leave.
 	if (c_comp <= 0.0) {
 		float room = vol - b_vol;
-		return room > 0.0 ? a_gas_rt / room : 0.0;
+		return max(room > 0.0 ? a_gas_rt / room : 0.0, p_sat);
 	}
-	// No gas: the condensed phases alone are squeezed into the cell. A cell they underfill holds them
-	// beside void at zero stress — liquid under tension cavitates rather than stretching to fill.
+	// No gas of its own: the condensed phases alone are squeezed into the cell, and the void they leave
+	// is their vapour.
 	if (a_gas_rt <= 0.0) {
-		float squeezed = p_std + (b_vol - vol) / c_comp;
-		return squeezed > 0.0 ? squeezed : 0.0;
+		return max(p_std + (b_vol - vol) / c_comp, p_sat);
 	}
 	float k = vol - b_vol - c_comp * p_std;
 	float disc = sqrt(k * k + 4.0 * c_comp * a_gas_rt);
 	// Stable root of the same quadratic: for k > 0, (disc - k)/(2C) cancels catastrophically as C -> 0
 	// and one ulp over 2C is an arbitrary pressure; 2A/(k + disc) is algebraically identical, sums
 	// positives, and limits exactly to the ideal-gas A/k.
-	if (k > 0.0) {
-		return 2.0 * a_gas_rt / (k + disc);
-	}
-	return (disc - k) / (2.0 * c_comp);
+	float p = (k > 0.0) ? 2.0 * a_gas_rt / (k + disc) : (disc - k) / (2.0 * c_comp);
+	return max(p, p_sat);
 }
 #endif

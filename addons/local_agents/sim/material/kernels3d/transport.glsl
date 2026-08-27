@@ -6,6 +6,7 @@
 
 #include "neighbours.glsli"
 #include "generated.glsli"
+#include "stack.glsli"
 
 layout(local_size_x = 64) in;
 
@@ -309,10 +310,9 @@ float impedance(uint c) {
 	return max(rho_bulk[c], 0.0) * max(cel_m_s[c], 0.0);
 }
 
-// The cell's pressure extrapolated to face d along its own hydrostatic gradient, so an equilibrium
-// column presents ONE pressure to the shared face (hydrostatic reconstruction, Audusse 2004).
-float face_p(uint c, uint d) {
-	return pressure[c] + 0.5 * params.cell_m * max(rho_bulk[c], 0.0) * dot(g_at(c), face_normal(d));
+// THE ONE EMPTINESS TEST, the floor state_derive.glsl empties a cell on: no bulk state of any kind.
+bool no_matter(uint c) {
+	return !(rho_bulk[c] >= params.rho_floor) || impedance(c) <= 0.0;
 }
 
 // The cell's h2o split by the shares the enthalpy ladder derived, mol/m^3.
@@ -326,8 +326,7 @@ float cloud_water_kg_m3(uint c) {
 	return (h2o_water(c) + h2o_ice(c)) * M_H2O;
 }
 
-// Non-inductive charge separation in the riming band, C/m^3 this step. The light phase carries this much
-// charge up and the heavy phase carries the same amount down, so the pair creates nothing.
+// Non-inductive charge separation in the riming band, C/m^3 this step: the pair creates nothing.
 float separation_dq(uint c, vec3 up) {
 	float band = clamp((CHARGE_ZONE_WARM_C - temp[c]) / (CHARGE_ZONE_WARM_C - CHARGE_ZONE_COLD_C),
 		0.0, 1.0);
@@ -341,6 +340,25 @@ float condensed_frac(uint c) {
 	float f = solid[c] != 0.0 ? 1.0 : 0.0;
 	f += max(silicate[c], 0.0) / FULL_SILICATE + (h2o_water(c) + h2o_ice(c)) / FULL_H2O;
 	return clamp(f, 0.0, 1.0);
+}
+
+// Mass of the cell's condensed phases per unit CELL volume, kg/m^3: what lies at the bottom of it.
+float cond_kg_m3(uint c) {
+	return cloud_water_kg_m3(c) + max(silicate[c], 0.0) * M_SILICATE;
+}
+
+// The cell's pressure at face d, off the LAYERS it holds, so an equilibrium column presents ONE pressure
+// to a shared face however the interface cuts the cell.
+float face_p(uint c, uint d) {
+	float e = params.cell_m;
+	vec3 gv = g_at(c);
+	float gm = length(gv);
+	if (gm <= 0.0) {
+		return pressure[c];
+	}
+	float z = 0.5 * e * (1.0 + dot(face_normal(d), gv) / gm);
+	return la_stack_p(z, e, gm, condensed_frac(c), cond_kg_m3(c), max(rho_bulk[c], 0.0),
+		max(pressure[c], 0.0));
 }
 
 
@@ -390,8 +408,7 @@ float melt_viscosity(uint c) {
 	return MELT_VISC * pow(1.0 - r, -ROSCOE_N);
 }
 
-// Gauss's law along the field line: charge density integrated outward is a surface charge, and a surface
-// charge is a field. V/m.
+// Gauss's law along the field line: charge integrated outward is a surface charge, so a field. V/m.
 float column_field(uint c) {
 	vec3 gv = g_at(c);
 	if (length(gv) <= 0.0) {
@@ -831,11 +848,13 @@ void main() {
 		la_dt = la_level_dt(tlevel[gidx]);
 		uint abase = gidx * N_SLOTS;
 		send[abase] = 0.0;
-		if (solid[gidx] != 0.0) {
+		// A cell with no bulk state carries no acoustic signal, and its impedance is rho c over a mass
+		// that is not there. Asked FIRST, so nothing downstream evaluates it.
+		if (solid[gidx] != 0.0 || no_matter(gidx)) {
 			return;
 		}
 		float ks = max(rho_bulk[gidx], 0.0) * cel_m_s[gidx] * cel_m_s[gidx];
-		if (ks <= 0.0) {
+		if (!(ks > 0.0)) {
 			return;
 		}
 		float za = impedance(gidx);
@@ -847,13 +866,18 @@ void main() {
 				continue;
 			}
 			uint nb = uint(inb);
+			vec3 nrm = face_normal(d);
+			float ua = dot(vel_at(gidx), nrm);
+			// A FACE ONTO NOTHING IS A FREE SURFACE: it carries the matter side's own pressure.
+			if (no_matter(nb)) {
+				div_u += ua;
+				continue;
+			}
 			float zb = impedance(nb);
 			float zs = za + zb;
 			if (zs <= 0.0) {
 				continue;
 			}
-			vec3 nrm = face_normal(d);
-			float ua = dot(vel_at(gidx), nrm);
 			float ub = dot(vel_at(nb), nrm);
 			// Subtractive form of the same average: exact at equilibrium for any impedance pair.
 			div_u += ua + (zb * (ub - ua) + (face_p(gidx, d) - face_p(nb, d ^ 1u))) / zs;
@@ -863,9 +887,7 @@ void main() {
 	}
 	if (params.pass_id == PASS_ACOUSTIC_APPLY) {
 		if (gidx < params.cell_count) {
-			// The exact dp/dt = -rho c^2 div(u) decays toward zero and never crosses it; the linear
-			// step can, and la_eos_p's own domain is p >= 0, so the predictor keeps to it.
-			pressure[gidx] = max(pressure[gidx] + send[gidx * N_SLOTS], 0.0);
+			pressure[gidx] = pressure[gidx] + send[gidx * N_SLOTS];
 			// This substep's share of the body impulse, beside the pressure gradient it stands against.
 			float sf = exp2(-float(tlevel[gidx]));
 			mom_x[gidx] += bodyf_x[gidx] * sf;
@@ -978,7 +1000,7 @@ void main() {
 		if (!is_signed && remaining <= donor_floor) {
 			return;
 		}
-		// Mass carries its heat and its charge. A row that carries no matter carries neither.
+		// MASS CARRIES ITS HEAT, ITS CHARGE AND ITS MOMENTUM, however thin the cell it leaves.
 		bool carries = params.density > 0.0 && amount[gidx] > 0.0;
 		// Heat per unit fill of THIS substance: its share of the entry its heat sits in.
 		float h_per_unit = 0.0;
@@ -990,7 +1012,7 @@ void main() {
 				h_per_unit = h_carried[gidx] / amount[gidx];
 			}
 		}
-		// The flux's mass share of the cell, floored by the substance's own mass. Momentum and charge ride it.
+		// The flux's mass share of the cell, floored by the substance's own mass.
 		float denom_m = max(max(rho_bulk[gidx], 0.0), kg_mol * amount[gidx]);
 		float m_share = (carries && denom_m > 0.0) ? kg_mol / denom_m : 0.0;
 		float open = 1.0 - clamp(resist[gidx], 0.0, 1.0);
@@ -1059,19 +1081,14 @@ void main() {
 					// Pressure's momentum flux. A wall meets the cell's own reconstructed face pressure;
 					// an open face the linearized Riemann p*, whose velocity-jump term dissipates.
 					float p_face = face_p(gidx, d);
-					if (!wall) {
+					if (!wall && !no_matter(gidx) && !no_matter(nb)) {
 						float za = impedance(gidx);
 						float zb = impedance(nb);
-						float zs = za + zb;
-						if (zs > 0.0) {
-							float ua = dot(vel_at(gidx), nrm);
-							float ub = dot(vel_at(nb), nrm);
-							// Subtractive form: exact at equilibrium for any impedance pair.
-							p_face = p_face
-								+ za * (face_p(nb, d ^ 1u) - p_face + zb * (ua - ub)) / zs;
-						} else {
-							p_face = 0.0;
-						}
+						float ua = dot(vel_at(gidx), nrm);
+						float ub = dot(vel_at(nb), nrm);
+						// Subtractive form: exact at equilibrium for any impedance pair.
+						p_face = p_face
+							+ za * (face_p(nb, d ^ 1u) - p_face + zb * (ua - ub)) / (za + zb);
 					}
 					float ni = params.axis == 0u ? nrm.x : (params.axis == 1u ? nrm.y : nrm.z);
 					sflux = p_face * ni * la_dt / params.cell_m;
@@ -1111,7 +1128,9 @@ void main() {
 			if (drop > 0.0) {
 				float mob_face = through_pores
 					? darcy_mobility(gidx, nb) : mobility_at(gidx, amt0);
-				flow = drop * mob_face * open / params.cell_m;
+				// The pair's imbalance decays as exp(-k t), so the share that crosses approaches it
+				// rather than passing it. LA_APPROX: exponential_pair_relaxation
+				flow = drop * (1.0 - exp(-mob_face * open / params.cell_m));
 			}
 			if (params.mode == MODE_CONDUCT) {
 				// Series half-cells, so the interface conductivity is the harmonic mean, and
@@ -1130,10 +1149,9 @@ void main() {
 				float ub = dot(vel_at(nb), nrm_a);
 				float za = impedance(gidx);
 				float zb = impedance(nb);
-				float zs = za + zb;
-				float vn = zs > 0.0
-					? ua + (zb * (ub - ua) + (face_p(gidx, d) - face_p(nb, d ^ 1u))) / zs
-					: ua;
+				float vn = no_matter(nb)
+					? ua
+					: ua + (zb * (ub - ua) + (face_p(gidx, d) - face_p(nb, d ^ 1u))) / (za + zb);
 				vn += dot(transport_velocity(gidx) - vel_at(gidx), nrm_a);
 				if (vn > 0.0) {
 					flow += remaining * vn * la_dt / params.cell_m;
@@ -1283,10 +1301,11 @@ void main() {
 			if (params.sub_cap_j_m3k > 0.0) {
 				cap_sensible[gidx] = max(cap_sensible[gidx] + da * params.sub_cap_j_m3k, 0.0);
 			}
-			if (solid[gidx] == 0.0) {
-				// dp = K_s da: the MIXTURE's bulk modulus rho c^2 times the volume share that arrived.
-				pressure[gidx] = max(pressure[gidx]
-					+ rho_bulk[gidx] * cel_m_s[gidx] * cel_m_s[gidx] * (da / params.max_fill), 0.0);
+			// dp = K_s da: the mixture's bulk modulus times the VOLUME SHARE that arrived. A row whose
+			// substance declares no full amount has no volume share, and 0/0 is not a pressure.
+			if (solid[gidx] == 0.0 && params.max_fill > 0.0 && !isinf(params.max_fill)) {
+				pressure[gidx] = pressure[gidx]
+					+ rho_bulk[gidx] * cel_m_s[gidx] * cel_m_s[gidx] * (da / params.max_fill);
 			}
 		}
 	}

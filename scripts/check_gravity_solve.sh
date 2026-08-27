@@ -43,10 +43,8 @@ extends SceneTree
 const QuietWindow: GDScript = preload("res://addons/local_agents/runtime/QuietWindow.gd")
 
 const N: int = 32
-const CELL: float = 1.0
-# Offset by half a cell so CELL CENTRES LAND ON INTEGERS, which puts a cell exactly at the origin. The
-# first draft of this gate did not, so the "centre of the sphere" sample sat 0.87 cells out and read
-# 10.6% of surface gravity — the solver's correct answer for that point, and a false failure.
+const CELL: float = 0.5
+# Offset by half a cell, so a cell centre sits exactly at the origin for the centre sample.
 const ORIGIN: Vector3 = Vector3(-0.5 * N * CELL - 0.5 * CELL, -0.5 * N * CELL - 0.5 * CELL, -0.5 * N * CELL - 0.5 * CELL)
 const SWEEP_BUDGET: int = 400
 const PASS_PATH: String = "res://addons/local_agents/sim/material/sphere_passes/GravityPass.gd"
@@ -99,6 +97,7 @@ func _solve(grid, fill: PackedFloat32Array) -> Array:
 	var src_bytes: PackedByteArray = fill.to_byte_array()
 	_rd.buffer_update(bufs[SOURCE_CHANNEL], 0, src_bytes.size(), src_bytes)
 
+	p.grid_dims = Vector3i(N, N, N)
 	p.setup(_rd, bufs, cc)
 	var groups: int = int(ceil(float(cc) / 64.0))
 	var ctx: Dictionary = {"cell_size": CELL, "step_index": 0.0}
@@ -144,7 +143,7 @@ func _init() -> void:
 
 	var g0 = LAVoxelGrid.new()
 	g0.build(N, N, N, CELL, ORIGIN)
-	var radius: float = 8.0
+	var radius: float = 8.0 * CELL
 	var fill: PackedFloat32Array = PackedFloat32Array()
 	fill.resize(g0.cell_count)
 	var filled: float = 0.0
@@ -201,11 +200,11 @@ func _init() -> void:
 	h.build(N, N, N, CELL, ORIGIN)
 	var fill2: PackedFloat32Array = PackedFloat32Array()
 	fill2.resize(h.cell_count)
-	var a_c: Vector3 = Vector3(-6.0, 0.0, 0.0)
-	var b_c: Vector3 = Vector3(6.0, 0.0, 0.0)
+	var a_c: Vector3 = Vector3(-6.0 * CELL, 0.0, 0.0)
+	var b_c: Vector3 = Vector3(6.0 * CELL, 0.0, 0.0)
 	for c in h.cell_count:
 		var p2: Vector3 = h.cell_world_pos(c)
-		fill2[c] = full if (p2 - a_c).length() < 3.0 or (p2 - b_c).length() < 3.0 else 0.0
+		fill2[c] = full if (p2 - a_c).length() < 3.0 * CELL or (p2 - b_c).length() < 3.0 * CELL else 0.0
 	var res2: Array = _solve(h, fill2)
 	var field2: PackedFloat32Array = res2[0]
 	var ga: Vector3 = _g_at(field2, h.cell_at(a_c))
