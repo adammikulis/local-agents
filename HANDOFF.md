@@ -127,6 +127,18 @@ GDScript keeps bindings. `gdextensions/localagents/` already builds; a class is 
   burial march, `FieldEnthalpySeed3D`'s per-cell mixture walk and its dynamic `f.get("_" + name)` lookup.
 - The driver: `MaterialSphereGPU3D.gd` and `MaterialField3D.gd`. Last, after the pass seam settles.
 
+## 8. The camera points at the sky, and a --ui run with fauna never reports
+
+`scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn -- --sandbox
+--planet-only --no-fauna --fly --shoot=/tmp/fly.png --shoot-frames=200` saves a frame of sky and stars
+with a wedge of ground in one corner, and its own `SHOT_SAVED` line reads `cam_alt_m=78
+cam_pitch_deg=29.8`. The drone is 78 m over the ground and aimed 30 degrees up.
+
+`LA_RUN_TIMEOUT=110 scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn --
+--sandbox --ui --run-frames=20` never prints a report and logs no error. The same arm with
+`--planet-only --no-fauna` reports in about twenty seconds.
+
+
 ## 7. Build the binding registry
 
 SSBO binding numbers are a bare integer in GLSL and a second bare integer in one of fourteen uniform-set
