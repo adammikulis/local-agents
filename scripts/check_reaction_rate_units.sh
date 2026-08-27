@@ -12,6 +12,7 @@
 # EXIT 0 clean · 1 a violation · 2 could not run. A gate that cannot run must fail, never pass.
 set -uo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
 
 SCRIPT_DIR="$(cd "${BASH_SOURCE[0]%/*}" && pwd)"
 # shellcheck source=lib_require.sh
@@ -50,7 +51,11 @@ if [[ ! -f "$RUNNER" ]]; then
   echo "ERROR: check_reaction_rate_units.sh cannot find its runner at $RUNNER." >&2
   exit 2
 fi
-OUT="$(la_godot --headless --path "$REPO_ROOT" -s "$RUNNER" 2>&1)"
+if la_cap_dir >/dev/null; then
+  OUT="$(la_headless reaction_rate_units)" || exit 2
+else
+  OUT="$(la_godot --headless --path "$REPO_ROOT" -s "$RUNNER" 2>&1)"
+fi
 SUMMARY="$(printf '%s\n' "$OUT" | grep -o 'RATE_UNITS=.*' | tail -n 1)"
 if [[ -z "$SUMMARY" ]]; then
   echo "$OUT"

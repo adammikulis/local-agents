@@ -7,6 +7,7 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
 GODOT="${GODOT:-godot}"
 command -v "$GODOT" >/dev/null 2>&1 || { echo "ERROR: godot not on PATH — a gate that cannot run FAILS." >&2; exit 2; }
 KERNEL="$REPO_ROOT/addons/local_agents/sim/material/kernels3d/reactions_sphere3d.glsl"
@@ -199,8 +200,7 @@ fi
 # ARM TWO — the world the SIM seeds is lifeless and unoxygenated, and must stay so.
 # ---------------------------------------------------------------------------------------------------
 SIM_FRAMES="${LA_LIFELESS_FRAMES:-20}"
-sim_out="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --frames "$SIM_FRAMES" \
-  --report o2_total,biomass_total 2>&1)"
+sim_out="$(la_report o2_total,biomass_total --path "$REPO_ROOT" --frames "$SIM_FRAMES" 2>&1)"
 sim_rc=$?
 printf '%s\n' "$sim_out" | grep -E '^(o2_total|biomass_total)' || true
 fail=0

@@ -32,5 +32,5 @@ fi
 
 godot_lock || exit 1
 trap godot_unlock EXIT
-LA_GODOT_TIMEOUT="${LA_IMPORT_TIMEOUT:-900}" la_godot --headless --path "$PROJ" --import >/dev/null 2>&1
+LA_GODOT_TIMEOUT="${LA_IMPORT_TIMEOUT:-120}" la_godot --headless --path "$PROJ" --import >/dev/null 2>&1
 exit $?
