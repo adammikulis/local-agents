@@ -12,4 +12,3 @@ merge, or has not moved inside the age limit.
 
 | Branch | Ahead | Holds | Merges when |
 |---|---|---|---|
-| `feature/one-universe-si` | 1 | The solar system in SI: real masses and distances, insolation from the star's luminosity, Birch-Murnaghan in place of the linear EOS, and the seed radius solved from the mass. | When its 229 GDScript lines under `sim/` move into the GDExtension, which is where `check_gdscript_budget` says serial seed-time work belongs. |
