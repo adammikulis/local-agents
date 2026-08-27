@@ -64,10 +64,8 @@ the active-cell list again. Build it once per step and all of them become O(surf
 
 ## 2b. The dispatch budget, and where it is spent
 
-Six passes, but ~128 dispatches per step, ~124 of them full-grid sweeps, each followed by an
-unconditional barrier. `ReducePass` is 72 of them (one per `LAReduceRecords` row) and `TransportPass` 49
-(a `PASS_GRAIN` prologue plus outflow+gather per row). By dispatch and barrier count reduce dominates; by
-work per cell transport does.
+`ReducePass` sweeps the whole grid once per `LAReduceRecords` row — 72 dispatches, each followed by an
+unconditional barrier — and it is now the pass that costs the box rather than what is moving.
 
 **Fuse ReducePass into one multi-row dispatch.** O(rows × N) becomes O(distinct sources × N): one sweep,
 one barrier, every row's lane accumulated in registers. `partials` already has a per-row base and the
@@ -75,29 +73,9 @@ float64 CPU fold is unchanged, so the result is identical. Only `LATCH` → `SUM
 kept. Nothing structural blocks it.
 
 **`transport.glsl` pass 1 has no solid early-out.** Pass 0 returns early on `solid != 0`; the gather does
-not, so every rock cell in the planet runs all 24 rows to add zero. And every row's pass 0 clears 18
-`send`/`send_h`/`send_q` slots — 432 stores per cell per step — before deciding it has nothing to send.
-For the nine rows with `density == 0` the `_h`/`_q` two thirds of that are provably dead.
-
-
-## 2c. Ten transport rows sweep the whole grid to touch almost nothing
-
-`shock` is identically zero except for a few steps after an impact and costs two full-grid sweeps every
-step forever. Same shape: `fungus`, `fert`, the three loose-silicate rows, both liquid `h2o` rows, and both
-charge rows. **Six of them need no new machinery at all** — `shock`, `fungus`, `fert` and the three
-silicate rows key on a single buffer, exactly like the `melt` row that already works: add an entry to
-`LATransportRecords.lists()` and a `"list"` key in `LATransportRecords.rows()`, no kernel change. One label
-can serve all three silicate rows and pay the append once.
-
-What genuinely blocks the rest is the PREDICATE LANGUAGE, not the plumbing: `transport.glsl`'s
-`PASS_LIST_APPEND` can express a positive-`prim` test and a 1-ring halo, but not a product (`amount ×
-frac`, which is what a `TF_FRACTION` row donates on), not a temperature band, not a face difference
-(PGF/CONDUCT/DIFFUSE are gradient-driven so a per-cell amount predicate is simply wrong for them), and not
-a column closure.
-
-**Correctness rule for any new listed row:** a cell outside the list never ran pass 0, so its `send` slots
-hold another row's values. `TF_LISTED` already guards this with `active_flag`; keep that invariant, and make
-sure the predicate covers every cell where a `TF_DILUTE` or `TF_STAMP` gather writes unconditionally.
+not, so an active rock cell runs every row to add zero. And every row's pass 0 clears 18
+`send`/`send_h`/`send_q` slots before deciding it has nothing to send. For the nine rows with
+`density == 0` the `_h`/`_q` two thirds of that are provably dead.
 
 
 ## 2d. Work repeated per cell per step that is provably constant
@@ -108,24 +86,6 @@ sure the predicate covers every cell where a `TF_DILUTE` or `TF_STAMP` gather wr
   exactly equivalent, not an approximation.
 - **`root_soil()`** re-walks its 4-cell column once per record naming `SOIL_ROOT` and again inside
   `root_soil_draw`. It is a march, so it is item 1a's shape at a small depth.
-
-
-## 2e. Nothing sleeps, and nothing wakes its neighbour
-
-Every cell is stepped at the same rate forever. The only wake mechanism is `TF_LIST_HALO`, a stateless
-1-ring dilation rebuilt each step — a spatial superset, not a temporal one, so a front does not grow a
-bubble. There is no tick rate, no activity channel, no demotion, no sleep.
-
-Smallest honest implementation: one `activity_ttl` buffer written where the kernels ALREADY write the cell
-(`transport.glsl`'s gather when `amount != was`, `reactions_sphere3d.glsl` when a record fires), plus a
-propagation term in `transport.glsl`'s `PASS_LIST_APPEND` that reads `ttl` instead of `prim` and decrements
-rather than recomputing.
-
-**A previous attempt was reverted and the reason is on file: it gated INSIDE full-grid dispatches, so it
-saved arithmetic and not scheduling, measured slower, and moved a reservoir total by 18%.** A skipped step
-of an integrating reservoir is a permanent offset, not a transient. So this may only be applied to rows
-whose skip is a bare return, never to `RADIATE`, `CONDUCT` or the momentum rows, whose active set really is
-the whole grid.
 
 
 ## 2f. The gravity solve is a fixed iteration count, not a convergence test

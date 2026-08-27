@@ -2,6 +2,10 @@
 #version 450
 
 layout(set = 0, binding = 48, std430) restrict readonly buffer Grav { float g_field[]; };
+// Cells a record changed, and slot 3 their count: transport wakes them wherever they sit, so a
+// reaction can never fire into a cell the activity mask has stopped stepping.
+layout(set = 0, binding = 49, std430) buffer WakeQueue { uint wake_q[]; };
+layout(set = 0, binding = 50, std430) buffer WakeArgs { uint wake_args[]; };
 #include "cellvol.glsli"
 
 // GENERIC REACTION ENGINE. One data-driven kernel: every same-cell reaction is a record in the Defs buffer.
@@ -420,6 +424,7 @@ void main() {
 	float fuel_before = fuel[i];            // combustion is fuel's only sink
 	float o2_before = o2[i];                // the cell's USABLE-oxygen denominator for the fire instrument
 	float o2_burn = 0.0;                    // ...and its NUMERATOR: oxygen drawn by COMBUSTION alone, summed below
+	bool fired = false;                     // a record changed this cell, so transport must wake it
 
 	// --- PHASE 1: every record's extent against the SAME starting state, plus each slot's total debit.
 	uint n = min(params.n_records, uint(MAX_RECORDS));
@@ -575,6 +580,14 @@ void main() {
 		float dh = rc.enthalpy_j_mol + rc.enthalpy_h_j_mol * comp_h + rc.enthalpy_o_j_mol * comp_o;
 		if (dh != 0.0) {
 			h[i] += dh * x;
+		}
+		fired = true;
+	}
+	if (fired) {
+		uint slot = atomicAdd(wake_args[3], 1u);
+		if (slot < params.cell_count) {
+			wake_q[slot] = i;
+			atomicMax(wake_args[0], (slot + 64u) / 64u);
 		}
 	}
 

@@ -81,13 +81,11 @@
 #define TF_DRIVEN 8u
 #define TF_FRACTION 16u
 #define TF_DILUTE 32u
-#define TF_LISTED 64u
-#define TF_RADIOGENIC 128u
-#define TF_ENTHALPY 256u
-#define TF_LIST_HALO 512u
-#define TF_RELAX 1024u
-#define TF_VEL 2048u
-#define TF_LEVEL 4096u
+#define TF_RADIOGENIC 64u
+#define TF_ENTHALPY 128u
+#define TF_RELAX 256u
+#define TF_VEL 512u
+#define TF_LEVEL 1024u
 
 // ReduceRecords.gd Op enum
 #define OP_SUM 0u
@@ -118,6 +116,10 @@
 #define NBR_GRAD_X 4u
 #define NBR_GRAD_Y 5u
 #define NBR_GRAD_Z 6u
+
+// sphere_passes/ActiveCells.gd, sphere_passes/TemporalLevels.gd
+#define ACT_QUIET_SUBSTEPS 2u
+#define ACT_BINS 48u
 
 // MaterialFieldRegolith3D.gd, reactions/ReactionThermo.gd
 #define REGOLITH_CELLS 4

@@ -1,5 +1,7 @@
 extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 
+const ActiveScript: GDScript = preload("res://addons/local_agents/sim/material/sphere_passes/ActiveCells.gd")
+
 ## The generic reaction engine: one kernel over the whole record table (reactions_sphere3d.glsl).
 
 
@@ -101,6 +103,9 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 		[48, gravity],          # the SOLVED g: the light angle reads it
 		[23, _single(bufs, "vert_up")],    # GravityPass owns the vertical relation; this reads it
 		[24, _single(bufs, "vert_down")],
+		# A record that fires changes a cell transport may have put to sleep, so it says where.
+		[49, _single(bufs, ActiveScript.KEYS.wake)],
+		[50, _single(bufs, ActiveScript.KEYS.wake_args)],
 	])
 
 

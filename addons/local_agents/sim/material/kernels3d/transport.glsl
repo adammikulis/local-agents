@@ -64,11 +64,10 @@ layout(set = 0, binding = 30, std430) restrict buffer CementBuf { float cement[]
 layout(set = 0, binding = 31, std430) writeonly buffer SuspWater { float silicate_susp_water[]; };
 layout(set = 0, binding = 32, std430) writeonly buffer SuspAir { float silicate_susp_air[]; };
 layout(set = 0, binding = 33, std430) writeonly buffer Bed { float silicate_bed[]; };
-// A TF_LISTED row walks the compacted list, not the grid; args slot 3 is its length. No `restrict`:
+// A detector list: the cells it found, and args slot 3 their count. No `restrict`:
 // a full-grid row binds one buffer into all three slots.
 layout(set = 0, binding = 34, std430) buffer ActiveIdx { uint active_idx[]; };
 layout(set = 0, binding = 35, std430) buffer ActiveArgs { uint active_args[]; };
-layout(set = 0, binding = 36, std430) buffer ActiveFlag { uint active_flag[]; };
 // MODE_RADIATE's own books, J/m^3, assigned in the gather so each is a per-step rate needing no clear.
 layout(set = 0, binding = 37, std430) restrict buffer RadAbs { float rad_absorbed[]; };
 layout(set = 0, binding = 38, std430) restrict writeonly buffer RadEmit { float rad_emitted[]; };
@@ -143,6 +142,14 @@ layout(set = 0, binding = 81, std430) buffer LevelIdx { uint level_idx[]; };
 layout(set = 0, binding = 82, std430) buffer LevelArgs { uint level_args[]; };
 // Per row group: the coarsest level its state can afford, atomically reduced.
 layout(set = 0, binding = 83, std430) buffer LevelPeak { uint level_peak[]; };
+// ACTIVITY: substeps since matter last crossed a cell, one counter per row group.
+layout(set = 0, binding = 84, std430) buffer Quiet { uint quiet[]; };
+// The compaction's dedup claim and its unsorted queue, one entry per cell.
+layout(set = 0, binding = 85, std430) buffer ActClaim { uint act_claim[]; };
+layout(set = 0, binding = 86, std430) buffer ActQueue { uint act_q[]; };
+// Cells another kernel changed, slot 3 of the args carrying their count.
+layout(set = 0, binding = 87, std430) buffer WakeQueue { uint wake_q[]; };
+layout(set = 0, binding = 88, std430) buffer WakeArgs { uint wake_args[]; };
 
 #include "march.glsli"
 
@@ -178,6 +185,8 @@ layout(push_constant, std430) uniform Params {
 	uint level;           // the coarsest temporal level advancing on this substep; PEAK: the group slot
 	uint substep_k;       // this substep's index on the finest level's axis
 	uint substep_n;       // substeps the finest level takes across the field step, 2^levels
+	uint act_group;       // the row group whose activity counter and cell list this dispatch walks
+	uint act_group2;      // a second group this row's crossings wake; ACT_NO_GROUP for none
 } params;
 
 // The seconds THIS invocation integrates. A cell's own is dt/2^tlevel; a face's is the coarser of the
@@ -186,6 +195,16 @@ float la_dt;
 
 // LEVEL_SLOTS: TransportPass.Arg.SLOTS. GROUPS_X 0, COUNT 3, OFFSET 4, CURSOR 5, SUFFIX 6.
 const uint LEVEL_SLOTS = 8u;
+// The bin past the levels holds the compaction queue's own length.
+const uint ACT_QUEUE_BIN = ACT_BINS;
+const uint ACT_NO_GROUP = ~0u;
+
+// Where this dispatch's group starts in the per-cell activity counter and in the per-level args.
+uint act_base() { return params.act_group * params.total_count; }
+uint args_base() { return params.act_group * (ACT_QUEUE_BIN + 1u) * LEVEL_SLOTS; }
+
+// Matter crossed this cell recently enough that it may still donate.
+bool awake(uint c) { return quiet[act_base() + c] < ACT_QUIET_SUBSTEPS; }
 
 float la_level_dt(uint lv) {
 	return params.dt_s * exp2(-float(lv));
@@ -204,10 +223,16 @@ const uint PASS_ACOUSTIC_APPLY = 8u;
 const uint PASS_LEVEL_SEED = 9u;
 const uint PASS_LEVEL_RELAX = 10u;
 const uint PASS_LEVEL_RESET = 11u;
-const uint PASS_LEVEL_HIST = 12u;
-const uint PASS_LEVEL_SCAN = 13u;
-const uint PASS_LEVEL_SORT = 14u;
-const uint PASS_LEVEL_PEAK = 15u;
+const uint PASS_LEVEL_SCAN = 12u;
+const uint PASS_LEVEL_SORT = 13u;
+const uint PASS_LEVEL_PEAK = 14u;
+// THE ACTIVE LIST: age every listed cell, take in what another kernel woke, then compact the awake
+// cells and their receivers into the list the rows dispatch over.
+const uint PASS_ACT_AGE = 15u;
+const uint PASS_ACT_WAKE = 16u;
+const uint PASS_ACT_MARK = 17u;
+const uint PASS_ACT_WAKE_RESET = 18u;
+const uint PASS_ACT_SEED = 19u;
 
 const float KELVIN = 273.15;                        // LAPhysical.KELVIN_OFFSET
 const float STEFAN = 5.670374419e-8;                // LAPhysical.STEFAN_BOLTZMANN
@@ -680,8 +705,8 @@ uint la_row_level(uint c) {
 }
 
 
-// PASS_LIST_APPEND: compact the interior cells whose `drive` is positive — plus, under TF_LIST_HALO, the
-// receivers one face away — into active_idx, and stamp membership into active_flag.
+// PASS_LIST_APPEND: compact the interior cells whose `drive` is positive into active_idx. A DETECTOR,
+// never a dispatch list: what the rows run over is the activity compaction above.
 shared uint s_list_n;
 shared uint s_list_base;
 
@@ -693,20 +718,7 @@ void list_append(uint g) {
 	barrier();
 	bool keep = false;
 	if (g < params.cell_count) {
-		bool hit = drive[g] > 0.0;
-		if (!hit && (params.flags & TF_LIST_HALO) != 0u) {
-			uint nbase = g * N_SLOTS;
-			for (uint d = 0u; d < N_SLOTS; ++d) {
-				int nb = nbr[nbase + d];
-				// A wrap partner is a receiver too; a ghost tail is not (a listed row's exterior inflow is 0).
-				if (nb < 0) { nb = ghost[nbase + d]; }
-				if (nb >= 0 && nb < int(params.cell_count) && drive[uint(nb)] > 0.0) {
-					hit = true;
-				}
-			}
-		}
-		keep = hit && solid[g] == 0.0;
-		active_flag[g] = keep ? 1u : 0u;
+		keep = drive[g] > 0.0 && solid[g] == 0.0;
 	}
 	uint slot_local = 0u;
 	if (keep) {
@@ -723,6 +735,38 @@ void list_append(uint g) {
 		uint slot = s_list_base + slot_local;
 		if (slot < params.cell_count) {
 			active_idx[slot] = g;
+		}
+	}
+}
+
+
+// The cells this group's list holds right now: bin 0's suffix is every level at once.
+uint act_listed() { return level_args[args_base() + 6u]; }
+
+
+// One cell into the compaction queue, counted into its level's bin; a second claimant is dropped.
+void act_claim_append(uint n) {
+	if (atomicExchange(act_claim[n], 1u) != 0u) {
+		return;
+	}
+	uint slot = atomicAdd(level_args[args_base() + ACT_QUEUE_BIN * LEVEL_SLOTS + 3u], 1u);
+	if (slot >= params.total_count) {
+		return;
+	}
+	act_q[slot] = n;
+	atomicAdd(level_args[args_base() + min(tlevel[n], ACT_BINS - 1u) * LEVEL_SLOTS + 3u], 1u);
+}
+
+
+// AN AWAKE CELL'S EVERY RECEIVER IS DISPATCHED, or what it donates lands nowhere.
+void act_mark_ring(uint c) {
+	act_claim_append(c);
+	uint nbase = c * N_SLOTS;
+	for (uint d = 0u; d < N_SLOTS; ++d) {
+		int nb = nbr[nbase + d];
+		if (nb < 0) { nb = ghost[nbase + d]; }
+		if (nb >= 0 && uint(nb) < params.total_count) {
+			act_claim_append(uint(nb));
 		}
 	}
 }
@@ -754,39 +798,115 @@ void main() {
 	// THE TEMPORAL LEVELS. `params.level` carries the bin count on RESET and SCAN, the group slot on
 	// PEAK, and the coarsest level advancing on every row dispatch.
 	if (params.pass_id == PASS_LEVEL_PEAK) {
-		if (gidx < params.cell_count) {
-			atomicMax(level_peak[params.level], la_row_level(gidx));
+		if (gidx < act_listed()) {
+			uint c = level_idx[act_base() + gidx];
+			if (c < params.cell_count) {
+				atomicMax(level_peak[params.level], la_row_level(c));
+			}
 		}
 		return;
 	}
-	if (params.pass_id == PASS_LEVEL_RESET) {
-		if (gidx < params.total_count) {
-			tlevel[gidx] = 0u;
+	// ONE SUBSTEP OLDER. A cell whose counter reaches ACT_QUIET_SUBSTEPS has had nothing cross it and
+	// stops donating; nothing reads its state either, which is why the books still close.
+	if (params.pass_id == PASS_ACT_AGE) {
+		if (gidx < act_listed()) {
+			uint c = level_idx[act_base() + gidx];
+			quiet[act_base() + c] = quiet[act_base() + c] + 1u;
 		}
-		if (gidx < params.level) {
+		return;
+	}
+	// EVERY CELL AWAKE AND EVERY CELL LISTED: what a world nobody has stepped yet looks like, and the
+	// only pass here that walks the box. `act_group` carries the GROUP COUNT on this pass alone.
+	if (params.pass_id == PASS_ACT_SEED) {
+		uint gc = params.act_group;
+		uint wide = max(1u, (params.total_count + 63u) / 64u);
+		if (gidx < params.total_count) {
+			wake_q[gidx] = gidx;
+			for (uint g = 0u; g < gc; ++g) {
+				level_idx[g * params.total_count + gidx] = gidx;
+				quiet[g * params.total_count + gidx] = 0u;
+			}
+		}
+		if (gidx < (ACT_QUEUE_BIN + 1u) * gc) {
 			uint b = gidx * LEVEL_SLOTS;
-			level_args[b] = 1u;
+			bool top = (gidx % (ACT_QUEUE_BIN + 1u)) == 0u;
+			level_args[b] = top ? wide : 1u;
 			level_args[b + 1u] = 1u;
 			level_args[b + 2u] = 1u;
 			level_args[b + 3u] = 0u;
 			level_args[b + 4u] = 0u;
 			level_args[b + 5u] = 0u;
-			level_args[b + 6u] = 0u;
+			level_args[b + 6u] = top ? params.total_count : 0u;
+		}
+		if (gidx == 0u) {
+			wake_args[0] = wide;
+			wake_args[1] = 1u;
+			wake_args[2] = 1u;
+			wake_args[3] = params.total_count;
+		}
+		return;
+	}
+	// What another kernel changed is awake wherever it sits, in the list or out of it.
+	if (params.pass_id == PASS_ACT_WAKE) {
+		if (gidx < wake_args[3]) {
+			uint c = wake_q[gidx];
+			if (c < params.total_count) {
+				quiet[act_base() + c] = 0u;
+				act_mark_ring(c);
+			}
+		}
+		return;
+	}
+	if (params.pass_id == PASS_ACT_WAKE_RESET) {
+		if (gidx == 0u) {
+			wake_args[0] = 1u;
+			wake_args[1] = 1u;
+			wake_args[2] = 1u;
+			wake_args[3] = 0u;
+		}
+		return;
+	}
+	// THE LIST, rebuilt every substep: every awake cell, and every cell one face from one.
+	if (params.pass_id == PASS_ACT_MARK) {
+		if (gidx < act_listed()) {
+			uint c = level_idx[act_base() + gidx];
+			if (awake(c)) {
+				act_mark_ring(c);
+			}
+		}
+		return;
+	}
+	if (params.pass_id == PASS_LEVEL_RESET) {
+		if (gidx < act_listed()) {
+			uint c = level_idx[act_base() + gidx];
+			tlevel[c] = 0u;
+			uint rbase = c * N_SLOTS;
+			for (uint d = 0u; d < N_SLOTS; ++d) {
+				int rnb = nbr[rbase + d];
+				if (rnb < 0) { rnb = ghost[rbase + d]; }
+				if (rnb >= 0 && uint(rnb) < params.total_count) {
+					tlevel[uint(rnb)] = 0u;
+				}
+			}
 		}
 		return;
 	}
 	if (params.pass_id == PASS_LEVEL_SEED) {
-		if (gidx < params.cell_count) {
-			tlevel[gidx] = max(tlevel[gidx], la_row_level(gidx));
+		if (gidx < act_listed()) {
+			uint c = level_idx[act_base() + gidx];
+			if (c < params.cell_count) {
+				tlevel[c] = max(tlevel[c], la_row_level(c));
+			}
 		}
 		return;
 	}
 	if (params.pass_id == PASS_LEVEL_RELAX) {
 		// 2:1 IN TIME. A level only ever rises here, so an in-place sweep converges whichever order
 		// the invocations land in.
-		if (gidx < params.cell_count) {
-			uint rbase = gidx * N_SLOTS;
-			uint mx = tlevel[gidx];
+		if (gidx < act_listed()) {
+			uint c = level_idx[act_base() + gidx];
+			uint rbase = c * N_SLOTS;
+			uint mx = tlevel[c];
 			for (uint d = 0u; d < N_SLOTS; ++d) {
 				int rnb = nbr[rbase + d];
 				if (rnb < 0) { rnb = ghost[rbase + d]; }
@@ -795,49 +915,54 @@ void main() {
 					mx = max(mx, ln > 0u ? ln - 1u : 0u);
 				}
 			}
-			tlevel[gidx] = mx;
-		}
-		return;
-	}
-	if (params.pass_id == PASS_LEVEL_HIST) {
-		if (gidx < params.cell_count) {
-			atomicAdd(level_args[tlevel[gidx] * LEVEL_SLOTS + 3u], 1u);
+			tlevel[c] = mx;
 		}
 		return;
 	}
 	if (params.pass_id == PASS_LEVEL_SCAN) {
 		if (gidx == 0u) {
+			uint b0 = args_base();
 			uint run = 0u;
-			for (uint b = 0u; b < params.level; ++b) {
-				level_args[b * LEVEL_SLOTS + 4u] = run;
-				run += level_args[b * LEVEL_SLOTS + 3u];
+			for (uint b = 0u; b < ACT_BINS; ++b) {
+				level_args[b0 + b * LEVEL_SLOTS + 4u] = run;
+				level_args[b0 + b * LEVEL_SLOTS + 5u] = 0u;
+				run += level_args[b0 + b * LEVEL_SLOTS + 3u];
 			}
-			for (uint b = 0u; b < params.level; ++b) {
-				uint suffix = run - level_args[b * LEVEL_SLOTS + 4u];
-				level_args[b * LEVEL_SLOTS + 6u] = suffix;
-				level_args[b * LEVEL_SLOTS] = max(1u, (suffix + 63u) / 64u);
+			for (uint b = 0u; b < ACT_BINS; ++b) {
+				uint suffix = run - level_args[b0 + b * LEVEL_SLOTS + 4u];
+				level_args[b0 + b * LEVEL_SLOTS + 6u] = suffix;
+				level_args[b0 + b * LEVEL_SLOTS] = max(1u, (suffix + 63u) / 64u);
 			}
+			level_args[b0 + ACT_QUEUE_BIN * LEVEL_SLOTS] = max(1u, (run + 63u) / 64u);
 		}
 		return;
 	}
 	if (params.pass_id == PASS_LEVEL_SORT) {
-		if (gidx < params.cell_count) {
-			uint lv = tlevel[gidx];
-			uint slot = level_args[lv * LEVEL_SLOTS + 4u]
-				+ atomicAdd(level_args[lv * LEVEL_SLOTS + 5u], 1u);
-			if (slot < params.cell_count) {
-				level_idx[slot] = gidx;
+		uint b0 = args_base();
+		// Bin 0's suffix, which the scan just wrote: the queue's own count is cleared below.
+		if (gidx < level_args[b0 + 6u]) {
+			uint c = act_q[gidx];
+			act_claim[c] = 0u;
+			uint lv = min(tlevel[c], ACT_BINS - 1u);
+			uint slot = level_args[b0 + lv * LEVEL_SLOTS + 4u]
+				+ atomicAdd(level_args[b0 + lv * LEVEL_SLOTS + 5u], 1u);
+			if (slot < params.total_count) {
+				level_idx[act_base() + slot] = c;
 			}
+		}
+		if (gidx < ACT_QUEUE_BIN + 1u) {
+			level_args[b0 + gidx * LEVEL_SLOTS + 3u] = 0u;
 		}
 		return;
 	}
-	// EVERY PASS PAST HERE walks the level sort's suffix while its group subcycles: the cells at
-	// params.level or finer are the ones advancing on this substep.
+	// EVERY PASS PAST HERE WALKS THIS GROUP'S ACTIVE LIST, never the box: the list is sorted by level,
+	// so its suffix at params.level is exactly the cells moving on this substep. O(active), not O(cells).
 	if ((params.flags & TF_LEVEL) != 0u) {
-		if (gidx >= level_args[params.level * LEVEL_SLOTS + 6u]) {
+		uint la_b0 = args_base();
+		if (gidx >= level_args[la_b0 + params.level * LEVEL_SLOTS + 6u]) {
 			return;
 		}
-		gidx = level_idx[level_args[params.level * LEVEL_SLOTS + 4u] + gidx];
+		gidx = level_idx[act_base() + level_args[la_b0 + params.level * LEVEL_SLOTS + 4u] + gidx];
 	}
 	// Acoustic half-step per momentum substep: dp = -rho c^2 div(u*) dt, in two passes.
 	// LA_APPROX: split_explicit_acoustics
@@ -896,18 +1021,6 @@ void main() {
 		}
 		return;
 	}
-	bool listed = (params.flags & TF_LISTED) != 0u;
-	if (listed && (params.flags & TF_LEVEL) != 0u) {
-		if (active_flag[gidx] == 0u) {
-			return;
-		}
-	} else if (listed) {
-		// The dispatch is indirect over ceil(count/64) groups, so the tail of the last group is past the end.
-		if (gidx >= active_args[3]) {
-			return;
-		}
-		gidx = active_idx[gidx];
-	}
 	// Ghost tail cells donate through the ordinary outflow law and are never updated: prescribed state.
 	uint limit = (params.pass_id == 0u && params.mode != MODE_SEPARATE)
 		? params.total_count : params.cell_count;
@@ -946,6 +1059,10 @@ void main() {
 			float thr = rrea_threshold(gidx);
 			col_e[gidx] = e_here;
 			strike[gidx] = (thr > 0.0 && e_here >= thr) ? 1.0 : 0.0;
+		}
+		// A SLEEPING CELL DONATES NOTHING: it is listed to receive, and that is all.
+		if (!awake(gidx)) {
+			return;
 		}
 		if (solid[gidx] != 0.0 && blocks_solid) {
 			return;
@@ -1232,27 +1349,28 @@ void main() {
 			continue;
 		}
 		if (exterior && params.mode != MODE_RADIATE) {
-			float in_a = listed ? 0.0 : send[nb * N_SLOTS + (d ^ 1u)];
+			float in_a = awake(nb) ? send[nb * N_SLOTS + (d ^ 1u)] : 0.0;
 			bnd_amt[gidx] += in_a - send[base + d];
 			// A signed row (momentum) is not matter and carries no heat leg.
 			if (!is_signed) {
 				uint nbo = nb * N_SLOTS + (d ^ 1u);
-				float in_h = listed ? 0.0 : send_h[nbo];
+				float in_h = awake(nb) ? send_h[nbo] : 0.0;
 				bnd_h[gidx] += (params.flags & TF_ENTHALPY) != 0u
 					? in_a - send[base + d]
 					: in_h - send_h[base + d];
-				float in_q = listed ? 0.0 : send_q[nbo];
+				float in_q = awake(nb) ? send_q[nbo] : 0.0;
 				bnd_q[gidx] += in_q - send_q[base + d];
 				// The momentum the crossing mass carries, booked on its own signed legs.
-				vec3 in_m = listed ? vec3(0.0)
-					: vec3(send_mx[nbo], send_my[nbo], send_mz[nbo]);
+				vec3 in_m = awake(nb)
+					? vec3(send_mx[nbo], send_my[nbo], send_mz[nbo]) : vec3(0.0);
 				bnd_mom_x[gidx] += in_m.x - send_mx[base + d];
 				bnd_mom_y[gidx] += in_m.y - send_my[base + d];
 				bnd_mom_z[gidx] += in_m.z - send_mz[base + d];
 			}
 		}
-		// A cell outside the list never ran pass 0 this row, so its face scratch still holds another row's.
-		if (listed && (nb >= params.cell_count || active_flag[nb] == 0u)) {
+		// ONLY AN AWAKE CELL RAN THE OUTFLOW, so only its face scratch is this substep's; a sleeping
+		// cell's still holds whatever row wrote it last.
+		if (!awake(nb)) {
 			continue;
 		}
 		// Radiation arrives from the whole grid line behind this face, not just from the cell touching it.
@@ -1279,6 +1397,7 @@ void main() {
 			* la_dt / params.cell_m;
 		rad_residual[gidx] = abs(lost - sb) / max(sb, 1.0e-30);
 	}
+	bool la_moved = lost != 0.0 || gained != 0.0;
 	// No floor: clamping a negative up here would create the mass it is short of.
 	float was = amount[gidx];
 	amount[gidx] = was - lost + gained;
@@ -1347,6 +1466,7 @@ void main() {
 				}
 				bnd_amt[gidx] += dq;
 				bnd_h[gidx] += dh;
+				la_moved = true;
 			}
 		}
 	}
@@ -1373,5 +1493,20 @@ void main() {
 		float dq = max(rad_w_m3[gidx], 0.0) * la_dt;
 		amount[gidx] += dq;
 		radiogenic[gidx] = dq;
+		la_moved = la_moved || dq != 0.0;
+	}
+	// PROPAGATION: the bubble grows one cell per substep, as fast as anything in it travels.
+	if (la_moved) {
+		quiet[act_base() + gidx] = 0u;
+		if (params.act_group2 != ACT_NO_GROUP) {
+			quiet[params.act_group2 * params.total_count + gidx] = 0u;
+		}
+		for (uint d = 0u; d < N_SLOTS; ++d) {
+			int wnb = nbr[base + d];
+			if (wnb < 0) { wnb = ghost[base + d]; }
+			if (wnb >= 0 && uint(wnb) < params.total_count) {
+				quiet[act_base() + uint(wnb)] = 0u;
+			}
+		}
 	}
 }

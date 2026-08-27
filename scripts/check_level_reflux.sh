@@ -170,7 +170,7 @@ func _init() -> void:
 	# POSITIVE CONTROL: the level field the real code builds has to hold more than one level, or the
 	# conservation below is a closed book over a box that never straddled a seam.
 	var lcl: int = _rd.compute_list_begin()
-	p._build_levels(_rd, lcl, p._row_groups[top], cc, CELL, DT, Vector3.ZERO, peak, groups)
+	p._build_levels(_rd, lcl, p._row_groups[top], cc, CELL, DT, Vector3.ZERO, peak, top)
 	_rd.compute_list_end()
 	_rd.submit()
 	_rd.sync()

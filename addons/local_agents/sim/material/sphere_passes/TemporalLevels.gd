@@ -16,11 +16,13 @@ const KEYS: Dictionary = {"level": "tlevel", "idx": "level_idx", "args": "level_
 	"peak": "level_peak"}
 
 
-## Driver-owned buffers: the per-cell level over interior plus ghost tail, the cells sorted by it, the
-## per-level indirect args, and one peak slot per row group.
+## Driver-owned buffers: the per-cell level over interior plus ghost tail, then ONE ACTIVE LIST PER ROW
+## GROUP sorted by that level with its own per-level indirect args, and one peak slot per group.
 static func buffers(total: int, group_count: int) -> Dictionary:
-	return {KEYS.level: total, KEYS.idx: total, KEYS.peak: maxi(group_count, 1),
-		KEYS.args: {"n": BINS * SLOTS, "indirect": true}}
+	var g: int = maxi(group_count, 1)
+	# One bin past the levels: LAActiveCells.QUEUE_BIN, where the compaction counts what it claimed.
+	return {KEYS.level: total, KEYS.idx: total * g, KEYS.peak: g,
+		KEYS.args: {"n": (BINS + 1) * SLOTS * g, "indirect": true}}
 
 
 ## The level at which dt/2^level is the time light takes to cross one cell. BELOW it a level is a
