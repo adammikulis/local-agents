@@ -13,7 +13,7 @@ func _ready() -> void:
 
 
 func seed_row() -> Dictionary:
-	return LABodySeeds.of(_seed_key)
+	return LANativeTables.body_seeds().of(_seed_key)
 
 
 func center() -> Vector3:

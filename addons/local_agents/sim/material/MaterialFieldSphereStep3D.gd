@@ -77,7 +77,7 @@ func seed_tick() -> bool:
 	LakesScript.new().seed(_f)    # priority-flood standing lakes in enclosed land basins
 	# The lakes poured water into already-seeded cells: displace the gas it occupies, and re-derive
 	# the enthalpy so the water arrives WITH its heat.
-	LAFieldLithostaticSeed.displace_gas_from_water(_f)
+	LANativeTables.lithostatic().displace_gas_from_water(_f)
 	LAFieldEnthalpySeed.seed(_f, LAMaterialField3D.INITIAL_TEMP)
 	if _f._gpu != null:                                # hand the device what those three walks produced
 		_f._gpu._seed_regolith()                       # permeability mask + grain size
@@ -203,12 +203,10 @@ func _cfl_maxima() -> Dictionary:
 			continue
 		var v: float = _f._queries.row_f(key)
 		if not is_finite(v):
-			push_error("LAMaterialField3D: %s reduced to %f. The field has produced a non-number, " % [key, v]
-				+ "so every reading after this one is fiction. Run with LA_PASS_PROBE=nonfinite.")
+			push_error("LAMaterialField3D: %s reduced to %f, so every reading after it is fiction." % [key, v])
 			continue
 		out[String(pair[0])] = v + (LAPhysical.KELVIN_OFFSET if key == "all_temp_max" else 0.0)
-	if _f._gravity != null:
-		var g: float = _f._gravity.mean_g()
-		if is_finite(g):
-			out["cfl_mean_g"] = g
+	var g: float = _f._gravity.mean_g() if _f._gravity != null else NAN
+	if is_finite(g):
+		out["cfl_mean_g"] = g
 	return out

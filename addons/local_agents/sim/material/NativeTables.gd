@@ -37,6 +37,13 @@ static func composition() -> Object:
 	return _handle(&"LAPlanetComposition")
 
 
+## What a body is given, and the seed-time serial walks over the field.
+static func body_seeds() -> Object: return _handle(&"LABodySeeds")
+
+
+static func lithostatic() -> Object: return _handle(&"LAFieldLithostaticSeed")
+
+
 ## Radiogenic heat and daughter accumulation.
 static func decay() -> Object:
 	return _handle(&"LARadiogenicDecay")

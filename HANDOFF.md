@@ -22,7 +22,8 @@ numbers. The denial names its inputs; `wind` is the term that blows it.
 
 The default box is denied too, by a smaller factor, so twenty frames do not show it.
 
-`docs/PHYSICS_TODO.md` E carries the wind as its own item. Until it reads a physical speed no run's numbers
+`scripts/check_wind_subsonic.sh` is red at Mach 455 and is the acceptance test.
+`docs/PHYSICS_TODO.md` E carries the wind as its own item, and E is downstream of item 1. Until it reads a physical speed no run's numbers
 mean anything. `rho_max_open` is the reading that shows it: an open cell may not be denser than the densest
 substance the table declares, and that is this item's acceptance test.
 

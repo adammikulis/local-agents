@@ -24,7 +24,7 @@ func setup(opts: Dictionary = {}) -> void:
 
 
 func seed_row() -> Dictionary:
-	return LABodySeeds.of(_seed_key)
+	return LANativeTables.body_seeds().of(_seed_key)
 
 
 func mass() -> float:
@@ -44,11 +44,11 @@ func xuv_luminosity_w() -> float:
 ## Irradiance at a world point, W/m^2. No nominal orbit and no normalisation, so an eccentric or knocked
 ## orbit changes it on its own.
 func irradiance_at(world_pos: Vector3) -> float:
-	return LABodySeeds.irradiance_w_m2(luminosity_w(), (world_pos - global_position).length())
+	return LANativeTables.body_seeds().irradiance_w_m2(luminosity_w(), (world_pos - global_position).length())
 
 
 func xuv_irradiance_at(world_pos: Vector3) -> float:
-	return LABodySeeds.irradiance_w_m2(xuv_luminosity_w(), (world_pos - global_position).length())
+	return LANativeTables.body_seeds().irradiance_w_m2(xuv_luminosity_w(), (world_pos - global_position).length())
 
 
 ## World-space centre — the N-body contract shared with LAPlanetBody and LAMoon.

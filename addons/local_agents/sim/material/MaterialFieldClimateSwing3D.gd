@@ -118,7 +118,7 @@ func _site_stations() -> void:
 	var solid: PackedByteArray = _f._solid
 	if solid.size() != cc or _f._grid == null:
 		return
-	var axis: Vector3 = LABodySeeds.spin_axis_of("planet")
+	var axis: Vector3 = LANativeTables.body_seeds().spin_axis_of("planet")
 	var e1: Vector3 = axis.cross(Vector3.RIGHT)
 	if e1.length_squared() < 1.0e-6:
 		e1 = axis.cross(Vector3.FORWARD)
@@ -207,7 +207,7 @@ func _advance_day() -> void:
 	if sun_world.length() < 0.001:
 		return                                           # no sun in the scene: no day, and nothing to measure
 	sun_world = sun_world.normalized()
-	var world_axis: Vector3 = LABodySeeds.spin_axis_of("planet")
+	var world_axis: Vector3 = LANativeTables.body_seeds().spin_axis_of("planet")
 	_subsolar_lat = rad_to_deg(asin(clampf(sun_world.dot(world_axis), -1.0, 1.0)))
 	_subsolar_min = minf(_subsolar_min, _subsolar_lat)
 	_subsolar_max = maxf(_subsolar_max, _subsolar_lat)
