@@ -16,6 +16,10 @@ on the file it named. If you know the cause you are close enough to fix it, so f
 
 ## 0. THE WIND BLOWS PAST ITS OWN SOUND SPEED, AND THE DEFAULT BOX IS NOT EXEMPT
 
+`scripts/sim_run.sh --slice --frames 5` refuses to transport the h2o, silicate, fungus and shock rows:
+their own cells carry a signal speed at or past light, so no timestep integrates them and the harness
+withholds every number.
+
 `scripts/check_wind_subsonic.sh` is red at Mach 455 and is the acceptance test.
 `docs/PHYSICS_TODO.md` E carries the wind as its own item, and E is downstream of item 1. Until it reads a physical speed no run's numbers
 mean anything. `rho_max_open` is the reading that shows it: an open cell may not be denser than the densest

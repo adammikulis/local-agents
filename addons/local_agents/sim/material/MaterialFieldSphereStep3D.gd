@@ -113,10 +113,6 @@ func step() -> void:
 		_f._gpu.set_sun_flux(_f.dir_to_field(_f._sun_light.global_transform.basis.z * irr), xuv)
 	if _f._gpu.has_method("set_sea_radius"):
 		_f._gpu.set_sea_radius(_f.sea_radius())
-	# The transport substep budget reads last step's drained maxima; before the first drain the field
-	# is the seed, whose hottest cell is the declared seed temperature.
-	if _f._gpu.has_method("set_cfl_inputs") and _f._queries != null:
-		_f._gpu.set_cfl_inputs(_cfl_maxima())
 	if _f._inject != null and not _f._inject.queue.is_empty():
 		if _armed("LA_INJECT_AUDIT"):
 			# Diagnostic.
@@ -154,59 +150,23 @@ func step() -> void:
 		_mineral_profile.post_step()  # LA_MINERAL_PROFILE: print WHERE the loose mineral is, by elevation
 
 
+## Channel -> the CPU mirror it refreshes. The three DERIVED h2o shares are recomputed by
+## StateDerivePass every step, never conserved and never uploaded; `vel_*` is the emergent wind
+## field that wind3_at reads.
+const MIRRORS: Dictionary = {
+	"h_j_m3": "_h", "temp": "_temp", "h2o": "_h2o", "h2o_solid": "_h2o_solid",
+	"h2o_liquid": "_h2o_liquid", "h2o_vapour": "_h2o_vapour", "silicate": "_silicate",
+	"porosity": "_porosity", "fire": "_fire", "fuel": "_fuel", "fert": "_fert", "o2": "_o2",
+	"co2": "_co2", "biomass": "_biomass", "cement": "_cement", "silicate_melt": "_silicate_melt",
+	"silicate_bed": "_silicate_bed", "silicate_susp_air": "_silicate_susp_air",
+	"silicate_susp_water": "_silicate_susp_water", "shock": "_shock", "charge": "_charge",
+	"vel_x": "_vel_x", "vel_y": "_vel_y", "vel_z": "_vel_z", "pressure": "_pressure",
+	"detritus": "_detritus", "fungus": "_fungus"}
+
+
 func _apply_readback(res: Dictionary) -> void:
 	var n: int = _f._cell_count
-	if res.has("h_j_m3") and res["h_j_m3"].size() == n: _f._h = res["h_j_m3"]
-	if res.has("temp") and res["temp"].size() == n: _f._temp = res["temp"]
-	if res.has("h2o") and res["h2o"].size() == n: _f._h2o = res["h2o"]
-	# The three DERIVED shares: recomputed by StateDerivePass every step, never conserved, never uploaded.
-	if res.has("h2o_solid") and res["h2o_solid"].size() == n: _f._h2o_solid = res["h2o_solid"]
-	if res.has("h2o_liquid") and res["h2o_liquid"].size() == n: _f._h2o_liquid = res["h2o_liquid"]
-	if res.has("h2o_vapour") and res["h2o_vapour"].size() == n: _f._h2o_vapour = res["h2o_vapour"]
-	_f._atmos_dirty = true          # new h2o/temp → invalidate the cached condensate aggregates
-	if res.has("silicate") and res["silicate"].size() == n: _f._silicate = res["silicate"]
-	if res.has("porosity") and res["porosity"].size() == n: _f._porosity = res["porosity"]
-	if res.has("fire") and res["fire"].size() == n: _f._fire = res["fire"]
-	if res.has("fuel") and res["fuel"].size() == n: _f._fuel = res["fuel"]
-	if res.has("fert") and res["fert"].size() == n: _f._fert = res["fert"]
-	if res.has("o2") and res["o2"].size() == n: _f._o2 = res["o2"]
-	if res.has("co2") and res["co2"].size() == n: _f._co2 = res["co2"]
-	if res.has("biomass") and res["biomass"].size() == n: _f._biomass = res["biomass"]
-
-	if res.has("cement") and res["cement"].size() == n: _f._cement = res["cement"]
-	if res.has("silicate_melt") and res["silicate_melt"].size() == n: _f._silicate_melt = res["silicate_melt"]
-	if res.has("silicate_bed") and res["silicate_bed"].size() == n: _f._silicate_bed = res["silicate_bed"]
-	if res.has("silicate_susp_air") and res["silicate_susp_air"].size() == n:
-		_f._silicate_susp_air = res["silicate_susp_air"]
-	if res.has("silicate_susp_water") and res["silicate_susp_water"].size() == n:
-		_f._silicate_susp_water = res["silicate_susp_water"]
-	# Substrate-foundation channels: shock (tremor/impact), charge (bolt breakdown), and the emergent WIND
-	# velocity field (wind3_at/wind_at read a real force instead of ZERO).
-	if res.has("shock") and res["shock"].size() == n: _f._shock = res["shock"]
-	if res.has("charge") and res["charge"].size() == n: _f._charge = res["charge"]
-	if res.has("vel_x") and res["vel_x"].size() == n: _f._vel_x = res["vel_x"]
-	if res.has("vel_y") and res["vel_y"].size() == n: _f._vel_y = res["vel_y"]
-	if res.has("vel_z") and res["vel_z"].size() == n: _f._vel_z = res["vel_z"]
-	if res.has("pressure") and res["pressure"].size() == n: _f._pressure = res["pressure"]
-	if res.has("detritus") and res["detritus"].size() == n: _f._detritus = res["detritus"]
-	if res.has("fungus") and res["fungus"].size() == n: _f._fungus = res["fungus"]
-
-
-## The drained maxima the substep budget reads. An unreduced row is ABSENT; one that reduced to a
-## non-number is reported and left absent, never passed on as a permissive zero.
-func _cfl_maxima() -> Dictionary:
-	var out: Dictionary = {}
-	for pair: Array in [["cfl_speed_max", "wind_speed_max"], ["cfl_temp_max_k", "all_temp_max"],
-			["cfl_celerity_max", "celerity_max"]]:
-		var key: String = String(pair[1])
-		if not _f._queries.has_row(key):
-			continue
-		var v: float = _f._queries.row_f(key)
-		if not is_finite(v):
-			push_error("LAMaterialField3D: %s reduced to %f, so every reading after it is fiction." % [key, v])
-			continue
-		out[String(pair[0])] = v + (LAPhysical.KELVIN_OFFSET if key == "all_temp_max" else 0.0)
-	var g: float = _f._gravity.mean_g() if _f._gravity != null else NAN
-	if is_finite(g):
-		out["cfl_mean_g"] = g
-	return out
+	for key: String in MIRRORS:
+		if res.has(key) and res[key].size() == n:
+			_f.set(String(MIRRORS[key]), res[key])
+	_f._atmos_dirty = true          # new h2o/temp -> invalidate the cached condensate aggregates
