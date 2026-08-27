@@ -22,9 +22,9 @@ numbers. The denial names its inputs; `wind` is the term that blows it.
 
 The default box is denied too, by a smaller factor, so twenty frames do not show it.
 
-`docs/PHYSICS_TODO.md` E carries the wind as its own item. Until it reads a physical speed, no run's numbers
-mean anything, and `scripts/check_open_cell_density.sh` cannot run at all — it is this item's acceptance
-test and it is deliberately NOT wired into `lint` while it can only exit 2.
+`docs/PHYSICS_TODO.md` E carries the wind as its own item. Until it reads a physical speed no run's numbers
+mean anything. `rho_max_open` is the reading that shows it: an open cell may not be denser than the densest
+substance the table declares, and that is this item's acceptance test.
 
 The slice reaches non-finite state and publishes no `momentum_book_bnd`, so
 `check_boundary_momentum_book.sh`'s replay arm fails on its absence. Reproduce:
@@ -156,7 +156,7 @@ full lint, so a commit per step is a lint per step. A run past `docs/RUN_TIMEOUT
 
 Make every worktree with `scripts/new_worktree.sh`, which symlinks the compiled `bin/`, imports the `.glsl`
 kernels and editor-scans. Without the import the GPU field is dead and the report still looks fine.
-**A lane that will touch `gdextensions/` needs `LA_OWN_BIN=1`**: one shared `bin/` cannot serve two trees
-whose native `class_name`s differ, and the other tree stops parsing with "hides a native class".
+Each worktree gets its OWN `bin/`: one shared copy cannot serve two trees whose native `class_name`s
+differ, and the other tree stops parsing with "hides a native class".
 
 A gate that passes with the feature disabled is not a gate. Mutation-test every gate you write, both ways.
