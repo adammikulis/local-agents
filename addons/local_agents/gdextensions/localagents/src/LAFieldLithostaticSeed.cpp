@@ -366,7 +366,7 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c, 
 	}
 	if (p_gravity.size() != cc * 3) {
 		UtilityFunctions::push_error("LAFieldLithostaticSeed.shape_atmosphere: the solved gravity is absent, "
-				"so the atmosphere has no scale height and would be seeded flat to the top of the box.");
+				"so the atmosphere has no scale height and would fill the box to its top at one density.");
 		return;
 	}
 	const Vector3 centre = field_centre(p_field);

@@ -1,23 +1,10 @@
 #!/usr/bin/env bash
-# AN ATMOSPHERE AT REST, IN BALANCE, STAYS AT REST. Nothing drives this column but its own weight and its
-# own pressure, and a hydrostatic state makes those cancel face by face, so any motion at all is the
-# discrete operator failing to hold the state the seed handed it.
-#
-# THE BOX. One cell wide, a column of cells standing on the declared body's +Y radius, every face SHUT.
-# Its cell centres sit exactly on the body axis, so the solved monopole gravity is exactly axial and the
-# balance is a one-dimensional relation the grid can represent. The cell edge is a fraction of the local
-# scale height, so the column carries several of them.
-#
-# THE BAR IS THE ARITHMETIC'S, NOT A TOLERANCE. Every substep adds a rounded float to the momentum and to
-# the pressure; over `frames * SUBSTEP_MAX` such additions the accumulated relative error is bounded by
-# that many machine epsilons. Nothing here is fitted: the frame count is the run's, the substep cap is
-# TransportPass's own, and the epsilon is float32's.
-#
-# THE POSITIVE CONTROL. The same column with its top face open to SPACE: the topmost cell's wall push is
-# gone, so one cell's momentum no longer cancels. That arm MUST read past the bar, or this gate is holding
-# nothing.
-#
-# EXIT 0 at rest · 1 the seeded world moves itself · 2 could not run.
+# AN ATMOSPHERE AT REST, IN BALANCE, STAYS AT REST. A one-cell-wide column on the declared body's radius,
+# every face shut, so its cell centres sit on the body axis and the solved gravity is exactly axial.
+# The bar is the arithmetic's: frames * TransportPass.SUBSTEP_MAX machine epsilons, nothing fitted.
+# The control arm opens the top face to SPACE, taking one cell's wall push away; it must read past the bar.
+# EXIT 0 at rest * 1 the seeded world moves itself * 2 could not run.
+
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh"
