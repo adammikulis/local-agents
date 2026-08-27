@@ -3,10 +3,7 @@ extends SceneTree
 ## Force every .gd under a root to actually load, and report the ones that fail.
 ##
 ## Why this exists. An editor scan only loads what something references, so a script nothing
-## instantiates can carry a broken `preload` and never be looked at. scripts/check_library_only.sh
-## staged a game-free tree, scanned it, printed OK, and missed exactly that: streamer/
-## StreamerHost.gd preloads game/ui/SceneEnergyGraph.gd, which the staging had just deleted. Three
-## separate reviews found the hole before the gate did.
+## instantiates can carry a broken `preload` and never be looked at.
 ##
 ## load() on a GDScript with an unresolvable preload or a parse error returns null, so calling it on
 ## every file in one process is a real parse gate and costs one startup instead of several hundred.

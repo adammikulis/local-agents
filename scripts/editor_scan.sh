@@ -14,8 +14,7 @@
 # pass. Phase 1 runs the editor, which is what registers a new class_name / .gdextension and imports, and
 # demands positive evidence it ran. Phase 2 force-LOADS every .gd under the addon through
 # scripts/parse_all_scripts.gd, because loading is what makes the engine parse a file, and fails on any
-# parse diagnostic. Phase 2 covers game/ too, which check_library_only.sh cannot: it stages a tree with
-# game/ deleted.
+# parse diagnostic.
 #
 #   scripts/editor_scan.sh                # scan + parse sweep, print the verdict, non-zero if any
 #   scripts/editor_scan.sh --quiet        # the error count and nothing else

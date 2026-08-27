@@ -37,7 +37,7 @@ const SACRED_SITE_SPACE = "sacred_site"
 const DEFAULT_SCAN_LIMIT = 4096
 const CYPHER_PLAYBOOK_VERSION = "backstory_cypher_playbook_v2"
 
-var _graph: Object = null
+var _graph: NetworkGraph = null
 var _database_path_override: String = ""
 var _embedding_options: Dictionary = {
     "backend": "llama_server",
@@ -273,13 +273,7 @@ func _ensure_graph() -> bool:
     if not ExtensionLoader.ensure_initialized():
         push_error("NetworkGraph extension init failed: %s" % ExtensionLoader.get_error())
         return false
-    if not ClassDB.class_exists("NetworkGraph"):
-        push_error("NetworkGraph class missing after extension init")
-        return false
-    _graph = ClassDB.instantiate("NetworkGraph")
-    if _graph == null:
-        push_error("Failed to instantiate NetworkGraph")
-        return false
+    _graph = NetworkGraph.new()
     DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(STORE_DIR))
     var resolved_path = _resolved_database_path()
     if not _graph.open(ProjectSettings.globalize_path(resolved_path)):

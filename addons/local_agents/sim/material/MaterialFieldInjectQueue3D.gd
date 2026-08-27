@@ -142,8 +142,8 @@ func add(channel: String, cells: PackedInt32Array, deltas: PackedFloat32Array, c
 func fresh_companions(channel: String, cells: PackedInt32Array, amounts: PackedFloat32Array) -> void:
 	if not DEAD_POOL_CARBON.has(channel):
 		return
-	var h_per_c: float = LANativeTables.subs().fresh_litter_per_carbon("H")
-	var o_per_c: float = LANativeTables.subs().fresh_litter_per_carbon("O")
+	var h_per_c: float = LASubstances.fresh_litter_per_carbon("H")
+	var o_per_c: float = LASubstances.fresh_litter_per_carbon("O")
 	var h: PackedFloat32Array = PackedFloat32Array()
 	var o: PackedFloat32Array = PackedFloat32Array()
 	for v in amounts:

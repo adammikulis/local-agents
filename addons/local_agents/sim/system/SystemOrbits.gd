@@ -13,16 +13,16 @@ var _moon: Node3D = null                  # LAMoon (set via set_moon)
 
 ## The planet-Moon barycentre relative to the star, and the Moon relative to the planet centre. Doubles,
 ## because binary32 cannot carry an astronomical unit and a step's displacement in the same number.
-var _helio: Object = ClassDB.instantiate(&"LAOrbitState")
-var _moon_state: Object = ClassDB.instantiate(&"LAOrbitState")
+var _helio: LAOrbitState = LAOrbitState.new()
+var _moon_state: LAOrbitState = LAOrbitState.new()
 
 
 func setup(body: Node3D, star: Node3D, material) -> void:
 	_body = body
 	_material = material
 	_star = star
-	var row: Dictionary = LANativeTables.body_seeds().of("planet")
-	_helio.set_position(row.get("position_m", Vector3.ZERO) - LANativeTables.body_seeds().of("star").get(
+	var row: Dictionary = LABodySeeds.of("planet")
+	_helio.set_position(row.get("position_m", Vector3.ZERO) - LABodySeeds.of("star").get(
 		"position_m", Vector3.ZERO))
 	_helio.set_velocity(row.get("velocity_m_s", Vector3.ZERO))
 	_publish_bodies()
@@ -32,7 +32,7 @@ func set_moon(moon: Node3D) -> void:
 	_moon = moon
 	if _moon == null:
 		return
-	var row: Dictionary = LANativeTables.body_seeds().of("moon")
+	var row: Dictionary = LABodySeeds.of("moon")
 	_moon_state.set_position(row.get("position_m", Vector3.ZERO))
 	_moon_state.set_velocity(row.get("velocity_m_s", Vector3.ZERO))
 	_publish_bodies()
@@ -155,7 +155,7 @@ func status() -> String:
 	var h: Vector3 = _helio.position().cross(_helio.velocity())
 	var e: float = sqrt(maxf(1.0 + 2.0 * energy * h.length_squared() / (mu * mu), 0.0))
 	var perihelion: float = (-mu / (2.0 * energy)) * (1.0 - e)
-	var star_r: float = float(LANativeTables.body_seeds().of("star").get("radius_m", 0.0))
+	var star_r: float = float(LABodySeeds.of("star").get("radius_m", 0.0))
 	if star_r > 0.0 and perihelion <= star_r:
 		return "falling into the sun"
 	return "stable orbit"

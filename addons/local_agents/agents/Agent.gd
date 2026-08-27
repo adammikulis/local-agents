@@ -9,7 +9,7 @@ signal message_emitted(role, content)
 signal action_requested(action, params)
 signal think_completed(result)
 
-var agent_node: Object
+var agent_node: AgentNode = null
 var history: Array = []
 ## Sampling settings (temperature, penalties, backend). configure() replaces this wholesale when it
 ## is handed an inference preset, so nothing else may store state here.
@@ -464,11 +464,7 @@ func _ensure_agent_node() -> bool:
         return true
     if not ExtensionLoader.ensure_initialized():
         return false
-    if not ClassDB.class_exists("AgentNode"):
-        return false
-    agent_node = ClassDB.instantiate("AgentNode")
-    if agent_node == null:
-        return false
+    agent_node = AgentNode.new()
     add_child(agent_node)
     _sync_agent_node_properties()
     return true

@@ -56,7 +56,7 @@ Commands:
                 e.g. agent_harness.sh score --frames 300
   lint          Run every structural gate: file length (soft 1300 warn / hard 1500 fail),
                 no-direct-refcounted, no ':=' typing, @tool write safety, demo catalogue,
-                public surface, whole-tree parse, library-only parse, physical constants
+                public surface, whole-tree parse, no native class reached by name, physical constants
                 (GLSL kernel copies must equal LAPhysical), reaction balance. Policy markers
                 stay advisory. CI runs this exact command, so a green here is a green there.
                 Exit 0 clean · 1 a gate reported a violation · 2 a gate COULD NOT RUN.
@@ -259,7 +259,7 @@ if [[ "$cmd" == "lint" ]]; then
     gate check_reaction_rate_units
     gate check_framerate_independence
     gate check_parse_all
-    gate check_library_only
+    gate check_no_native_by_name
     gate check_step_quantum
     gate check_comment_claims
     gate check_no_silent_fallback

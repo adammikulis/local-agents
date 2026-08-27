@@ -111,13 +111,13 @@ func _build_field() -> void:
 ## WHAT THE BODY TURNED OUT TO BE. Not one of these is an input: the mass is the matter that was seeded,
 ## the radius is where it ends, the day is the seeded angular momentum over the inertia it produced.
 func _body_block() -> Dictionary:
-	var m: Object = _material.body_measure() if _material.has_method("body_measure") else null
+	var m: LABodyMeasure = _material.body_measure() if _material.has_method("body_measure") else null
 	if m == null:
 		return {"body_measured": false}
 	return {
 		"body_measured": m.measured(),
-		"body_seed_mass_kg": float(LANativeTables.body_seeds().of("planet").get("mass_kg", 0.0)),
-		"body_seed_spin_l": LANativeTables.body_seeds().spin_l_of("planet"),
+		"body_seed_mass_kg": float(LABodySeeds.of("planet").get("mass_kg", 0.0)),
+		"body_seed_spin_l": LABodySeeds.spin_l_of("planet"),
 		"body_mass_kg": m.mass_kg,
 		"body_radius_m": m.surface_r_m,
 		"body_inertia_kg_m2": m.inertia_kg_m2,
