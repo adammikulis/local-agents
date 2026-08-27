@@ -69,7 +69,6 @@ func build_planet(parent: Node3D, opts: Dictionary = {}) -> void:
 	_generator = gen
 
 	var mesher: VoxelMesherTransvoxel = VoxelMesherTransvoxel.new()
-	mesher.texturing_mode = 0
 
 	var terrain: VoxelLodTerrain = VoxelLodTerrain.new()
 	terrain.name = "VoxelTerrain"
@@ -90,7 +89,7 @@ func build_planet(parent: Node3D, opts: Dictionary = {}) -> void:
 	terrain.lod_distance = lod_dist
 	terrain.lod_count = clampi(int(ceil(log(maxf(_planet_radius, lod_dist) / lod_dist) / log(2.0))) + 1,
 		1, MAX_LOD)
-	terrain.view_distance = int(ceil(2.0 * (_planet_radius + _planet_relief)))
+	terrain.view_distance = int(opts.get("view_distance", 8000))
 	terrain.generate_collisions = true
 	terrain.collision_layer = 1
 	terrain.collision_mask = 0
@@ -121,11 +120,19 @@ func set_shader_param(param: String, value) -> void:
 	if _terrain != null and _terrain.material is ShaderMaterial:
 		(_terrain.material as ShaderMaterial).set_shader_parameter(param, value)
 
+## How far the terrain streams and draws around a viewer, in metres — the draw-distance setting.
+func set_view_distance(metres: float) -> void:
+	if _terrain != null:
+		_terrain.view_distance = int(maxf(1000.0, metres))
+		if _viewer != null:
+			_viewer.view_distance = _terrain.view_distance
+
+
 func attach_viewer(camera: Node3D, visuals: bool = true) -> void:
-	if camera == null:
+	if camera == null or _terrain == null:
 		return
 	var viewer: VoxelViewer = VoxelViewer.new()
-	viewer.view_distance = _terrain.view_distance if _terrain != null else 512
+	viewer.view_distance = _terrain.view_distance
 	viewer.requires_visuals = visuals
 	viewer.requires_collisions = visuals
 	camera.add_child(viewer)
@@ -253,8 +260,7 @@ func surface_radius(dir: Vector3) -> float:
 			return (_terrain.to_global(from_l + dir_l * hit.distance) - _center).length()
 	return _generated_surface_radius(d)
 
-# Land search: a ray from the relief ceiling down to the sea shell hits rock only where the solid
-# surface stands ABOVE sea level. Its stride is a hundredth of the relief it has to resolve.
+# A ray from the relief ceiling to the sea shell hits rock only where the surface stands above sea level.
 const LAND_SAMPLES: int = 128
 
 
@@ -265,14 +271,13 @@ func land_direction(prefer: Vector3 = Vector3.ZERO) -> Vector3:
 		return Vector3.UP
 	# A Fibonacci sphere: even coverage from one deterministic sequence, no clustering at the poles.
 	var golden: float = PI * (3.0 - sqrt(5.0))
-	var r_top: float = _planet_radius + _planet_relief + 60.0
+	var top: float = _planet_radius + _planet_relief + 60.0
 	var stride: float = maxf(1.0, _planet_relief * 0.01)
 	var found: Vector3 = Vector3.UP
 	for i in range(LAND_SAMPLES):
 		var y: float = 1.0 - 2.0 * (float(i) + 0.5) / float(LAND_SAMPLES)
-		var xz: float = sqrt(maxf(0.0, 1.0 - y * y))
-		var d: Vector3 = Vector3(cos(golden * i) * xz, y, sin(golden * i) * xz)
-		if _generator.raycast_sdf_approx(_center + d * r_top, _center + d * _sea_radius, stride) < 0.0:
+		var d: Vector3 = Vector3(cos(golden * i), 0.0, sin(golden * i)) * sqrt(maxf(0.0, 1.0 - y * y)) + Vector3.UP * y
+		if _generator.raycast_sdf_approx(_center + d * top, _center + d * _sea_radius, stride) < 0.0:
 			continue
 		found = d
 		if prefer.length() < 0.001 or d.dot(prefer.normalized()) > 0.4:

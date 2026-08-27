@@ -131,6 +131,8 @@ func bind(world: Node, terrain, water: Node) -> void:
 	_world = world
 	_terrain = terrain
 	_water = water
+	if terrain != null and terrain.has_method("set_view_distance"):
+		terrain.set_view_distance(draw_distance())
 	if water != null and water.has_method("set_density_scale"):
 		water.set_density_scale(particle_scale())
 	var gm: Node = get_node_or_null("/root/GameMode")

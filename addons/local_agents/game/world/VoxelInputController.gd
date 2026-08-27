@@ -383,8 +383,7 @@ func _apply_solar_view() -> void:
 
 const FLY_ALTITUDE_M: float = 900.0        # drone height above the ground it was placed over
 const FLY_STANDOFF_M: float = 2500.0       # how far back along the tangent it starts
-const FLY_LOOK_AHEAD_M: float = 6000.0     # how far ahead it looks
-const FLY_LOOK_DROP_M: float = 700.0       # how far below the surface the aim point sits, to tilt it down
+const FLY_LOOK_AHEAD_M: float = 6000.0     # how far ahead the ground it looks at lies
 
 
 ## Position the drone low over the surface, looking across the terrain (creatures/trees in view). Verification
@@ -410,7 +409,12 @@ func _apply_fly_view() -> void:
 	# A DRONE'S FRAMING, IN METRES. Fractions of the radius put the camera 325 km up on a body of real
 	# size, which is a spacecraft, not a drone. These are camera-framing decisions, not physics.
 	var pos: Vector3 = sp + radial * FLY_ALTITUDE_M - tangent * FLY_STANDOFF_M
-	var look_target: Vector3 = sp + tangent * FLY_LOOK_AHEAD_M - radial * FLY_LOOK_DROP_M
+	# AIM AT GROUND, NOT AT A GUESSED DEPTH. The look point is the terrain's own surface ahead, so relief
+	# under the drone cannot tip the gaze into the sky.
+	var ahead: Vector3 = (sp + tangent * FLY_LOOK_AHEAD_M - center).normalized()
+	var look_target: Vector3 = _terrain.surface_point(ahead)
+	if is_nan(look_target.x):
+		return
 	_camera.place_fly(pos, look_target)
 
 

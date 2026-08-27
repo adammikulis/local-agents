@@ -192,5 +192,6 @@ static func shot_info(w) -> String:
 		return "cam=absent"
 	var up: Vector3 = w._body.up_at(cam.global_position)
 	var fwd: Vector3 = -cam.global_transform.basis.z
-	return "cam_alt_m=%.0f cam_pitch_deg=%.1f" % [
+	var mode: String = "fly" if cam.is_fly() else ("solar" if cam.is_solar_view() else "orbit")
+	return "cam=%s cam_alt_m=%.0f cam_pitch_deg=%.1f" % [mode,
 		w._sim.terrain().altitude_at(cam.global_position), rad_to_deg(asin(clampf(fwd.dot(up), -1.0, 1.0)))]

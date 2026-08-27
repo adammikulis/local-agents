@@ -46,6 +46,13 @@ func _build_sky() -> void:
 		_sim.orbits().set_sky_controller(_sky_ctrl)
 	if _camera != null and _camera.has_method("face_sun_on_start"):
 		_camera.face_sun_on_start(_sky_ctrl.sun())
+	# OPEN OVER DAYLIT LAND. The sea shell sits at the mean radius, so most of the sphere is open ocean
+	# and a view that opens on an arbitrary bearing opens on water.
+	var terrain = _sim.terrain()
+	if terrain != null and terrain.has_method("land_direction") and _camera.has_method("orient_toward"):
+		var sun: Node3D = _sky_ctrl.sun()
+		var sunward: Vector3 = sun.global_transform.basis.z if sun != null else Vector3.ZERO
+		_camera.orient_toward(terrain.land_direction(sunward))
 
 
 func _build_world_visuals() -> void:

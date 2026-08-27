@@ -193,7 +193,7 @@ A world declares which processes it contains. The rung selector names them botto
 `chemistry`, and `custom` picks them one at a time. The choice applies on restart, because a sealed
 world never gains or loses a process.
 
-![The settings screen's physics section: a row of rung names from state through chemistry, with chemistry selected, above the note that the choice applies on restart](addons/local_agents/docs/img/rung_settings.png)
+![The settings screen's physics section: a row of rung names from state through chemistry, with gravity selected, above the note that the choice applies on restart](addons/local_agents/docs/img/rung_settings.png)
 
 ![The same row of rung names in the pause menu, so a running world can be restarted onto a different set of processes](addons/local_agents/docs/img/rung_pause.png)
 
