@@ -9,13 +9,13 @@ MODELS_DIR="${REPO_ROOT}/addons/local_agents/models"
 VOICES_DIR="${REPO_ROOT}/addons/local_agents/voices"
 
 GODOT_CPP_REPO="https://github.com/godotengine/godot-cpp.git"
-LLAMA_CPP_REPO="https://github.com/ggerganov/llama.cpp.git"
-WHISPER_CPP_REPO="https://github.com/ggerganov/whisper.cpp.git"
+LLAMA_CPP_REPO="https://github.com/ggml-org/llama.cpp.git"
+WHISPER_CPP_REPO="https://github.com/ggml-org/whisper.cpp.git"
 SQLITE_AMALGAMATION_URL="https://www.sqlite.org/2024/sqlite-autoconf-3450200.tar.gz"
-# Full 40-char SHA: `git fetch origin <sha>` only works with the FULL commit id (a short sha is read as a ref
-# name → "couldn't find remote ref"). Same commit as the old short `4b385bf`; fixes the native/CI build fetch.
+# Full 40-char SHA required: `git fetch origin <short-sha>` reads it as a ref name and fails.
 GODOT_CPP_REF="${GODOT_CPP_REF:-9c8aeff0f58ad030f3d1030e8262de1322cd0ccd}"
-LLAMA_CPP_REF="${LLAMA_CPP_REF:-4b385bfcf8fed51f12194629641fe8cbf1a58a0f}"
+LLAMA_CPP_REF="${LLAMA_CPP_REF:-2bb9bddafad44ecbb50889644ca47537ec11841b}"
+WHISPER_CPP_REF="${WHISPER_CPP_REF:-7246b7311e089fe092c4abe7cfad5d0921f8be00}"
 
 DEFAULT_MODEL_NAME="Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
 DEFAULT_MODEL_URL="https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/${DEFAULT_MODEL_NAME}"
@@ -41,6 +41,7 @@ Options:
 Environment:
   GODOT_CPP_REF        Git ref/commit for thirdparty/godot-cpp (default: ${GODOT_CPP_REF}).
   LLAMA_CPP_REF        Git ref/commit for thirdparty/llama.cpp (default: ${LLAMA_CPP_REF}).
+  WHISPER_CPP_REF      Git ref/commit for thirdparty/whisper.cpp (default: ${WHISPER_CPP_REF}).
 USAGE
 }
 
@@ -140,6 +141,7 @@ main() {
     clone_if_missing "$WHISPER_CPP_REPO" "$THIRDPARTY_DIR/whisper.cpp"
     sync_repo_ref "$THIRDPARTY_DIR/godot-cpp" "$GODOT_CPP_REF"
     sync_repo_ref "$THIRDPARTY_DIR/llama.cpp" "$LLAMA_CPP_REF"
+    sync_repo_ref "$THIRDPARTY_DIR/whisper.cpp" "$WHISPER_CPP_REF"
     extract_sqlite
 
     if [[ "$skip_models" == false ]]; then

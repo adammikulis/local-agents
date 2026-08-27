@@ -21,6 +21,7 @@ windows.x86_64="res://addons/local_agents/gdextensions/localagents/bin/localagen
 [dependencies]
 macos.universal={
 "res://addons/local_agents/gdextensions/localagents/bin/libllama.0.dylib": "",
+"res://addons/local_agents/gdextensions/localagents/bin/libllama-common.0.dylib": "",
 "res://addons/local_agents/gdextensions/localagents/bin/libmtmd.0.dylib": "",
 "res://addons/local_agents/gdextensions/localagents/bin/libggml.0.dylib": "",
 "res://addons/local_agents/gdextensions/localagents/bin/libggml-base.0.dylib": "",
@@ -34,6 +35,7 @@ macos.universal={
 ; build has no BLAS backend, so it is neither produced nor linked (confirmed via the binary's DT_NEEDED).
 linux.x86_64={
 "res://addons/local_agents/gdextensions/localagents/bin/libllama.so.0": "",
+"res://addons/local_agents/gdextensions/localagents/bin/libllama-common.so.0": "",
 "res://addons/local_agents/gdextensions/localagents/bin/libmtmd.so.0": "",
 "res://addons/local_agents/gdextensions/localagents/bin/libggml.so.0": "",
 "res://addons/local_agents/gdextensions/localagents/bin/libggml-base.so.0": "",
@@ -41,6 +43,7 @@ linux.x86_64={
 }
 windows.x86_64={
 "res://addons/local_agents/gdextensions/localagents/bin/llama.dll": "",
+"res://addons/local_agents/gdextensions/localagents/bin/llama-common.dll": "",
 "res://addons/local_agents/gdextensions/localagents/bin/mtmd.dll": "",
 "res://addons/local_agents/gdextensions/localagents/bin/ggml.dll": "",
 "res://addons/local_agents/gdextensions/localagents/bin/ggml-base.dll": "",

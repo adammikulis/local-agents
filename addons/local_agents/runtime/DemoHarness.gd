@@ -10,7 +10,10 @@ const ARG_SHOOT_FRAMES: String = "--shoot-frames="
 @export_group("Headless run")
 ## Frames to run before printing the report and quitting. 0 = never auto-quit (normal interactive play).
 ## The command line overrides this: `-- --run-frames=N`.
-@export_range(0, 100000, 1, "suffix:frames") var run_frames: int = 0
+@export_range(0, 100000, 1, "suffix:frames") var run_frames: int = 0:
+	set(value):
+		run_frames = value
+		_arm()
 
 ## Node queried for the report payload. It must expose `demo_report() -> Dictionary`.
 ## Left empty, the parent node is used, so dropping this harness under a scene root just works.
@@ -23,7 +26,10 @@ const ARG_SHOOT_FRAMES: String = "--shoot-frames="
 @export var report_suffix: String = "_REPORT"
 
 @export_group("Screenshot")
-@export_global_file("*.png") var shoot_path: String = ""
+@export_global_file("*.png") var shoot_path: String = "":
+	set(value):
+		shoot_path = value
+		_arm()
 ## Frame the screenshot is taken on. Give the scene enough frames to settle before it shoots.
 ## The command line overrides this: `-- --shoot-frames=N`.
 @export_range(1, 100000, 1, "suffix:frames") var shoot_frames: int = 90
@@ -44,7 +50,14 @@ func _ready() -> void:
 		report_source = get_parent()
 	if report_source != null and report_source.has_method("demo_harness_configured"):
 		report_source.call("demo_harness_configured", run_frames, shoot_path)
-	# Nothing to count when neither mode is armed — stay off the per-frame paths entirely.
+	_arm()
+
+
+## Nothing to count when neither mode is armed: stay off the per-frame paths entirely. Armed on every
+## write, not only in _ready(), so a host that sets run_frames after add_child() still gets counted.
+func _arm() -> void:
+	if not is_inside_tree():
+		return
 	set_process(shoot_path != "")
 	set_physics_process(run_frames > 0)
 
