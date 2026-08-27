@@ -223,5 +223,10 @@ func phenomena_markers() -> LAPhenomenaMarkers: return _markers
 func spawn_controller() -> LAVoxelSpawnController: return _spawn
 func save_controller() -> LAWorldSaveController: return _save
 func timeline() -> LAVoxelTimeline: return _timeline
+## Bring the shared local-LLM runtime online for this run (--llm). setup() is idempotent.
+func enable_llm() -> void:
+	_llm_service.setup({"enabled": true})
+
+
 func llm_service() -> Node: return _llm_service
 func is_spawned() -> bool: return _spawn != null and _spawn.is_spawned()

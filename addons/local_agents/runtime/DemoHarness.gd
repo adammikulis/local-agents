@@ -130,18 +130,22 @@ func _exit_code() -> int:
 	return 0
 
 
-func _capture(path: String) -> void:
-	var viewport: Viewport = get_viewport()
+## The one viewport-to-PNG path. Every screenshot in the project goes through it.
+static func save_viewport_png(viewport: Viewport, path: String, extra: String = "") -> void:
 	if viewport == null:
 		return
 	var img: Image = viewport.get_texture().get_image()
 	img.save_png(path)
+	print("SHOT_SAVED=%s size=%dx%d%s" % [path, img.get_width(), img.get_height(), extra])
+
+
+func _capture(path: String) -> void:
 	var extra: String = ""
 	if report_source != null and report_source.has_method("demo_shot_info"):
 		var info: String = String(report_source.call("demo_shot_info"))
 		if info != "":
 			extra = " " + info
-	print("SHOT_SAVED=%s size=%dx%d%s" % [path, img.get_width(), img.get_height(), extra])
+	save_viewport_png(get_viewport(), path, extra)
 
 
 func _quit(code: int) -> void:
