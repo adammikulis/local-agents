@@ -848,11 +848,13 @@ void main() {
 		la_dt = la_level_dt(tlevel[gidx]);
 		uint abase = gidx * N_SLOTS;
 		send[abase] = 0.0;
-		if (solid[gidx] != 0.0) {
+		// A cell with no bulk state carries no acoustic signal, and its impedance is rho c over a mass
+		// that is not there. Asked FIRST, so nothing downstream evaluates it.
+		if (solid[gidx] != 0.0 || no_matter(gidx)) {
 			return;
 		}
 		float ks = max(rho_bulk[gidx], 0.0) * cel_m_s[gidx] * cel_m_s[gidx];
-		if (ks <= 0.0) {
+		if (!(ks > 0.0)) {
 			return;
 		}
 		float za = impedance(gidx);
@@ -1079,7 +1081,7 @@ void main() {
 					// Pressure's momentum flux. A wall meets the cell's own reconstructed face pressure;
 					// an open face the linearized Riemann p*, whose velocity-jump term dissipates.
 					float p_face = face_p(gidx, d);
-					if (!wall && !no_matter(nb)) {
+					if (!wall && !no_matter(gidx) && !no_matter(nb)) {
 						float za = impedance(gidx);
 						float zb = impedance(nb);
 						float ua = dot(vel_at(gidx), nrm);
