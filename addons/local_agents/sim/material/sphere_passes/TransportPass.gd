@@ -22,10 +22,6 @@ const GRAIN_ROW: Dictionary = {"channel": "silicate", "substance": "silicate",
 ## floor, read by transport.glsl and state_derive.glsl. Declared in docs/MODEL_PARAMETERS.md.
 const EMPTY_RHO_KG_M3: float = 0.0001 * LAPhysical.AIR_DENSITY_KG_M3
 
-## Substeps one row may take inside a field step. Declared in docs/MODEL_PARAMETERS.md.
-## LA_APPROX: cfl_substep_budget
-const SUBSTEP_MAX: int = 256
-
 var _pipe: RID = RID()
 ## The stiffest declared substance's celerity sqrt(K/rho), m/s: the budget's a-priori acoustic bound.
 var _c_static: float = 0.0
@@ -280,25 +276,7 @@ func _substeps(row: Dictionary, cell_m: float, dt_s: float, ctx: Dictionary) -> 
 	if law == LATransportRecords.Law.SOUND and tk_max > 0.0:
 		need = maxf(need, 6.0 * sqrt(LAPhysical.AIR_ADIABATIC_INDEX
 			* LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK * tk_max) * dt_s / cell_m)
-	var want: int = int(ceil(need))
-	if want > SUBSTEP_MAX:
-		_deny(row, want, "celerity=%s wind=%s temp_k=%s cell_m=%s dt_s=%s"
-			% [_c_static, vmax, tk_max, cell_m, dt_s])
-	return clampi(want, 1, SUBSTEP_MAX)
-
-
-## A SUBSTEP BUDGET THAT CANNOT BE MET IS A FAILURE, NEVER A CLAMP. Silently capping it runs the row at
-## thousands of times its stable timestep and every number after that is fiction.
-func _deny(row: Dictionary, want: int, terms: String) -> void:
-	var label: String = String(row.get("label", row.get("substance", "?")))
-	if _denied.has(label):
-		return
-	_denied[label] = want
-	push_error("SUBSTEPS_DENIED row=%s want=%d cap=%d %s" % [label, want, SUBSTEP_MAX, terms])
-
-
-var _denied: Dictionary = {}
-
+	return maxi(int(ceil(need)), 1)
 
 
 ## Cells each list holds after the last step; an `emit_idx` list also returns its occupied prefix.
