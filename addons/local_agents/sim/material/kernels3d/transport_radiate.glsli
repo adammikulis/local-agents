@@ -233,7 +233,7 @@ void sw_scatter(uint c) {
 		through *= 1.0 - sw_keep[a];
 		at = la_step(a, -up);
 	}
-	float dep = arriving * sw_keep[c] * params.dt_s / params.cell_m;
+	float dep = arriving * sw_keep[c] * la_dt / params.cell_m;
 	if (dep > 0.0) {
 		amount[c] += dep;
 		rad_absorbed[c] += dep;
@@ -248,7 +248,7 @@ void sw_scatter(uint c) {
 		esc *= 1.0 - sw_keep[uint(above)];
 		above = la_step(uint(above), up);
 	}
-	sw_space[c] = src * esc * params.dt_s / params.cell_m;
+	sw_space[c] = src * esc * la_dt / params.cell_m;
 }
 
 #endif

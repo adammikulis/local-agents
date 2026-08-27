@@ -70,16 +70,16 @@ if not isinstance(rows, dict) or not isinstance(allowed, dict):
 for key, v in sorted(rows.items()):
     if key == "energy_stock" and v == "unmeasured":
         continue
+    # A row with no number, or no floor to judge it against, EXAMINED NOTHING: that is exit 2.
+    # A violation is a stock that was measured and moved.
     if not isinstance(v, (int, float)):
-        print("FAIL: conservation row %s reads %r — a stock this gate holds went unmeasured." % (key, v),
-              file=sys.stderr)
-        fails += 1
-        continue
+        print("ERROR: conservation row %s reads %r — a stock this gate holds went unmeasured."
+              % (key, v), file=sys.stderr)
+        raise SystemExit(2)
     lim = allowed.get(key)
     if not isinstance(lim, (int, float)):
-        print("FAIL: conservation row %s has no floor to be judged against." % key, file=sys.stderr)
-        fails += 1
-        continue
+        print("ERROR: conservation row %s has no floor to be judged against." % key, file=sys.stderr)
+        raise SystemExit(2)
     if abs(float(v)) > float(lim):
         print("FAIL: %s drifted %r on a closed torus (round-off floor %r)." % (key, v, lim), file=sys.stderr)
         fails += 1

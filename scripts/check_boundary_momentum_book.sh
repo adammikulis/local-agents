@@ -340,11 +340,10 @@ fi
 rreading="$(printf '%s\n' "$replay_out" | sed -n 's/^momentum_book_bnd  *= *//p' | head -1)"
 printf 'replay momentum_book_bnd = %s\n' "${rreading:-<none>}"
 if [ -z "$rreading" ] || printf '%s' "$rreading" | grep -q '<ABSENT>'; then
-  echo
-  echo "The REPLAY slice published no momentum_book_bnd (sim_run exit $replay_rc): the rim's nudge is"
-  echo "booked on the device but the fold never reaches the report, so nothing holds the booking."
+  echo "ERROR: the REPLAY slice published no momentum_book_bnd (sim_run exit $replay_rc) — an absent" >&2
+  echo "       book examined nothing. A violation is a book that EXISTS and does not close." >&2
   printf '%s\n' "$replay_out" | tail -20 >&2
-  exit 1
+  exit 2
 fi
 if printf '%s' "$rreading" | grep -qiE 'nan|inf|null|None'; then
   echo
