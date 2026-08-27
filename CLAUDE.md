@@ -378,13 +378,8 @@ things you already have your hands on.
   - **The coordinator prunes every subagent's tree the moment it reports**, merged or not. A subagent
     cannot clean up after itself — it has already exited — so the tree it leaves is YOURS.
   - **A session may not end with a tree it did not start with.** Check `git worktree list` before you
-    reply for the last time. If a tree must outlive the session it gets a row in `docs/OPEN_BRANCHES.md`
-    with a reason, and that is the only way it may survive.
-  - **Nothing is kept "in case".** The branch is in git; a tag freezes it if it genuinely matters. Thirty
-    trees and thirty-four branches once accumulated this way, nine of them parked in one identical
-    unresolved merge, and the gate could not see any of it because session branches are exempt from
-    declaration. `check_branch_integration.sh` check 4 now fails on a tree that maps to no branch, holds
-    an unresolved merge, or has not moved inside the age limit.
+    reply for the last time. There is no declared-branch exception — prune it.
+  - **Nothing is kept "in case".** The branch is in git; a tag freezes it if it genuinely matters.
 - **Do every non-trivial change in a dedicated git worktree branched off the current dev branch**, not in
   the primary checkout, and **make it with `scripts/new_worktree.sh`, not by hand**:
   `scripts/new_worktree.sh <feature>`

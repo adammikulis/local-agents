@@ -18,8 +18,9 @@ enum Arg { GROUPS_X = 0, GROUPS_Y = 1, GROUPS_Z = 2, LIST_COUNT = 3, SLOTS = 8 }
 const GRAIN_ROW: Dictionary = {"channel": "silicate", "substance": "silicate",
 	"mode": LATransportRecords.POTENTIAL}
 
-## Below this fraction of a row's full amount a cell is empty and does not donate.
-const MIN_FILL_FRAC: float = 0.0001
+## kg/m^3 below which a cell is empty: it donates nothing and holds no bulk velocity. The one emptiness
+## floor, read by transport.glsl and state_derive.glsl. Declared in docs/MODEL_PARAMETERS.md.
+const EMPTY_RHO_KG_M3: float = 0.0001 * LAPhysical.AIR_DENSITY_KG_M3
 
 ## Substeps one row may take inside a field step. Declared in docs/MODEL_PARAMETERS.md.
 ## LA_APPROX: cfl_substep_budget
@@ -493,7 +494,7 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float,
 	if String(row["channel"]) == "h_j_m3":
 		flags |= LATransportRecords.Flag.ENTHALPY
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(112)
+	pc.resize(108)
 	pc.encode_u32(0, cc)
 	pc.encode_u32(4, pass_id)
 	pc.encode_u32(8, int(row["mode"]))
@@ -504,7 +505,7 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float,
 	pc.encode_float(28, dt_s)
 	pc.encode_float(32, float(row.get("repose_tan", 0.0)))
 	var max_fill: float = LATransportRecords.max_fill(substance) if substance != "" else INF
-	pc.encode_float(36, MIN_FILL_FRAC * max_fill if substance != "" else MIN_FILL_FRAC)
+	pc.encode_float(36, EMPTY_RHO_KG_M3)
 	pc.encode_float(40, float(entry.get("density", 0.0)))
 	# Enthalpy, momentum and a shock front are not matter occupying volume, so no cell is ever full of them.
 	pc.encode_float(44, max_fill)
@@ -527,11 +528,9 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float,
 	pc.encode_u32(92, cc + ghost_count)
 	pc.encode_u32(96, int(row.get("axis", 0)))
 	pc.encode_float(100, substep_frac)
-	# The donation floor as mass: MIN_FILL_FRAC of a cell of the lightest bulk matter, air.
-	pc.encode_float(104, MIN_FILL_FRAC * LAPhysical.AIR_DENSITY_KG_M3)
 	# XUV irradiance AT THIS BODY, already distance-corrected by the star that emitted it; the zenith
 	# cosine is what still scales it in-kernel.
-	pc.encode_float(108, _xuv_w_m2)
+	pc.encode_float(104, _xuv_w_m2)
 	return pc
 
 
