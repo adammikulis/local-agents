@@ -147,7 +147,7 @@ layout(push_constant, std430) uniform Params {
 	float cell_m;         // cell edge, metres. One number: the grid is uniform.
 	float dt_s;
 	float repose_tan;     // 0 = a fluid, which levels freely
-	float min_amount;     // below this a cell is empty and does not donate
+	float rho_floor;      // kg/m^3 below which a cell is empty: it neither donates nor holds velocity
 	float density;        // kg/m^3 of the substance this record carries
 	float max_fill;       // mol/m^3 at which a cell is full of it; +inf for a row carrying no matter
 	float fluid_rho;      // kg/m^3 of the fluid the row moves THROUGH
@@ -166,7 +166,6 @@ layout(push_constant, std430) uniform Params {
 	uint total_count;     // interior cells plus ghost tail cells; pass 0 runs the ghosts too
 	uint axis;            // which momentum component a signed PGF row carries: 0=x 1=y 2=z
 	float substep_frac;   // this substep's share of the field step, 1/n
-	float rho_floor;      // kg/m^3 of MIN_FILL_FRAC of a cell of air: below it a cell is empty and at rest
 	float xuv_w_m2;       // XUV irradiance AT THIS BODY, W/m^2 — LAW_ESCAPE's driver
 } params;
 
@@ -804,8 +803,10 @@ void main() {
 		// A TF_FRACTION row moves only the phase share `frac` names; the rest of the channel stays put.
 		float share = (params.flags & TF_FRACTION) != 0u ? clamp(frac[gidx], 0.0, 1.0) : 1.0;
 		float remaining = amount[gidx] * share;
-		// No floor on a SIGNED row: a donor floor there is a cell that can never start moving.
-		if (!is_signed && remaining < params.min_amount) {
+		// The one floor in this row's own unit. None on a SIGNED row: it could never start moving.
+		float kg_mol = sub_kg_mol();
+		float donor_floor = kg_mol > 0.0 ? params.rho_floor / kg_mol : 0.0;
+		if (!is_signed && remaining <= donor_floor) {
 			return;
 		}
 		// Mass carries its heat and its charge. A row that carries no matter carries neither.
@@ -821,7 +822,6 @@ void main() {
 			}
 		}
 		// The flux's mass share of the cell, floored by the substance's own mass. Momentum and charge ride it.
-		float kg_mol = sub_kg_mol();
 		float denom_m = max(max(rho_bulk[gidx], 0.0), kg_mol * amount[gidx]);
 		float m_share = (carries && denom_m > 0.0) ? kg_mol / denom_m : 0.0;
 		float open = 1.0 - clamp(resist[gidx], 0.0, 1.0);
@@ -831,7 +831,7 @@ void main() {
 		float mob = mobility_at(gidx, abs(remaining));
 
 		for (uint d = 0u; d < N_SLOTS; ++d) {
-			if (!is_signed && remaining < params.min_amount) {
+			if (!is_signed && remaining <= donor_floor) {
 				break;
 			}
 			int inb = nbr[base + d];
