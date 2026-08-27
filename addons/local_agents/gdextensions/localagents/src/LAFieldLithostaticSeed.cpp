@@ -126,28 +126,30 @@ PackedFloat32Array unit_factor(int p_cc) {
 
 } // namespace
 
-double LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32Array &p_gravity) {
+PackedFloat32Array LAFieldLithostaticSeed::compress(Object *p_field,
+		const PackedFloat32Array &p_gravity) {
+	PackedFloat32Array out;
 	if (!p_field) {
-		return 0.0;
+		return out;
 	}
 	Object *grid = Object::cast_to<Object>(p_field->get("_grid"));
 	const int cc = int(p_field->get("_cell_count"));
 	const PackedByteArray solid = p_field->get("_solid");
 	if (!grid || cc <= 0 || solid.size() != cc) {
-		return 0.0;
+		return out;
 	}
 	if (p_gravity.size() != cc * 3) {
 		UtilityFunctions::push_error(String("LAFieldLithostaticSeed.compress: the solved gravity is ")
 				+ String::num_int64(p_gravity.size()) + " long against " + String::num_int64(cc)
 				+ " cells, so the balance has no direction to march along.");
-		return 0.0;
+		return out;
 	}
 	const Vector3 centre = field_centre(p_field);
 	const double dr = double(grid->get("cell_size"));
 	const double vol = dr * dr * dr;
 	const PackedInt32Array nbr = grid->get("neighbours");
 	if (nbr.size() != cc * 6) {
-		return 0.0;
+		return out;
 	}
 	const Dictionary table = LASubstances::table();
 	const Dictionary rows = la_call_gd(CHANNELS_GD, "rows", Array());
@@ -158,7 +160,7 @@ double LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32Arra
 	// Every matter channel, with what the substance table says about the substance it carries.
 	std::vector<Mirror> mats = channel_mirrors(p_field, "unit", "mol_m3");
 	const size_t nm = mats.size();
-	std::vector<double> mm(nm, 0.0), v0(nm, 0.0), v0k(nm, 0.0), rho0(nm, 0.0);
+	std::vector<double> mm(nm, 0.0), v0(nm, 0.0), v0k(nm, 0.0), rho0(nm, 0.0), psat(nm, 0.0);
 	std::vector<bool> is_gas(nm, false), is_lithic(nm, false);
 	for (size_t i = 0; i < nm; i++) {
 		const Dictionary row = rows.get(mats[i].name, Dictionary());
@@ -170,6 +172,7 @@ double LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32Arra
 		if (is_gas[i]) {
 			continue;
 		}
+		psat[i] = LASubstances::saturation_p_at(mats[i].substance, t_c);
 		rho0[i] = LASubstances::density(mats[i].substance, t_c, p_std);
 		v0[i] = rho0[i] > 0.0 ? 1.0 / rho0[i] : 0.0;
 		const double k = double(sub.get("bulk_modulus_pa", 0.0));
@@ -178,7 +181,7 @@ double LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32Arra
 
 	// la_eos_p's own coefficients per cell at the amounts the composition laid down, and the mass those
 	// amounts weigh. A gas is the A term; a condensed phase is B, and C where it declares a bulk modulus.
-	std::vector<double> a_rt(cc, 0.0), b_vol(cc, 0.0), c_comp(cc, 0.0), rho(cc, 0.0);
+	std::vector<double> a_rt(cc, 0.0), b_vol(cc, 0.0), c_comp(cc, 0.0), rho(cc, 0.0), p_sat(cc, 0.0);
 	for (size_t i = 0; i < nm; i++) {
 		const float *r = mats[i].arr.ptr();
 		for (int c = 0; c < cc; c++) {
@@ -193,6 +196,7 @@ double LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32Arra
 				const double kg = n * vol * mm[i];
 				b_vol[c] += kg * v0[i];
 				c_comp[c] += kg * v0k[i];
+				p_sat[c] = MAX(p_sat[c], psat[i]);
 			}
 		}
 	}
@@ -276,6 +280,10 @@ double LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32Arra
 			worst_span = MAX(worst_span, span);
 			continue;
 		}
+		if (p <= p_sat[c]) {
+			p_at[c] = p_sat[c];   // its own vapour already states this much; no amount of it states less
+			continue;
+		}
 		const double s = eos_scale(p, vol, a_rt[c], b_vol[c], c_comp[c], p_std);
 		if (!std::isfinite(s) || !(s > 0.0)) {
 			unresolved++;      // no finite amount states that pressure, so this cell has no balanced state
@@ -294,7 +302,6 @@ double LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32Arra
 
 	// WRITE IT BACK. An open cell takes the scale its pressure implies, on every amount it holds; a solid
 	// cell takes the substance table's compression ratio at its marched pressure, on its lithic phases.
-	double added = 0.0;
 	for (size_t i = 0; i < nm; i++) {
 		float *w = mats[i].arr.ptrw();
 		bool touched = false;
@@ -309,16 +316,20 @@ double LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32Arra
 			if (f == 1.0 || w[c] <= 0.0f) {
 				continue;
 			}
-			const double amt = double(w[c]) * f;
-			added += amt - double(w[c]);
-			w[c] = float(amt);
+			w[c] = float(double(w[c]) * f);
 			touched = true;
 		}
 		if (touched) {
 			p_field->set("_" + mats[i].name, mats[i].arr);
 		}
 	}
-	return added;
+	// The pressure the march states, so the first state derive is taken at it rather than at zero.
+	out.resize(cc);
+	float *w = out.ptrw();
+	for (int c = 0; c < cc; c++) {
+		w[c] = float(p_at[c]);
+	}
+	return out;
 }
 
 void LAFieldLithostaticSeed::clear_gas_in_rock(Object *p_field) {

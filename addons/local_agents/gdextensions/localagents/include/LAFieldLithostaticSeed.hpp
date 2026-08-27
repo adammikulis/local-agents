@@ -15,8 +15,8 @@ public:
 	// THE SEEDED WORLD PUT INTO THE BALANCE THE STEPPER HOLDS. Marches transport.glsl's own face-pressure
 	// relation cell by cell along the solved gravity: an open cell's amounts are scaled until its equation
 	// of state states the marched pressure, a solid cell's lithic phases are squeezed by the substance
-	// table at the pressure standing over them. Returns the amount added.
-	static double compress(Object *p_field, const PackedFloat32Array &p_gravity);
+	// table at the pressure standing over them. Returns the pressure it marched, per cell.
+	static PackedFloat32Array compress(Object *p_field, const PackedFloat32Array &p_gravity);
 	// FREE GAS DOES NOT SIT INSIDE STONE. The channels are filled before solidity is sampled, so every
 	// solid cell is handed a full atmosphere's worth of gas: matter in cells that have no room for it.
 	static void clear_gas_in_rock(Object *p_field);

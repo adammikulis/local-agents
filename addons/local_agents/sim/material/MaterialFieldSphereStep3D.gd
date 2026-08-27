@@ -83,11 +83,14 @@ func seed_tick() -> bool:
 	# marched pressure and every rock cell is squeezed by what stands over it.
 	var g_solved: PackedFloat32Array = _f._gravity.mirror()
 	LAFieldLithostaticSeed.shape_atmosphere(_f, LAMaterialField3D.INITIAL_TEMP, _f._body_measure, g_solved)
-	LAFieldLithostaticSeed.compress(_f, g_solved)
+	var p_marched: PackedFloat32Array = LAFieldLithostaticSeed.compress(_f, g_solved)
 	LAFieldEnthalpySeed.seed(_f, LAMaterialField3D.INITIAL_TEMP)
 	if _f._gpu != null:                                # hand the device what those walks produced
 		_f._gpu._seed_regolith()                       # permeability mask + grain size
 		_f._gpu._seed("porosity", _f._porosity)        # Athy pore fraction
+		# The march's own pressure, so the first state derive reads the world at it rather than at zero,
+		# where every condensed phase would be asked to boil.
+		_f._gpu._seed("pressure", p_marched)
 		# Every matter channel, not a hand-written subset: the balance march touched all of them.
 		for name in LAFieldCellMass3D.mirror_names(_f):
 			_f._gpu.seed_field(String(name), _f.get("_" + String(name)), _f._seal)

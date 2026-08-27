@@ -278,6 +278,12 @@ float impedance(uint c) {
 	return max(rho_bulk[c], 0.0) * max(cel_m_s[c], 0.0);
 }
 
+// A FACE ONTO NOTHING IS A FREE SURFACE: no mass and no sound speed carry no acoustic signal, so the
+// face takes the matter side's own pressure and no difference is divided by an absent impedance.
+bool free_face(uint c) {
+	return impedance(c) <= 0.0;
+}
+
 // The cell's pressure extrapolated to face d along its own hydrostatic gradient, so an equilibrium
 // column presents ONE pressure to the shared face (hydrostatic reconstruction, Audusse 2004).
 float face_p(uint c, uint d) {
@@ -295,8 +301,7 @@ float cloud_water_kg_m3(uint c) {
 	return (h2o_water(c) + h2o_ice(c)) * M_H2O;
 }
 
-// Non-inductive charge separation in the riming band, C/m^3 this step. The light phase carries this much
-// charge up and the heavy phase carries the same amount down, so the pair creates nothing.
+// Non-inductive charge separation in the riming band, C/m^3 this step: the pair creates nothing.
 float separation_dq(uint c, vec3 up) {
 	float band = clamp((CHARGE_ZONE_WARM_C - temp[c]) / (CHARGE_ZONE_WARM_C - CHARGE_ZONE_COLD_C),
 		0.0, 1.0);
@@ -359,8 +364,7 @@ float melt_viscosity(uint c) {
 	return MELT_VISC * pow(1.0 - r, -ROSCOE_N);
 }
 
-// Gauss's law along the field line: charge density integrated outward is a surface charge, and a surface
-// charge is a field. V/m.
+// Gauss's law along the field line: charge integrated outward is a surface charge, so a field. V/m.
 float column_field(uint c) {
 	vec3 gv = g_at(c);
 	if (length(gv) <= 0.0) {
@@ -685,13 +689,17 @@ void main() {
 				continue;
 			}
 			uint nb = uint(inb);
+			vec3 nrm = face_normal(d);
+			float ua = dot(vel_at(gidx), nrm);
+			if (free_face(nb)) {
+				div_u += ua;
+				continue;
+			}
 			float zb = impedance(nb);
 			float zs = za + zb;
 			if (zs <= 0.0) {
 				continue;
 			}
-			vec3 nrm = face_normal(d);
-			float ua = dot(vel_at(gidx), nrm);
 			float ub = dot(vel_at(nb), nrm);
 			// Subtractive form of the same average: exact at equilibrium for any impedance pair.
 			div_u += ua + (zb * (ub - ua) + (face_p(gidx, d) - face_p(nb, d ^ 1u))) / zs;
@@ -701,8 +709,7 @@ void main() {
 	}
 	if (params.pass_id == PASS_ACOUSTIC_APPLY) {
 		if (gidx < params.cell_count) {
-			// The exact dp/dt = -rho c^2 div(u) decays toward zero and never crosses it; the linear
-			// step can, and la_eos_p's own domain is p >= 0, so the predictor keeps to it.
+			// la_eos_p's domain is p >= 0, and the linear step can cross what the exact decay never does.
 			pressure[gidx] = max(pressure[gidx] + send[gidx * N_SLOTS], 0.0);
 			// This substep's share of the body impulse, beside the pressure gradient it stands against.
 			mom_x[gidx] += bodyf_x[gidx] * params.substep_frac;
@@ -821,7 +828,7 @@ void main() {
 				h_per_unit = h_carried[gidx] / amount[gidx];
 			}
 		}
-		// The flux's mass share of the cell, floored by the substance's own mass. Momentum and charge ride it.
+		// The flux's mass share of the cell, floored by the substance's own mass.
 		float denom_m = max(max(rho_bulk[gidx], 0.0), kg_mol * amount[gidx]);
 		float m_share = (carries && denom_m > 0.0) ? kg_mol / denom_m : 0.0;
 		float open = 1.0 - clamp(resist[gidx], 0.0, 1.0);
@@ -878,19 +885,14 @@ void main() {
 					// Pressure's momentum flux. A wall meets the cell's own reconstructed face pressure;
 					// an open face the linearized Riemann p*, whose velocity-jump term dissipates.
 					float p_face = face_p(gidx, d);
-					if (!wall) {
+					if (!wall && !free_face(nb)) {
 						float za = impedance(gidx);
 						float zb = impedance(nb);
-						float zs = za + zb;
-						if (zs > 0.0) {
-							float ua = dot(vel_at(gidx), nrm);
-							float ub = dot(vel_at(nb), nrm);
-							// Subtractive form: exact at equilibrium for any impedance pair.
-							p_face = p_face
-								+ za * (face_p(nb, d ^ 1u) - p_face + zb * (ua - ub)) / zs;
-						} else {
-							p_face = 0.0;
-						}
+						float ua = dot(vel_at(gidx), nrm);
+						float ub = dot(vel_at(nb), nrm);
+						// Subtractive form: exact at equilibrium for any impedance pair.
+						p_face = p_face
+							+ za * (face_p(nb, d ^ 1u) - p_face + zb * (ua - ub)) / (za + zb);
 					}
 					float ni = params.axis == 0u ? nrm.x : (params.axis == 1u ? nrm.y : nrm.z);
 					sflux = p_face * ni * params.dt_s / params.cell_m;
@@ -948,10 +950,9 @@ void main() {
 				float ub = dot(vel_at(nb), nrm_a);
 				float za = impedance(gidx);
 				float zb = impedance(nb);
-				float zs = za + zb;
-				float vn = zs > 0.0
-					? ua + (zb * (ub - ua) + (face_p(gidx, d) - face_p(nb, d ^ 1u))) / zs
-					: ua;
+				float vn = free_face(nb)
+					? ua
+					: ua + (zb * (ub - ua) + (face_p(gidx, d) - face_p(nb, d ^ 1u))) / (za + zb);
 				vn += dot(transport_velocity(gidx) - vel_at(gidx), nrm_a);
 				if (vn > 0.0) {
 					flow += remaining * vn * params.dt_s / params.cell_m;

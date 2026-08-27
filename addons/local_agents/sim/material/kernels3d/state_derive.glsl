@@ -418,9 +418,17 @@ void main() {
 	float c_comp = (c0 + t_c * c1 - c2) + f_cond * (hc0 + t_c * hc1 - hc2);
 	float n_gas = n_gas_mol + f_vapour * mol_h2o;
 	float tk = max(t_c + LA_KELVIN_OFFSET, 1.0);
+	// THE VOID OVER A CONDENSED PHASE IS ITS OWN VAPOUR, at the saturation pressure of the most volatile.
+	float p_sat = 0.0;
+	if (f_cond * m_h2o > 0.0) {
+		p_sat = max(p_sat, la_saturation_p_at(subs[E_H2O], t_c));
+	}
+	if (mass[E_SILICATE] > 0.0) {
+		p_sat = max(p_sat, la_saturation_p_at(subs[E_SILICATE], t_c));
+	}
 	// Rock is quasi-static and PressurePass owns it; an open cell's pressure is its own state.
 	if (solid[g] == 0.0) {
-		pressure[g] = la_eos_p(vol, n_gas * LA_R_J_MOL_K * tk, b_vol, c_comp, LA_P_STD);
+		pressure[g] = la_eos_p(vol, n_gas * LA_R_J_MOL_K * tk, b_vol, c_comp, LA_P_STD, p_sat);
 	}
 
 	// THE MIXTURE'S SOUND SPEED (Wood 1930): one pressure, so compressibilities add by volume — the
