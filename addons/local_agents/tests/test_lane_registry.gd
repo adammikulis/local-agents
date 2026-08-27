@@ -24,6 +24,8 @@ const DETERMINISTIC_TESTS: Array[String] = [
 	"res://addons/local_agents/tests/test_mixture_enthalpy.gd",
 	"res://addons/local_agents/tests/test_density_eos.gd",
 	"res://addons/local_agents/tests/test_boundary_wrap.gd",
+	"res://addons/local_agents/tests/test_sim_clock.gd",
+	"res://addons/local_agents/tests/test_network_graph.gd",
 	"res://addons/local_agents/tests/test_conversation_store.gd",
 	"res://addons/local_agents/tests/test_model_download_hub_cache.gd",
 ]

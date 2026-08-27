@@ -18,6 +18,14 @@ const DAY_FIRST: int = 0
 const DAY_SWITCH: int = 5
 
 
+## The one thing LASimClock reads off a planet: how fast it turns. A day is one rotation, so a clock
+## with no body has no calendar and every record in this test would be dated day 0.
+## Earth's sidereal rotation period is 86164.0905 s (IERS Conventions 2010).
+class SpinningBody extends RefCounted:
+	func angular_velocity_rad_s() -> float:
+		return TAU / 86164.0905
+
+
 ## The duck-typed surface LACreatureAffiliation and LABandChronicle read, and nothing else.
 class Beast extends Node3D:
 	var species: String = SPECIES
@@ -44,6 +52,7 @@ func run_test(tree: SceneTree) -> bool:
 	svc.clear_backstory_space()
 
 	var clock: LASimClock = ClockScript.new()
+	clock.set_body(SpinningBody.new())
 	tree.get_root().add_child(clock)
 	clock.restore({"elapsed": float(DAY_FIRST) * clock.day_length()})
 
@@ -72,6 +81,11 @@ func run_test(tree: SceneTree) -> bool:
 	var joined_faction: String = "band_%d" % host_band
 
 	clock.restore({"elapsed": float(DAY_SWITCH) * clock.day_length()})
+	# The day the world is actually on, read back: a day is not a whole number of steps, so a restore
+	# lands on the nearest step to the boundary and the calendar answers for itself.
+	var switch_day: int = LASimClock.world_day()
+	ok = _assert(switch_day != DAY_FIRST,
+		"the world never left day %d, so a switch cannot be told from the first membership" % DAY_FIRST) and ok
 	wanderer.global_position = Vector3(301.0, 0.0, 2.0)
 	_run(herd, chronicle, 40)
 	chronicle.flush()
@@ -101,15 +115,15 @@ func run_test(tree: SceneTree) -> bool:
 		"the closed membership ends before it began (from_day %d, to_day %d)" % [int(left.get("from_day", -1)), int(left.get("to_day", -1))]) and ok
 	ok = _assert(int(joined.get("to_day", 0)) == -1,
 		"the membership it joined is already closed (to_day %d)" % int(joined.get("to_day", 0))) and ok
-	ok = _assert(int(joined.get("from_day", -1)) == DAY_SWITCH,
-		"the new membership is dated day %d, not the day it actually switched (%d)" % [int(joined.get("from_day", -1)), DAY_SWITCH]) and ok
+	ok = _assert(int(joined.get("from_day", -1)) == switch_day,
+		"the new membership is dated day %d, not the day it actually switched (%d)" % [int(joined.get("from_day", -1)), switch_day]) and ok
 
 	# The group it left still exists. A band is not the animals currently standing in it.
 	var old_group: Dictionary = svc.get_faction(left_faction)
 	ok = _assert(bool(old_group.get("ok", false)) and String((old_group.get("faction", {}) as Dictionary).get("id", "")) == left_faction,
 		"the band it left no longer exists in the store: %s" % old_group) and ok
 
-	var context: Dictionary = svc.get_backstory_context(npc_id, DAY_SWITCH + 1, 32)
+	var context: Dictionary = svc.get_backstory_context(npc_id, switch_day + 1, 32)
 	var active: Array = []
 	for rel_v in (context.get("relationships", []) as Array):
 		var rel: Dictionary = rel_v
@@ -118,7 +132,48 @@ func run_test(tree: SceneTree) -> bool:
 	ok = _assert(active.size() == 1 and active[0] == joined_faction,
 		"the day-windowed context should show exactly one live membership (%s), it showed %s" % [joined_faction, active]) and ok
 
+	ok = _backlog_keeps_the_observed_day(tree, svc, chronicle, clock, herd) and ok
+
 	return _finish(ok, svc, chronicle, clock, herd, tree)
+
+
+## A scan writes at most MAX_WRITES_PER_SCAN records, so a herd that all changes band at once has its
+## surplus written later -- and the world can be on a later day by then. Every record carries the day the
+## animal changed band, never the day the queue reached it.
+func _backlog_keeps_the_observed_day(tree: SceneTree, svc: Node, chronicle: LABandChronicle,
+		clock: LASimClock, herd: Array) -> bool:
+	var flock: Array = []
+	for i in range(LABandChronicle.MAX_WRITES_PER_SCAN + 1):
+		var b: Beast = _spawn(tree, Vector3(600.0 + float(i), 0.0, 0.0))
+		flock.append(b)
+		herd.append(b)
+	var formed: int = LASimClock.world_day()
+	var written_before: int = int(chronicle.report().get("memberships_written", 0))
+	var steps: int = 0
+	while int(chronicle.report().get("memberships_written", 0)) - written_before \
+			< LABandChronicle.MAX_WRITES_PER_SCAN and steps < 400:
+		_run(herd, chronicle, 1)
+		steps += 1
+	var ok: bool = _assert(steps < 400, "the flock never produced a full scan's worth of writes")
+
+	# The world moves on while part of the change is still queued. flush() only drains: nothing new is
+	# observed after this, so every record still owes its date to the day above.
+	clock.restore({"elapsed": float(formed + 3) * clock.day_length()})
+	ok = _assert(LASimClock.world_day() > formed, "the clock did not advance for the backlog check") and ok
+	chronicle.flush()
+
+	var dated: int = 0
+	for b in flock:
+		var npc_id: String = "%s_%d" % [SPECIES, (b as Beast).get_instance_id()]
+		var records: Array = svc.membership_history(npc_id).get("memberships", [])
+		for r in records:
+			var record: Dictionary = r
+			dated += 1
+			ok = _assert(int(record.get("from_day", -1)) == formed,
+				"a queued membership was dated day %d, the day it was written, not day %d, the day it was observed"
+					% [int(record.get("from_day", -1)), formed]) and ok
+	return _assert(dated > LABandChronicle.MAX_WRITES_PER_SCAN,
+		"the flock wrote %d records, too few for any of them to have waited for a later scan" % dated) and ok
 
 
 func _run(herd: Array, chronicle: LABandChronicle, steps: int) -> void:

@@ -22,11 +22,9 @@ var _band_count: int = 0               # distinct multi-member bands at the last
 var _written: int = 0                  # membership records written this run (telemetry)
 
 # Per-creature bookkeeping, all keyed by instance id.
-var _seen: Dictionary = {}             # cid -> the membership last observed (band, or 0 for unaffiliated)
-var _since: Dictionary = {}            # cid -> _now when that membership was first observed
+var _since: Dictionary = {}            # cid -> {band, t, day, npc}: the membership last observed, and when
 var _recorded: Dictionary = {}         # cid -> the band currently written as OPEN in the store (0 = none)
-var _npc_ids: Dictionary = {}          # cid -> npc id, kept so a dead creature's record can still be closed
-var _pending: Dictionary = {}          # cid -> the band to write next (at most one queued change each)
+var _pending: Dictionary = {}          # cid -> {band, day} to write next (one queued change each)
 var _npc_ensured: Dictionary = {}      # cid -> true once upsert_npc has run for it
 var _faction_ensured: Dictionary = {}  # band -> true once upsert_faction has run for it
 
@@ -141,37 +139,36 @@ func _scan() -> void:
 		var band: int = int(c.get("band_id"))
 		# A band of one is not a faction — an animal on its own is simply unaffiliated (0).
 		var target: int = band if int(counts.get(band, 0)) > 1 else 0
-		if int(_seen.get(cid, -1)) != target:
-			_seen[cid] = target
-			_since[cid] = _now
-			_npc_ids[cid] = _npc_id_for(c)
+		if int(_since.get(cid, {}).get("band", -1)) != target:
+			# The npc id rides along so a dead creature's record can still be closed once the node is gone.
+			_since[cid] = {"band": target, "t": _now, "day": LASimClock.world_day(), "npc": _npc_id_for(c)}
 		if int(_recorded.get(cid, 0)) == target:
 			_pending.erase(cid)                       # it drifted back to what is already written
 			continue
-		if _now - float(_since.get(cid, _now)) < DWELL_SECONDS:
+		if _now - float(_since[cid]["t"]) < DWELL_SECONDS:
 			continue                                  # still settling; not history yet
-		_pending[cid] = target
+		# The day the animal changed band, not the day the write queue reached it: the drain is
+		# budgeted, so a herd that all moves at once spills its writes across later scans.
+		_pending[cid] = {"band": target, "day": int(_since[cid]["day"])}
 	_reap(alive)
 
 
 ## A creature that left the tree (died, was removed) closes whatever membership it still held open. Death
 ## needs no hook of its own: it is simply the last day it was a member.
 func _reap(alive: Dictionary) -> void:
-	for cid_key in _seen.keys():
+	for cid_key in _since.keys():
 		var cid: int = int(cid_key)
 		if alive.has(cid):
 			continue
 		if int(_recorded.get(cid, 0)) > 0:
-			_pending[cid] = 0
+			_pending[cid] = {"band": 0, "day": LASimClock.world_day()}
 		else:
 			_forget(cid)
 
 
 func _forget(cid: int) -> void:
-	_seen.erase(cid)
 	_since.erase(cid)
 	_recorded.erase(cid)
-	_npc_ids.erase(cid)
 	_pending.erase(cid)
 	_npc_ensured.erase(cid)
 
@@ -181,14 +178,14 @@ func _forget(cid: int) -> void:
 func _drain(budget: int) -> int:
 	if budget <= 0 or _pending.is_empty():
 		return 0
-	var day: int = LASimClock.world_day()
 	var done: int = 0
 	for cid_key in _pending.keys():
 		if done >= budget:
 			break
 		var cid: int = int(cid_key)
-		var target: int = int(_pending[cid_key])
-		var npc_id: String = String(_npc_ids.get(cid, ""))
+		var target: int = int(_pending[cid_key]["band"])
+		var day: int = int(_pending[cid_key]["day"])
+		var npc_id: String = String(_since[cid]["npc"])
 		if npc_id == "":
 			_pending.erase(cid_key)
 			continue

@@ -767,19 +767,19 @@ int NetworkGraph::build_vp_node(std::vector<int> &indices) {
 
     int node_idx = static_cast<int>(vp_nodes_.size());
     vp_nodes_.push_back(VPTreeNode());
-    VPTreeNode &node = vp_nodes_.back();
 
-    node.record_index = indices.back();
+    int record_index = indices.back();
     indices.pop_back();
+    vp_nodes_[node_idx].record_index = record_index;
 
     if (indices.empty()) {
-        node.threshold = 0.0f;
-        node.left = -1;
-        node.right = -1;
+        vp_nodes_[node_idx].threshold = 0.0f;
+        vp_nodes_[node_idx].left = -1;
+        vp_nodes_[node_idx].right = -1;
         return node_idx;
     }
 
-    EmbeddingRecord &vp = embeddings_[node.record_index];
+    EmbeddingRecord &vp = embeddings_[record_index];
 
     std::vector<std::pair<float, int>> distances;
     distances.reserve(indices.size());
@@ -792,7 +792,8 @@ int NetworkGraph::build_vp_node(std::vector<int> &indices) {
     size_t median = distances.size() / 2;
     std::nth_element(distances.begin(), distances.begin() + median, distances.end(),
                      [](const auto &a, const auto &b) { return a.first < b.first; });
-    node.threshold = distances[median].first;
+    float threshold = distances[median].first;
+    vp_nodes_[node_idx].threshold = threshold;
 
     std::vector<int> left_indices;
     std::vector<int> right_indices;
@@ -800,15 +801,18 @@ int NetworkGraph::build_vp_node(std::vector<int> &indices) {
     right_indices.reserve(distances.size());
 
     for (const auto &pair : distances) {
-        if (pair.first <= node.threshold) {
+        if (pair.first <= threshold) {
             left_indices.push_back(pair.second);
         } else {
             right_indices.push_back(pair.second);
         }
     }
 
-    node.left = build_vp_node(left_indices);
-    node.right = build_vp_node(right_indices);
+    // build_vp_node reallocates vp_nodes_, so index it after the recursion, never hold a reference.
+    int left = build_vp_node(left_indices);
+    int right = build_vp_node(right_indices);
+    vp_nodes_[node_idx].left = left;
+    vp_nodes_[node_idx].right = right;
     return node_idx;
 }
 

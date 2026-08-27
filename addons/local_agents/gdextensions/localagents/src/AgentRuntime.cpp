@@ -30,6 +30,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <optional>
+#include <stdexcept>
 #include <iomanip>
 #include <cerrno>
 #ifndef _WIN32
@@ -50,6 +51,12 @@ String make_completion_id() {
 }
 
 llama_sampler *create_sampler(const Dictionary &options, const llama_model *model) {
+    const llama_vocab *vocab = model ? llama_model_get_vocab(model) : nullptr;
+    if (!vocab) {
+        return nullptr;
+    }
+    const int32_t n_vocab = llama_vocab_n_tokens(vocab);
+
     llama_sampler_chain_params chain_params = llama_sampler_chain_default_params();
     chain_params.no_perf = true;
 
@@ -126,17 +133,16 @@ llama_sampler *create_sampler(const Dictionary &options, const llama_model *mode
     float presence_penalty = options.get("presence_penalty", 0.0f);
     int32_t repeat_last_n = options.get("repeat_last_n", 0);
     if (repeat_penalty != 1.0f || frequency_penalty != 0.0f || presence_penalty != 0.0f || repeat_last_n != 0) {
-        append_sampler(llama_sampler_init_penalties(repeat_last_n, repeat_penalty, frequency_penalty, presence_penalty));
+        append_sampler(llama_sampler_init_penalties(
+                n_vocab, repeat_last_n, repeat_penalty, frequency_penalty, presence_penalty));
     }
 
     int32_t mirostat_mode = options.get("mirostat", 0);
-    if (mirostat_mode == 1 && model != nullptr) {
-        const llama_vocab *model_vocab = llama_model_get_vocab(model);
-        int32_t vocab_tokens = model_vocab ? llama_vocab_n_tokens(model_vocab) : 0;
+    if (mirostat_mode == 1) {
         int32_t mirostat_last_n = options.get("mirostat_m", 100);
         float tau = options.get("mirostat_tau", 5.0f);
         float eta = options.get("mirostat_eta", 0.1f);
-        append_sampler(llama_sampler_init_mirostat(vocab_tokens, seed, tau, eta, mirostat_last_n));
+        append_sampler(llama_sampler_init_mirostat(n_vocab, seed, tau, eta, mirostat_last_n));
         use_mirostat = true;
     } else if (mirostat_mode == 2) {
         float tau = options.get("mirostat_tau", 5.0f);
@@ -1702,11 +1708,14 @@ bool AgentRuntime::load_model_locked(const String &path, const Dictionary &optio
     if (options.has("n_gpu_layers")) {
         model_params.n_gpu_layers = (int32_t)options["n_gpu_layers"];
     }
-    if (options.has("use_mmap")) {
-        model_params.use_mmap = (bool)options["use_mmap"];
-    }
-    if (options.has("use_mlock")) {
-        model_params.use_mlock = (bool)options["use_mlock"];
+    if (options.has("load_mode")) {
+        String mode = options["load_mode"];
+        try {
+            model_params.load_mode = llama_load_mode_from_str(mode.utf8().get_data());
+        } catch (const std::invalid_argument &) {
+            UtilityFunctions::push_error("AgentRuntime::load_model - unknown load_mode: " + mode);
+            return false;
+        }
     }
 
     model_ = llama_model_load_from_file(path.utf8().get_data(), model_params);

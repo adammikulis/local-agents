@@ -3,7 +3,7 @@ extends RefCounted
 
 const TEST_DIR := "user://tests"
 
-func run_test(_tree: SceneTree) -> void:
+func run_test(_tree: SceneTree) -> bool:
     DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(TEST_DIR))
     var db_path := TEST_DIR.path_join("network_graph_%d.sqlite3" % Time.get_ticks_msec())
     var graph := NetworkGraph.new()
@@ -12,10 +12,13 @@ func run_test(_tree: SceneTree) -> void:
     _test_node_crud(graph)
     _test_edges(graph)
     _test_embeddings(graph)
+    var ok: bool = _test_vp_tree_reaches_every_record(graph)
 
     graph.close()
     DirAccess.remove_absolute(ProjectSettings.globalize_path(db_path))
-    print("NetworkGraph tests passed")
+    if ok:
+        print("NetworkGraph tests passed")
+    return ok
 
 func _test_node_crud(graph: NetworkGraph) -> void:
     var node_a := graph.upsert_node("demo", "node_a", {"tag": "alpha"})
@@ -76,3 +79,25 @@ func _test_embeddings(graph: NetworkGraph) -> void:
     assert(graph.remove_node(a))
     matches = graph.search_embeddings(query, 3, 3)
     assert(matches.is_empty() or int(matches[0].get("node_id", -1)) != a)
+
+# The vp-tree must reach every record it indexed: a subtree the builder failed to attach is
+# unreachable, and the search then answers a top_k it could satisfy with fewer results.
+func _test_vp_tree_reaches_every_record(graph: NetworkGraph) -> bool:
+    var count: int = 64
+    for i in range(count):
+        var node_id: int = graph.upsert_node("vp", "vp_%d" % i, {})
+        var vector: PackedFloat32Array = PackedFloat32Array([
+            float(i + 1),
+            float((i * 7) % 13 + 1),
+            float((i * 11) % 17 + 1),
+        ])
+        if graph.add_embedding(node_id, vector, {"label": "vp_%d" % i}) == -1:
+            push_error("vp-tree gate: embedding %d rejected" % i)
+            return false
+
+    var query: PackedFloat32Array = PackedFloat32Array([1.0, 1.0, 1.0])
+    var matches: Array = graph.search_embeddings(query, count, count)
+    if matches.size() != count:
+        push_error("vp-tree gate: asked for %d nearest, reached %d" % [count, matches.size()])
+        return false
+    return true
