@@ -236,8 +236,10 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       `transport.glsl`'s `face_p()` reconstruction and the `bodyf_*` body force cancel exactly for a column
       already in discrete hydrostatic balance, and `LAFieldLithostaticSeed.compress` marches that balance
       cell by cell along the solved gravity, so a sealed column reads zero wind at every drain. What is
-      left is a cell the derive pins at the basalt liquidus and non-finite state in thin air, on every box
-      size. **Reproduce:** `bash scripts/check_atmosphere_at_rest.sh`.
+      left is the PRESSURE: after the transport pass every open cell reads zero, so `pressure_aud_open`
+      audits no pair and `pressure_rest_rel` reads its whole seeded value, while a solid cell keeps a
+      sane one. **Reproduce:** `bash scripts/check_atmosphere_at_rest.sh`, or
+      `LA_PASS_PROBE=n2 scripts/sim_run.sh --slice --slice-box "0,surface,0,1,20,1,2000" --frames 2`.
       And it GROWS with run
       length rather than relaxing, so it is not a seed transient settling — something adds energy.
       **Reproduce:** `scripts/check_wind_subsonic.sh` — a world driven only by pressure and gravity, which
