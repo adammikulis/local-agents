@@ -34,6 +34,8 @@ var _active_id: String = ""
 var _active_final_path: String = ""
 var _active_part_path: String = ""
 var _active_total: int = 0
+var _active_repo_id: String = ""
+var _active_filename: String = ""
 
 var _smoothed_speed: float = 0.0
 var _last_sample_ms: int = 0
@@ -143,6 +145,20 @@ func start_download(model_id: String) -> bool:
 	_active_final_path = String(enriched.get("user_path", ""))
 	_active_part_path = String(enriched.get("part_path", ""))
 	_active_total = int(model.get("size_bytes", 0))
+	_active_repo_id = String(model.get("repo_id", ""))
+	_active_filename = String(model.get("filename", ""))
+
+	# Already pulled into the standard hub cache (by this app, llama.cpp, or another tool)?
+	# Link it in instead of downloading a second copy.
+	var hub_hit: String = _find_in_hub_cache(_active_repo_id, _active_filename)
+	if hub_hit != "":
+		var final_abs: String = ProjectSettings.globalize_path(_active_final_path)
+		DirAccess.make_dir_recursive_absolute(final_abs.get_base_dir())
+		_link_or_copy(hub_hit, final_abs)
+		var installed_path: String = _active_final_path
+		_reset_active()
+		call_deferred("_finish_from_hub_cache", model_id, installed_path)
+		return true
 
 	# Ensure the destination directory exists and clear any stale partial transfer.
 	var dir_abs: String = ProjectSettings.globalize_path(_active_final_path).get_base_dir()
@@ -188,6 +204,18 @@ func start_download_custom(repo_id: String, filename: String, revision: String =
 	_active_final_path = "%s/custom/%s" % [RuntimePaths.MODELS_USER_ROOT, file]
 	_active_part_path = "%s.part" % _active_final_path
 	_active_total = 0
+	_active_repo_id = repo
+	_active_filename = file
+
+	var hub_hit: String = _find_in_hub_cache(_active_repo_id, _active_filename)
+	if hub_hit != "":
+		var final_abs: String = ProjectSettings.globalize_path(_active_final_path)
+		DirAccess.make_dir_recursive_absolute(final_abs.get_base_dir())
+		_link_or_copy(hub_hit, final_abs)
+		var installed_path: String = _active_final_path
+		_reset_active()
+		call_deferred("_finish_from_hub_cache", model_id, installed_path)
+		return true
 
 	var dir_abs: String = ProjectSettings.globalize_path(_active_final_path).get_base_dir()
 	DirAccess.make_dir_recursive_absolute(dir_abs)
@@ -264,6 +292,8 @@ func _on_request_completed(result: int, response_code: int, _headers: PackedStri
 	var part_path: String = _active_part_path
 	var final_path: String = _active_final_path
 	var expected: int = _active_total
+	var repo_id: String = _active_repo_id
+	var filename: String = _active_filename
 	var body_size: int = _http.get_body_size() if _http != null else -1
 	_reset_active()
 
@@ -294,6 +324,7 @@ func _on_request_completed(result: int, response_code: int, _headers: PackedStri
 
 	_emit_finished(model_id, true, final_path, "")
 	model_installed.emit(model_id, final_path)
+	_migrate_to_hub_cache(repo_id, filename, final_path)
 
 func _cleanup_part(part_path: String) -> void:
 	if part_path != "" and FileAccess.file_exists(part_path):
@@ -305,9 +336,155 @@ func _reset_active() -> void:
 	_active_final_path = ""
 	_active_part_path = ""
 	_active_total = 0
+	_active_repo_id = ""
+	_active_filename = ""
 
 func _emit_finished(model_id: String, ok: bool, path: String, error: String) -> void:
 	download_finished.emit(model_id, ok, path, error)
+
+# Used for the instant "already in the hub cache" path, deferred so listeners that connect
+# right after calling start_download() don't miss the signals.
+func _finish_from_hub_cache(model_id: String, path: String) -> void:
+	download_started.emit(model_id, 0)
+	_emit_finished(model_id, true, path, "")
+	model_installed.emit(model_id, path)
+
+
+# --- Standard huggingface_hub cache (~/.cache/huggingface/hub) -------------------------------
+# Shared with Unsloth Studio / `hf download` / llama-server's `-hf`. Best-effort: any failure
+# below leaves the app on its own already-working local copy.
+
+func _hf_home() -> String:
+	var hf_home: String = OS.get_environment("HF_HOME")
+	if hf_home != "":
+		return hf_home
+	var xdg_cache: String = OS.get_environment("XDG_CACHE_HOME")
+	if xdg_cache != "":
+		return xdg_cache.path_join("huggingface")
+	var home: String = OS.get_environment("HOME")
+	if home == "":
+		home = OS.get_environment("USERPROFILE")
+	return home.path_join(".cache/huggingface")
+
+func _hub_cache_root() -> String:
+	return _hf_home().path_join("hub")
+
+func _hub_repo_dir(repo_id: String) -> String:
+	return _hub_cache_root().path_join("models--%s" % repo_id.replace("/", "--"))
+
+# Any existing revision's snapshot may hold the file; GGUF filenames are quant-specific and
+# essentially never change content across revisions of the same repo.
+func _find_in_hub_cache(repo_id: String, filename: String) -> String:
+	if repo_id == "" or filename == "":
+		return ""
+	var snapshots_dir: String = _hub_repo_dir(repo_id).path_join("snapshots")
+	var dir: DirAccess = DirAccess.open(snapshots_dir)
+	if dir == null:
+		return ""
+	dir.list_dir_begin()
+	var revision: String = dir.get_next()
+	while revision != "":
+		if revision != "." and revision != ".." and dir.current_is_dir():
+			var candidate: String = snapshots_dir.path_join(revision).path_join(filename)
+			if FileAccess.file_exists(candidate):
+				dir.list_dir_end()
+				return candidate
+		revision = dir.get_next()
+	dir.list_dir_end()
+	return ""
+
+func _read_refs_main(repo_dir: String) -> String:
+	var path: String = repo_dir.path_join("refs/main")
+	if not FileAccess.file_exists(path):
+		return ""
+	var f: FileAccess = FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return ""
+	var text: String = f.get_as_text().strip_edges()
+	f.close()
+	return text
+
+# Resolves the repo's current main-branch commit sha via the HF API. Empty on any failure.
+func _resolve_commit_sha(repo_id: String) -> String:
+	var http: HTTPRequest = HTTPRequest.new()
+	add_child(http)
+	var err: int = http.request("https://huggingface.co/api/models/%s" % repo_id)
+	if err != OK:
+		http.queue_free()
+		return ""
+	var result: Array = await http.request_completed
+	http.queue_free()
+	var response_code: int = result[1]
+	var body: PackedByteArray = result[3]
+	if response_code < 200 or response_code >= 300:
+		return ""
+	var parsed: Variant = JSON.parse_string(body.get_string_from_utf8())
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return ""
+	return String(parsed.get("sha", ""))
+
+# Links dst -> src (symlink on macOS/Linux, hardlink on Windows to avoid needing Developer Mode),
+# falling back to a real copy if link creation fails for any reason.
+func _link_or_copy(src_abs: String, dst_abs: String) -> bool:
+	DirAccess.make_dir_recursive_absolute(dst_abs.get_base_dir())
+	if FileAccess.file_exists(dst_abs):
+		DirAccess.remove_absolute(dst_abs)
+	var out: Array = []
+	var code: int = -1
+	if OS.get_name() in ["macOS", "Linux", "BSD"]:
+		code = OS.execute("ln", ["-sf", src_abs, dst_abs], out, true)
+	elif OS.get_name() == "Windows":
+		code = OS.execute("cmd.exe", ["/c", "mklink", "/H", dst_abs.replace("/", "\\"), src_abs.replace("/", "\\")], out, true)
+	if code == 0 and FileAccess.file_exists(dst_abs):
+		return true
+	return DirAccess.copy_absolute(src_abs, dst_abs) == OK
+
+# Moves a freshly-downloaded model into the standard hub cache and leaves the app's own path
+# pointing at it, so the bytes exist exactly once and other HF tools recognize the download.
+func _migrate_to_hub_cache(repo_id: String, filename: String, final_path: String) -> void:
+	if repo_id == "" or filename == "":
+		return
+	var final_abs: String = ProjectSettings.globalize_path(final_path)
+	if not FileAccess.file_exists(final_abs):
+		return
+	var sha256: String = FileAccess.get_sha256(final_abs)
+	if sha256 == "":
+		return
+
+	var repo_dir: String = _hub_repo_dir(repo_id)
+	var blob_path: String = repo_dir.path_join("blobs").path_join(sha256)
+	if FileAccess.file_exists(blob_path):
+		_link_or_copy(blob_path, final_abs)
+		return
+
+	var commit: String = _read_refs_main(repo_dir)
+	if commit == "":
+		commit = await _resolve_commit_sha(repo_id)
+	if commit == "":
+		return
+
+	DirAccess.make_dir_recursive_absolute(repo_dir.path_join("blobs"))
+	DirAccess.make_dir_recursive_absolute(repo_dir.path_join("refs"))
+	var snap_dir: String = repo_dir.path_join("snapshots").path_join(commit)
+	DirAccess.make_dir_recursive_absolute(snap_dir)
+
+	var move_err: int = DirAccess.rename_absolute(final_abs, blob_path)
+	if move_err != OK:
+		move_err = DirAccess.copy_absolute(final_abs, blob_path)
+		if move_err != OK:
+			return
+
+	var refs_main: String = repo_dir.path_join("refs/main")
+	if not FileAccess.file_exists(refs_main):
+		var f: FileAccess = FileAccess.open(refs_main, FileAccess.WRITE)
+		if f != null:
+			f.store_string(commit)
+			f.close()
+
+	var snap_file: String = snap_dir.path_join(filename)
+	if not FileAccess.file_exists(snap_file):
+		_link_or_copy(blob_path, snap_file)
+	_link_or_copy(blob_path, final_abs)
 
 
 static func ema_step(prev_smoothed: float, instantaneous: float, alpha: float) -> float:
