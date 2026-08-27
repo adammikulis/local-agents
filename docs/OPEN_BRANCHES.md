@@ -12,4 +12,3 @@ merge, or has not moved inside the age limit.
 
 | Branch | Ahead | Holds | Merges when |
 |---|---|---|---|
-| `hub-cache-referral` | 2 | model downloads through the HF hub cache, another session's live lane | when that session integrates it |
