@@ -64,13 +64,8 @@ func _process(_delta: float) -> void:
 		return
 	_shoot_counter += 1
 	if _shoot_counter == _shoot_frames:
-		_capture_screenshot(_shoot_path)
+		LocalAgentDemoHarness.save_viewport_png(get_viewport(), _shoot_path)
 		get_tree().quit(0)
-
-func _capture_screenshot(path: String) -> void:
-	var img: Image = get_viewport().get_texture().get_image()
-	img.save_png(path)
-	print("SHOT_SAVED=%s size=%dx%d" % [path, img.get_width(), img.get_height()])
 
 
 func open() -> void:

@@ -11,8 +11,8 @@ DEMOS.md lists the example scenes.
 ## What is in the addon
 
 The addon is one plugin, and the game is deletable. Copy `addons/local_agents/` into your project,
-delete `game/`, and the agent, creature and simulation nodes keep working. No script outside `game/`
-names a path inside it.
+delete `game/`, and the agent, creature and simulation nodes keep working. The two references into
+`game/` from outside it are both soft, and "What deleting costs you" below names them.
 
 The compiled GDExtension in `gdextensions/localagents/` is a hard dependency. Build it before you run
 anything: `sim/` and the agent nodes name its classes as typed identifiers. INSTALL.md covers the build.
@@ -56,10 +56,12 @@ chomp, an impact or a weather sound. A creature making a noise is a stimulus bro
 
 ### What deleting costs you
 
-One file outside `game/` names a path inside it: `examples/demos/voxel_planet_game.tres:10`, the
-catalogue entry for the flagship scene. Its `scene_path` is an `@export_file` String rather than a
-`PackedScene`, so the resource still loads and its launcher row reports "Its scene is missing" instead
-of breaking the menu.
+Two files outside `game/` name a path inside it, and neither is a hard link. `examples/demos/
+voxel_planet_game.tres` is the catalogue entry for the flagship scene: its `scene_path` is an
+`@export_file` String rather than a `PackedScene`, so the resource still loads and its launcher row
+reports "Its scene is missing" instead of breaking the menu. `creatures/Creature.gd` names the game's
+combustion visual through `LAOptionalScript.resolve`, which returns null when the file is gone, so a
+creature still dies burned without it.
 
 Deleting `sim/` costs more than you might expect. Two example scenes name a `sim/` script on an
 `ext_resource` line:
@@ -663,11 +665,10 @@ godot --headless --path . addons/local_agents/examples/GraphExample.tscn --quit-
 ```
 
 One scene genuinely needs a window. `addons/local_agents/game/VoxelWorld.tscn` runs its field as a
-compute shader, and a headless run has no compute device, so it boots and exits 0 while reporting an
-empty field: `biomass` 0, `sediment_total` 0.00, no field gauges, where the same run windowed reports
-a `sediment_total` around 980. It fails silently rather than loudly, which makes a headless run of it a
-green light that measured nothing. Use `scripts/run_sim_offscreen.sh` for that scene, and for
-anything taking a screenshot.
+compute shader, and a headless run has no compute device, so it boots and exits 0 with every field
+gauge empty. It fails silently rather than loudly, which makes a headless run of it a green light that
+measured nothing. Use `scripts/agent_harness.sh sim` for that scene, and `scripts/run_sim_offscreen.sh`
+for anything taking a screenshot. Both place the window off-screen and neither can take the keyboard.
 
 A new `class_name` or `.gdextension` only registers after an editor scan. If Godot reports a class as
 missing, run `scripts/editor_scan.sh` once and try again.

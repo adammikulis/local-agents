@@ -213,8 +213,8 @@ func _on_debug_render(mode: String, on: bool) -> void:
 func _on_debug_screenshot() -> void:
 	_user_shot_counter += 1
 	var path: String = ProjectSettings.globalize_path("res://volcano_shot_%d.png" % _user_shot_counter)
-	if _world != null and _world.has_method("capture_screenshot"):
-		_world.capture_screenshot(path)
+	if _world != null:
+		LocalAgentDemoHarness.save_viewport_png(_world.get_viewport(), path)
 	if _hud != null and _hud.has_method("set_status"):
 		_hud.set_status("Saved screenshot → %s" % path)
 

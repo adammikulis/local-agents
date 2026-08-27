@@ -22,7 +22,8 @@ the first time the player asks for one.
 - **The native GDExtension binaries present** under
   `addons/local_agents/gdextensions/localagents/bin/` for the target platform (see next section).
 - Run one editor scan first so new `class_name`s / the `.gdextension` register and assets import:
-  `godot --headless --editor --quit-after 400 --path .`
+  `scripts/editor_scan.sh`. Two concurrent bare `godot --headless --editor` scans segfault, so the
+  wrapper takes a lock.
 
 ## Get the platform native binaries (the cross-platform bin reality)
 
