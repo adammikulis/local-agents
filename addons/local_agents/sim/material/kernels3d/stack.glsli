@@ -1,0 +1,19 @@
+// Pressure rise from a cell's top face down to depth `z`, Pa, through the gas it holds and then the
+// condensed phases under it. Mirrored on the CPU by LAFieldLithostaticSeed::stack_drop.
+#ifndef LA_STACK_GLSLI
+#define LA_STACK_GLSLI
+
+float la_stack_drop(float z, float edge, float g, float f_cond, float m_cond, float m_total) {
+	float fc = clamp(f_cond, 0.0, 1.0);
+	float z_gas = (1.0 - fc) * edge;
+	float dp = 0.0;
+	if (z_gas > 0.0) {
+		dp += (max(m_total - m_cond, 0.0) / (1.0 - fc)) * g * min(z, z_gas);
+	}
+	if (z > z_gas && fc > 0.0) {
+		dp += (m_cond / fc) * g * (z - z_gas);
+	}
+	return dp;
+}
+
+#endif

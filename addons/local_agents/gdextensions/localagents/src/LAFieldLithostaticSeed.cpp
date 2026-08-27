@@ -106,6 +106,20 @@ int slot_toward(const Vector3 &p_dir) {
 	return best;
 }
 
+// kernels3d/stack.glsli's own body. Held equal to it by scripts/check_stack_ssot.sh.
+double stack_drop(double z, double edge, double g, double f_cond, double m_cond, double m_total) {
+	double fc = CLAMP(f_cond, 0.0, 1.0);
+	double z_gas = (1.0 - fc) * edge;
+	double dp = 0.0;
+	if (z_gas > 0.0) {
+		dp += (MAX(m_total - m_cond, 0.0) / (1.0 - fc)) * g * MIN(z, z_gas);
+	}
+	if (z > z_gas && fc > 0.0) {
+		dp += (m_cond / fc) * g * (z - z_gas);
+	}
+	return dp;
+}
+
 // kernels3d/eos.glsli INVERTED: the factor every amount in a cell is multiplied by so that cell's own
 // equation of state returns `p_pa`. Exact for all three of la_eos_p's branches, since scaling A, B and C
 // together scales the quadratic's own coefficients. Infinite where no finite amount reaches that pressure.
@@ -182,6 +196,9 @@ PackedFloat32Array LAFieldLithostaticSeed::compress(Object *p_field,
 	// la_eos_p's own coefficients per cell at the amounts the composition laid down, and the mass those
 	// amounts weigh. A gas is the A term; a condensed phase is B, and C where it declares a bulk modulus.
 	std::vector<double> a_rt(cc, 0.0), b_vol(cc, 0.0), c_comp(cc, 0.0), rho(cc, 0.0), p_sat(cc, 0.0);
+	// condensed_frac() and cond_kg_m3() as transport.glsl reads them: the volume the condensed phases
+	// fill of the cell, and their mass over the cell's own volume.
+	std::vector<double> f_cond(cc, 0.0), m_cond(cc, 0.0);
 	for (size_t i = 0; i < nm; i++) {
 		const float *r = mats[i].arr.ptr();
 		for (int c = 0; c < cc; c++) {
@@ -197,6 +214,8 @@ PackedFloat32Array LAFieldLithostaticSeed::compress(Object *p_field,
 				b_vol[c] += kg * v0[i];
 				c_comp[c] += kg * v0k[i];
 				p_sat[c] = MAX(p_sat[c], psat[i]);
+				m_cond[c] += n * mm[i];
+				f_cond[c] += rho0[i] > 0.0 ? n * mm[i] / rho0[i] : 0.0;
 			}
 		}
 	}
@@ -228,42 +247,47 @@ PackedFloat32Array LAFieldLithostaticSeed::compress(Object *p_field,
 	std::vector<double> scale(cc, 1.0);
 	int unresolved = 0;
 	double worst_span = 0.0;
+	double worst_cond = 0.0;
 	for (int c : order) {
 		done[c] = 1;
+		f_cond[c] = solid[c] != 0 ? 1.0 : MIN(f_cond[c], 1.0);
 		if (up_slot[c] < 0) {
 			continue;
 		}
 		const int d = up_slot[c];
 		const Vector3 g_c(p_gravity[c * 3], p_gravity[c * 3 + 1], p_gravity[c * 3 + 2]);
-		const Vector3 down = -slot_normal(d);
-		const double a_c = double(g_c.dot(down));
 		const int u = nbr[c * 6 + d];
 		const bool from_above = u >= 0 && u < cc && done[u] != 0 && rho[u] > 0.0;
 		if (rho[c] <= 0.0) {
 			continue;      // vacuum: no matter to carry a pressure, and state_derive reads it as none
 		}
-		// A CELL'S PRESSURE IS THE WEIGHT OF WHAT STANDS OVER IT. Over the outermost cell holding matter
-		// stands nothing, so that weight is its own upper half, and the same march carries it down.
+		// face_p(c, up) == face_p(u, down) on the stacked reconstruction: the cell above hands down its
+		// lower half's stack, this cell adds its own upper half's, and nothing stands over the outermost.
+		const double gm_c = double(g_c.length());
 		double p_u = 0.0;
-		double load_u = 0.0;
+		double half_u = 0.0;
 		if (from_above) {
 			const Vector3 g_u(p_gravity[u * 3], p_gravity[u * 3 + 1], p_gravity[u * 3 + 2]);
+			const double gm_u = double(g_u.length());
 			p_u = p_at[u];
-			load_u = rho[u] * double(g_u.dot(down));
+			half_u = stack_drop(dr, dr, gm_u, f_cond[u], m_cond[u], rho[u])
+					- stack_drop(0.5 * dr, dr, gm_u, f_cond[u], m_cond[u], rho[u]);
 		}
 		if (solid[c] != 0) {
 			// Rock is quasi-static and kernels3d/pressure.glsl owns its pressure; what the seed owes it is
 			// the DENSITY that pressure implies, through the substance table's own equation of state.
-			p_at[c] = p_u + 0.5 * dr * (load_u + rho[c] * a_c);
+			p_at[c] = p_u + half_u
+					+ stack_drop(0.5 * dr, dr, gm_c, f_cond[c], m_cond[c], rho[c]);
 			continue;
 		}
 		// An open cell's pressure IS its matter, so the balance is solved for the amount that states it.
 		// The iteration contracts by 0.5 * dx / H; a cell it cannot reach is one the grid cannot resolve.
-		double p = p_u + dr * rho[c] * a_c;
+		double p = p_u + half_u + stack_drop(0.5 * dr, dr, gm_c, f_cond[c], m_cond[c], rho[c]);
 		bool settled = false;
 		for (int it = 0; it < 200; it++) {
 			const double s = eos_scale(p, vol, a_rt[c], b_vol[c], c_comp[c], p_std);
-			const double next = p_u + 0.5 * dr * (load_u + s * rho[c] * a_c);
+			const double next = p_u + half_u
+					+ stack_drop(0.5 * dr, dr, gm_c, f_cond[c], s * m_cond[c], s * rho[c]);
 			if (!(next > 0.0) || !std::isfinite(next)) {
 				break;
 			}
@@ -276,8 +300,11 @@ PackedFloat32Array LAFieldLithostaticSeed::compress(Object *p_field,
 		}
 		if (!settled) {
 			unresolved++;
-			const double span = p_u > 0.0 ? dr * rho[c] * a_c / p_u : 0.0;
-			worst_span = MAX(worst_span, span);
+			const double span = p_u > 0.0 ? dr * rho[c] * gm_c / p_u : 0.0;
+			if (span > worst_span) {
+				worst_span = span;
+				worst_cond = f_cond[c];
+			}
 			continue;
 		}
 		if (p <= p_sat[c]) {
@@ -292,12 +319,14 @@ PackedFloat32Array LAFieldLithostaticSeed::compress(Object *p_field,
 		p_at[c] = p;
 		scale[c] = s;
 		rho[c] *= s;
+		m_cond[c] *= s;
 	}
 	if (unresolved > 0) {
 		UtilityFunctions::push_error(String("LAFieldLithostaticSeed.compress: ")
 				+ String::num_int64(unresolved) + " open cell(s) hold no balanced state at this cell edge: "
 				+ "a cell taller than twice the local scale height has none. Worst cell edge over scale "
-				+ "height: " + String::num(worst_span, 3) + ".");
+				+ "height: " + String::num(worst_span, 3) + ", at a condensed fraction of "
+				+ String::num(worst_cond, 3) + ".");
 	}
 
 	// WRITE IT BACK. An open cell takes the scale its pressure implies, on every amount it holds; a solid

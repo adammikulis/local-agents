@@ -6,6 +6,7 @@
 
 #include "neighbours.glsli"
 #include "generated.glsli"
+#include "stack.glsli"
 
 layout(local_size_x = 64) in;
 
@@ -314,12 +315,6 @@ bool no_matter(uint c) {
 	return !(rho_bulk[c] >= params.rho_floor) || impedance(c) <= 0.0;
 }
 
-// The cell's pressure extrapolated to face d along its own hydrostatic gradient, so an equilibrium
-// column presents ONE pressure to the shared face (hydrostatic reconstruction, Audusse 2004).
-float face_p(uint c, uint d) {
-	return pressure[c] + 0.5 * params.cell_m * max(rho_bulk[c], 0.0) * dot(g_at(c), face_normal(d));
-}
-
 // The cell's h2o split by the shares the enthalpy ladder derived, mol/m^3.
 float h2o_ice(uint c)    { return max(h2o[c], 0.0) * clamp(h2o_solid[c], 0.0, 1.0); }
 float h2o_water(uint c)  { return max(h2o[c], 0.0) * clamp(h2o_liquid[c], 0.0, 1.0); }
@@ -345,6 +340,28 @@ float condensed_frac(uint c) {
 	float f = solid[c] != 0.0 ? 1.0 : 0.0;
 	f += max(silicate[c], 0.0) / FULL_SILICATE + (h2o_water(c) + h2o_ice(c)) / FULL_H2O;
 	return clamp(f, 0.0, 1.0);
+}
+
+// Mass of the cell's condensed phases per unit CELL volume, kg/m^3: what lies at the bottom of it.
+float cond_kg_m3(uint c) {
+	return cloud_water_kg_m3(c) + max(silicate[c], 0.0) * M_SILICATE;
+}
+
+// The cell's pressure at face d, off the LAYERS it holds, so an equilibrium column presents ONE pressure
+// to a shared face however the interface cuts the cell.
+float face_p(uint c, uint d) {
+	float e = params.cell_m;
+	vec3 gv = g_at(c);
+	float gm = length(gv);
+	if (gm <= 0.0) {
+		return pressure[c];
+	}
+	float fc = condensed_frac(c);
+	float mc = cond_kg_m3(c);
+	float mt = max(rho_bulk[c], 0.0);
+	float z = 0.5 * e * (1.0 + dot(face_normal(d), gv) / gm);
+	return pressure[c] + la_stack_drop(z, e, gm, fc, mc, mt)
+		- la_stack_drop(0.5 * e, e, gm, fc, mc, mt);
 }
 
 
