@@ -1,15 +1,18 @@
 # Local Agents
 
-This is a plugin for the Godot game engine that runs a local Large Language Model (LLM) inside your
-game. The backend is [llama.cpp](https://github.com/ggml-org/llama.cpp), so it runs on the player's own
-machine: no cloud service, no API key, no internet connection needed. Load a .gguf model file and
-you're going!
+A plugin for the Godot game engine that runs a local large language model inside your game. The
+backend is [llama.cpp](https://github.com/ggml-org/llama.cpp), so the model runs on the player's own
+machine: no cloud service, no API key, no internet connection. Load a .gguf file and you're going.
 
 Most game characters either follow a script or pick from a list of pre-written lines. Here the model
-writes the dialogue while the game is being played, and it can decide what a character should do next,
-with the game turning that decision into an action.
+writes the dialogue while the game is being played, and it can decide what a character should do
+next, with the game turning that decision into an action.
 
-![The quickstart scene answering a prompt](addons/local_agents/docs/img/quickstart.png)
+One runtime and one model serve every consumer. The agent that answers a prompt, the creature that
+consults its slow brain when instinct has no answer, and the streamer that commentates over a running
+world all request through the same shared service, and all of it runs offline.
+
+![The quickstart scene: a title, a note that the scene holds no script, a status line naming the loaded .gguf, and a chat panel where the local model has answered a typed prompt](addons/local_agents/docs/img/quickstart.png)
 
 ## How the pieces fit
 
@@ -35,32 +38,30 @@ confident answer. If the model is busy or absent, it falls back to those rules a
 
 ## Just want to try it?
 
-Prebuilt desktop builds are on the [Releases page](https://github.com/adammikulis/local-agents/releases),
-macOS and Linux only. Windows has no package yet: the extension compiles in CI, but CI does not collect
-its llama/ggml runtime DLLs, so a Windows build cannot be assembled. Build from source on Windows in the
-meantime.
-
-The rest of this section is for working on it in the editor.
+Prebuilt desktop builds are on the
+[Releases page](https://github.com/adammikulis/local-agents/releases). If there is no package for
+your platform there, build from source with the steps below.
 
 ## Getting set up
 
 You need the native extension and a model. Neither is committed to the repo.
 
-For the extension, either download a prebuilt one or build it yourself. The
-[Build Extension](.github/workflows/build-extension.yml) workflow publishes an artifact called
-localagents-<platform>-bin for Linux, Windows and macOS. Unzip it into
+The extension is a hard dependency, not an accelerator: `sim/` and the agent nodes name its classes as
+typed identifiers, so without the compiled binary the addon does not parse and nothing runs. Either
+download a prebuilt one or build it yourself. The
+[Build Extension](.github/workflows/build-extension.yml) workflow builds Linux, Windows and macOS and
+publishes an artifact called `localagents-<platform>-bin`; unzip it into
 `addons/local_agents/gdextensions/localagents/bin/`. To build it instead:
 
 ```bash
-cd addons/local_agents/gdextensions/localagents
-./scripts/fetch_dependencies.sh                  # godot-cpp, llama.cpp, whisper.cpp, sqlite
-./scripts/build_extension.sh --platform macos    # or: linux | windows
+addons/local_agents/gdextensions/localagents/scripts/fetch_dependencies.sh
+addons/local_agents/gdextensions/localagents/scripts/build_extension.sh --platform macos
 ```
 
-fetch_dependencies.sh also downloads the default model and Piper voices straight into
-`addons/local_agents/models/` and `addons/local_agents/voices/`, unless you pass `--skip-models` /
-`--skip-voices`. That's a convenience for building from source, not where the plugin looks by
-default.
+`--platform` takes `macos`, `linux` or `windows`. `fetch_dependencies.sh` clones godot-cpp,
+llama.cpp, whisper.cpp and sqlite, and also downloads the default model and the Piper voices into
+`addons/local_agents/models/` and `addons/local_agents/voices/` unless you pass `--skip-models` /
+`--skip-voices`. That's a convenience for building from source, not where the plugin looks by default.
 
 For the model day to day, open the project in Godot, click Project > Project Settings > Plugins >
 Enable (Local Agents), then open the Local Agents panel in the bottom bar. The Downloads tab fetches
@@ -77,11 +78,12 @@ Once the plugin is enabled, these show up in Add Node and in the Create Resource
 Node, right-click a node in the Scene dock and click Add Child Node. Type "LocalAgent" to filter to
 them.
 
-![The nodes the plugin adds](addons/local_agents/docs/img/nodes.svg)
+![The nodes the plugin adds, grouped as agents, creatures, world and utility](addons/local_agents/docs/img/nodes.svg)
 
-Most of what the examples do is these nodes with their properties filled in, so you can build the
-same thing without writing code. The icon colours follow Godot's own convention, so a red icon is a
-3D node, green is UI, orange is a resource.
+There is no registration table behind this: each one declares a `class_name` and Godot lists it. Most
+of what the examples do is these nodes with their properties filled in, so you can build the same
+thing without writing code. The icon colours follow Godot's own convention, so a red icon is a 3D
+node, green is UI, orange is a resource.
 
 ## Using it in your own project
 
@@ -105,9 +107,9 @@ think_async() runs the model on a worker thread and gives you the result back on
 the game keeps drawing while it generates. There is a blocking think() as well, but it freezes the
 frame until the model finishes, so save that for tools and tests.
 
-Call speak(text) to say a line out loud through Piper. transcribe(path) turns an audio file into text through
-whisper, and it needs the native runtime. Neither one records audio, so capturing a microphone is
-still your job.
+Call speak(text) to say a line out loud through Piper. transcribe_async(path) turns an audio file into
+text through whisper, and it needs the native runtime. Neither one records audio, so capturing a
+microphone is still your job.
 
 To have the model drive behaviour instead of producing text, connect its action_requested(action,
 params) signal and decide in your own code what each action does.
@@ -127,49 +129,63 @@ Open button. They build on each other so it is worth going in order.
 5. Agent3DExample.tscn: a talking agent in a 3D scene.
 6. GraphExample.tscn: the memory graph on its own. Runs without a model.
 7. TutorialDemo.tscn: the in-game tutorial sequencer driving a scripted walkthrough.
-8. ThinkingCreatureDemo.tscn: one creature with the full cognition stack, drives, learning, and a
-   sparing local-LLM slow brain.
-9. CoreCreatureSmoke.tscn: the creature library with no sim around it, which is the drop-in case.
+8. CoreCreatureSmoke.tscn: one creature on a bare floor, referencing no field and no planet, which is
+   the drop-in case.
+9. ThinkingCreatureDemo.tscn: creatures on flat ground running the full cognition stack, with the
+   local model wired in as the sparing slow brain.
 10. BoxFieldDemo.tscn: the material field on a small box grid, for looking at one channel at a time.
-11. SimWorldPlanetDemo.tscn: the whole planet behind the one-node `LASimWorld` facade.
+11. SimWorldPlanetDemo.tscn: the whole world behind the one-node `LocalAgentSimWorld` facade.
 12. Play the planet: the game shell itself, launched from the same launcher. See below.
 
 The first eleven live in `addons/local_agents/examples/`, and `scripts/agent_harness.sh lint` keeps
-that directory, the demo catalogue and `docs/DEMOS.md` in agreement.
+that directory, the demo catalogue and `addons/local_agents/docs/DEMOS.md` in agreement.
 
 ## The planet demo
 
-The agent stack ships with one large example built to put it through its paces: a small planet that
-runs itself, `addons/local_agents/game/VoxelWorld.tscn`. It's the twelfth example above, and it is
-optional. If you only want the agent library, delete `addons/local_agents/game/`. Nothing outside it
-points in, and `scripts/agent_harness.sh lint` proves that on every run by staging a game-free copy
-and force-loading every script in it. See
-[addons/local_agents/docs/USAGE.md](addons/local_agents/docs/USAGE.md) for what else the library
-boundary does and does not cover.
+The agent stack ships with one large example built to put it through its paces: a planet that runs
+itself, `addons/local_agents/game/VoxelWorld.tscn`. It's the twelfth example above, and it is
+optional. If you only want the agent library, delete `addons/local_agents/game/`;
+[addons/local_agents/docs/USAGE.md](addons/local_agents/docs/USAGE.md) names the two soft references
+that cross that boundary and what deleting costs.
 
 Underneath the planet is one layer of physics covering heat, water, air, fire and rock, run as GPU
 compute shaders over the voxel grid rather than in GDScript, and only where something is actually
-happening: quiet regions tick slowly or sleep, and activity wakes its neighbours. Rain falls where
-water evaporated and then cooled. A volcano erupts where pressure built up under rock and had nowhere
-else to go. There is no "make a storm" function anywhere in the code, and no scripted disasters.
+happening: quiet regions tick slowly or sleep, and activity wakes its neighbours. There is no "make a
+storm" function anywhere in the code and no scripted disasters. Rain is meant to fall where water
+evaporated and then cooled, and a volcano to erupt where pressure built under rock and had nowhere
+else to go.
+
+That substrate is being rebuilt one rung at a time, and it is not finished. What holds it honest is
+not a screenshot but the gates: `scripts/agent_harness.sh lint` runs every structural and conservation
+gate off one shared engine capture, and `scripts/check_process_ladder.sh` walks the ladder bottom-up
+and stops at the first rung that is red, so a rung only counts as landed once its own gate is green.
+`HANDOFF.md` is the list of what is still open and `docs/PHYSICS_TODO.md` carries the physics items.
+Expect a run today to break conservation and to draw a world you cannot see yet.
 
 Animals live on the surface and mostly run on cheap built-in instincts, because asking a language
 model about every animal every frame would be far too slow. When something unfamiliar happens, that
-animal asks the local model what to do, and the answer becomes an action in the world. There is also
-an optional commentator feature that uses a local LLM to talk about what is happening out loud, in a
-generated voice. All of it runs offline on one machine.
+animal asks the local model what to do, and the answer becomes an action in the world. `--llm`
+switches the shared model on for a run, `--streamer` adds the commentator that watches the same world
+and talks about it out loud in a generated voice, and all of it runs offline on one machine.
 
-![A voxel planet with weather, terrain and animals](addons/local_agents/docs/img/planet.png)
+![The commentator panel over a running world: an avatar, a caption reading "The vultures burst from shadow, wings flaring like black fire above the lone fox sprinting through the dust", and a feed of earlier lines below it. The world behind the panel draws nothing yet.](addons/local_agents/docs/img/streamer.png)
 
-It can run itself and report back, which is how it gets tested:
+Those lines are the local model reacting to what the simulation did, not a phrase table. The empty
+sky behind the panel is the current state of the substrate, not a rendering setting.
+
+The scene runs itself and reports back, which is how it gets tested:
 
 ```bash
-# run 300 frames, print one SIM_REPORT={...} line, quit
-scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn -- --run-frames=300
+# the standard verification arm: off-screen, streamer off, one SIM_REPORT line
+scripts/agent_harness.sh sim
 
-# take a screenshot
-godot addons/local_agents/game/VoxelWorld.tscn -- --shoot=/tmp/shot.png --overview
+# a screenshot, at 1280x800, from a window that cannot take the keyboard
+scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn -- \
+  --sandbox --ui --shoot=/tmp/shot.png --shoot-frames=120
 ```
+
+Both place the window off-screen, and `scripts/check_no_focus_theft.sh` fails the build if a run ever
+reaches the foreground.
 
 ### Picking the physics
 
@@ -177,14 +193,18 @@ A world declares which processes it contains. The rung selector names them botto
 `chemistry`, and `custom` picks them one at a time. The choice applies on restart, because a sealed
 world never gains or loses a process.
 
-![The rung selector on the settings screen](addons/local_agents/docs/img/rung_settings.png)
+![The settings screen's physics section: a row of rung names from state through chemistry, with chemistry selected, above the note that the choice applies on restart](addons/local_agents/docs/img/rung_settings.png)
 
-![The same selector in the pause menu](addons/local_agents/docs/img/rung_pause.png)
+![The same row of rung names in the pause menu, so a running world can be restarted onto a different set of processes](addons/local_agents/docs/img/rung_pause.png)
 
 ```bash
 scripts/agent_harness.sh sim --rung=0   # a world holding only the state pass
 scripts/agent_harness.sh ladder         # every rung bottom-up, stopping at the first red one
 ```
+
+A world with no rung named runs at the one `docs/PLAYABLE_RUNG` declares, which the ladder gate raises
+as a rung goes green and never lowers. `--rung=8` names the top of it explicitly, so a run holds every
+process the substrate has.
 
 ## Tests
 
@@ -192,11 +212,12 @@ scripts/agent_harness.sh ladder         # every rung bottom-up, stopping at the 
 scripts/agent_harness.sh fast        # quick sweep
 scripts/agent_harness.sh all         # everything
 scripts/agent_harness.sh extension   # check the GDExtension loads
-scripts/agent_harness.sh lint        # typing and process gates
+scripts/agent_harness.sh lint        # every structural gate, off one shared engine capture
 ```
 
 One gotcha worth knowing: a new class_name or .gdextension only registers after an editor scan. If
-Godot says a class is missing, run `godot --headless --editor --quit-after 400` once and try again.
+Godot says a class is missing, run `scripts/editor_scan.sh` once and try again. It takes a lock,
+because two concurrent bare `godot --headless --editor` scans segfault.
 
 ## More reading
 
@@ -208,10 +229,5 @@ new species with a JSON file.
 simulation is built on: behaviour comes from simple local rules interacting, never from scripted
 special cases.
 
-CLAUDE.md and GODOT_BEST_PRACTICES.md cover contributor process and Godot conventions.
-
----
-
-This project began on 2024-03-14 as MindGame (adammikulis/MindGame) — a C# / LlamaSharp Godot plugin
-for loading a .gguf model and chatting with it locally, with a built-in model download manager. That
-makes it one of the earliest local-LLM agents embedded in a piece of software.
+[CONTRIBUTING.md](CONTRIBUTING.md), [CLAUDE.md](CLAUDE.md) and
+[GODOT_BEST_PRACTICES.md](GODOT_BEST_PRACTICES.md) cover contributor process and Godot conventions.

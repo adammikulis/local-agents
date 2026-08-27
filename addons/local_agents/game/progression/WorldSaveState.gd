@@ -8,7 +8,7 @@ const FieldSnapshotScript: GDScript = preload("res://addons/local_agents/sim/mat
 
 ## Gather the whole world into a save dict. `field` may be a not-yet-ready field (its block comes back empty
 ## and restore simply keeps the booted field). Cheap-ish: a few group scans + one GPU field readback.
-static func capture(world) -> Dictionary:
+static func capture(world, progression_node: LAGameProgression = null) -> Dictionary:
 	var ecology = world._ecology
 	var field = world._material
 	var tree: SceneTree = world.get_tree()
@@ -33,8 +33,8 @@ static func capture(world) -> Dictionary:
 				vegetation.append({"kind": grp, "xform": (v as Node3D).global_transform})
 
 	var progression: Dictionary = {}
-	if world._progression != null and world._progression.has_method("serialize"):
-		progression = world._progression.serialize()
+	if progression_node != null and progression_node.has_method("serialize"):
+		progression = progression_node.serialize()
 
 	var clock: LASimClock = LASimClock.active()
 	return {

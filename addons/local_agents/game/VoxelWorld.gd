@@ -112,6 +112,8 @@ func _ready() -> void:
 	add_child(_sim)
 	_sim.build({"planet": _planet_opts()})
 	_sim.set_probe_flags(_input.overview(), _input.farview(), _input.auto_meteor(), _input.auto_select())
+	if _input.llm():
+		_sim.enable_llm()
 	_sim.loop().stepped.connect(_on_sim_step)
 	_material = _sim.material_field()
 	_ecology = _sim.ecology()
@@ -135,6 +137,10 @@ func _ready() -> void:
 		_debug = _ui.debug_wiring()
 		_interaction = _ui.interaction()
 		_progression = _ui.progression()
+		_sim.save_controller().bind_progression(_progression)
+
+	if _input.streamer_enabled():
+		_ensure_streamer_host()
 
 	# Wire the input controller's auto-demo hooks now that every scene ref exists.
 	_input.bind(_sim.terrain(), _camera, _body, _sim.star(), _material, _sim.meteor_impacts(), _interaction, _ecology)
@@ -349,15 +355,17 @@ func toggle_temp_view() -> void:
 		_debug.toggle_temp_view()
 
 
-# C key: build the streamer on first use.
+# --streamer at boot, or the C key later: build the streamer on first use.
 func toggle_streamer() -> void:
+	var existed: bool = _streamer_host != null
 	if not _ensure_streamer_host():
 		return
-	if _streamer_host.has_method("toggle_streamer"):
+	# Building it is already a show, per the saved preference. Only a press on a live host toggles.
+	if existed and _streamer_host.has_method("toggle_streamer"):
 		_streamer_host.toggle_streamer()
 
 
-# Returns false when the streamer is disabled for this run (--no-streamer / LA_NO_STREAMER).
+# Returns false when the streamer is switched off for this run (LA_NO_STREAMER, --smoke, --planet-only).
 func _ensure_streamer_host() -> bool:
 	if _streamer_host != null:
 		return true
@@ -370,10 +378,3 @@ func _ensure_streamer_host() -> bool:
 	var streamer_client = llm.client() if llm != null and llm.is_available() else null
 	_streamer_host.setup(self, _ecology, _material, _input.streamer_persona(), _input.streamer_avatar_flavor(), streamer_client)
 	return true
-
-
-# Capture the current viewport to a PNG (the --shoot harness + the DebugPanel save button both call this).
-func capture_screenshot(path: String) -> void:
-	var img: Image = get_viewport().get_texture().get_image()
-	img.save_png(path)
-	print("SHOT_SAVED=%s size=%dx%d" % [path, img.get_width(), img.get_height()])

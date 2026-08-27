@@ -312,6 +312,7 @@ if [[ "$cmd" == "lint" ]]; then
     gate check_gate_fixtures
     gate check_doc_claims
     gate check_doc_prose
+    gate check_readme_commands
     gate check_approximations
     gate check_comment_density
     # Same gate over first-party GDScript; sim/material is covered by the call above.

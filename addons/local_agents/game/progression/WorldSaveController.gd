@@ -8,6 +8,8 @@ const FieldSnapshotScript: GDScript = preload("res://addons/local_agents/sim/mat
 static var _active: LAWorldSaveController = null
 
 var _world = null
+# Progression is a game-shell concept, so the presentation layer binds it; a headless sim has none.
+var _progression: LAGameProgression = null
 var _slot: String = LAGameSave.DEFAULT_SLOT      # the slot quick_save writes to (the loaded slot, or the default)
 var _pending: Dictionary = {}                     # a loaded save awaiting the field-ready deferred restore
 var _restore_pending: bool = false
@@ -44,8 +46,8 @@ func _exit_tree() -> void:
 		_active = null
 
 
-## Wire the controller to the world and kick off a load if the menu requested one. Called from VoxelWorld at
-## the end of _ready (every scene ref exists by then).
+## Wire the controller to the world and kick off a load if the menu requested one. Called from LASimulation
+## once every sim ref exists.
 func setup(world) -> void:
 	_world = world
 	_parse_cli()
@@ -80,6 +82,19 @@ func _parse_cli() -> void:
 		_auto_save_frame = 400
 
 
+## The game shell hands over its progression node; without one a save carries no stage. The shell builds
+## after the sim, so a load already in flight replays its progression block here.
+func bind_progression(progression: LAGameProgression) -> void:
+	_progression = progression
+	_apply_progression(_pending)
+
+
+func _apply_progression(data: Dictionary) -> void:
+	if _progression == null or data.is_empty() or not _progression.has_method("restore"):
+		return
+	_progression.restore(data.get("progression", {}))
+
+
 func _game_mode() -> Object:
 	var tree: SceneTree = get_tree()
 	if tree == null or tree.root == null:
@@ -99,8 +114,7 @@ func _begin_load(slot: String) -> void:
 	_restore_pending = true
 	_restore_deadline = 3600                       # ~a minute of frames; ample for the field to stream + activate
 	# Progression / mode apply immediately (independent of the field/actors streaming in).
-	if _world._progression != null and _world._progression.has_method("restore"):
-		_world._progression.restore(data.get("progression", {}))
+	_apply_progression(data)
 	# The saved world already holds its population — do NOT let the spawn controller seed a fresh one over it.
 	if _world._spawn != null and _world._spawn.has_method("suppress_initial_spawn"):
 		_world._spawn.suppress_initial_spawn()
@@ -120,8 +134,7 @@ func _begin_load_dir(dir: String) -> void:
 	_pending = data
 	_restore_pending = true
 	_restore_deadline = 3600
-	if _world._progression != null and _world._progression.has_method("restore"):
-		_world._progression.restore(data.get("progression", {}))
+	_apply_progression(data)
 	if _world._spawn != null and _world._spawn.has_method("suppress_initial_spawn"):
 		_world._spawn.suppress_initial_spawn()
 	print("SAVE_LOAD_BEGIN={fixture:%s, creatures:%d, fish:%d}" % [
@@ -200,7 +213,7 @@ func _emit_state(tag: String) -> void:
 	var families: int = 0
 	if _world._ecology != null and _world._ecology.has_method("kinship"):
 		families = _world._ecology.kinship().family_count()
-	var stage: int = _world._progression.current_stage() if _world._progression != null else -1
+	var stage: int = _progression.current_stage() if _progression != null else -1
 	var field = _world._material
 	var h2o: float = field.h2o_total() if field != null and field.has_method("h2o_total") else 0.0
 	var mineral: float = 0.0
@@ -221,11 +234,11 @@ func quick_save() -> int:
 func save_to_slot(slot: String) -> int:
 	if _world == null:
 		return FAILED
-	var state: Dictionary = StateScript.capture(_world)
+	var state: Dictionary = StateScript.capture(_world, _progression)
 	var population: int = (state.get("creatures", []) as Array).size()
 	var stage: int = 0
-	if _world._progression != null and _world._progression.has_method("current_stage"):
-		stage = _world._progression.current_stage()
+	if _progression != null and _progression.has_method("current_stage"):
+		stage = _progression.current_stage()
 	var gm: Object = _game_mode()
 	var header: Dictionary = {
 		"timestamp": int(Time.get_unix_time_from_system()),
@@ -246,7 +259,7 @@ func capture_snapshot() -> Dictionary:
 		return {}
 	if not FieldSnapshotScript.is_ready(_world._material):
 		return {}
-	var state: Dictionary = StateScript.capture(_world)
+	var state: Dictionary = StateScript.capture(_world, _progression)
 	if not _snapshot_includes_field():
 		state["field"] = {}                # drop the heavy field block; restore leaves the live field untouched
 	return state
@@ -273,5 +286,5 @@ func restore_snapshot(data: Dictionary) -> void:
 	_restore_pending = true
 	_restore_min_wait = 2
 	_restore_deadline = 3600
-	if _world._progression != null and _world._progression.has_method("restore"):
-		_world._progression.restore(data.get("progression", {}))
+	if _progression != null and _progression.has_method("restore"):
+		_progression.restore(data.get("progression", {}))

@@ -71,7 +71,7 @@ func setup(world: Node, ecology: Node, material: Node, persona: String, avatar_f
 	_streamer_overlay.set_default_persona(_streamer_persona)
 	_streamer_overlay.set_default_avatar(_streamer_avatar_flavor)
 
-	_set_streamer_active(false)
+	_set_streamer_active(not _load_hidden())
 
 
 # Swap the streamer between male/female: rebuild the avatar body + switch the TTS voice live.
@@ -89,7 +89,7 @@ var _streamer_active: bool = true   # master runtime state: false = hidden AND c
 
 ## Master runtime hide/show toggle (bound to the in-game hotkey via LAVoxelWorld.toggle_streamer). Hiding
 ## halts commentary generation (director) + TTS (voice) so a hidden streamer burns zero LLM/speech compute;
-## showing resumes. The launch-time --no-streamer / LA_NO_STREAMER path (never even built) is separate.
+## showing resumes. The launch-time LA_NO_STREAMER path (never even built) is separate.
 func toggle_streamer() -> void:
 	_set_streamer_active(not _streamer_active)
 	_save_hidden(not _streamer_active)

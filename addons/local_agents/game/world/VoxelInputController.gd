@@ -23,6 +23,7 @@ var _interaction: Node3D = null
 var _ecology: Node = null
 
 var _streamer_enabled: bool = false
+var _llm: bool = false           # --llm: switch the shared LlmService on for this run
 var _ui: bool = false
 var _render: bool = false
 var _streamer_persona: String = "hype"
@@ -184,8 +185,8 @@ func parse_cmdline() -> void:
 			_render = true
 		elif arg == "--streamer":
 			_streamer_enabled = true
-		elif arg == "--no-streamer":
-			_streamer_enabled = false          # accepted and ignored: a no-op
+		elif arg == "--llm":
+			_llm = true
 		elif arg.begins_with("--streamer-persona="):
 			_streamer_persona = arg.substr("--streamer-persona=".length())
 		elif arg.begins_with("--streamer-avatar="):
@@ -578,7 +579,7 @@ func _fire_schedule(frame: int, spawned: bool) -> void:
 			print("PAUSE_HELP_OK resolved=", overlay != null and is_instance_valid(overlay))
 			_help_shot_done = true
 
-	if _auto_select and not _auto_select_done and spawned and frame == _shoot_frames - 40:
+	if _auto_select and not _auto_select_done and spawned and frame >= _shoot_frames - 40:
 		var pick: Node3D = _pick_showcase_creature()
 		if pick != null:
 			_frame_camera_on(pick.global_position)
@@ -588,15 +589,15 @@ func _fire_schedule(frame: int, spawned: bool) -> void:
 			if sel != null:
 				title = String(sel.call("get_inspector_payload").get("title", ""))
 			print("SELECT_RESULT selected=", sel != null, " ring_visible=", _interaction.selection_ring_visible(), " title=", title)
-		_auto_select_done = true
+			_auto_select_done = true
 
-	if _debug_behaviors != "" and _shoot_path != "" and not _cam_creature_done and spawned and frame == _shoot_frames - 6:
+	if _debug_behaviors != "" and _shoot_path != "" and not _cam_creature_done and spawned and frame >= _shoot_frames - 6:
 		_cam_creature_done = true
 		_frame_tinted_creature()
 
 	# --frame-hut: swing the camera onto a villager hut with a villager stood beside it, so a
 	# reviewer can judge the dwelling's scale against the villager. Set just before the capture.
-	if _frame_hut and _shoot_path != "" and not _frame_hut_done and spawned and frame == _shoot_frames - 6:
+	if _frame_hut and _shoot_path != "" and not _frame_hut_done and spawned and frame >= _shoot_frames - 6:
 		_frame_hut_done = true
 		_frame_villager_hut()
 
@@ -765,6 +766,7 @@ func _frame_villager_hut() -> void:
 
 
 func streamer_enabled() -> bool: return _streamer_enabled
+func llm() -> bool: return _llm
 func ui() -> bool: return _ui
 func render() -> bool: return _render
 func streamer_persona() -> String: return _streamer_persona
