@@ -72,7 +72,7 @@ if [ ! -f "$ROOT/$BATCH_REL" ]; then
 fi
 rm -f "$CAP"/headless/*.log
 BATCH_LOG="$CAP/headless/batch.log"
-LA_GODOT_TIMEOUT="${LA_BATCH_TIMEOUT:-900}" la_godot --headless --path "$ROOT" \
+LA_GODOT_TIMEOUT="${LA_BATCH_TIMEOUT:-120}" la_godot --headless --path "$ROOT" \
 	--log-file "$BATCH_LOG" -s "res://$BATCH_REL" > "$CAP/headless/batch.stdout" 2>&1
 [ -s "$BATCH_LOG" ] || cp "$CAP/headless/batch.stdout" "$BATCH_LOG"
 

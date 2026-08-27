@@ -46,7 +46,7 @@ else
     find "$REPO_ROOT/.godot/imported" -maxdepth 1 -name '*.glsl-*' -delete
     "$REPO_ROOT/scripts/godot_import.sh" "$REPO_ROOT" || true
   fi
-  out="$(cd "$REPO_ROOT" && LA_GODOT_TIMEOUT=300 la_godot --headless --path . -s "res://$PROBE_REL" 2>&1)"
+  out="$(cd "$REPO_ROOT" && LA_GODOT_TIMEOUT=120 la_godot --headless --path . -s "res://$PROBE_REL" 2>&1)"
 fi
 echo "$out" | grep -E '^SHADER_FAIL=|^SHADER_GATE=' || true
 

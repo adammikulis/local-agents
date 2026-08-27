@@ -43,7 +43,7 @@ fi
 if la_cap_dir >/dev/null; then
   out="$(la_headless reaction_energy)" || exit 2
 else
-  out="$(cd "$REPO_ROOT" && LA_GODOT_TIMEOUT=180 la_godot --headless --path . -s "res://$RUNNER_REL" 2>&1)"
+  out="$(cd "$REPO_ROOT" && LA_GODOT_TIMEOUT=120 la_godot --headless --path . -s "res://$RUNNER_REL" 2>&1)"
 fi
 echo "$out" | grep -E '^REACTION_ENERGY_FAIL=|^REACTION_ENERGY_ERROR|^REACTION_ENERGY=' || true
 
