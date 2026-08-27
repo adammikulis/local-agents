@@ -42,8 +42,7 @@ static func seed(f, t_c: float, p_pa: PackedFloat32Array) -> void:
 	var total_j: float = 0.0
 	for c in f._cell_count:
 		var cell_m3: float = vol[c]
-		if cell_m3 <= 0.0:
-			continue
+		if cell_m3 <= 0.0: continue
 		# masses_at is EMPTY for a cell the substrate calls empty, so it is handed no joules to hold.
 		var e: Dictionary = entry_enthalpies(LAFieldCellMass3D.masses_at(f, c, cell_m3),
 			LAFieldCellMass3D.gas_moles_at(f, c, cell_m3), t_c, maxf(p_pa[c], 0.0))

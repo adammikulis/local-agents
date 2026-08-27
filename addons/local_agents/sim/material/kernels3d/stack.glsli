@@ -1,19 +1,27 @@
-// Pressure rise from a cell's top face down to depth `z`, Pa, through the gas it holds and then the
-// condensed phases under it. Mirrored on the CPU by LAFieldLithostaticSeed::stack_drop.
+// Pressure at depth `z` below a cell's top face, Pa: gas over the condensed phases under it, the gas
+// layer exponential in p/(rho g) and the condensed one linear. `p_mean` is the cell's own EOS pressure.
+// Mirrored on the CPU by LAFieldLithostaticSeed::stack_p.
 #ifndef LA_STACK_GLSLI
 #define LA_STACK_GLSLI
 
-float la_stack_drop(float z, float edge, float g, float f_cond, float m_cond, float m_total) {
+float la_stack_p(float z, float edge, float g, float f_cond, float m_cond, float m_total, float p_mean) {
+	if (!(m_total > 0.0) || !(g > 0.0) || !(p_mean > 0.0)) {
+		return p_mean;
+	}
 	float fc = clamp(f_cond, 0.0, 1.0);
 	float z_gas = (1.0 - fc) * edge;
-	float dp = 0.0;
-	if (z_gas > 0.0) {
-		dp += (max(m_total - m_cond, 0.0) / (1.0 - fc)) * g * min(z, z_gas);
+	float m_gas = max(m_total - m_cond, 0.0);
+	float h = (z_gas > 0.0 && m_gas > 0.0) ? p_mean * (1.0 - fc) / (m_gas * g) : 0.0;
+	float e2a = h > 0.0 ? exp(z_gas / h) : 1.0;
+	float rho_l = fc > 0.0 ? m_cond / fc : 0.0;
+	float tail = edge - z_gas;
+	float mean_over_top = (h > 0.0 ? h * (e2a - 1.0) : 0.0) + e2a * tail;
+	float p_top = (p_mean * edge - 0.5 * rho_l * g * tail * tail) / mean_over_top;
+	float s = clamp(z, 0.0, edge);
+	if (s <= z_gas && h > 0.0) {
+		return p_top * exp(s / h);
 	}
-	if (z > z_gas && fc > 0.0) {
-		dp += (m_cond / fc) * g * (z - z_gas);
-	}
-	return dp;
+	return p_top * e2a + rho_l * g * max(s - z_gas, 0.0);
 }
 
 #endif

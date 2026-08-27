@@ -356,12 +356,9 @@ float face_p(uint c, uint d) {
 	if (gm <= 0.0) {
 		return pressure[c];
 	}
-	float fc = condensed_frac(c);
-	float mc = cond_kg_m3(c);
-	float mt = max(rho_bulk[c], 0.0);
 	float z = 0.5 * e * (1.0 + dot(face_normal(d), gv) / gm);
-	return pressure[c] + la_stack_drop(z, e, gm, fc, mc, mt)
-		- la_stack_drop(0.5 * e, e, gm, fc, mc, mt);
+	return la_stack_p(z, e, gm, condensed_frac(c), cond_kg_m3(c), max(rho_bulk[c], 0.0),
+		max(pressure[c], 0.0));
 }
 
 

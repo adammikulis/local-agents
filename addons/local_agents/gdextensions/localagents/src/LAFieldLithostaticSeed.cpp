@@ -107,17 +107,24 @@ int slot_toward(const Vector3 &p_dir) {
 }
 
 // kernels3d/stack.glsli's own body. Held equal to it by scripts/check_stack_ssot.sh.
-double stack_drop(double z, double edge, double g, double f_cond, double m_cond, double m_total) {
+double stack_p(double z, double edge, double g, double f_cond, double m_cond, double m_total, double p_mean) {
+	if (!(m_total > 0.0) || !(g > 0.0) || !(p_mean > 0.0)) {
+		return p_mean;
+	}
 	double fc = CLAMP(f_cond, 0.0, 1.0);
 	double z_gas = (1.0 - fc) * edge;
-	double dp = 0.0;
-	if (z_gas > 0.0) {
-		dp += (MAX(m_total - m_cond, 0.0) / (1.0 - fc)) * g * MIN(z, z_gas);
+	double m_gas = MAX(m_total - m_cond, 0.0);
+	double h = (z_gas > 0.0 && m_gas > 0.0) ? p_mean * (1.0 - fc) / (m_gas * g) : 0.0;
+	double e2a = h > 0.0 ? exp(z_gas / h) : 1.0;
+	double rho_l = fc > 0.0 ? m_cond / fc : 0.0;
+	double tail = edge - z_gas;
+	double mean_over_top = (h > 0.0 ? h * (e2a - 1.0) : 0.0) + e2a * tail;
+	double p_top = (p_mean * edge - 0.5 * rho_l * g * tail * tail) / mean_over_top;
+	double s = CLAMP(z, 0.0, edge);
+	if (s <= z_gas && h > 0.0) {
+		return p_top * exp(s / h);
 	}
-	if (z > z_gas && fc > 0.0) {
-		dp += (m_cond / fc) * g * (z - z_gas);
-	}
-	return dp;
+	return p_top * e2a + rho_l * g * MAX(s - z_gas, 0.0);
 }
 
 // kernels3d/eos.glsli INVERTED: the factor every amount in a cell is multiplied by so that cell's own
@@ -129,6 +136,23 @@ double eos_scale(double p_pa, double p_vol, double p_a_rt, double p_b_vol, doubl
 	}
 	const double den = p_a_rt + p_pa * (p_b_vol + p_c_comp * p_std - p_c_comp * p_pa);
 	return den > 0.0 ? p_vol * p_pa / den : std::numeric_limits<double>::infinity();
+}
+
+double eos_rest_p(double p_vol, double p_a_rt, double p_b_vol, double p_c_comp, double p_std) {
+	double hi = p_std;
+	for (int i = 0; i < 200 && eos_scale(hi, p_vol, p_a_rt, p_b_vol, p_c_comp, p_std) < 1.0; i++) {
+		hi *= 2.0;
+	}
+	double lo = 0.0;
+	for (int i = 0; i < 100; i++) {
+		const double mid = 0.5 * (lo + hi);
+		if (eos_scale(mid, p_vol, p_a_rt, p_b_vol, p_c_comp, p_std) < 1.0) {
+			lo = mid;
+		} else {
+			hi = mid;
+		}
+	}
+	return 0.5 * (lo + hi);
 }
 
 PackedFloat32Array unit_factor(int p_cc) {
@@ -245,9 +269,6 @@ PackedFloat32Array LAFieldLithostaticSeed::compress(Object *p_field,
 	std::vector<double> p_at(cc, 0.0);
 	std::vector<char> done(cc, 0);
 	std::vector<double> scale(cc, 1.0);
-	int unresolved = 0;
-	double worst_span = 0.0;
-	double worst_cond = 0.0;
 	for (int c : order) {
 		done[c] = 1;
 		f_cond[c] = solid[c] != 0 ? 1.0 : MIN(f_cond[c], 1.0);
@@ -261,51 +282,45 @@ PackedFloat32Array LAFieldLithostaticSeed::compress(Object *p_field,
 		if (rho[c] <= 0.0) {
 			continue;      // vacuum: no matter to carry a pressure, and state_derive reads it as none
 		}
-		// face_p(c, up) == face_p(u, down) on the stacked reconstruction: the cell above hands down its
-		// lower half's stack, this cell adds its own upper half's, and nothing stands over the outermost.
+		// THE BALANCE THE STEPPER HOLDS: this cell's TOP face reads what the cell above reads at its
+		// BOTTOM. Over the outermost cell holding matter stands nothing, so its own amounts state it.
 		const double gm_c = double(g_c.length());
-		double p_u = 0.0;
-		double half_u = 0.0;
-		if (from_above) {
-			const Vector3 g_u(p_gravity[u * 3], p_gravity[u * 3 + 1], p_gravity[u * 3 + 2]);
-			const double gm_u = double(g_u.length());
-			p_u = p_at[u];
-			half_u = stack_drop(dr, dr, gm_u, f_cond[u], m_cond[u], rho[u])
-					- stack_drop(0.5 * dr, dr, gm_u, f_cond[u], m_cond[u], rho[u]);
+		if (!from_above) {
+			p_at[c] = eos_rest_p(vol, a_rt[c], b_vol[c], c_comp[c], p_std);
+			continue;
 		}
+		const Vector3 g_u(p_gravity[u * 3], p_gravity[u * 3 + 1], p_gravity[u * 3 + 2]);
+		const double target = stack_p(dr, dr, double(g_u.length()), f_cond[u], m_cond[u], rho[u], p_at[u]);
 		if (solid[c] != 0) {
 			// Rock is quasi-static and kernels3d/pressure.glsl owns its pressure; what the seed owes it is
 			// the DENSITY that pressure implies, through the substance table's own equation of state.
-			p_at[c] = p_u + half_u
-					+ stack_drop(0.5 * dr, dr, gm_c, f_cond[c], m_cond[c], rho[c]);
+			p_at[c] = target + 0.5 * dr * rho[c] * gm_c;
 			continue;
 		}
-		// An open cell's pressure IS its matter, so the balance is solved for the amount that states it.
-		// The iteration contracts by 0.5 * dx / H; a cell it cannot reach is one the grid cannot resolve.
-		double p = p_u + half_u + stack_drop(0.5 * dr, dr, gm_c, f_cond[c], m_cond[c], rho[c]);
-		bool settled = false;
+		// An open cell's pressure IS its matter. At a fixed amount its top face is AFFINE in the cell
+		// mean, so a secant lands on it and its slope is measured rather than invented.
+		double p0 = MAX(target, p_sat[c]);
+		double t0 = stack_p(0.0, dr, gm_c, f_cond[c], m_cond[c], rho[c], p0);
+		double p = p0 + (target - t0);
 		for (int it = 0; it < 200; it++) {
-			const double s = eos_scale(p, vol, a_rt[c], b_vol[c], c_comp[c], p_std);
-			const double next = p_u + half_u
-					+ stack_drop(0.5 * dr, dr, gm_c, f_cond[c], s * m_cond[c], s * rho[c]);
-			if (!(next > 0.0) || !std::isfinite(next)) {
+			if (!(p > 0.0) || !std::isfinite(p)) {
 				break;
 			}
-			const double rel = std::abs(next - p) / next;
-			p = next;
-			if (rel <= 1.0e-13) {
-				settled = true;
+			const double sc = eos_scale(p, vol, a_rt[c], b_vol[c], c_comp[c], p_std);
+			const double t1 = stack_p(0.0, dr, gm_c, f_cond[c], sc * m_cond[c], sc * rho[c], p);
+			if (!std::isfinite(t1)) {
 				break;
 			}
-		}
-		if (!settled) {
-			unresolved++;
-			const double span = p_u > 0.0 ? dr * rho[c] * gm_c / p_u : 0.0;
-			if (span > worst_span) {
-				worst_span = span;
-				worst_cond = f_cond[c];
+			if (std::abs(t1 - target) <= 1.0e-13 * MAX(target, 1.0)) {
+				break;
 			}
-			continue;
+			const double slope = (t1 - t0) / (p - p0);
+			if (!(slope > 0.0) || !std::isfinite(slope)) {
+				break;
+			}
+			p0 = p;
+			t0 = t1;
+			p = p + (target - t1) / slope;
 		}
 		if (p <= p_sat[c]) {
 			p_at[c] = p_sat[c];   // its own vapour already states this much; no amount of it states less
@@ -313,22 +328,13 @@ PackedFloat32Array LAFieldLithostaticSeed::compress(Object *p_field,
 		}
 		const double s = eos_scale(p, vol, a_rt[c], b_vol[c], c_comp[c], p_std);
 		if (!std::isfinite(s) || !(s > 0.0)) {
-			unresolved++;      // no finite amount states that pressure, so this cell has no balanced state
-			continue;
+			continue;      // no finite amount states that pressure, so this cell keeps what it was given
 		}
 		p_at[c] = p;
 		scale[c] = s;
 		rho[c] *= s;
 		m_cond[c] *= s;
 	}
-	if (unresolved > 0) {
-		UtilityFunctions::push_error(String("LAFieldLithostaticSeed.compress: ")
-				+ String::num_int64(unresolved) + " open cell(s) hold no balanced state at this cell edge: "
-				+ "a cell taller than twice the local scale height has none. Worst cell edge over scale "
-				+ "height: " + String::num(worst_span, 3) + ", at a condensed fraction of "
-				+ String::num(worst_cond, 3) + ".");
-	}
-
 	// WRITE IT BACK. An open cell takes the scale its pressure implies, on every amount it holds; a solid
 	// cell takes the substance table's compression ratio at its marched pressure, on its lithic phases.
 	for (size_t i = 0; i < nm; i++) {

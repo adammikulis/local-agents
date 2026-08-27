@@ -44,8 +44,8 @@ def tokens(text):
         out.append(SAME.get(t, t))
     return out
 
-g = body(sys.argv[1], "float la_stack_drop(")
-c = body(sys.argv[2], "double stack_drop(")
+g = body(sys.argv[1], "float la_stack_p(")
+c = body(sys.argv[2], "double stack_p(")
 if g is None or c is None:
     print("check_stack_ssot: one of the two stack functions is absent, so nothing was compared.",
           file=sys.stderr)
