@@ -409,21 +409,6 @@ func _seed_silicate() -> void:
 	_body_measure.measure(self, LABodySeeds.spin_axis_of(_body_key))
 
 
-func _seed_sea() -> void:
-	if _grid == null or _terrain == null or not _terrain.has_method("sea_radius"):
-		return
-	var sea_r: float = _terrain.sea_radius()
-	if sea_r <= 0.0:
-		return
-	var sea_sq: float = sea_r * sea_r
-	var pivot: Vector3 = centre()
-	for c in _cell_count:
-		if _solid[c] != 0:
-			continue
-		if (_grid.cell_world_pos(c) - pivot).length_squared() <= sea_sq:
-			_h2o[c] = MAX_MASS
-	LAFieldLithostaticSeed.displace_gas_from_water(self)
-
 # Athy pore fraction per cell (0 outside regolith), GPU-written and read back on the slow cadence.
 var _porosity: PackedFloat32Array = PackedFloat32Array()
 var _regolith: PackedByteArray = PackedByteArray()

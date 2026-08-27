@@ -41,13 +41,6 @@ the seeded atmosphere is one shell with vacuum above it: no lapse rate, no verti
 open cells the pressure audit compares are mostly the cube's corners. Item 0 cannot be read either way
 until this lands.
 
-Two readings hold on the default box and not on the sealed column, and `docs/PHYSICS_TODO.md` D carries
-both: the hydrostatic rung does not stay in the balance it is seeded into
-(`bash scripts/check_process_ladder.sh` stops at rung `hydrostatic`;
-`scripts/agent_harness.sh sim --rung=2 --frames 8` prints `PRESSURE_BROKEN`), and the hydrosphere is
-seeded by fill rather than by the body's water mass
-(`rg -n MAX_MASS addons/local_agents/sim/material/MaterialField3D.gd addons/local_agents/sim/material/MaterialFieldLakes3D.gd`).
-
 **The grid is Cartesian with axis-aligned refinement. That is settled, with the reasoning, in
 `docs/PHYSICS_TODO.md` — do not re-open it.** What is left is to build it:
 
@@ -122,7 +115,7 @@ GDScript keeps bindings. `gdextensions/localagents/` already builds; a class is 
 - **Do not move `PhysicalConstants.gd`.** godot-cpp binds only INTEGER class constants, so its floats
   have no native form a GDScript `const` can fold; native code reads it through
   `include/LAPhysicalRead.hpp`.
-- The seed-time serial work still in GDScript: `MaterialFieldLakes3D`'s priority flood,
+- The seed-time serial work still in GDScript: `MaterialFieldHydrosphere3D`'s priority flood,
   `MaterialFieldSolidCache3D`'s SDF spot check and file hashing, `MaterialFieldRegolith3D.compute`'s
   burial march, `FieldEnthalpySeed3D`'s per-cell mixture walk and its dynamic `f.get("_" + name)` lookup.
 - The driver: `MaterialSphereGPU3D.gd` and `MaterialField3D.gd`. Last, after the pass seam settles.

@@ -291,7 +291,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MaterialFieldAtmos3D.gd` | `CLOUD_WATER_CRIT_KG_KG` | 0.5e-3 | Kessler (1969) q_crit | deleted when condensation is a reaction record and the detector reads the record |
 | `addons/local_agents/sim/material/sphere_passes/TransportPass.gd` | `EMPTY_RHO_KG_M3` | 0.0001 * LAPhysical.AIR_DENSITY_KG_M3 | kg/m^3 below which a cell is empty: the one floor, guarding `v = p/rho` in state_derive.glsl and the donor test in transport.glsl. A ten-thousandth of a cell of air; air is measured, the fraction is chosen | deleted when emptiness follows from the cell's own substances' molar volumes |
 | `addons/local_agents/sim/material/MaterialFieldRegolith3D.gd` | `REGOLITH_CELLS` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialFieldRegolith3D.gd` | `INITIAL_TABLE_FRAC` | 0.5 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/game/render/WaterSurfaceMesh.gd` | `SEA_BIAS` | 0.4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `PROFILE_BINS` | 16 | a diagnostic's resolution, not a physical quantity | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `ALOFT_CELLS` | 2.0 | inherited, unreviewed | Stage 2 substrate rewrite |

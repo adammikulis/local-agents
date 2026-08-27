@@ -30,6 +30,13 @@ const char *CHANNELS_GD = "res://addons/local_agents/sim/material/Channels.gd";
 const char *GEOMETRY_GD = "res://addons/local_agents/sim/material/FieldGeometry3D.gd";
 const char *FIELD_GD = "res://addons/local_agents/sim/material/MaterialField3D.gd";
 
+// The hydrostatic seed's Gauss-Seidel: over-relaxation factor, sweeps per frozen reconstruction,
+// re-takes of it, and the move below which a sweep has settled.
+const double OVER_RELAX = 1.6;
+const int MAX_SWEEPS = 120;
+const int DEFECT_PASSES = 8;
+const double SWEEP_TOL = 1.0e-12;   // an absolute move in log pressure
+
 Vector3 field_centre(Object *p_field) {
 	Array args;
 	args.append(p_field);
@@ -146,32 +153,28 @@ double stack_p(double z, double edge, double g, double f_cond, double m_cond, do
 	return p_gas_bot + rho_l * g * MAX(s - z_gas, 0.0);
 }
 
-// kernels3d/eos.glsli INVERTED: the factor every amount in a cell is multiplied by so that cell's own
-// equation of state returns `p_pa`. Exact for all three of la_eos_p's branches, since scaling A, B and C
-// together scales the quadratic's own coefficients. Infinite where no finite amount reaches that pressure.
-double eos_scale(double p_pa, double p_vol, double p_a_rt, double p_b_vol, double p_c_comp, double p_std) {
-	if (!(p_pa > 0.0)) {
+// kernels3d/eos.glsli's own body. Held equal to it by scripts/check_stack_ssot.sh.
+double eos_p(double vol, double a_gas_rt, double b_vol, double c_comp, double p_std, double p_sat) {
+	if (vol <= 0.0) {
 		return 0.0;
 	}
-	const double den = p_a_rt + p_pa * (p_b_vol + p_c_comp * p_std - p_c_comp * p_pa);
-	return den > 0.0 ? p_vol * p_pa / den : std::numeric_limits<double>::infinity();
-}
-
-double eos_rest_p(double p_vol, double p_a_rt, double p_b_vol, double p_c_comp, double p_std) {
-	double hi = p_std;
-	for (int i = 0; i < 200 && eos_scale(hi, p_vol, p_a_rt, p_b_vol, p_c_comp, p_std) < 1.0; i++) {
-		hi *= 2.0;
+	// Nothing compressible: the gas fills what the condensed phases leave.
+	if (c_comp <= 0.0) {
+		double room = vol - b_vol;
+		return MAX(room > 0.0 ? a_gas_rt / room : 0.0, p_sat);
 	}
-	double lo = 0.0;
-	for (int i = 0; i < 100; i++) {
-		const double mid = 0.5 * (lo + hi);
-		if (eos_scale(mid, p_vol, p_a_rt, p_b_vol, p_c_comp, p_std) < 1.0) {
-			lo = mid;
-		} else {
-			hi = mid;
-		}
+	// No gas of its own: the condensed phases alone are squeezed into the cell, and the void they leave
+	// is their vapour.
+	if (a_gas_rt <= 0.0) {
+		return MAX(p_std + (b_vol - vol) / c_comp, p_sat);
 	}
-	return 0.5 * (lo + hi);
+	double k = vol - b_vol - c_comp * p_std;
+	double disc = sqrt(k * k + 4.0 * c_comp * a_gas_rt);
+	// Stable root of the same quadratic: for k > 0, (disc - k)/(2C) cancels catastrophically as C -> 0
+	// and one ulp over 2C is an arbitrary pressure; 2A/(k + disc) is algebraically identical, sums
+	// positives, and limits exactly to the ideal-gas A/k.
+	double p = (k > 0.0) ? 2.0 * a_gas_rt / (k + disc) : (disc - k) / (2.0 * c_comp);
+	return MAX(p, p_sat);
 }
 
 PackedFloat32Array unit_factor(int p_cc) {
@@ -275,8 +278,30 @@ PackedFloat32Array LAFieldLithostaticSeed::compress(Object *p_field,
 		}
 	}
 
-	// THE MARCH IS ALONG THE SOLVED GRAVITY, cell by cell on the Cartesian grid. Height is the outward
-	// distance along the local vertical, so walking it from the top visits a cell after the cell above it.
+	// kernels3d/pressure.glsl's la_load: the weight per unit area of one cell's matter, Pa, over the
+	// step's projection on the local vertical.
+	auto column_load = [&](int c) -> double {
+		const Vector3 gv(p_gravity[c * 3], p_gravity[c * 3 + 1], p_gravity[c * 3 + 2]);
+		const double gm = double(gv.length());
+		if (!(gm > 0.0)) {
+			return 0.0;
+		}
+		const Vector3 up = -gv / gm;
+		const double m = MAX(MAX(std::abs(up.x), std::abs(up.y)), std::abs(up.z));
+		return rho[c] * gm * dr * m;
+	};
+
+	// A cell stands at the pressure its own amounts state; the balance below moves it only where a
+	// shared face disagrees.
+	std::vector<double> p_at(cc, 0.0);
+	for (int c = 0; c < cc; c++) {
+		if (rho[c] > 0.0) {
+			p_at[c] = eos_p(vol, a_rt[c], b_vol[c], c_comp[c], p_std, p_sat[c]);
+		}
+		f_cond[c] = solid[c] != 0 ? 1.0 : MIN(f_cond[c], 1.0);
+	}
+
+	// Height along the local vertical and the slot pointing up it: rock's column marches these.
 	std::vector<double> h(cc, 0.0);
 	std::vector<int> up_slot(cc, -1);
 	for (int c = 0; c < cc; c++) {
@@ -293,100 +318,124 @@ PackedFloat32Array LAFieldLithostaticSeed::compress(Object *p_field,
 	std::iota(order.begin(), order.end(), 0);
 	std::sort(order.begin(), order.end(), [&h](int a, int b) { return h[a] > h[b]; });
 
-	// THE BALANCE THE STEPPER HOLDS. transport.glsl's face_p() presents one pressure to a shared face when
-	// p_below - p_above = 0.5 * dx * (rho_above * g_above.n + rho_below * g_below.n), and there its
-	// reconstruction cancels the bodyf_* impulse exactly. scripts/check_atmosphere_at_rest.sh is what
-	// holds this expression to the kernel's.
-	// NOTHING OVER IT IS THE STARTING TRUTH: a cell stands at the pressure its own amounts state, and
-	// the march overwrites that only where it reaches a cell with a column above it.
-	std::vector<double> p_at(cc, 0.0);
+	// THE BALANCE THE STEPPER HOLDS, ON ALL SIX FACES AT ONCE. transport.glsl's face_p() presents one
+	// pressure to a shared face when the two sides' reconstructions meet there, and there the pressure
+	// flux cancels the bodyf_* impulse exactly. One equation per shared face against one unknown per cell
+	// is the discrete Poisson problem laplacian(p) = div(rho g) over that same face operator. A face onto
+	// rock, onto vacuum or off the box carries the cell's own reconstruction and constrains nothing.
+	// LA_APPROX: hydrostatic_seed_relaxation
+	std::vector<char> live(cc, 0);
+	std::vector<int> live_list;
 	for (int c = 0; c < cc; c++) {
-		if (rho[c] > 0.0) {
-			p_at[c] = eos_rest_p(vol, a_rt[c], b_vol[c], c_comp[c], p_std);
+		live[c] = (walkable && solid[c] == 0 && rho[c] > 0.0 && p_at[c] > 0.0) ? 1 : 0;
+		if (live[c]) {
+			live_list.push_back(c);
 		}
 	}
-	std::vector<char> done(cc, 0);
-	std::vector<double> scale(cc, 1.0);
-	for (int c : order) {
-		if (!walkable) {
-			break;
+	// THE FLOOR OF THE OPEN COLUMN IS THE STARTING TRUTH: what a cell resting on rock states is the weight
+	// of everything the composition put above it, and the balance carries that upward. The gauge is one
+	// reading per column either way, and taken here the relation decays rather than amplifies.
+	std::vector<char> anchored(cc, 0);
+	for (int c : live_list) {
+		const int b = up_slot[c] >= 0 ? nbr[c * 6 + (up_slot[c] ^ 1)] : -1;
+		anchored[c] = (b < 0 || b >= cc || !live[b]) ? 1 : 0;
+	}
+	// Geometry and gravity are fixed, so the face depth and |g| are taken once rather than per sweep.
+	std::vector<double> gmag(cc, 0.0);
+	std::vector<double> zf(size_t(cc) * 6, 0.0);
+	std::vector<double> ratio(size_t(cc) * 6, 1.0);
+	for (int c : live_list) {
+		const Vector3 g(p_gravity[c * 3], p_gravity[c * 3 + 1], p_gravity[c * 3 + 2]);
+		gmag[c] = double(g.length());
+		for (int d = 0; d < 6; d++) {
+			zf[size_t(c) * 6 + d] = face_z(dr, d, g);
 		}
-		done[c] = 1;
-		f_cond[c] = solid[c] != 0 ? 1.0 : MIN(f_cond[c], 1.0);
-		if (up_slot[c] < 0) {
-			continue;      // no vertical, so no column: the cell keeps what its own amounts state
+	}
+	std::vector<double> log_sat(cc, -std::numeric_limits<double>::infinity());
+	for (int c : live_list) {
+		if (p_sat[c] > 0.0) {
+			log_sat[c] = std::log(p_sat[c]);
+		}
+	}
+	// SOLVED IN LOG PRESSURE. A cell of this size is many scale heights tall, so the field spans tens of
+	// orders of magnitude over a handful of cells; in the logarithm the face relation is a difference and
+	// the operator is the plain discrete Laplacian.
+	std::vector<double> lp(cc, 0.0);
+	for (int corr = 0; corr < DEFECT_PASSES; corr++) {
+		// The reconstruction is very nearly homogeneous in the cell's own mean, so what it presents at a
+		// face is carried as a log RATIO of it. Held while the sweeps below move the field, then taken
+		// again against the field they produced.
+		for (int c : live_list) {
+			lp[c] = std::log(p_at[c]);
+			for (int d = 0; d < 6; d++) {
+				const double f = stack_p(zf[size_t(c) * 6 + d], dr, gmag[c], f_cond[c], m_cond[c],
+						rho[c], p_at[c]) / p_at[c];
+				ratio[size_t(c) * 6 + d] = (std::isfinite(f) && f > 0.0) ? std::log(f) : 0.0;
+			}
+		}
+		for (int sweep = 0; sweep < MAX_SWEEPS; sweep++) {
+			double worst = 0.0;
+			for (int c : live_list) {
+				if (anchored[c]) {
+					continue;
+				}
+				double acc = 0.0;
+				int n = 0;
+				for (int d = 0; d < 6; d++) {
+					const int u = nbr[c * 6 + d];
+					if (u < 0 || u >= cc || !live[u]) {
+						continue;
+					}
+					acc += lp[u] + ratio[size_t(u) * 6 + (d ^ 1)] - ratio[size_t(c) * 6 + d];
+					n++;
+				}
+				if (n == 0) {
+					continue;
+				}
+				double next = lp[c] + OVER_RELAX * (acc / double(n) - lp[c]);
+				if (!std::isfinite(next)) {
+					continue;
+				}
+				next = MAX(next, log_sat[c]);    // its own vapour already states this much
+				worst = MAX(worst, std::abs(next - lp[c]));
+				lp[c] = next;
+			}
+			if (worst <= SWEEP_TOL) {
+				break;
+			}
+		}
+		for (int c : live_list) {
+			const double e = anchored[c] ? p_at[c] : std::exp(lp[c]);
+			if (std::isfinite(e) && e > 0.0) {
+				p_at[c] = e;
+			}
+		}
+	}
+
+	// ROCK IS A COLUMN, and kernels3d/pressure.glsl owns it: the weight standing over the cell, ending at
+	// the pressure of the first fluid above. Descending height, so a cell is reached after the one over it.
+	for (int c : order) {
+		if (!walkable || solid[c] == 0) {
+			continue;
 		}
 		const int d = up_slot[c];
-		const Vector3 g_c(p_gravity[c * 3], p_gravity[c * 3 + 1], p_gravity[c * 3 + 2]);
-		const int u = nbr[c * 6 + d];
-		const bool from_above = u >= 0 && u < cc && done[u] != 0 && rho[u] > 0.0;
-		if (rho[c] <= 0.0) {
-			continue;      // vacuum: no matter to carry a pressure, and state_derive reads it as none
+		const int u = d >= 0 ? nbr[c * 6 + d] : -1;
+		double top = 0.0;
+		if (u >= 0 && u < cc) {
+			top = solid[u] != 0 ? p_at[u] + 0.5 * column_load(u) : p_at[u];
 		}
-		// THE BALANCE THE STEPPER HOLDS: this cell's TOP face reads what the cell above reads at its
-		// BOTTOM. Over the outermost cell holding matter stands nothing, so its own amounts state it.
-		const double gm_c = double(g_c.length());
-		if (!from_above) {
-			continue;      // nothing stands over it, which is what it already states
-		}
-		const Vector3 g_u(p_gravity[u * 3], p_gravity[u * 3 + 1], p_gravity[u * 3 + 2]);
-		const double z_c = face_z(dr, d, g_c);
-		const double target = stack_p(face_z(dr, d ^ 1, g_u), dr, double(g_u.length()), f_cond[u],
-				m_cond[u], rho[u], p_at[u]);
-		if (solid[c] != 0) {
-			// Rock is quasi-static and kernels3d/pressure.glsl owns its pressure; what the seed owes it is
-			// the DENSITY that pressure implies, through the substance table's own equation of state.
-			p_at[c] = target + (0.5 * dr - z_c) * rho[c] * gm_c;
-			continue;
-		}
-		// An open cell's pressure IS its matter. At a fixed amount its top face is AFFINE in the cell
-		// mean, so a secant lands on it and its slope is measured rather than invented.
-		double p0 = MAX(target, p_sat[c]);
-		double t0 = stack_p(z_c, dr, gm_c, f_cond[c], m_cond[c], rho[c], p0);
-		double p = p0 + (target - t0);
-		for (int it = 0; it < 200; it++) {
-			if (!(p > 0.0) || !std::isfinite(p)) {
-				break;
-			}
-			const double sc = eos_scale(p, vol, a_rt[c], b_vol[c], c_comp[c], p_std);
-			const double t1 = stack_p(z_c, dr, gm_c, f_cond[c], sc * m_cond[c], sc * rho[c], p);
-			if (!std::isfinite(t1)) {
-				break;
-			}
-			if (std::abs(t1 - target) <= 1.0e-13 * MAX(target, 1.0)) {
-				break;
-			}
-			const double slope = (t1 - t0) / (p - p0);
-			if (!(slope > 0.0) || !std::isfinite(slope)) {
-				break;
-			}
-			p0 = p;
-			t0 = t1;
-			p = p + (target - t1) / slope;
-		}
-		if (p <= p_sat[c]) {
-			p_at[c] = p_sat[c];   // its own vapour already states this much; no amount of it states less
-			continue;
-		}
-		const double s = eos_scale(p, vol, a_rt[c], b_vol[c], c_comp[c], p_std);
-		if (!std::isfinite(s) || !(s > 0.0)) {
-			continue;      // no finite amount states that pressure, so it keeps the one its own amounts do
-		}
-		p_at[c] = p;
-		scale[c] = s;
-		rho[c] *= s;
-		m_cond[c] *= s;
+		p_at[c] = top + 0.5 * column_load(c);
 	}
-	// WRITE IT BACK. An open cell takes the scale its pressure implies, on every amount it holds; a solid
-	// cell takes the substance table's compression ratio at its marched pressure, on its lithic phases.
+	// WRITE IT BACK. AN OPEN CELL'S MATTER IS THE COMPOSITION'S, and state_derive.glsl states its pressure
+	// from that matter; a seed that scaled amounts to hit a pressure would be inventing an atmosphere.
+	// Rock FILLS its cell, so its lithic phases take the substance table's own compression at the column
+	// pressure standing over them.
 	for (size_t i = 0; i < nm; i++) {
 		float *w = mats[i].arr.ptrw();
 		bool touched = false;
 		for (int c = 0; c < cc; c++) {
 			double f = 1.0;
-			if (solid[c] == 0) {
-				f = scale[c];
-			} else if (is_lithic[i] && rho0[i] > 0.0 && p_at[c] > 0.0) {
+			if (solid[c] != 0 && is_lithic[i] && rho0[i] > 0.0 && p_at[c] > 0.0) {
 				const double r = LASubstances::density(mats[i].substance, t_c, p_at[c]) / rho0[i];
 				f = (std::isfinite(r) && r > 0.0) ? r : 1.0;
 			}
@@ -400,7 +449,7 @@ PackedFloat32Array LAFieldLithostaticSeed::compress(Object *p_field,
 			p_field->set("_" + mats[i].name, mats[i].arr);
 		}
 	}
-	// The pressure the march states, so the first state derive is taken at it rather than at zero.
+	// The pressure the balance states, so the first state derive is taken at it rather than at zero.
 	out.resize(cc);
 	float *w = out.ptrw();
 	for (int c = 0; c < cc; c++) {
