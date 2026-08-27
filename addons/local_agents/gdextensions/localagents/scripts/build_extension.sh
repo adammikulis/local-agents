@@ -261,7 +261,8 @@ if [[ ${#CMAKE_ARGS[@]} -gt 0 ]]; then
 fi
 
 "${configure_cmd[@]}"
-cmake --build "${BUILD_DIR}" --target localagents --config Release
+JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
+cmake --build "${BUILD_DIR}" --target localagents --config Release --parallel "${JOBS}"
 cmake --install "${BUILD_DIR}" --prefix "${EXT_DIR}"
 
 package_artifacts "${TARGET_PLATFORM}"

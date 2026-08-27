@@ -67,7 +67,7 @@ add_library(localagents SHARED ${SRC} ${SQLITE_SRC})
 
 target_include_directories(localagents PRIVATE ${INCLUDE_DIRS})
 
-target_link_libraries(localagents PRIVATE godot-cpp llama common)
+target_link_libraries(localagents PRIVATE godot-cpp llama llama-common)
 
 if (TARGET llama-cli)
     add_dependencies(localagents llama-cli)
