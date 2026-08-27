@@ -523,7 +523,7 @@ When removing files:
   rock pressure must never reach the momentum equation, and a wall face takes the FLUID cell's own
   pressure. `scripts/check_pressure_split.sh` holds all of that. Do not unify them without the maintainer.
 - **THE SUBSTANCE TABLE IS THE SSOT FOR MATTER — `LASubstances`, in the GDExtension.** Every material
-  declares its own measured properties in ONE entry, reached from GDScript through `LANativeTables.subs()`.
+  declares its own measured properties in ONE entry, reached from GDScript through `LASubstances`.
   `PhysicalConstants.gd` keeps only what is not a property of a substance.
   Do not add a flat constant for something a material owns, and check the fact is not already there under
   another name. Phase and temperature are DERIVED from energy and mass, never stored, so latent heat is

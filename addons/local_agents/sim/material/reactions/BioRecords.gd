@@ -73,10 +73,10 @@ static func records() -> Array:
 	var organic_n: float = float(LAReactionBalance.composition()[DETRITUS]["N"])
 	var transpired: float = TRANSPIRATION_MOL_H2O_PER_MOL_C
 	var cue: float = MICROBIAL_CUE
-	var dh: Vector3 = LANativeTables.subs().organic_oxidation_parts()
+	var dh: Vector3 = LASubstances.organic_oxidation_parts()
 	var ox: float = 1.0 - cue
-	var lumped: float = dh.dot(Vector3(1.0, LANativeTables.subs().fresh_litter_per_carbon("H"),
-		LANativeTables.subs().fresh_litter_per_carbon("O")))
+	var lumped: float = dh.dot(Vector3(1.0, LASubstances.fresh_litter_per_carbon("H"),
+		LASubstances.fresh_litter_per_carbon("O")))
 	return [
 		# Decomposition, in moles of the dead pool's carbon; CUE becomes mycelium and keeps its bond energy.
 		rec(TB_PER_SECOND, "mol m^-3 driver^-1 driver2^-1 s^-1", RM_BILINEAR, _decompose_k(), FUNGUS,

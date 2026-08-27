@@ -348,11 +348,7 @@ func _synthesize_to_file(line: String, out_wav: String) -> bool:
 
 
 func _synthesize_native(line: String, out_wav: String) -> bool:
-	if not Engine.has_singleton("AgentRuntime"):
-		return false
 	var runtime: Object = Engine.get_singleton("AgentRuntime")
-	if runtime == null or not runtime.has_method("synthesize_speech"):
-		return false
 	var request: Dictionary = {
 		"text": line,
 		"voice_path": _voice_onnx,

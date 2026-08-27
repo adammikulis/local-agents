@@ -33,6 +33,8 @@ PASS="$REPO_ROOT/addons/local_agents/sim/material/sphere_passes/GravityPass.gd"
 la_godot --headless --path "$REPO_ROOT" --import >/dev/null 2>&1
 
 PROBE="$REPO_ROOT/addons/local_agents/tests/zz_gravity_gate.gd"
+# The probe lands in the scanned tree, so an early exit must not leave it for other gates to count.
+trap 'rm -f "$PROBE"' EXIT INT TERM
 cat > "$PROBE" <<'GD'
 extends SceneTree
 

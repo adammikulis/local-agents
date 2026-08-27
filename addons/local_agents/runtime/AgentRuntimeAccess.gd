@@ -2,10 +2,8 @@ extends RefCounted
 
 const ExtensionLoader = preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
 
-## The registered AgentRuntime singleton, or null when the extension has not registered it.
+## The registered AgentRuntime singleton.
 static func singleton() -> Object:
-	if not Engine.has_singleton(ExtensionLoader.RUNTIME_SINGLETON):
-		return null
 	return Engine.get_singleton(ExtensionLoader.RUNTIME_SINGLETON)
 
 ## File name of the runtime's default model, or "unknown" when it names none.

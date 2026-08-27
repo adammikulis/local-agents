@@ -18,9 +18,6 @@ func run_test(tree: SceneTree) -> bool:
 	if not ExtensionLoader.ensure_initialized():
 		push_error("NetworkGraph init failed: %s" % ExtensionLoader.get_error())
 		return false
-	if not ClassDB.class_exists("NetworkGraph"):
-		push_error("NetworkGraph class missing after extension init.")
-		return false
 
 	var svc: Node = SvcScript.new()
 	svc.set_database_path(DB_PATH)

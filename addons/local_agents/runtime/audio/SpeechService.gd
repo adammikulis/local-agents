@@ -118,11 +118,7 @@ func _complete_job(job_id: int, result: Dictionary) -> void:
         emit_signal("transcription_completed", job_id, result)
 
 func _invoke_runtime(method: String, payload: Dictionary) -> Dictionary:
-    if not Engine.has_singleton("AgentRuntime"):
-        return {"ok": false, "error": "runtime_missing"}
-    var runtime := Engine.get_singleton("AgentRuntime")
-    if runtime == null:
-        return {"ok": false, "error": "runtime_missing"}
+    var runtime: Object = Engine.get_singleton("AgentRuntime")
     if not runtime.has_method(method):
         return {"ok": false, "error": "%s_unavailable" % method}
     var response = runtime.call(method, payload)
