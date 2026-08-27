@@ -317,17 +317,13 @@ void main() {
 	rho_bulk[g] = rho;
 	float f_melt = 0.0;
 	vec3 v = vec3(0.0);
-	// Below the donation floor the cell is EMPTY by the declared model: trace matter keeps its mass
-	// and enthalpy and holds no bulk state — a momentum residue over vanishing mass is any velocity.
+	// Below the donation floor the cell is EMPTY: its stocks stay — mass, enthalpy, MOMENTUM — and its
+	// DERIVED bulk state does not, a velocity being momentum over a mass that is not there.
 	if (rho < params.rho_floor) {
 		temp[g] = -LA_KELVIN_OFFSET;   // no matter, so no temperature
 		if (solid[g] == 0.0) {
 			pressure[g] = 0.0;
 		}
-		// Momentum is rho*v, so with no mass there is none to hold.
-		mom_x[g] = 0.0;
-		mom_y[g] = 0.0;
-		mom_z[g] = 0.0;
 		vel_x[g] = 0.0;
 		vel_y[g] = 0.0;
 		vel_z[g] = 0.0;

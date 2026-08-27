@@ -985,8 +985,8 @@ void main() {
 		if (!is_signed && remaining <= donor_floor) {
 			return;
 		}
-		// Mass carries its heat and its charge; a row or a CELL with no matter carries neither.
-		bool carries = params.density > 0.0 && amount[gidx] > 0.0 && !no_matter(gidx);
+		// MASS CARRIES ITS HEAT, ITS CHARGE AND ITS MOMENTUM, however thin the cell it leaves.
+		bool carries = params.density > 0.0 && amount[gidx] > 0.0;
 		// Heat per unit fill of THIS substance: its share of the entry its heat sits in.
 		float h_per_unit = 0.0;
 		if (carries) {
