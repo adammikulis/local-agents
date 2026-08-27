@@ -168,6 +168,46 @@ case "$cmd" in
     ;;
 esac
 
+# --- reap this tree's own llama-server processes ------------------------------
+# A Godot that crashes never runs LlamaServerManager's exit path, so the llama-server it started outlives
+# it: reparented to launchd, holding the model in RAM, still bound to its port. A trap in THIS shell is
+# what a crash in the child cannot skip. Only servers launched from THIS tree's bin/ during THIS run are
+# reaped -- another worktree's lane, and any llama-server that is not ours, is left alone.
+LA_SERVER_BIN="$REPO_ROOT/addons/local_agents/gdextensions/localagents/bin/llama-server"
+LA_SERVERS_BEFORE=""
+LA_REAP_ARMED=0
+
+la_tree_server_pids() {
+  ps -Ao pid=,command= 2>/dev/null | while read -r ps_pid ps_cmd; do
+    case "$ps_cmd" in
+      "$LA_SERVER_BIN"|"$LA_SERVER_BIN "*) echo "$ps_pid" ;;
+    esac
+  done
+}
+
+la_reap_servers() {
+  local pid wait_i
+  [ "$LA_REAP_ARMED" = "1" ] || return 0
+  for pid in $(la_tree_server_pids); do
+    case " $LA_SERVERS_BEFORE " in *" $pid "*) continue ;; esac
+    kill "$pid" 2>/dev/null || continue
+    for wait_i in 1 2 3 4 5 6 7 8 9 10; do
+      kill -0 "$pid" 2>/dev/null || break
+      sleep 0.2
+    done
+    kill -9 "$pid" 2>/dev/null || true
+    echo "agent_harness: reaped llama-server pid $pid, left behind by $cmd." >&2
+  done
+}
+
+case "$cmd" in
+  fast|all|bounded|single|extension)
+    LA_SERVERS_BEFORE=" $(la_tree_server_pids | tr '\n' ' ')"
+    LA_REAP_ARMED=1
+    trap la_reap_servers EXIT INT TERM
+    ;;
+esac
+
 # --- run the child, tee to the log, preserve its exit code -------------------
 SECONDS=0
 exit_code=0
@@ -304,8 +344,20 @@ if [[ "$cmd" == "lint" ]]; then
   set -e
 else
   set +e
-  "${child[@]}" 2>&1 | tee "$LOG_FILE"
-  exit_code=${PIPESTATUS[0]}
+  # THE CHILD WRITES TO THE LOG FILE, NOT INTO A PIPE. `child | tee` made this shell wait on tee, and tee
+  # waits for every writer -- including a llama-server the child leaked, which inherited the pipe, held it
+  # open after the child was killed, and wedged the harness until something killed it from outside. A file
+  # cannot be held open against us, so `wait` returns when the child dies and the trap below can run.
+  : > "$LOG_FILE"
+  "${child[@]}" >> "$LOG_FILE" 2>&1 &
+  child_pid=$!
+  tail -n +1 -f "$LOG_FILE" 2>/dev/null &
+  tail_pid=$!
+  wait "$child_pid"
+  exit_code=$?
+  sleep 0.3          # let tail flush the last lines before it is stopped
+  kill "$tail_pid" 2>/dev/null
+  wait "$tail_pid" 2>/dev/null
   set -e
 fi
 duration=$SECONDS
