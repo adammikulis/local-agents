@@ -1,25 +1,19 @@
 class_name LAStar
 extends Node3D
 
-
-const DEFAULT_MASS: float = 1.0e7        # 10x the planet's 1e6 — the star has to dominate to be a star
-const DEFAULT_RADIUS: float = 250.0
+## A star is a BODY. Its mass pulls like any other mass and its luminosity is what it radiates; the flux
+## reaching anything else is that luminosity over the sphere it has spread across by the time it arrives.
 
 var _light: DirectionalLight3D = null       # for a single close body, a directional light reads as "the sun"
-var _mass: float = DEFAULT_MASS
-var _radius: float = DEFAULT_RADIUS
-var _base_energy: float = 1.4
+var _seed_key: String = "star"
 
 
 func setup(opts: Dictionary = {}) -> void:
-	_mass = float(opts.get("mass", DEFAULT_MASS))
-	_radius = float(opts.get("radius", DEFAULT_RADIUS))
-	_base_energy = float(opts.get("energy", 1.4))
-	position = opts.get("position", Vector3(900.0, 300.0, 600.0))
+	_seed_key = String(opts.get("seed_key", "star"))
+	position = seed_row().get("position_m", Vector3.ZERO)
 
 	_light = DirectionalLight3D.new()
 	_light.name = "StarLight"
-	_light.light_energy = _base_energy
 	_light.shadow_enabled = true
 	add_child(_light)
 	aim_at(Vector3.ZERO)
@@ -29,11 +23,33 @@ func setup(opts: Dictionary = {}) -> void:
 	add_to_group(LAGravity.GROUP)
 
 
-func mass() -> float:
-	return _mass
+func seed_row() -> Dictionary:
+	return LABodySeeds.of(_seed_key)
 
-func radius() -> float:
-	return _radius
+
+func mass() -> float:
+	return float(seed_row().get("mass_kg", 0.0))
+
+
+## Radiant power, watts.
+func luminosity_w() -> float:
+	return float(seed_row().get("luminosity_w", 0.0))
+
+
+## Radiant power in the XUV, watts. What an exosphere goes hydrodynamic on.
+func xuv_luminosity_w() -> float:
+	return float(seed_row().get("xuv_luminosity_w", 0.0))
+
+
+## Irradiance at a world point, W/m^2. No nominal orbit and no normalisation, so an eccentric or knocked
+## orbit changes it on its own.
+func irradiance_at(world_pos: Vector3) -> float:
+	return LABodySeeds.irradiance_w_m2(luminosity_w(), (world_pos - global_position).length())
+
+
+func xuv_irradiance_at(world_pos: Vector3) -> float:
+	return LABodySeeds.irradiance_w_m2(xuv_luminosity_w(), (world_pos - global_position).length())
+
 
 ## World-space centre — the N-body contract shared with LAPlanetBody and LAMoon.
 func center() -> Vector3:

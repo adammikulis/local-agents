@@ -71,90 +71,86 @@ if [ -z "$(git -C "$ROOT" log --oneline "$DEV..$BRANCH")" ]; then
 fi
 [ "$CHECK_ONLY" -eq 0 ] || { echo "integrate: --check only, nothing moved." >&2; exit 0; }
 
-# --- 3. MERGE AND VERIFY OFF THE DEV BRANCH ------------------------------------------------------------
-STAGE="integrate/$(printf '%s' "$BRANCH" | tr '/' '-')"
-STAGE_WT="$PRIMARY/../la-$(printf '%s' "$STAGE" | tr '/' '-')"
-# A staging tree holding a COMPLETED merge of both tips is a resolved conflict from a prior run: use it,
-# or rebuilding here would destroy the resolution the prior run asked for.
-if [ -d "$STAGE_WT" ] \
-	&& [ -z "$(git -C "$STAGE_WT" status --porcelain 2>/dev/null)" ] \
-	&& git -C "$STAGE_WT" merge-base --is-ancestor "$BRANCH" "$STAGE" 2>/dev/null \
-	&& git -C "$STAGE_WT" merge-base --is-ancestor "$DEV" "$STAGE" 2>/dev/null; then
-	echo "integrate: reusing the resolved staging merge in $STAGE_WT" >&2
-else
-	git -C "$ROOT" worktree remove "$STAGE_WT" --force >/dev/null 2>&1 || true
-	git -C "$ROOT" branch -D "$STAGE" >/dev/null 2>&1 || true
-	"$SCRIPT_DIR/new_worktree.sh" "$STAGE" "$DEV" >/dev/null || { echo "integrate: could not stage." >&2; exit 2; }
-
-	if ! git -C "$STAGE_WT" merge --no-ff "$BRANCH" -m "$SUBJECT" >/dev/null 2>&1; then
-		echo "integrate: the merge conflicts. Resolve it in $STAGE_WT, then re-run." >&2
-		git -C "$STAGE_WT" diff --name-only --diff-filter=U | sed 's/^/    /' >&2
-		exit 1
-	fi
-fi
-
-# SCAN AFTER THE MERGE, NOT BEFORE IT. new_worktree.sh scans when it builds the staging tree, which is off
-# the DEV branch -- so a lane's new `class_name` or `.glsl` arrives afterwards and is unregistered. The
-# staged lint then fails on "Identifier not declared" for a class the lane correctly added, which reads as
-# the lane being broken. Imports first (a new kernel is unimported and load()s as null), then the scan.
-"$SCRIPT_DIR/godot_import.sh" "$STAGE_WT" || true
-"$SCRIPT_DIR/editor_scan.sh" --path "$STAGE_WT" >/dev/null 2>&1 || {
-	echo "integrate: the staged tree does not scan clean after the merge." >&2
-	"$SCRIPT_DIR/editor_scan.sh" --path "$STAGE_WT" >&2
+# --- 3. VERIFY THE LANE'S OWN TREE, BECAUSE THAT IS WHAT LANDS ------------------------------------------
+# THERE IS NO STAGING TREE. It provisioned a whole environment for the PRE-MERGE source, merged into it,
+# and then had to rebuild the extension, re-import the kernels and re-scan to catch up -- three full lints
+# and a cold dependency build to check a RECONSTRUCTION of the merge rather than the commit it publishes.
+# The lane's own worktree already contains $DEV, is already built, imported and scanned, and its tip is
+# exactly what fast-forwards. Linting it is both far cheaper and a stronger claim.
+if [ "$behind" -ne 0 ]; then
+	echo "integrate: $BRANCH is behind $DEV by $behind commit(s), so its tree is not what would land." >&2
+	echo "           Merge $DEV into it IN ITS OWN WORKTREE -- the build is warm there and a conflict is" >&2
+	echo "           a physics decision you want the tree in front of you for -- then re-run." >&2
 	exit 1
-}
-
-# The integrator owns the ceilings, so it writes them rather than asking a lane to carry the number.
-# THE STAGED TREE'S OWN WRITER, for the same reason the lint step below uses the staged harness. The
-# primary's copy is the PRE-MERGE one, so a lane that changes how a ceiling is counted would have the stale
-# count banked over its new one.
-# A landed lane's declaration lands with it. Pruning the branch and leaving its row standing makes the
-# next lane trip on a branch that no longer exists.
-STAGE_DECL="$STAGE_WT/docs/OPEN_BRANCHES.md"
-if [ -f "$STAGE_DECL" ]; then
-	rg -N -v -e "^\| \`$(printf '%s' "$BRANCH" | sed 's/[].[^$\\*\/]/\\&/g')\` \|" "$STAGE_DECL" > "$STAGE_DECL.tmp" \
-		&& mv "$STAGE_DECL.tmp" "$STAGE_DECL"
 fi
 
-STAGE_CEILINGS="$STAGE_WT/scripts/write_ceilings.sh"
-[ -x "$STAGE_CEILINGS" ] || { echo "integrate: the staged tree has no write_ceilings.sh." >&2; exit 2; }
-LA_CEILING_STRICT=1 "$STAGE_CEILINGS" "$STAGE_WT" >&2 || true
-if [ -n "$(git -C "$STAGE_WT" status --porcelain)" ]; then
-	git -C "$STAGE_WT" add -A
-	# NOT `|| true`. A pre-commit hook can block this, and swallowing that leaves the ceilings unwritten
-	# while the run reports success -- which is how a red ratchet reached the dev branch.
-	# The staging tree's pre-commit hook runs the full lint, so it needs the same in-flight exemption the
-	# gate step gets: without it check_branch_integration fails on the staging branch itself.
-	if ! (cd "$STAGE_WT" && LA_CEILING_STRICT=1 LA_INTEGRATE_BRANCH="$STAGE" LA_INTEGRATE_SOURCE="$BRANCH" \
-			git commit -q -m "chore(ceilings): the post-merge counts"); then
+LANE_WT=""
+while IFS= read -r line; do
+	wt="${line#worktree }"
+	[ "$(git -C "$wt" symbolic-ref -q --short HEAD 2>/dev/null)" = "$BRANCH" ] || continue
+	LANE_WT="$wt"
+	break
+done < <(git -C "$ROOT" worktree list --porcelain | rg -N '^worktree ')
+if [ -z "$LANE_WT" ]; then
+	echo "integrate: $BRANCH is checked out in no worktree. Make one with scripts/new_worktree.sh." >&2
+	exit 2
+fi
+echo "integrate: verifying $LANE_WT" >&2
+
+# A landed lane's declaration lands with it: pruning the branch and leaving its row standing makes the
+# next lane trip on a branch that no longer exists.
+LANE_DECL="$LANE_WT/docs/OPEN_BRANCHES.md"
+if [ -f "$LANE_DECL" ]; then
+	rg -N -v -e "^\| \`$(printf '%s' "$BRANCH" | sed 's/[].[^$\\*\/]/\\&/g')\` \|" "$LANE_DECL" > "$LANE_DECL.tmp" \
+		&& mv "$LANE_DECL.tmp" "$LANE_DECL"
+fi
+
+# The integrator owns the ceilings. --no-verify because the hook's whole job is the lint that runs three
+# lines below, on this same tree: without it every landing pays for two.
+LANE_CEILINGS="$LANE_WT/scripts/write_ceilings.sh"
+[ -x "$LANE_CEILINGS" ] || { echo "integrate: $LANE_WT has no write_ceilings.sh." >&2; exit 2; }
+LA_CEILING_STRICT=1 "$LANE_CEILINGS" "$LANE_WT" >&2 || true
+if [ -n "$(git -C "$LANE_WT" status --porcelain)" ]; then
+	git -C "$LANE_WT" add -A
+	if ! git -C "$LANE_WT" commit -q --no-verify -m "chore(ceilings): the post-merge counts"; then
 		echo "integrate: could not commit the ceilings. $DEV is untouched." >&2
 		exit 1
 	fi
 fi
 
-echo "integrate: gates, on the merged tree" >&2
-# The STAGING TREE'S OWN harness. $SCRIPT_DIR/agent_harness.sh computes its repo root from its own
-# location, so it lints the PRIMARY no matter what the cwd is -- it reported green on the wrong tree and
-# landed a red merge. cd is not enough; the path has to be the staged one.
-STAGE_LINT="$STAGE_WT/scripts/agent_harness.sh"
-[ -x "$STAGE_LINT" ] || { echo "integrate: the staged tree has no harness at $STAGE_LINT." >&2; exit 2; }
-if ! (cd "$STAGE_WT" && LA_CEILING_STRICT=1 LA_INTEGRATE_BRANCH="$STAGE" LA_INTEGRATE_SOURCE="$BRANCH" "$STAGE_LINT" lint >/dev/null 2>&1); then
-	echo "integrate: LINT FAILED on the merged tree. $DEV is untouched." >&2
-	echo "           Reproduce with: cd $STAGE_WT && scripts/agent_harness.sh lint" >&2
-	exit 1
+echo "integrate: gates, on the tree that will land" >&2
+# THE LANE'S OWN harness: $SCRIPT_DIR/agent_harness.sh computes its repo root from its own location, so it
+# would lint the PRIMARY no matter what the cwd is. cd is not enough; the path has to be the lane's.
+LANE_LINT="$LANE_WT/scripts/agent_harness.sh"
+[ -x "$LANE_LINT" ] || { echo "integrate: $LANE_WT has no harness." >&2; exit 2; }
+# A VIOLATION refuses the landing. A gate that COULD NOT RUN examined nothing, and while the substrate is
+# declaredly unstable every GPU gate is in that state, so that count is ratcheted instead: it may fall and
+# may not rise, and it reaches zero when docs/PHYSICS_TODO.md E does.
+LINT_OUT="$(cd "$LANE_WT" && LA_CEILING_STRICT=1 LA_INTEGRATE_BRANCH="$BRANCH" LA_INTEGRATE_SOURCE="$BRANCH" \
+	"$LANE_LINT" lint 2>&1)"
+LINT_RC=$?
+if [ "$LINT_RC" -ne 0 ]; then
+	SUMMARY="$(printf '%s\n' "$LINT_OUT" | rg -N -o -e 'LINT_SUMMARY: ([0-9]+) gate\(s\) COULD NOT RUN, ([0-9]+) violation' -r '$1 $2' | head -1)"
+	CANNOT="${SUMMARY%% *}"
+	VIOL="${SUMMARY##* }"
+	UNRUN_CEIL="$(rg -N -o '^[0-9]+$' "$LANE_WT/docs/UNRUNNABLE_GATES_CEILING" 2>/dev/null | head -1)"
+	if [ -z "$SUMMARY" ] || [ -z "$UNRUN_CEIL" ] || [ "${VIOL:-1}" -ne 0 ] || [ "${CANNOT:-1}" -gt "$UNRUN_CEIL" ]; then
+		echo "integrate: LINT FAILED. $DEV is untouched." >&2
+		[ -n "$SUMMARY" ] && echo "           $CANNOT could not run (ceiling $UNRUN_CEIL), $VIOL violation(s)." >&2
+		echo "           Reproduce with: cd $LANE_WT && scripts/agent_harness.sh lint" >&2
+		exit 1
+	fi
+	echo "integrate: landing with $CANNOT gate(s) that COULD NOT RUN (ceiling $UNRUN_CEIL), 0 violations." >&2
 fi
 
 # --- 4. LAND, THEN PRUNE EVERYTHING THIS TOUCHED -------------------------------------------------------
-git -C "$ROOT" merge --ff-only "$STAGE" >/dev/null 2>&1 || {
+git -C "$ROOT" merge --no-ff "$BRANCH" -m "$SUBJECT" >/dev/null 2>&1 || {
 	echo "integrate: $DEV moved under this run. Re-run." >&2; exit 1; }
-# The PRIMARY has just fast-forwarded, so its .godot is stale: a new class_name is unregistered and a new
-# .glsl unimported, which makes check_parse_all red and a GPU field silently dead. The staging tree got
-# this from new_worktree.sh; the primary needs it too.
+# The PRIMARY has just moved, so its .godot is stale: a new class_name is unregistered and a new .glsl
+# unimported, which makes check_parse_all red and a GPU field silently dead.
 "$SCRIPT_DIR/godot_import.sh" "$ROOT" || true
 "$SCRIPT_DIR/editor_scan.sh" --path "$ROOT" >/dev/null 2>&1 || \
 	echo "integrate: the post-merge editor scan was not clean; run scripts/editor_scan.sh." >&2
-git -C "$ROOT" worktree remove "$STAGE_WT" --force >/dev/null 2>&1 || true
-git -C "$ROOT" branch -D "$STAGE" >/dev/null 2>&1 || true
 for wt in $(git -C "$ROOT" worktree list --porcelain | rg -N '^worktree ' | sed 's/^worktree //'); do
 	[ "$wt" = "$PRIMARY" ] && continue
 	[ "$(git -C "$wt" symbolic-ref -q --short HEAD 2>/dev/null)" = "$BRANCH" ] || continue

@@ -1,5 +1,10 @@
 #include "LAPlanetTables.hpp"
 
+#include "LAScriptCall.hpp"
+
+#include <cmath>
+#include <vector>
+
 #include "LAPhysicalRead.hpp"
 #include "LASubstances.hpp"
 
@@ -17,13 +22,6 @@
 using namespace godot;
 
 namespace {
-
-// Static GDScript entry points this table still consults — the substance table and the sim clock.
-Variant call_gd(const char *p_path, const StringName &p_method, const Array &p_args) {
-	Ref<Script> s = ResourceLoader::get_singleton()->load(p_path);
-	ERR_FAIL_COND_V_MSG(s.is_null(), Variant(), String("LAPlanetTables: failed to load ") + p_path);
-	return s->callv(p_method, p_args);
-}
 
 struct Row {
 	const char *el;
@@ -372,6 +370,97 @@ double LAPlanetComposition::core_radius_frac(double p_t_c, double p_p_pa) {
 	return std::pow(f * rho_s / (rho_m * (1.0 - f) + f * rho_s), 1.0 / 3.0);
 }
 
+// ONE TRIAL RADIUS: relax the radial structure and report the mass it holds. Density depends on pressure,
+// pressure on the mass above, mass on density, so the three are iterated until they stop moving. The core
+// is wherever the inner `f_core` of the mass ends up, not a radius anybody declared.
+constexpr double kPi = 3.14159265358979323846;
+
+static double mass_at_radius(double p_radius_m, double p_t_c) {
+	if (!(p_radius_m > 0.0)) {
+		return 0.0;
+	}
+	const int N = 192;
+	const double g_const = la_physical("GRAVITATIONAL_CONSTANT");
+	const double p_std = la_physical("STANDARD_PRESSURE_PA");
+	const double f_core = LAElementAbundances::core_mass_fraction();
+	const double dr = p_radius_m / double(N);
+	std::vector<double> rho(N, 0.0), m_in(N, 0.0), p_at(N, p_std);
+	const double rho_shell0 = LAPlanetComposition::shell_density(p_t_c, p_std);
+	const double rho_core0 = LASubstances::density("metal", p_t_c, p_std);
+	if (rho_shell0 <= 0.0 || rho_core0 <= 0.0) {
+		return 0.0;
+	}
+	int i_core = int(double(N) * LAPlanetComposition::core_radius_frac(p_t_c, p_std));
+	for (int i = 0; i < N; ++i) {
+		rho[i] = (i < i_core) ? rho_core0 : rho_shell0;
+	}
+	for (int pass = 0; pass < 24; ++pass) {
+		double acc = 0.0;
+		for (int i = 0; i < N; ++i) {
+			const double r_lo = double(i) * dr;
+			const double r_hi = r_lo + dr;
+			acc += rho[i] * (4.0 / 3.0) * kPi * (r_hi * r_hi * r_hi - r_lo * r_lo * r_lo);
+			m_in[i] = acc;
+		}
+		const double total = acc;
+		if (!(total > 0.0)) {
+			return 0.0;
+		}
+		// The core boundary is a MASS fraction, so it moves as the profile compresses.
+		i_core = 0;
+		while (i_core < N && m_in[i_core] < f_core * total) {
+			++i_core;
+		}
+		// Hydrostatic pressure, integrated inward from one atmosphere at the surface.
+		double p = p_std;
+		for (int i = N - 1; i >= 0; --i) {
+			const double r_mid = (double(i) + 0.5) * dr;
+			const double g = g_const * m_in[i] / (r_mid * r_mid);
+			p += rho[i] * g * dr;
+			p_at[i] = p;
+		}
+		for (int i = 0; i < N; ++i) {
+			const double d = (i < i_core) ? LASubstances::density("metal", p_t_c, p_at[i])
+										  : LAPlanetComposition::shell_density(p_t_c, p_at[i]);
+			if (d > 0.0) {
+				rho[i] = d;
+			}
+		}
+	}
+	double total = 0.0;
+	for (int i = 0; i < N; ++i) {
+		const double r_lo = double(i) * dr;
+		const double r_hi = r_lo + dr;
+		total += rho[i] * (4.0 / 3.0) * kPi * (r_hi * r_hi * r_hi - r_lo * r_lo * r_lo);
+	}
+	return total;
+}
+
+// THE RADIUS IS AN OUTPUT. A body is given a mass and a composition; how big it is follows from how far
+// that much matter spreads once its own weight has squeezed it. Bisection, because mass rises with radius.
+double LAPlanetComposition::radius_for_mass(double p_mass_kg, double p_t_c) {
+	if (!(p_mass_kg > 0.0)) {
+		return 0.0;
+	}
+	const double p_std = la_physical("STANDARD_PRESSURE_PA");
+	const double rho_un = shell_density(p_t_c, p_std);
+	if (rho_un <= 0.0) {
+		return 0.0;
+	}
+	// The uncompressed body is the largest it can be, so it brackets the answer from above.
+	double hi = std::pow(3.0 * p_mass_kg / (4.0 * kPi * rho_un), 1.0 / 3.0) * 1.2;
+	double lo = hi * 0.2;
+	for (int i = 0; i < 48; ++i) {
+		const double mid = 0.5 * (lo + hi);
+		if (mass_at_radius(mid, p_t_c) < p_mass_kg) {
+			lo = mid;
+		} else {
+			hi = mid;
+		}
+	}
+	return 0.5 * (lo + hi);
+}
+
 // Fill the field's mineral mirrors: a differentiated body — metal core, one silicate shell of the
 // registry's own mineral mix. Differentiation at ~10^13 steps is not computable, so the layering is
 // seeded; the maintainer's decision, not a law.
@@ -397,7 +486,7 @@ void LAPlanetComposition::seed(Object *p_field, double p_t_c) {
 	const double metal_full = substance_density("metal", p_t_c, p_std) / substance_molar_mass("metal");
 	Array cargs;
 	cargs.push_back(p_field);
-	const Vector3 centre = Vector3(call_gd(
+	const Vector3 centre = Vector3(la_call_gd(
 			"res://addons/local_agents/sim/material/FieldGeometry3D.gd", "centre", cargs));
 	const int cc = int(p_field->get("_cell_count"));
 	const PackedByteArray solid = PackedByteArray(p_field->get("_solid"));
@@ -453,6 +542,7 @@ void LAPlanetComposition::_bind_methods() {
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("shell_minerals"), &shell_minerals);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("shell_density", "t_c", "p_pa"), &shell_density);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("core_radius_frac", "t_c", "p_pa"), &core_radius_frac);
+	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("radius_for_mass", "mass_kg", "t_c"), &radius_for_mass);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("seed", "field", "t_c"), &seed);
 }
 
@@ -493,7 +583,7 @@ Dictionary two_daughters(const char *p_a, double p_na, const char *p_b, double p
 // The abundances every entry in LASubstances is quoted at: today. Years run forward from there, so this
 // world's own epoch — the declared 4.4 Ga referent — is NEGATIVE and the store fuller than Earth's now.
 double LARadiogenicDecay::epoch_years() {
-	const Variant clock = call_gd("res://addons/local_agents/sim/SimClock.gd", "active", Array());
+	const Variant clock = la_call_gd("res://addons/local_agents/sim/SimClock.gd", "active", Array());
 	const double anchor = -la_physical("PLANET_EPOCH_YEARS_BEFORE_PRESENT");
 	Object *c = clock;
 	if (c == nullptr) {

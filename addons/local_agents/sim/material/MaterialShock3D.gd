@@ -48,26 +48,10 @@ func shock_at(world_pos: Vector3) -> float:
 
 ## Normalised world direction of increasing shock, from the 6-neighbour differences; zero where quiet.
 func shock_gradient(world_pos: Vector3) -> Vector3:
-	if _f._grid == null or _f._shock.size() != _f._cell_count:
+	if _f._shock.size() != _f._cell_count:
 		return Vector3.ZERO
-	var c: int = _f.world_to_cell(world_pos)
-	if c < 0:
-		return Vector3.ZERO
-	var pos_c: Vector3 = _f.cell_world_pos_linear(c)
-	var s0: float = _f._shock[c]
-	var nbr: PackedInt32Array = _f._grid.neighbours
-	var grad: Vector3 = Vector3.ZERO
-	for d in range(6):
-		var nb: int = nbr[c * 6 + d]
-		if nb < 0 or _f._solid[nb] != 0:
-			continue
-		var dir: Vector3 = _f.cell_world_pos_linear(nb) - pos_c
-		if dir.length_squared() < 1.0e-8:
-			continue
-		grad += dir.normalized() * (_f._shock[nb] - s0)
-	if grad.length_squared() < 1.0e-8:
-		return Vector3.ZERO
-	return grad.normalized()
+	return LAFieldGeometry.gradient_at(_f, _f.world_to_cell(world_pos),
+		func(i: int) -> float: return _f._shock[i])
 
 
 ## Open cells over SHOCK_ACTIVE, reduced on the device. -1 when the reduction has not run.

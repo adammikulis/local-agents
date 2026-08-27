@@ -204,11 +204,16 @@ func begin_frame(h: PackedFloat32Array, water: PackedFloat32Array) -> void:
 	_ctx["depth"] = _grid.max_span()
 	_ctx["centre"] = _field.centre()     # the body centre — the spin axis passes through it
 	_ctx["spin"] = LAFieldGeometry.spin_axis(_field)
+	# Rate as well as axis: seeded angular momentum over measured inertia. Zero while unmeasured,
+	# which is no rotating frame rather than a guessed one.
+	_ctx["spin_rate_rad_s"] = LAFieldGeometry.spin_rate(_field)
 
-## World-space vector toward the sun; its LENGTH is the relative insolation. Absent = no sun, which is
-## dark, not a default direction: an axis chosen here would decide where noon is.
-func set_sun_dir(v: Vector3) -> void:
+## World-space vector toward the sun; its LENGTH is the IRRADIANCE in W/m^2, so the beam a cell sees is
+## that magnitude and no kernel multiplies by a solar constant. Absent = no sun, which is dark, not a
+## default direction: an axis chosen here would decide where noon is.
+func set_sun_flux(v: Vector3, xuv_w_m2: float) -> void:
 	_ctx["sun_dir"] = v
+	_ctx["xuv_w_m2"] = xuv_w_m2 if is_finite(xuv_w_m2) else 0.0
 
 
 ## Radius of the sea shell from the body centre, metres — the datum the derived `alt` is measured from.
@@ -217,12 +222,14 @@ func set_sea_radius(m: float) -> void:
 	_ctx["sea_radius"] = m
 
 
-## The drained maxima the substep budget reads; before any drain there are none, so no extra substeps.
-func set_cfl_inputs(speed_max: float, temp_max_k: float, mean_g: float, celerity_max: float) -> void:
-	_ctx["cfl_speed_max"] = speed_max if is_finite(speed_max) else 0.0
-	_ctx["cfl_temp_max_k"] = temp_max_k if is_finite(temp_max_k) else 0.0
-	_ctx["cfl_mean_g"] = mean_g if is_finite(mean_g) else 0.0
-	_ctx["cfl_celerity_max"] = celerity_max if is_finite(celerity_max) else 0.0
+## The drained maxima the substep budget reads. A reading it has no value for is LEFT UNSET, so the budget
+## falls to its a-priori floor instead of reading an invented zero as "nothing is moving".
+func set_cfl_inputs(maxima: Dictionary) -> void:
+	for key: String in ["cfl_speed_max", "cfl_temp_max_k", "cfl_mean_g", "cfl_celerity_max"]:
+		if not maxima.has(key):
+			_ctx.erase(key)
+			continue
+		_ctx[key] = maxf(float(maxima[key]), 0.0)
 
 
 

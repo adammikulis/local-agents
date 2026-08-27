@@ -14,33 +14,67 @@ on the file it named. If you know the cause you are close enough to fix it, so f
 
 ---
 
-## 0. PRESSURE_BROKEN EXITS 122, AND THE COUNT GROWS WHILE THE RUN STEPS
+## 0. THE TRANSPORT SUBSTEP BUDGET IS DENIED ON EVERY RUN, AND THE DEFAULT BOX IS NOT EXEMPT
 
-`scripts/sim_run.sh --frames 10` exits 122. The DRY open-pair class carries the whole count, rock and
-surface read zero, and the count RISES across the run's own reports while `pressure_audited` barely moves.
+`scripts/agent_harness.sh sim --frames 6` logs `SUBSTEPS_DENIED` for every matter row: the budget asks for
+thousands of substeps and the cap is 256, so the rows run under-resolved and the harness withholds the
+numbers. The denial names its inputs; `wind` is the term that blows it.
 
-The audit cannot say how big an inversion is: `LAReducePressureRows` counts `Op.COUNT_GT` on the raw pair
-difference against a bare `0.0`, and its numerator gates on `h2o` while its denominator gates on
-`pressure`, so the two span different cells.
+The default box is denied too, by a smaller factor, so twenty frames do not show it.
 
-**The 2.5 km slice reaches non-finite momentum past ~10 frames** while the default box stays finite:
-`scripts/agent_harness.sh sim --slice --slice-box "0,2439700,0,24,32,24,2500" --frames 20 --report nonfinite_cells`.
-The cells flanking the wrap seam accumulate multiple fills of h2o first, and `celerity_max` leaves the
-physical range before the momentum does. `LA_PASS_PROBE=nonfinite LA_PASS_PROBE_STEPS=12` prints each
-pass's peak-cell state and per-channel non-finite counts.
+`docs/PHYSICS_TODO.md` E carries the wind as its own item. Until it reads a physical speed no run's numbers
+mean anything. `rho_max_open` is the reading that shows it: an open cell may not be denser than the densest
+substance the table declares, and that is this item's acceptance test.
 
-## 1. THE GRID CANNOT HOLD AN ATMOSPHERE, AND WHICH GRID REPLACES IT IS THE MAINTAINER'S
+The slice reaches non-finite state and publishes no `momentum_book_bnd`, so
+`check_boundary_momentum_book.sh`'s replay arm fails on its absence. Reproduce:
+`scripts/sim_run.sh --frames 20 --slice-capture C`, then
+`scripts/sim_run.sh --slice --slice-state C --frames 20 --report rho_max_open,celerity_max`.
+An offset component of `surface` puts a box on the body without naming a radius.
+
+## 1. BUILD THE GRADED GRID. IT IS THE TRUNK AND ITEM 0 WAITS ON IT
 
 `LAFieldLithostaticSeed.shape_atmosphere` seeds the whole atmosphere into one cell shell with vacuum above
-whenever the scale height is under a cell edge, and that holds at every resolution: the box is
-`2 * (PLANET_RADIUS + MODELLED_ATMOSPHERE_HEIGHT_M) / N` per cell with `N` capped at `GRID_EDGE_MAX`, so
-the finest cell available is larger than any scale height this planet can have. No lapse rate, no vertical
-structure, and the open cells the pressure audit compares are mostly the cube's corners.
+whenever the scale height is under a cell edge, and that holds at every resolution the project offers: no
+lapse rate, no vertical structure, and the open cells the pressure audit compares are mostly the cube's
+corners. Item 0 cannot be read either way until this lands.
 
-`docs/PHYSICS_TODO.md` D asks for `cell_size` to become per-shell, while the uniform Cartesian box is the
-only grid and its claims still hold (`nofile addons/local_agents/sim/sphere`, `absent link_partner`).
-Graded radial bands, axis-aligned refinement, or something else is a change to the trunk — decide it
-before building it. Item 0 waits on it: an audit over vacuum corners cannot be read either way.
+**The grid is Cartesian with axis-aligned refinement. That is settled, with the reasoning, in
+`docs/PHYSICS_TODO.md` — do not re-open it.** What is left is to build it:
+
+- `LAVoxelGrid` gains per-cell geometry: refinement level, edge length, per-face area and centre distance.
+  `cell_volumes()` stops filling one repeated value.
+- `neighbours` generalises from six fixed slots to a per-cell face list, so a coarse cell can face four
+  fine ones; `opposite_slot(d) = d ^ 1` becomes a stored partner slot and `check_neighbour_slots.sh`
+  gates the new single definition.
+- On the device, `params.cell_m` is replaced by per-cell and per-face buffers beside the `cell_vol` SSBO
+  that `kernels3d/cellvol.glsli` already reads. `transport.glsl`, `transport_radiate.glsli`,
+  `gravity_poisson.glsl`, `pressure.glsl`, `reduce.glsl` and `march.glsli` carry every site.
+- Refinement is seeded from distance to the terrain SDF, which `MaterialFieldSolidCache3D` already
+  samples. The vacuum corners and the quiet interior stay coarsest, which is what makes it affordable.
+- The slice box becomes a refinement region rather than a second construction path.
+
+**Before any kernel is touched: every kernel rig hardcodes `CELL = 1.0`, so dx, face area and cell volume
+are all numerically 1 and no rig can tell which role a quantity carries.** `check_gravity_solve.sh`,
+`check_boundary_books.sh`, `check_boundary_momentum_book.sh`, `check_escape_law.sh` and
+`check_radiative_row.sh` all build their grid that way; `check_radiative_row.sh` hardcodes the collapsed
+`6.0 * emis * sigma * T^4 * dt / CELL`. Move them to a non-unit cell first, or the conversion is unverifiable.
+
+**`check_voxel_grid.sh` asserts `volume_ratio == 1.0`** — a gate holding the grid uniform. It is INVERTED,
+not deleted: it becomes the gate that a 2:1 neighbour's volume ratio is exactly 8 and that every transfer
+goes through `cellvol.glsli`'s existing `vol_ratio(donor, receiver)`.
+
+**The well-balanced scheme is required work, not a hope, and it decides whether the atmosphere is real.**
+`transport.glsl`'s `face_p()` already reconstructs face pressure hydrostatically; it has to be good enough
+in the stratified direction. Its gate is the only test that matters: an atmosphere at rest, in balance,
+stays at rest. Build that gate first and watch it fail.
+
+`check_alt_bands.sh` already fails on this: every populated altitude band reads the same minimum
+temperature, because the bands hold one isothermal population and mostly the cube's corners. It goes
+green when the atmosphere has vertical structure, so treat it as this item's acceptance test.
+
+`shape_atmosphere`'s `flat` branch is DELETED when this lands. If it cannot come out, the root is not
+fixed.
 
 ## 2. The open-boundary books do not close at run level
 
@@ -56,6 +90,14 @@ no step's crossings are dropped and nothing is extrapolated over a window.
 
 With every wall shut, `scripts/agent_harness.sh sim --frames 20` ends with `h2o_total` below its sealed
 baseline while the element and mineral books close. Same symptom on the pre-conversion tree.
+
+## 3. Three GPU gates are red and none is triaged
+
+`check_slice_exterior.sh` reports `the exterior under the box is not under more pressure than the
+exterior over it` and `SLICE_EXTERIOR_CAPTURE={"faces":6,"named":0}`. `check_alt_bands.sh` and
+`check_boundary_momentum_book.sh` are red for the reasons items 1 and 0 carry.
+
+Reproduce: `bash scripts/check_slice_exterior.sh`.
 
 ## 4. Reduce the rest on the device
 
@@ -80,9 +122,9 @@ GDScript keeps bindings. `gdextensions/localagents/` already builds; a class is 
 - **Do not move `PhysicalConstants.gd`.** godot-cpp binds only INTEGER class constants, so its floats
   have no native form a GDScript `const` can fold; native code reads it through
   `include/LAPhysicalRead.hpp`.
-- The seed-time serial work: `MaterialFieldLakes3D`'s priority flood, `MaterialFieldSolidCache3D`'s SDF
-  spot check and file hashing, `MaterialFieldRegolith3D.compute`'s burial march, `FieldEnthalpySeed3D`'s
-  per-cell mixture walk and its dynamic `f.get("_" + name)` lookup.
+- The seed-time serial work still in GDScript: `MaterialFieldLakes3D`'s priority flood,
+  `MaterialFieldSolidCache3D`'s SDF spot check and file hashing, `MaterialFieldRegolith3D.compute`'s
+  burial march, `FieldEnthalpySeed3D`'s per-cell mixture walk and its dynamic `f.get("_" + name)` lookup.
 - The driver: `MaterialSphereGPU3D.gd` and `MaterialField3D.gd`. Last, after the pass seam settles.
 
 ## 7. Build the binding registry
@@ -114,5 +156,7 @@ full lint, so a commit per step is a lint per step. A run past `docs/RUN_TIMEOUT
 
 Make every worktree with `scripts/new_worktree.sh`, which symlinks the compiled `bin/`, imports the `.glsl`
 kernels and editor-scans. Without the import the GPU field is dead and the report still looks fine.
+Each worktree gets its OWN `bin/`: one shared copy cannot serve two trees whose native `class_name`s
+differ, and the other tree stops parsing with "hides a native class".
 
 A gate that passes with the feature disabled is not a gate. Mutation-test every gate you write, both ways.

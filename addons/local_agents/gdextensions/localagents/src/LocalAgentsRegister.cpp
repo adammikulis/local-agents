@@ -9,6 +9,9 @@
 #include "AgentRuntime.hpp"
 #include "LAAbsorptionBands.hpp"
 #include "LAMixtureEnthalpy.hpp"
+#include "LABodySystem.hpp"
+#include "LAFieldCellMass.hpp"
+#include "LAFieldLithostaticSeed.hpp"
 #include "LAPlanetTables.hpp"
 #include "LASubstances.hpp"
 #include "NetworkGraph.hpp"
@@ -57,6 +60,11 @@ void initialize_local_agents(ModuleInitializationLevel p_level) {
     ClassDB::register_class<LAElementAbundances>();
     ClassDB::register_class<LAPlanetComposition>();
     ClassDB::register_class<LARadiogenicDecay>();
+    ClassDB::register_class<LAOrbitState>();
+    ClassDB::register_class<LABodySeeds>();
+    ClassDB::register_class<LAFieldCellMass3D>();
+    ClassDB::register_class<LABodyMeasure>();
+    ClassDB::register_class<LAFieldLithostaticSeed>();
     ClassDB::register_class<LASubstances>();
     ClassDB::register_class<LAMixtureEnthalpy>();
 

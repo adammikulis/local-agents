@@ -30,8 +30,7 @@ func build(world: Node, sim: LASimulation, input: LAVoxelInputController) -> voi
 func _build_camera() -> void:
 	var body: Node3D = _sim.body()
 	_camera.current = true
-	# A SECOND viewer, this one asking for visuals + collision meshing. The simulation's data-only viewer
-	# already streams the SDF, so this adds drawing, never streaming the physics depends on.
+	# A SECOND viewer asking for visuals + collision meshing; the sim's data-only viewer already streams.
 	body.attach_viewer(_camera, true)
 	if _camera.has_method("set_orbit_target"):
 		_camera.set_orbit_target(body.center(), body.radius())
@@ -64,16 +63,13 @@ func _build_world_visuals() -> void:
 	else:
 		_ocean.setup(terrain.sea_level(), _camera)
 
-	# The field's emergent condensate as ONE GPU particle system: cloud / fog / rain / snow, the phase a
-	# per-particle property classified from the field's baked cover texture.
+	# The field's condensate as ONE GPU particle system; phase is per-particle, off the cover texture.
 	_water.setup(material, _camera, _sky_ctrl.sun(), body.center(), body.sea_radius())
 
 	# The dynamic FLUID SURFACE: springs/rivers/waterfalls/lakes/floods meshed from the field's water column.
 	_water_surface.setup(material, _camera, terrain, _sky_ctrl.sun(), body.center(), body.sea_radius())
 
 	_sky_ctrl.bind_scene(material, _water)
-	if _sim.orbits() != null:
-		_sim.orbits().set_tide_targets(_ocean, _water_surface, body.sea_radius())
 
 	# The terrain shader's climate basis: up is radial, altitude is height above the sea shell.
 	terrain.set_shader_param("planet_center", body.center())

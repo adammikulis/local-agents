@@ -187,7 +187,8 @@ float solar_incident(uint c) {
 	if (mu <= 0.0) {
 		return 0.0;
 	}
-	float beam = SOLAR_CONSTANT * sun_len * mu;
+	// sun_len IS the irradiance at this body, W/m^2. There is no solar constant to multiply by.
+	float beam = sun_len * mu;
 	int at = la_step(c, dir);
 	for (uint i = 0u; i < MARCH_HOPS && at >= 0 && beam > 0.0; ++i) {
 		beam *= 1.0 - sw_absorbed[uint(at)];

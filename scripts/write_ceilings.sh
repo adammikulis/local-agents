@@ -71,6 +71,13 @@ blk="$(cd "$TREE" && bash scripts/check_comment_block.sh 2>&1 | rg -N '^COMMENT_
 [ -n "$blk" ] || { echo "write_ceilings: check_comment_block.sh printed no COMMENT_BLOCK= line." >&2; exit 2; }
 lower COMMENT_BLOCK_CEILING "$(field "$blk" count)"
 
+# Uncited values in the authority files, which check_model_parameters.sh exempts from its own registry.
+uncited="$("$SCRIPT_DIR/check_cited_authority.sh" 2>/dev/null | rg -N -o '\(([0-9]+) uncited' -r '$1' | head -1)"
+if [ -z "$uncited" ]; then
+	uncited="$("$SCRIPT_DIR/check_cited_authority.sh" 2>&1 | rg -N -o 'FAIL  ([0-9]+) uncited' -r '$1' | head -1)"
+fi
+[ -n "$uncited" ] && lower UNCITED_AUTHORITY_CEILING "$uncited"
+
 # A FLOOR, not a ceiling, and it moves the same way: down, and only here. It guards check_shaders_compile.sh
 # against scanning a tree whose kernels did not import, so it tracks the kernel count rather than leading it.
 kernels="$(rg --files -g '*.glsl' "$TREE/addons/local_agents/sim/material/kernels3d" 2>/dev/null | rg -c '.' || echo 0)"

@@ -20,6 +20,7 @@ static func rows() -> Array:
 		"op": Rec.Op.COUNT_GT, "mask": Rec.Mask.OPEN, "threshold": 0.0})
 	# The peak mixture sound speed, which sets the momentum rows' acoustic substep count.
 	out.append({"key": "celerity_max", "source": "celerity", "op": Rec.Op.MAX, "mask": Rec.Mask.OPEN})
+	out.append({"key": "rho_max_open", "source": "rho_bulk", "op": Rec.Op.MAX, "mask": Rec.Mask.OPEN})
 	# WHERE the non-finite values sit, so a NaN population names its cell class.
 	out.append({"key": "nonfinite_solid", "source": "nonfinite", "op": Rec.Op.SUM, "mask": Rec.Mask.SOLID})
 	out.append({"key": "nonfinite_ground", "source": "nonfinite", "op": Rec.Op.SUM, "mask": Rec.Mask.GROUND})

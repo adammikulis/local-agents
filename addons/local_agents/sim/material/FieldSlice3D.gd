@@ -2,8 +2,8 @@ class_name LAFieldSlice3D
 extends RefCounted
 
 ## A SLICE of the declared body: a small box on the planet, seeded from the real terrain, fed at its faces
-## by LAFieldBoundary3D instead of by the rest of the grid. Spec "ox,oy,oz,nx,ny,nz,cell_m": box-centre
-## offset from the body centre (m, body frame), cells per axis, cell edge (m). Node meta -> setting -> env.
+## by LAFieldBoundary3D. Spec "ox,oy,oz,nx,ny,nz,cell_m" — box-centre offset (m, body frame), cells per
+## axis, cell edge; an offset component may be `surface`. Node meta -> setting -> env.
 
 const CaptureScript: GDScript = preload("res://addons/local_agents/sim/material/FieldBoundaryCapture3D.gd")
 
@@ -20,6 +20,8 @@ var error: String = ""
 var offset: Vector3 = Vector3.ZERO
 var dims: Vector3i = Vector3i.ZERO
 var cell_size: float = 0.0
+## Offset axis given as `surface`, resolved against the body in apply(); -1 when the spec was all numbers.
+var surface_axis: int = -1
 ## Face slot -> Array of per-sample states, fed through replay(); empty outside replay mode.
 var replay_series: Dictionary = {}
 ## Field steps one replay sample spans.
@@ -46,15 +48,39 @@ func _parse(spec: String) -> bool:
 	var t: PackedStringArray = spec.split(",")
 	if t.size() != 7:
 		return _fail("spec \"%s\" has %d fields; ox,oy,oz,nx,ny,nz,cell_m is 7" % [spec, t.size()])
-	offset = Vector3(t[0].to_float(), t[1].to_float(), t[2].to_float())
+	offset = Vector3.ZERO
+	for i in 3:
+		if t[i].strip_edges().to_lower() == "surface":
+			surface_axis = i
+		else:
+			offset[i] = t[i].to_float()
 	dims = Vector3i(t[3].to_int(), t[4].to_int(), t[5].to_int())
 	cell_size = t[6].to_float()
 	if dims.x < MIN_CELLS or dims.y < MIN_CELLS or dims.z < MIN_CELLS:
 		return _fail("the box is %s cells; every axis needs at least %d" % [str(dims), MIN_CELLS])
 	if cell_size <= 0.0:
 		return _fail("cell_m must be positive, got %f" % cell_size)
-	if offset.length() <= 0.0:
+	if offset.length() <= 0.0 and surface_axis < 0:
 		return _fail("the offset locates the box ON the body; zero puts it at the centre and names no local vertical")
+	return true
+
+
+## The box-centre offset with `surface` filled in from the body's own radius. ONE declaration: apply() and
+## the capture path both read the offset through here, or one of them places the box somewhere else.
+func resolved_offset(body) -> Vector3:
+	return offset if _resolve_offset(body) else Vector3.ZERO
+
+
+func _resolve_offset(body) -> bool:
+	if surface_axis < 0:
+		return true
+	if body == null or not body.has_method("radius"):
+		return _fail("the box asks for the body's surface and no body was supplied to resolve it")
+	var r: float = float(body.radius())
+	if not is_finite(r) or r <= 0.0:
+		return _fail("the box asks for the body's surface and the body has not measured a radius yet")
+	offset[surface_axis] = r
+	surface_axis = -1
 	return true
 
 
@@ -66,6 +92,8 @@ func apply(field, body, terrain) -> bool:
 		return _fail("a slice needs a declared body: its centre and radius locate the box and the monopole gravity")
 	if terrain == null or not terrain.has_method("is_solid"):
 		return _fail("a slice seeds from the real terrain, and none was supplied")
+	if not _resolve_offset(body):
+		return false
 	field._slice = self
 	field._pivot = body.center()
 	field.set_body(body)

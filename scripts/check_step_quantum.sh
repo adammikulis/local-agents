@@ -6,7 +6,7 @@
 # Three checks:
 #   1. MaterialFieldSphereStep3D.gd declares `const SIM_SECONDS_PER_STEP`.
 #   2. real_seconds_per_step() returns exactly that constant — no other identifier in its body.
-#   3. DAY_LENGTH appears nowhere under addons/local_agents/sim/ except SimClock.gd, and nowhere in the
+#   3. day_length appears nowhere under addons/local_agents/sim/ except SimClock.gd, and nowhere in the
 #      kernels. No carve-outs: a substrate rate reading the day-length knob is the defect itself.
 #
 # Exit 0 = clean, 1 = violation, 2 = the gate could not run.
@@ -61,14 +61,14 @@ if [[ "$body" != "returnSIM_SECONDS_PER_STEP" ]]; then
 fi
 
 # --- 3. nothing in the substrate reads the day-length knob ----------------------------------------------
-hits="$(rg -n --no-heading 'DAY_LENGTH' \
+hits="$(rg -n --no-heading 'day_length' \
   --glob "$SIM_DIR/**/*.gd" --glob "$KERNEL_DIR/**/*.glsl" --glob "$KERNEL_DIR/**/*.glsli" \
   --glob "!$CLOCK_FILE" "$ROOT" 2>/dev/null)"
 if [[ -n "$hits" ]]; then
-  echo "FAIL  DAY_LENGTH is read inside the simulation substrate:"
+  echo "FAIL  day_length is read inside the simulation substrate:"
   echo "$hits" | sed "s#^$ROOT/#      #"
   echo
-  echo "      The day length is the body's rotation period (LASimClock.DAY_LENGTH), not an input to any"
+  echo "      The day length is the body's rotation period (LASimClock.day_length), not an input to any"
   echo "      rate. A planet that spins slower gets MORE steps per day; its chemistry per step does not move."
   violations=$((violations + 1))
 fi
@@ -76,5 +76,5 @@ fi
 if [[ $violations -gt 0 ]]; then
   exit 1
 fi
-echo "Step-quantum check passed (fixed SIM_SECONDS_PER_STEP; no substrate rate reads DAY_LENGTH)."
+echo "Step-quantum check passed (fixed SIM_SECONDS_PER_STEP; no substrate rate reads day_length)."
 exit 0

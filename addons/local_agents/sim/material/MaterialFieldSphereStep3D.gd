@@ -103,22 +103,20 @@ func step() -> void:
 	_f._gpu.begin_frame(_f._h, _f._h2o)      # drains prev step (sync+readback) + uploads
 	LASimReport.gauge("field_begin_ms", float(Time.get_ticks_usec() - t_begin) / 1000.0)
 	# Per-cell solar terminator + marine cooling need the world-space sun direction and the sea shell radius.
-	if _f._sun_light != null and _f._gpu.has_method("set_sun_dir"):
-		# The MAGNITUDE of sun_dir carries INSOLATION (orbit-distance² × atmospheric transmission).
-		var insol: float = float(_f._sun_light.get_meta("insolation", 1.0))
-		_f._gpu.set_sun_dir(_f.dir_to_field(_f._sun_light.global_transform.basis.z * insol))
+	if _f._sun_light != null and _f._gpu.has_method("set_sun_flux") \
+			and _f._sun_light.has_meta("irradiance_w_m2"):
+		# The MAGNITUDE of sun_dir is the irradiance in W/m^2, straight off the star's luminosity and the
+		# separation the integrator produced. A light with no irradiance meta is a light nobody has placed
+		# in a system yet, and an unlit field is dark rather than lit by an assumed sun.
+		var irr: float = float(_f._sun_light.get_meta("irradiance_w_m2"))
+		var xuv: float = float(_f._sun_light.get_meta("xuv_w_m2", 0.0))
+		_f._gpu.set_sun_flux(_f.dir_to_field(_f._sun_light.global_transform.basis.z * irr), xuv)
 	if _f._gpu.has_method("set_sea_radius"):
 		_f._gpu.set_sea_radius(_f.sea_radius())
 	# The transport substep budget reads last step's drained maxima; before the first drain the field
 	# is the seed, whose hottest cell is the declared seed temperature.
 	if _f._gpu.has_method("set_cfl_inputs") and _f._queries != null:
-		var tk_max: float = _f._queries.row_f("all_temp_max")
-		if not is_finite(tk_max):
-			tk_max = LAMaterialField3D.INITIAL_TEMP
-		_f._gpu.set_cfl_inputs(_f._queries.row_f("wind_speed_max"),
-			tk_max + LAPhysical.KELVIN_OFFSET,
-			_f._gravity.mean_g() if _f._gravity != null else 0.0,
-			_f._queries.row_f("celerity_max"))
+		_f._gpu.set_cfl_inputs(_cfl_maxima())
 	if _f._inject != null and not _f._inject.queue.is_empty():
 		if _armed("LA_INJECT_AUDIT"):
 			# Diagnostic.
@@ -192,3 +190,25 @@ func _apply_readback(res: Dictionary) -> void:
 	if res.has("pressure") and res["pressure"].size() == n: _f._pressure = res["pressure"]
 	if res.has("detritus") and res["detritus"].size() == n: _f._detritus = res["detritus"]
 	if res.has("fungus") and res["fungus"].size() == n: _f._fungus = res["fungus"]
+
+
+## The drained maxima the substep budget reads. An unreduced row is ABSENT; one that reduced to a
+## non-number is reported and left absent, never passed on as a permissive zero.
+func _cfl_maxima() -> Dictionary:
+	var out: Dictionary = {}
+	for pair: Array in [["cfl_speed_max", "wind_speed_max"], ["cfl_temp_max_k", "all_temp_max"],
+			["cfl_celerity_max", "celerity_max"]]:
+		var key: String = String(pair[1])
+		if not _f._queries.has_row(key):
+			continue
+		var v: float = _f._queries.row_f(key)
+		if not is_finite(v):
+			push_error("LAMaterialField3D: %s reduced to %f. The field has produced a non-number, " % [key, v]
+				+ "so every reading after this one is fiction. Run with LA_PASS_PROBE=nonfinite.")
+			continue
+		out[String(pair[0])] = v + (LAPhysical.KELVIN_OFFSET if key == "all_temp_max" else 0.0)
+	if _f._gravity != null:
+		var g: float = _f._gravity.mean_g()
+		if is_finite(g):
+			out["cfl_mean_g"] = g
+	return out

@@ -173,20 +173,22 @@ layout(push_constant, std430) uniform Params {
 	uint n_records;
 	uint pad0;      // no kernel-side dt: every rate_k already carries its own timebase
 	uint pad1;      // no global rain gate: rain is a per-cell condition, read per cell
-	float sun_x;    // world-space vector TOWARD the sun; MAGNITUDE carries insolation (the same value
-	float sun_y;    // transport.glsl's RADIATE row takes, so light and heat come from ONE quantity)
+	float sun_x;    // world-space vector TOWARD the sun; its magnitude is the irradiance in W/m^2, the
+	float sun_y;    // same value transport.glsl's RADIATE row takes, so light and heat are ONE quantity
 	float sun_z;
 	uint pad2;
 } params;
 
-// REAL per-cell insolation — the LIGHT slot. Identical to the solar kernel's term, so the terminator that
+// The zenith cosine — GEOMETRY, which is what the LIGHT slot is declared to be. Same terminator the
+// solar kernel draws; the flux itself is the radiative row's business.
 float light_at(uint i) {
 	// OUTWARD is up, and up is -g. There is no second declaration of which way that is.
 	vec3 gv = vec3(g_field[i * 3u], g_field[i * 3u + 1u], g_field[i * 3u + 2u]);
-	if (length(gv) <= 0.0) {
+	vec3 sun = vec3(params.sun_x, params.sun_y, params.sun_z);
+	if (length(gv) <= 0.0 || length(sun) <= 0.0) {
 		return 0.0;
 	}
-	return max(0.0, dot(normalize(-gv), vec3(params.sun_x, params.sun_y, params.sun_z)));
+	return max(0.0, dot(normalize(-gv), normalize(sun)));
 }
 
 // The FIRST regolith cell beneath an open cell, or -1.

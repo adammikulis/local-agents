@@ -7,36 +7,49 @@
 LA_OFFSCREEN_POS="${LA_WIN_POS:-99999,99999}"
 LA_OFFSCREEN_RES="${LA_RES:-1x1}"
 
-# macOS activates every launched GUI app and its keystrokes go nowhere; an LSUIElement bundle never
-# activates, so nothing here may activate an app back - `osascript ... to activate` drags the user out of
-# a fullscreen Space. dyld resolves symlinks before bundle lookup, so the executable is a hard copy,
-# cached by inode-checked mtime.
+# macOS ACTIVATES a launched GUI app, which yanks the user out of their Space; no window flag prevents
+# that, because `no_focus` governs the WINDOW and activation governs the APP. LSUIElement only hides the
+# Dock icon, so the bundle declares LSBackgroundOnly, which cannot be activated at all. Nothing here may
+# activate an app back either. dyld resolves symlinks before bundle lookup, so the executable is a hard
+# copy; it lands on a temp name and is MOVED into place, because a half-copied 300 MB binary is what a
+# concurrent lane would exec. The plist is rewritten every time: it is bytes, and its content is the point.
+
 la_agent_exe() {
 	local real="$1"
 	local app="${TMPDIR:-/tmp}/la-godot-agent/GodotAgent.app"
 	local exe="$app/Contents/MacOS/godot"
-	if [ ! -x "$exe" ] || [ "$exe" -ot "$real" ]; then
-		mkdir -p "$app/Contents/MacOS"
-		cat > "$app/Contents/Info.plist" <<'PLIST'
+	mkdir -p "$app/Contents/MacOS" || return 1
+	cat > "$app/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>CFBundleExecutable</key><string>godot</string>
 <key>CFBundleIdentifier</key><string>com.localagents.godot-agent</string>
 <key>CFBundleName</key><string>GodotAgent</string>
+<key>LSBackgroundOnly</key><true/>
 <key>LSUIElement</key><true/>
 </dict></plist>
 PLIST
-		cp -f "$real" "$exe" || { echo "$real"; return; }
+	if [ ! -x "$exe" ] || [ "$exe" -ot "$real" ]; then
+		cp -f "$real" "$exe.$$" || return 1
+		mv -f "$exe.$$" "$exe" || return 1
 	fi
 	echo "$exe"
 }
 
 la_godot() {
 	local binary="${GODOT:-godot}"
+	# NO FALLBACK TO THE REAL BINARY. Launching the ordinary Godot app is precisely the focus theft this
+	# bundle exists to stop, so a bundle that cannot be built is a hard failure, not a quieter launch.
 	if [ "$(uname)" = "Darwin" ]; then
-		local real
-		real="$(command -v "$binary" 2>/dev/null)" && binary="$(la_agent_exe "$real")"
+		local real agent
+		real="$(command -v "$binary" 2>/dev/null)" || { echo "la_godot: no $binary on PATH" >&2; return 127; }
+		agent="$(la_agent_exe "$real")" || {
+			echo "la_godot: could not build the non-activating GodotAgent bundle; refusing to launch a" >&2
+			echo "           Godot that would steal the keyboard. Check ${TMPDIR:-/tmp}/la-godot-agent." >&2
+			return 1
+		}
+		binary="$agent"
 	fi
 	local pre=()
 	if [ -n "${LA_GODOT_TIMEOUT:-}" ]; then

@@ -42,7 +42,6 @@ func setup(field) -> void:
 
 
 const CLIMATE_BANDS: int = 6                    # 15° per band from equator to pole
-const PLANET_SPIN_AXIS: Vector3 = LAPlanetBody.SPIN_AXIS
 
 # Running extremes across the whole run.
 var _coldest_ever: float = 1.0e20

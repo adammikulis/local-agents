@@ -3,15 +3,17 @@ extends Node3D
 
 
 const TerrainServiceScript: GDScript = preload("res://addons/local_agents/sim/terrain/VoxelTerrainService.gd")
-const SPIN_AXIS: Vector3 = Vector3(0.40, 0.92, 0.0)   # world space, 23.5 deg obliquity
 
 var _terrain: RefCounted = null            # LAVoxelTerrainService (owns the VoxelLodTerrain child)
 var actors_root: Node3D = null
-var _mass: float = 1.0e6
+## The row of LABodySeeds this body was built from, and the field whose matter IS this body. Mass, spin
+## and radius are read off that field; nothing here is typed.
+var _seed_key: String = "planet"
+var _field = null
 
 
 func setup(opts: Dictionary = {}) -> void:
-	_mass = float(opts.get("mass", 1.0e6))
+	_seed_key = String(opts.get("seed_key", "planet"))
 
 	_terrain = TerrainServiceScript.new()
 	var t_opts: Dictionary = opts.duplicate()
@@ -28,14 +30,48 @@ func setup(opts: Dictionary = {}) -> void:
 func terrain() -> RefCounted:
 	return _terrain
 
+## The field whose seeded matter this body IS. Its measurement is where mass and inertia come from.
+func set_field(field) -> void:
+	_field = field
+
+
+func seed_row() -> Dictionary:
+	return LABodySeeds.of(_seed_key)
+
+
+## THE MASS THE MATTER ADDS UP TO. Negative until the field has seeded, which a caller reads as unmeasured
+## and refuses to size anything with; a body's mass is never a number somebody typed.
 func mass() -> float:
-	return _mass
+	var m: LABodyMeasure = _measure()
+	return -1.0 if m == null else m.mass_kg
+
+
+func _measure() -> LABodyMeasure:
+	if _field == null or not is_instance_valid(_field) or not _field.has_method("body_measure"):
+		return null
+	return _field.body_measure()
+
 
 func is_gravity_reference() -> bool:
 	return true
 
+## The direction the seeded angular momentum points. Obliquity is an initial condition, not a property.
 func spin_axis() -> Vector3:
-	return SPIN_AXIS.normalized()
+	return LABodySeeds.spin_axis_of(_seed_key)
+
+
+## Spin rate, rad/s: seeded angular momentum over measured inertia, so a body that moves its mass about
+## changes its own day. NAN until measured.
+func angular_velocity_rad_s() -> float:
+	var m: LABodyMeasure = _measure()
+	if m == null:
+		return NAN
+	return m.angular_velocity_rad_s(LABodySeeds.spin_l_of(_seed_key))
+
+
+## Coriolis parameter is f = two_omega() * sin(latitude).
+func two_omega_rad_s() -> float:
+	return 2.0 * angular_velocity_rad_s()
 
 
 func center() -> Vector3:

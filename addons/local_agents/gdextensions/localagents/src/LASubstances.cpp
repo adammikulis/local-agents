@@ -544,14 +544,46 @@ double dget(const Dictionary &p_d, const char *p_key, double p_default) {
 
 // Specific volume of a condensed phase, m^3/kg: the reference volume opened up by thermal expansion and
 // squeezed by pressure. A coefficient the table does not carry leaves its term out.
+// Eulerian finite strain f at a pressure, from third-order Birch-Murnaghan (Birch 1947, Phys. Rev. 71:809):
+//   P = 3 K0 f (1 + 2f)^(5/2) [1 + 3/2 (K0' - 4) f]
+// P(f) rises monotonically over the bracket, so bisection converges on the one root without a derivative.
+// A LINEAR compressibility, v = v0 (1 - P/K), has no root at all once P approaches K -- and the pressure
+// inside a planet is of that order, so it returns a density that diverges instead of a rock that resists.
+double bm_strain(double p_p_pa, double p_k0_pa, double p_kprime) {
+	if (!(p_k0_pa > 0.0) || !std::isfinite(p_p_pa) || p_p_pa == 0.0) {
+		return 0.0;
+	}
+	auto pressure_at = [&](double f) {
+		return 3.0 * p_k0_pa * f * std::pow(1.0 + 2.0 * f, 2.5)
+				* (1.0 + 1.5 * (p_kprime - 4.0) * f);
+	};
+	// f = -0.5 is V0/V -> 0 and f above 1 is a compression no rock reaches; the root is inside.
+	double lo = -0.45;
+	double hi = 1.5;
+	if (p_p_pa < pressure_at(lo) || p_p_pa > pressure_at(hi)) {
+		return 0.0;
+	}
+	for (int i = 0; i < 60; ++i) {
+		const double mid = 0.5 * (lo + hi);
+		if (pressure_at(mid) < p_p_pa) {
+			lo = mid;
+		} else {
+			hi = mid;
+		}
+	}
+	return 0.5 * (lo + hi);
+}
+
+// LA_APPROX: second_order_birch_murnaghan
 double specific_volume(double p_rho_ref, double p_t_ref_c, double p_alpha_per_k, double p_bulk_pa,
-		double p_t_c, double p_p_pa) {
+		double p_kprime, double p_t_c, double p_p_pa) {
 	if (p_rho_ref <= 0.0) {
 		return 0.0;
 	}
 	double v = (1.0 + p_alpha_per_k * (p_t_c - p_t_ref_c)) / p_rho_ref;
 	if (p_bulk_pa > 0.0 && p_p_pa > 0.0) {
-		v *= 1.0 - (p_p_pa - pc("STANDARD_PRESSURE_PA")) / p_bulk_pa;
+		const double f = bm_strain(p_p_pa - pc("STANDARD_PRESSURE_PA"), p_bulk_pa, p_kprime);
+		v *= std::pow(1.0 + 2.0 * f, -1.5);
 	}
 	return v > 0.0 ? v : 0.0;
 }
@@ -760,13 +792,15 @@ double LASubstances::density(const String &p_id, double p_t_c, double p_p_pa) {
 	const double lab_t = pc("LAB_REFERENCE_TEMP_C");
 	const double rho_liq = dget(s, "density", 0.0);
 	const double v_liq = specific_volume(rho_liq, dget(s, "density_ref_t_c", lab_t),
-			dget(s, "expansion_per_k", 0.0), dget(s, "bulk_modulus_pa", 0.0), p_t_c, p_p_pa);
+			dget(s, "expansion_per_k", 0.0), dget(s, "bulk_modulus_pa", 0.0),
+			dget(s, "bulk_modulus_deriv", 4.0), p_t_c, p_p_pa);
 	if (!s.has("density_solid")) {
 		return v_liq > 0.0 ? 1.0 / v_liq : 0.0;
 	}
 	const double v_sol = specific_volume(dget(s, "density_solid", 0.0),
 			dget(s, "density_solid_ref_t_c", lab_t), dget(s, "expansion_solid_per_k", 0.0),
-			dget(s, "bulk_modulus_solid_pa", 0.0), p_t_c, p_p_pa);
+			dget(s, "bulk_modulus_solid_pa", 0.0),
+			dget(s, "bulk_modulus_solid_deriv", dget(s, "bulk_modulus_deriv", 4.0)), p_t_c, p_p_pa);
 	// Across the melting interval both phases are present and VOLUMES add, so the specific volumes mix by
 	// the melt fraction. Outside it one end of the lever carries everything.
 	const double solidus = melt_c_at(p_id, p_p_pa, 0.0);

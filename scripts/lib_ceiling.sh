@@ -16,9 +16,10 @@ ceiling_strict() {
 
 # A cell-bounded iteration, in every spelling GDScript offers. ONE declaration: the gate that measures it
 # and the writer that banks it must ask the same question, and this pattern lived separately in both.
-# `range(N)` and `N` are the same loop, so the gate counted one and not the other.
+# `range(N)` and `N` are the same loop; so are `_cell_count` and `<anything>._cell_count`, so the receiver
+# is matched generically rather than enumerated -- an enumerated list misses the next spelling someone uses.
 cell_loop_re() {
-	local bound='(cc|_cc|cell_count|_cell_count|_f\._cell_count|[a-zA-Z_]*grid\.cell_count)'
+	local bound='([a-zA-Z_][a-zA-Z0-9_]*\.)*(cc|_cc|cell_count|_cell_count)'
 	printf '%s' "for [a-zA-Z_][a-zA-Z0-9_]* in (range\()?${bound}\b|while [a-zA-Z_][a-zA-Z0-9_]* < ${bound}\b"
 }
 

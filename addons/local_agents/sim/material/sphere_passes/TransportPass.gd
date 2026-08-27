@@ -128,12 +128,18 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 		_list_idx_rid.append(_single(bufs, String(keys["idx"])))
 
 
+## XUV irradiance at this body, W/m^2, taken once per dispatch off the ctx the star publishes into.
+var _xuv_w_m2: float = 0.0
+
+
 func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:
 	if not _dispatchable():
 		return
 	var cell_m: float = _ctx_cell_size(ctx)
 	var dt_s: float = _ctx_num(ctx, "dt_s")
 	var sun: Vector3 = ctx.get("sun_dir", Vector3.ZERO)
+	# No sun in the ctx is no star, which is no XUV — never an assumed one.
+	_xuv_w_m2 = float(ctx.get("xuv_w_m2", 0.0))
 	# THE LISTS, rebuilt before any listed row dispatches over one.
 	for r in _list_rows.size():
 		var lset: RID = _list_sets[r]
@@ -273,7 +279,24 @@ func _substeps(row: Dictionary, cell_m: float, dt_s: float, ctx: Dictionary) -> 
 	if law == LATransportRecords.Law.SOUND and tk_max > 0.0:
 		need = maxf(need, 6.0 * sqrt(LAPhysical.AIR_ADIABATIC_INDEX
 			* LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK * tk_max) * dt_s / cell_m)
-	return clampi(int(ceil(need)), 1, SUBSTEP_MAX)
+	var want: int = int(ceil(need))
+	if want > SUBSTEP_MAX:
+		_deny(row, want, "celerity=%s wind=%s temp_k=%s cell_m=%s dt_s=%s"
+			% [_c_static, vmax, tk_max, cell_m, dt_s])
+	return clampi(want, 1, SUBSTEP_MAX)
+
+
+## A SUBSTEP BUDGET THAT CANNOT BE MET IS A FAILURE, NEVER A CLAMP. Silently capping it runs the row at
+## thousands of times its stable timestep and every number after that is fiction.
+func _deny(row: Dictionary, want: int, terms: String) -> void:
+	var label: String = String(row.get("label", row.get("substance", "?")))
+	if _denied.has(label):
+		return
+	_denied[label] = want
+	push_error("SUBSTEPS_DENIED row=%s want=%d cap=%d %s" % [label, want, SUBSTEP_MAX, terms])
+
+
+var _denied: Dictionary = {}
 
 
 
@@ -509,8 +532,9 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float,
 	pc.encode_float(100, substep_frac)
 	# The donation floor as mass: MIN_FILL_FRAC of a cell of the lightest bulk matter, air.
 	pc.encode_float(104, MIN_FILL_FRAC * LAPhysical.AIR_DENSITY_KG_M3)
-	# The epoch sun's XUV at 1 au; the sun vector's own length and zenith cosine scale it in-kernel.
-	pc.encode_float(108, LAPhysical.XUV_EPOCH_W_M2)
+	# XUV irradiance AT THIS BODY, already distance-corrected by the star that emitted it; the zenith
+	# cosine is what still scales it in-kernel.
+	pc.encode_float(108, _xuv_w_m2)
 	return pc
 
 
