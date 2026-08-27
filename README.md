@@ -171,6 +171,21 @@ scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn -
 godot addons/local_agents/game/VoxelWorld.tscn -- --shoot=/tmp/shot.png --overview
 ```
 
+### Picking the physics
+
+A world declares which processes it contains. The rung selector names them bottom-up, from `state` to
+`chemistry`, and `custom` picks them one at a time. The choice applies on restart, because a sealed
+world never gains or loses a process.
+
+![The rung selector on the settings screen](addons/local_agents/docs/img/rung_settings.png)
+
+![The same selector in the pause menu](addons/local_agents/docs/img/rung_pause.png)
+
+```bash
+scripts/agent_harness.sh sim --rung=0   # a world holding only the state pass
+scripts/agent_harness.sh ladder         # every rung bottom-up, stopping at the first red one
+```
+
 ## Tests
 
 ```bash
