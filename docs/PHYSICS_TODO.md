@@ -237,8 +237,7 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       matter, so two stacked cells of equal fill carry equal pressure and no gradient at all to stand
       against gravity. There is no vertical column to balance while the atmosphere is one cell thick, so
       this is downstream of the grid, D and `HANDOFF.md` item 1.
-      It is NOT the substep cap either: raising `SUBSTEP_MAX` until no row is denied leaves the peak where
-      it was, so the momentum equation produces this with its CFL budget fully met. And it GROWS with run
+      And it GROWS with run
       length rather than relaxing, so it is not a seed transient settling — something adds energy.
       **Reproduce:** `scripts/check_wind_subsonic.sh` — a world driven only by pressure and gravity, which
       cancel at balance, may not blow itself past its own sound speed.

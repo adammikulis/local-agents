@@ -1,0 +1,6 @@
+# Engine launches one `scripts/agent_harness.sh lint` may perform, counted through LA_LAUNCH_LOG by
+# scripts/check_launch_count.sh. The declared arms: three in scripts/lint_capture.sh (the kernel import,
+# the one shared sim arm, the one headless batch) and eleven second arms that need a run configuration
+# the shared arm cannot give them.
+# May fall as an arm is collapsed. May not rise.
+14

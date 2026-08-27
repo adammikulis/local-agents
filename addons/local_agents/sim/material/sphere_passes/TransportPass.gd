@@ -5,11 +5,14 @@ extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/transport.glsl"
 
 const BoundaryRowsScript: GDScript = preload("res://addons/local_agents/sim/material/reduce/BoundaryRows.gd")
+const LevelsScript: GDScript = preload("res://addons/local_agents/sim/material/sphere_passes/TemporalLevels.gd")
 
 ## Dispatch tags: the gather halves, the grain prologue, the list compaction, the RADIATE row's
 ## reflected-shortwave march, and the acoustic pair.
 enum { PASS_OUTFLOW, PASS_GATHER, PASS_GRAIN, PASS_LIST_RESET, PASS_LIST_APPEND, PASS_LIST_ARGS,
-	PASS_SW, PASS_ACOUSTIC, PASS_ACOUSTIC_APPLY }
+	PASS_SW, PASS_ACOUSTIC, PASS_ACOUSTIC_APPLY,
+	PASS_LEVEL_SEED, PASS_LEVEL_RELAX, PASS_LEVEL_RESET, PASS_LEVEL_HIST, PASS_LEVEL_SCAN,
+	PASS_LEVEL_SORT, PASS_LEVEL_PEAK }
 
 ## List-args layout: 0-2 the indirect uvec3, 3 the atomic list length, SLOTS the element count.
 enum Arg { GROUPS_X = 0, GROUPS_Y = 1, GROUPS_Z = 2, LIST_COUNT = 3, SLOTS = 8 }
@@ -22,13 +25,24 @@ const GRAIN_ROW: Dictionary = {"channel": "silicate", "substance": "silicate",
 ## floor, read by transport.glsl and state_derive.glsl. Declared in docs/MODEL_PARAMETERS.md.
 const EMPTY_RHO_KG_M3: float = 0.0001 * LAPhysical.AIR_DENSITY_KG_M3
 
-## Substeps one row may take inside a field step. Declared in docs/MODEL_PARAMETERS.md.
-## LA_APPROX: cfl_substep_budget
-const SUBSTEP_MAX: int = 256
-
 var _pipe: RID = RID()
-## The stiffest declared substance's celerity sqrt(K/rho), m/s: the budget's a-priori acoustic bound.
-var _c_static: float = 0.0
+## The pressure half-step the acoustic group takes after its rows, on the group's last row's set.
+const ACOUSTIC_PAIR: Array = [PASS_ACOUSTIC, PASS_ACOUSTIC_APPLY]
+
+## Dispatches one submit may hold. The device waits on a fence to read a buffer back, and a submit
+## longer than that wait fails; splitting the recording changes nothing dispatched, only when.
+const FLUSH_EVERY: int = 4096
+
+var _recorded: int = 0
+
+## Rows that advance together on one time axis; a solitary row is its own group.
+var _row_groups: Array = []
+## Per group: the finest temporal level its own state asked for, read back before the step records;
+## -1 = a state no timestep integrates. `_peak_top` is the finest any group asked, for the drain.
+var _peaks: PackedInt32Array = PackedInt32Array()
+var _peak_top: int = 0
+var _args_rid: RID = RID()
+var _peak_rid: RID = RID()
 ## Per row: its uniform set. An invalid entry is a row whose buffers the driver has not got.
 var _sets: Array = []
 var _rows: Array = []
@@ -80,18 +94,28 @@ func _buffers(cc: int) -> Dictionary:
 		out[String(keys["idx"])] = cc
 		out[String(keys["flag"])] = cc
 		out[String(keys["args"])] = {"n": int(Arg.SLOTS), "indirect": true}
+	out.merge(LevelsScript.buffers(cc + ghost_count, _grouping(LATransportRecords.rows()).size()))
+	return out
+
+
+## Consecutive rows that advance on ONE time axis: the acoustic pair and the momentum rows it carries.
+func _grouping(rows: Array) -> Array:
+	var out: Array = []
+	for r in rows.size():
+		if r > 0 and _group_row(rows[r]) and _group_row(rows[r - 1]):
+			out[out.size() - 1].append(r)
+			continue
+		out.append(PackedInt32Array([r]))
 	return out
 
 
 func _setup(bufs: Dictionary, cc: int) -> void:
 	_pipe = _kernel(KERNEL_PATH)
 	_rows = LATransportRecords.rows()
-	for s: Dictionary in LASubstances.table().values():
-		for pair: Array in [["bulk_modulus_pa", "density"], ["bulk_modulus_solid_pa", "density_solid"]]:
-			var k_pa: float = float(s.get(String(pair[0]), 0.0))
-			var rho: float = float(s.get(String(pair[1]), float(s.get("density", 0.0))))
-			if k_pa > 0.0 and rho > 0.0:
-				_c_static = maxf(_c_static, sqrt(k_pa / rho))
+	_row_groups = _grouping(_rows)
+	_peaks.resize(_row_groups.size())
+	_args_rid = _single(bufs, LevelsScript.KEYS.args)
+	_peak_rid = _single(bufs, LevelsScript.KEYS.peak)
 
 	# Ghost tail cells run pass 0, so every buffer the kernel indexes by cell carries the tail.
 	var tc: int = cc + ghost_count
@@ -138,6 +162,7 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: in
 	var sun: Vector3 = ctx.get("sun_dir", Vector3.ZERO)
 	# No sun in the ctx is no star, which is no XUV — never an assumed one.
 	_xuv_w_m2 = float(ctx.get("xuv_w_m2", 0.0))
+	_pc_cache.clear()
 	# THE LISTS, rebuilt before any listed row dispatches over one.
 	for r in _list_rows.size():
 		var lset: RID = _list_sets[r]
@@ -158,47 +183,120 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: in
 		rd.compute_list_set_push_constant(cl, gpc, gpc.size())
 		rd.compute_list_dispatch(cl, groups, 1, 1)
 		rd.compute_list_add_barrier(cl)
-	# THE ACOUSTIC GROUP substeps as one unit: matter advects, the gathers refresh velocity, and the
-	# acoustic half-step advances the pressure — the coupled pair on its own time axis.
-	var r: int = 0
-	while r < _rows.size():
-		var group: PackedInt32Array = PackedInt32Array([r])
-		if _group_row(_rows[r]):
-			while r + 1 < _rows.size() and _group_row(_rows[r + 1]):
-				r += 1
-				group.append(r)
-		var n: int = 1
-		var acoustic: bool = false
-		for gi in group:
-			n = maxi(n, _substeps(_rows[gi], cell_m, dt_s, ctx))
-			acoustic = acoustic or _vel_row(_rows[gi])
+	# EACH GROUP ON ITS OWN TIME AXIS. The acoustic group substeps as one unit: matter advects, the
+	# gathers refresh velocity, and the acoustic half-step advances the pressure.
+	for g in _row_groups.size():
+		var group: PackedInt32Array = _row_groups[g]
+		var levels: int = _peaks[g] if g < _peaks.size() else 0
+		if levels < 0:
+			continue
+		_build_levels(rd, cl, group, cc, cell_m, dt_s, sun, levels, groups)
+		var n: int = 1 << levels
+		# The acoustic pair rides the group's last row, so that row carrying velocity IS the test.
+		var acoustic: bool = _vel_row(_rows[group[group.size() - 1]])
 		for k in n:
+			var lk: int = LevelsScript.coarsest_at(k, levels)
 			for gi in group:
-				_run_row(rd, cl, gi, cc, cell_m, dt_s / float(n), sun, groups, k == n - 1)
+				_run_row(rd, cl, gi, cc, cell_m, dt_s, sun, groups, lk, k, n)
 			if acoustic:
-				_run_acoustic(rd, cl, group[group.size() - 1], cc, cell_m, dt_s / float(n), sun,
-					groups, 1.0 / float(n))
-		r += 1
+				_run_row(rd, cl, group[group.size() - 1], cc, cell_m, dt_s, sun, groups, lk, k, n,
+					ACOUSTIC_PAIR)
+			_recorded += group.size()
+			if _recorded > FLUSH_EVERY:
+				cl = _flush(rd)
+
+
+## THE LEVEL FIELD, once per group: seed each row's own need, relax 2:1 against the neighbours, then
+## counting-sort every cell by level so a substep dispatches over the suffix at that level or finer.
+func _build_levels(rd: RenderingDevice, cl: int, group: PackedInt32Array, cc: int, cell_m: float,
+		dt_s: float, sun: Vector3, levels: int, groups: int) -> void:
+	var tail: int = int(ceil(float(cc + ghost_count) / 64.0))
+	_one_dispatch(rd, cl, group[0], cc, PASS_LEVEL_RESET, cell_m, dt_s, sun, LevelsScript.BINS, tail)
+	if levels <= 0:
+		return
+	for gi in group:
+		_one_dispatch(rd, cl, gi, cc, PASS_LEVEL_SEED, cell_m, dt_s, sun, 0, groups)
+	# The fixed point of "no neighbour is more than one level finer" is `levels` sweeps away at most.
+	for _i in levels:
+		_one_dispatch(rd, cl, group[0], cc, PASS_LEVEL_RELAX, cell_m, dt_s, sun, 0, groups)
+	for spec: Array in [[PASS_LEVEL_HIST, groups], [PASS_LEVEL_SCAN, 1], [PASS_LEVEL_SORT, groups]]:
+		_one_dispatch(rd, cl, group[0], cc, int(spec[0]), cell_m, dt_s, sun, LevelsScript.BINS,
+			int(spec[1]))
+
+
+## Hand the device what is recorded so far and open the next list; the id is the same either way.
+func _flush(rd: RenderingDevice) -> int:
+	rd.compute_list_end()
+	rd.submit()
+	rd.sync()
+	_recorded = 0
+	return rd.compute_list_begin()
+
+
+func _one_dispatch(rd: RenderingDevice, cl: int, r: int, cc: int, pass_id: int, cell_m: float,
+		dt_s: float, sun: Vector3, level: int, groups: int) -> void:
+	if not _sets[r].is_valid():
+		return
+	rd.compute_list_bind_compute_pipeline(cl, _pipe)
+	rd.compute_list_bind_uniform_set(cl, _sets[r], 0)
+	var pc: PackedByteArray = _pc(_rows[r], cc, pass_id, cell_m, dt_s, sun, level)
+	rd.compute_list_set_push_constant(cl, pc, pc.size())
+	rd.compute_list_dispatch(cl, groups, 1, 1)
+	rd.compute_list_add_barrier(cl)
+
+
+## THE PEAK LEVEL PER GROUP, before the step records: a submit of its own, so the loop bounds come from
+## the state this step starts in rather than from a reading one step stale.
+func pre_step(rd: RenderingDevice, ctx: Dictionary, cc: int, groups: int) -> void:
+	if not _dispatchable() or not _peak_rid.is_valid() or _row_groups.is_empty():
+		return
+	var cell_m: float = _ctx_cell_size(ctx)
+	var dt_s: float = _ctx_num(ctx, "dt_s")
+	rd.buffer_clear(_peak_rid, 0, _row_groups.size() * 4)
+	var cl: int = rd.compute_list_begin()
+	for g in _row_groups.size():
+		for gi in _row_groups[g]:
+			_one_dispatch(rd, cl, gi, cc, PASS_LEVEL_PEAK, cell_m, dt_s, Vector3.ZERO, g, groups)
+	rd.compute_list_end()
+	rd.submit()
+	rd.sync()
+	_peaks = rd.buffer_get_data(_peak_rid, 0, _row_groups.size() * 4).to_int32_array()
+	# A CELL ASKING FOR A STEP SHORTER THAN LIGHT TAKES TO CROSS IT IS NOT ASKING FOR RESOLUTION.
+	# Its state is broken, no subdivision integrates it, and its group does not move this step.
+	var lim: int = LevelsScript.light_level(dt_s, cell_m)
+	_peak_top = 0
+	for g in _peaks.size():
+		_peak_top = maxi(_peak_top, _peaks[g])
+		if _peaks[g] < lim:
+			continue
+		_peaks[g] = -1
+		push_error("TransportPass: the %s row's own cells carry a signal speed at or past light, so "
+			% String(_rows[_row_groups[g][0]]["channel"]) + "no timestep integrates them.")
 
 
 ## One row's outflow+gather pair; the RADIATE row runs a third pass, PASS_SW, marching the upwelling
 ## its gather stamped. The rim's nudge is a per-STEP fraction, so only the last substep carries RELAX.
 func _run_row(rd: RenderingDevice, cl: int, r: int, cc: int, cell_m: float, dt_s: float,
-		sun: Vector3, groups: int, last: bool = true) -> void:
+		sun: Vector3, groups: int, level: int, k: int, n: int, only: Array = []) -> void:
 	var uset: RID = _sets[r]
 	if not uset.is_valid():
 		return
 	var args: RID = _list_args[r]
-	var passes: Array = [PASS_OUTFLOW, PASS_GATHER]
-	if int(_rows[r]["mode"]) == LATransportRecords.RADIATE:
-		passes.append(PASS_SW)
+	var passes: Array = only
+	if passes.is_empty():
+		passes = [PASS_OUTFLOW, PASS_GATHER]
+		if int(_rows[r]["mode"]) == LATransportRecords.RADIATE:
+			passes.append(PASS_SW)
 	for pass_id in passes:
 		rd.compute_list_bind_compute_pipeline(cl, _pipe)
 		rd.compute_list_bind_uniform_set(cl, uset, 0)
-		var pc: PackedByteArray = _pc(_rows[r], cc, pass_id, cell_m, dt_s, sun, last)
+		var pc: PackedByteArray = _pc_at(r, cc, pass_id, cell_m, dt_s, sun, level, k, n)
 		rd.compute_list_set_push_constant(cl, pc, pc.size())
-		# A listed row walks the compacted cells, so its cost is O(active), not O(grid).
-		if args.is_valid():
+		# Past level 0 the row walks the sorted suffix: its cost is O(cells this substep), not O(grid).
+		if level > 0:
+			rd.compute_list_dispatch_indirect(cl, _args_rid, level * LevelsScript.SLOTS * 4)
+		elif args.is_valid():
+			# A listed row walks the compacted cells, so its cost is O(active), not O(grid).
 			rd.compute_list_dispatch_indirect(cl, args, 0)
 		else:
 			# Pass 0 covers the ghost tail; the driver's group count covers interior only.
@@ -206,21 +304,6 @@ func _run_row(rd: RenderingDevice, cl: int, r: int, cc: int, cell_m: float, dt_s
 			if pass_id == PASS_OUTFLOW and ghost_count > 0:
 				g = int(ceil(float(cc + ghost_count) / 64.0))
 			rd.compute_list_dispatch(cl, g, 1, 1)
-		rd.compute_list_add_barrier(cl)
-
-
-## One acoustic half-step: compute dp into the face scratch, then apply it.
-func _run_acoustic(rd: RenderingDevice, cl: int, r: int, cc: int, cell_m: float, dt_s: float,
-		sun: Vector3, groups: int, frac: float) -> void:
-	var uset: RID = _sets[r]
-	if not uset.is_valid():
-		return
-	for pass_id in [PASS_ACOUSTIC, PASS_ACOUSTIC_APPLY]:
-		rd.compute_list_bind_compute_pipeline(cl, _pipe)
-		rd.compute_list_bind_uniform_set(cl, uset, 0)
-		var pc: PackedByteArray = _pc(_rows[r], cc, pass_id, cell_m, dt_s, sun, true, frac)
-		rd.compute_list_set_push_constant(cl, pc, pc.size())
-		rd.compute_list_dispatch(cl, groups, 1, 1)
 		rd.compute_list_add_barrier(cl)
 
 
@@ -234,73 +317,9 @@ func _group_row(row: Dictionary) -> bool:
 	return _vel_row(row) or bool(row.get("acoustic", false))
 
 
-## Substeps the row's stability needs, off the LAST drained maxima: per-face share <= 1/6, donor
-## courant v dt <= L, acoustic c dt sqrt(3)/L <= 1, gravity adjustment g h (dt/n)^2/L^2 <= 1/6.
-func _substeps(row: Dictionary, cell_m: float, dt_s: float, ctx: Dictionary) -> int:
-	var mode: int = int(row["mode"])
-	var law: int = int(row.get("law", LATransportRecords.Law.NONE))
-	var vmax: float = maxf(float(ctx.get("cfl_speed_max", 0.0)), 0.0)
-	var tk_max: float = maxf(float(ctx.get("cfl_temp_max_k", 0.0)), 0.0)
-	var need: float = 0.0
-	# The peak celerity, floored a-priori: no mixture outruns its stiffest pure constituent, and a
-	# one-step drain lag at the water sound speed is all a runaway needs.
-	if _vel_row(row):
-		var c_max: float = maxf(float(ctx.get("cfl_celerity_max", 0.0)), _c_static)
-		if tk_max > 0.0:
-			c_max = maxf(c_max, sqrt(LAPhysical.AIR_ADIABATIC_INDEX
-				* LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK * tk_max))
-		need = sqrt(3.0) * c_max * dt_s / cell_m
-	if mode == LATransportRecords.ADVECT or mode == LATransportRecords.BOTH:
-		var v: float = vmax
-		if bool(row.get("settle", false)):
-			var fl: Vector2 = LATransportRecords.fluid_properties(
-				int(row.get("fluid", LATransportRecords.Fluid.VACUUM)))
-			var rho_s: float = float(LASubstances.table().get(String(row["substance"]), {})
-				.get("density", 0.0))
-			# Stokes terminal velocity at the row's seed grain; mean solved g is the only g drained.
-			v += maxf(rho_s - fl.x, 0.0) * maxf(float(ctx.get("cfl_mean_g", 0.0)), 0.0) \
-				* LAPhysical.GRAIN_D_UPLAND_M * LAPhysical.GRAIN_D_UPLAND_M / (18.0 * maxf(fl.y, 1.0e-30))
-		need += v * dt_s / cell_m
-	# Gravity adjustment, at a full cell of head.
-	if law == LATransportRecords.Law.SHALLOW or law == LATransportRecords.Law.FILM:
-		var g0: float = maxf(float(ctx.get("cfl_mean_g", 0.0)), 0.0)
-		need = maxf(need, sqrt(6.0 * g0 * cell_m) * dt_s / cell_m)
-	# A signed EDDY row is the pair-exact viscous relaxation: no diffusion CFL applies to it.
-	if law == LATransportRecords.Law.EDDY and not _vel_row(row):
-		var fl2: Vector2 = LATransportRecords.fluid_properties(
-			int(row.get("fluid", LATransportRecords.Fluid.VACUUM)))
-		var nu_mol: float = (fl2.y / fl2.x) if fl2.x > 0.0 else 0.0
-		var mix: float = LAPhysical.SMAGORINSKY_COEFF * cell_m
-		# |S| <= sqrt(18) vmax / L bounds the strain the kernel can read off the drained peak speed.
-		var nu: float = nu_mol + mix * mix * sqrt(18.0) * vmax / cell_m
-		need += 6.0 * nu * dt_s / (cell_m * cell_m)
-	if law == LATransportRecords.Law.SOUND and tk_max > 0.0:
-		need = maxf(need, 6.0 * sqrt(LAPhysical.AIR_ADIABATIC_INDEX
-			* LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK * tk_max) * dt_s / cell_m)
-	var want: int = int(ceil(need))
-	if want > SUBSTEP_MAX:
-		_deny(row, want, "celerity=%s wind=%s temp_k=%s cell_m=%s dt_s=%s"
-			% [_c_static, vmax, tk_max, cell_m, dt_s])
-	return clampi(want, 1, SUBSTEP_MAX)
-
-
-## A SUBSTEP BUDGET THAT CANNOT BE MET IS A FAILURE, NEVER A CLAMP. Silently capping it runs the row at
-## thousands of times its stable timestep and every number after that is fiction.
-func _deny(row: Dictionary, want: int, terms: String) -> void:
-	var label: String = String(row.get("label", row.get("substance", "?")))
-	if _denied.has(label):
-		return
-	_denied[label] = want
-	push_error("SUBSTEPS_DENIED row=%s want=%d cap=%d %s" % [label, want, SUBSTEP_MAX, terms])
-
-
-var _denied: Dictionary = {}
-
-
-
 ## Cells each list holds after the last step; an `emit_idx` list also returns its occupied prefix.
 func _drain(rd: RenderingDevice) -> Dictionary:
-	var out: Dictionary = {}
+	var out: Dictionary = {"transport_levels": float(_peak_top)}
 	for r in _list_rows.size():
 		var raw: PackedByteArray = rd.buffer_get_data(_list_args_rid[r])
 		if raw.size() < int(Arg.SLOTS) * 4:
@@ -333,7 +352,8 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 			% [String(row["list"]), channel])
 		return RID()
 	var needed: Array = [channel, drive, resist, aux, frac, "" if moves_enthalpy else "h_j_m3",
-		String(list.get("idx", "")), String(list.get("args", "")), String(list.get("flag", ""))]
+		String(list.get("idx", "")), String(list.get("args", "")), String(list.get("flag", "")),
+		LevelsScript.KEYS.level, LevelsScript.KEYS.idx, LevelsScript.KEYS.args, LevelsScript.KEYS.peak]
 	for key in needed:
 		if String(key) != "" and not bufs.has(key):
 			push_error("TransportPass: no \"%s\" buffer, so the %s row does not move." % [key, channel])
@@ -444,6 +464,11 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 		[78, _single(bufs, "grav_phi")],
 		# The charge riding a mass row's crossing; a signed channel books its own through binding 48.
 		[79, _single(bufs, "bnd_void" if BoundaryRowsScript.BOOKED_SIGNED.has(channel) else "bnd_charge")],
+		# The temporal level field, the cells sorted by it, the per-level args, and the group peaks.
+		[80, _single(bufs, LevelsScript.KEYS.level)],
+		[81, _single(bufs, LevelsScript.KEYS.idx)],
+		[82, _single(bufs, LevelsScript.KEYS.args)],
+		[83, _single(bufs, LevelsScript.KEYS.peak)],
 	]
 	return _uset(_pipe, entries)
 
@@ -460,41 +485,54 @@ func _carried_key(substance: String) -> String:
 
 # --- push constant ----------------------------------------------------------------------------------------
 
-## transport.glsl's Params block, in its declared order — 112 bytes.
+## Row keys the kernel unpacks as flags: a switch it reads as a bool, and a key it reads as named-or-not.
+const SWITCHES: Array = [["signed", LATransportRecords.Flag.SIGNED],
+	["settle", LATransportRecords.Flag.SETTLE], ["efield", LATransportRecords.Flag.EFIELD],
+	["dilute", LATransportRecords.Flag.DILUTE], ["halo", LATransportRecords.Flag.LIST_HALO],
+	["relax", LATransportRecords.Flag.RELAX], ["radiogenic", LATransportRecords.Flag.RADIOGENIC]]
+const NAMED: Array = [["drive", LATransportRecords.Flag.DRIVEN],
+	["frac", LATransportRecords.Flag.FRACTION], ["list", LATransportRecords.Flag.LISTED]]
+
+
+## A substep only moves the level and its index along, so the rest of the block is built once per row,
+## pass and level class per step: at thousands of substeps the encoding IS the dispatch cost.
+var _pc_cache: Dictionary = {}
+
+
+func _pc_at(r: int, cc: int, pass_id: int, cell_m: float, dt_s: float, sun: Vector3,
+		level: int, k: int, n: int) -> PackedByteArray:
+	var key: int = (r * 32 + pass_id) * 2 + (1 if level > 0 else 0)
+	var pc: PackedByteArray = _pc_cache.get(key, PackedByteArray())
+	if pc.is_empty():
+		pc = _pc(_rows[r], cc, pass_id, cell_m, dt_s, sun, level, k, n)
+		_pc_cache[key] = pc
+	pc.encode_u32(104, level)
+	pc.encode_u32(108, k)
+	pc.encode_u32(112, n)
+	return pc
+
+
+## transport.glsl's Params block, in its declared order.
 func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float,
-		sun: Vector3, relax_ok: bool = true, substep_frac: float = 1.0) -> PackedByteArray:
+		sun: Vector3, level: int = 0, substep_k: int = 0, substep_n: int = 1) -> PackedByteArray:
 	var substance: String = String(row["substance"])
 	var entry: Dictionary = LASubstances.table().get(substance, {})
 	var fluid: Vector2 = LATransportRecords.fluid_properties(
 		int(row.get("fluid", LATransportRecords.Fluid.VACUUM)))
-	var flags: int = 0
-	if bool(row.get("signed", false)):
-		flags |= LATransportRecords.Flag.SIGNED
-	if bool(row.get("settle", false)):
-		flags |= LATransportRecords.Flag.SETTLE
-	if bool(row.get("efield", false)):
-		flags |= LATransportRecords.Flag.EFIELD
-	if String(row.get("drive", "")) != "":
-		flags |= LATransportRecords.Flag.DRIVEN
-	if String(row.get("frac", "")) != "":
-		flags |= LATransportRecords.Flag.FRACTION
-	if bool(row.get("dilute", false)):
-		flags |= LATransportRecords.Flag.DILUTE
-	if String(row.get("list", "")) != "":
-		flags |= LATransportRecords.Flag.LISTED
-	if bool(row.get("halo", false)):
-		flags |= LATransportRecords.Flag.LIST_HALO
-	if relax_ok and bool(row.get("relax", false)):
-		flags |= LATransportRecords.Flag.RELAX
-	if bool(row.get("radiogenic", false)):
-		flags |= LATransportRecords.Flag.RADIOGENIC
-	if _vel_row(row):
-		flags |= LATransportRecords.Flag.VEL
+	var flags: int = LATransportRecords.Flag.VEL if _vel_row(row) else 0
+	if level > 0:
+		flags |= LATransportRecords.Flag.LEVEL
+	for pair: Array in SWITCHES:
+		if bool(row.get(String(pair[0]), false)):
+			flags |= int(pair[1])
+	for pair2: Array in NAMED:
+		if String(row.get(String(pair2[0]), "")) != "":
+			flags |= int(pair2[1])
 	# The row whose amount IS enthalpy books joules on both boundary legs.
 	if String(row["channel"]) == "h_j_m3":
 		flags |= LATransportRecords.Flag.ENTHALPY
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(108)
+	pc.resize(116)
 	pc.encode_u32(0, cc)
 	pc.encode_u32(4, pass_id)
 	pc.encode_u32(8, int(row["mode"]))
@@ -527,10 +565,12 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float,
 	pc.encode_float(88, float(entry.get("molar_mass", 0.0)) * LAMatterChannels.specific_heat(substance))
 	pc.encode_u32(92, cc + ghost_count)
 	pc.encode_u32(96, int(row.get("axis", 0)))
-	pc.encode_float(100, substep_frac)
 	# XUV irradiance AT THIS BODY, already distance-corrected by the star that emitted it; the zenith
 	# cosine is what still scales it in-kernel.
-	pc.encode_float(104, _xuv_w_m2)
+	pc.encode_float(100, _xuv_w_m2)
+	pc.encode_u32(104, level)
+	pc.encode_u32(108, substep_k)
+	pc.encode_u32(112, substep_n)
 	return pc
 
 

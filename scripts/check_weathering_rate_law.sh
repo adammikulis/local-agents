@@ -9,6 +9,7 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
 GODOT="${GODOT:-godot}"
 command -v "$GODOT" >/dev/null 2>&1 || { echo "ERROR: godot not on PATH — a gate that cannot run FAILS." >&2; exit 2; }
 KERNEL="$REPO_ROOT/addons/local_agents/sim/material/kernels3d/reactions_sphere3d.glsl"
@@ -301,8 +302,7 @@ fi
 # writer, so a non-zero cell count is the reaction engine running against the sim's own field.
 # ---------------------------------------------------------------------------------------------------
 SIM_FRAMES="${LA_WEATHERING_FRAMES:-20}"
-sim_out="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --frames "$SIM_FRAMES" \
-  --report carbonate_cells 2>&1)"
+sim_out="$(la_report carbonate_cells --path "$REPO_ROOT" --frames "$SIM_FRAMES" 2>&1)"
 sim_rc=$?
 printf '%s\n' "$sim_out" | grep -E '^carbonate_cells' || true
 cells="$(printf '%s\n' "$sim_out" | sed -n "s/^carbonate_cells  *= *//p" | head -1 \

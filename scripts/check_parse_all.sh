@@ -22,6 +22,7 @@
 # script, no project, no verdict, or zero scripts examined). A gate that cannot run must fail.
 set -uo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
 
 # Pure-bash, no `dirname`: this must still resolve when PATH is broken, or the missing-tool check below
 # never gets a chance to report exit 2.
@@ -60,8 +61,14 @@ fi
 LOG="$(mktemp)"
 trap 'rm -f "$LOG"' EXIT
 
-la_godot --headless --path "$PROJECT" -s "$SWEEP" -- "--root=$PARSE_ROOT" > "$LOG" 2>&1
-sweep_rc=$?
+if la_cap_dir >/dev/null && [ "$(cd "$PROJECT" && pwd)" = "$ROOT" ]; then
+  la_headless parse_all > "$LOG" 2>&1
+  sweep_rc=$?
+  [ "$sweep_rc" -eq 0 ] || { echo "ERROR: the batch published no parse sweep." >&2; exit 2; }
+else
+  la_godot --headless --path "$PROJECT" -s "$SWEEP" -- "--root=$PARSE_ROOT" > "$LOG" 2>&1
+  sweep_rc=$?
+fi
 
 verdict="$(grep -a '^PARSE_ALL=' "$LOG" | tail -n 1)"
 if [[ -z "$verdict" ]]; then

@@ -79,6 +79,13 @@ if [[ -z "$cmd" || "$cmd" == "-h" || "$cmd" == "--help" ]]; then
 fi
 shift || true
 
+# EVERY ENGINE LAUNCH THIS LINT MAKES, one line each: lib_godot.sh appends, check_launch_count.sh counts.
+if [[ "$cmd" == "lint" && -z "${LA_LAUNCH_LOG:-}" ]]; then
+  mkdir -p "$LOG_DIR" 2>/dev/null || true
+  export LA_LAUNCH_LOG="$LOG_DIR/launches_$$.log"
+  : > "$LA_LAUNCH_LOG"
+fi
+
 # --- A LINKED WORKTREE REPAIRS ITSELF HERE, BEFORE ANY COMMAND RUNS ----------------------------------
 # `git worktree add` gives you the source and none of the build state: no `bin/` symlink, no imported
 # kernels, no `.godot/`. Each degrades QUIETLY — an unimported `.glsl` loads as null, the GPU field is
@@ -242,7 +249,7 @@ if [[ "$cmd" == "lint" ]]; then
     # GATES THAT NEED A REAL GPU, declared ONCE. Each launches a sim through run_sim_offscreen.sh, and
     # create_local_rendering_device() is null without one. LA_NO_GPU=1 skips exactly these and says which;
     # check_gpu_gate_list.sh holds this list to the gates that actually launch a run, both ways.
-    GPU_GATES="check_no_focus_theft check_quiet_window check_body_measured check_gravity_solve check_finite_channels check_radiative_row check_alt_bands check_weathering_rate_law check_lifeless_planet check_boundary_momentum_book check_boundary_wrap check_boundary_books check_escape_law check_slice_exterior check_gas_in_rock"
+    GPU_GATES="check_no_focus_theft check_quiet_window check_body_measured check_gravity_solve check_finite_channels check_radiative_row check_alt_bands check_weathering_rate_law check_lifeless_planet check_boundary_momentum_book check_boundary_wrap check_boundary_books check_escape_law check_slice_exterior check_gas_in_rock check_level_reflux"
     gpu_gate() {
       if [[ "${LA_NO_GPU:-0}" == "1" ]]; then
         echo "LINT_SKIPPED_NO_GPU: $1.sh (declared in GPU_GATES; run it on a machine with a GPU)"
@@ -251,6 +258,15 @@ if [[ "$cmd" == "lint" ]]; then
       fi
       gate "$1"
     }
+
+    # ONE RUN PER LINT. Every gate below reads this capture instead of starting its own engine.
+    if LA_CAPTURE_DIR="$("$SCRIPT_DIR/lint_capture.sh")"; then
+      export LA_LINT_CAPTURE="$LA_CAPTURE_DIR"
+      echo "LINT_CAPTURE=$LA_LINT_CAPTURE"
+    else
+      echo "LINT_UNRUNNABLE: lint_capture.sh (2)"
+      lint_unrunnable=$((lint_unrunnable + 1))
+    fi
 
     gate check_max_file_length
     gate check_no_direct_refcounted_invocation
@@ -303,6 +319,7 @@ if [[ "$cmd" == "lint" ]]; then
     gate check_parse_all
     gate check_no_native_by_name
     gate check_step_quantum
+    gate check_no_global_cfl
     gate check_comment_claims
     gate check_no_silent_fallback
     gate check_no_invented_fallback
@@ -321,8 +338,10 @@ if [[ "$cmd" == "lint" ]]; then
     gpu_gate check_boundary_books
     gpu_gate check_escape_law
     gpu_gate check_slice_exterior
+    gpu_gate check_level_reflux
     gate check_shaders_compile
     gate check_reaction_energy
+    gate check_launch_count
     # EVERY GATE RUNS. Fail-fast meant one red gate hid every gate after it.
     if [[ $lint_unrunnable -gt 0 ]]; then
       echo "LINT_SUMMARY: $lint_unrunnable gate(s) COULD NOT RUN, $lint_failed violation(s). Every gate ran;"
