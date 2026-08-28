@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# A ROW IS DISPATCHED OVER WHAT IS MOVING, NEVER OVER THE BOX. This rig drives TransportPass on a sealed
-# line of cells twice: settled, where the active count has to fall to nothing while the books still close,
-# and with one localised blob, where the disturbance may not outrun one cell per substep and not one mole
-# of it may go missing at the edge of its own bubble.
-# EXIT 0 clean · 1 the bubble leaked, never emptied, or a row still sweeps the grid · 2 could not run.
+# THE CELL LIST A ROW WALKS, in space and in time — ONE machine, one rig, one engine. It drives
+# TransportPass on sealed lines: across a seam between two clocks, where every matter channel holds
+# its total; settled, where the active count falls to nothing while the books still close; and with
+# one blob, which may not outrun one cell per substep nor lose a mole at the edge of its own bubble.
+# EXIT 0 clean · 1 a leak, it never emptied, or a row sweeps the grid · 2 could not run.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -40,6 +40,14 @@ const BLOB_MOL_M3: float = 500.0
 # Air at rest carrying its own sound speed, so the acoustic pair has real state to advance.
 const RHO_BULK: float = 1.225
 const CELERITY: float = 340.0
+# The seam box: a stiff right half, whose own sound speed earns it a finer clock than the left's, and
+# matter crossing every face at a speed the clock is not the business of.
+const SEAM_CELL: float = 2000.0
+const SEAM_P: float = 101325.0
+const SEAM_T: float = 15.0
+const SEAM_V: float = 20.0
+const SEAM_C_STIFF: float = 4000.0
+const SEAM_RHO: float = 10.0
 const TOL: float = 1.0e-5
 
 var _rd: RenderingDevice = null
@@ -144,6 +152,135 @@ func _attach(bufs: Dictionary, owned: Array[RID]) -> RefCounted:
 	return p
 
 
+## THE SEAM BETWEEN TWO CLOCKS. A fast cell subdivides its own timestep while its quiet neighbour steps
+## once; the face between them runs on the coarser of the two, so both sides write the same flux on the
+## same substep. The sorted list they walk is the one the arms below hold to the moving cells.
+func _seam() -> void:
+	var nx: int = 8
+	var grid: LAVoxelGrid = LAVoxelGrid.new()
+	grid.build(nx, 1, 1, SEAM_CELL, Vector3(-0.5 * float(nx) * SEAM_CELL, -0.5 * SEAM_CELL, -0.5 * SEAM_CELL))
+	var cc: int = grid.cell_count
+	var owned: Array[RID] = []
+	var bufs: Dictionary = {}
+	for name in LAChannels.channels():
+		bufs[String(name)] = _f32(_filled(cc, 0.0), owned)
+	for name in LAChannels.derived_buffers():
+		bufs[String(name)] = _f32(_filled(cc, 0.0), owned)
+	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "celerity", "speed", "rad_w_m3",
+			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi"]:
+		bufs[name] = _f32(_filled(cc, 0.0), owned)
+	bufs["gravity"] = _f32(_filled(cc * 3, 0.0), owned)
+	bufs["nbr"] = _i32(grid.neighbours, owned)
+	var ghost_tbl: PackedInt32Array = PackedInt32Array()
+	ghost_tbl.resize(cc * LAVoxelGrid.SLOTS)
+	ghost_tbl.fill(-1)
+	bufs["ghost"] = _i32(ghost_tbl, owned)
+
+	var p: RefCounted = (load(PASS_PATH) as GDScript).new()
+	p.ghost_count = 0
+	var want: Dictionary = p._buffers(cc)
+	for key in want:
+		var spec: Variant = want[key]
+		var n: int = int(spec["n"]) if spec is Dictionary else int(spec)
+		var indirect: bool = spec is Dictionary and bool(spec.get("indirect", false))
+		var zeros: PackedByteArray = _filled(n, 0.0).to_byte_array()
+		var r: RID = _rd.storage_buffer_create(zeros.size(), zeros,
+			RenderingDevice.STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT if indirect else 0)
+		owned.append(r)
+		bufs[String(key)] = r
+
+	# A shut box of moving matter: a gradient so there is something to carry, and a velocity step so the
+	# right half's own courant asks for a finer clock than the left half's.
+	var cel: PackedFloat32Array = PackedFloat32Array()
+	var h2o: PackedFloat32Array = PackedFloat32Array()
+	var o2: PackedFloat32Array = PackedFloat32Array()
+	var co2: PackedFloat32Array = PackedFloat32Array()
+	# A sheared momentum column beside the flow, so every row of the group leaves a NONZERO face flux:
+	# a stale one a coarse neighbour never wrote this substep is then visible as matter appearing.
+	var momz: PackedFloat32Array = PackedFloat32Array()
+	var velz: PackedFloat32Array = PackedFloat32Array()
+	var spd: PackedFloat32Array = PackedFloat32Array()
+	for c in cc:
+		cel.append(SEAM_C_STIFF if c >= cc / 2 else 0.0)
+		h2o.append(500.0 - 40.0 * float(c))
+		o2.append(200.0 + 10.0 * float(c))
+		co2.append(50.0 + 3.0 * float(c))
+		momz.append(10.0 + 2000.0 * float(c))
+		velz.append((10.0 + 2000.0 * float(c)) / SEAM_RHO)
+		spd.append(sqrt(SEAM_V * SEAM_V + velz[c] * velz[c]))
+	_write(bufs, "vel_x", _filled(cc, SEAM_V))
+	_write(bufs, "vel_z", velz)
+	_write(bufs, "mom_z", momz)
+	_write(bufs, "speed", spd)
+	_write(bufs, "celerity", cel)
+	_write(bufs, "h2o", h2o)
+	_write(bufs, "o2", o2)
+	_write(bufs, "co2", co2)
+	_write(bufs, "h2o_liquid", _filled(cc, 1.0))
+	_write(bufs, "rho_bulk", _filled(cc, SEAM_RHO))
+	_write(bufs, "pressure", _filled(cc, SEAM_P))
+	_write(bufs, "temp", _filled(cc, SEAM_T))
+
+	p.setup(_rd, bufs, cc)
+	var checked: PackedStringArray = PackedStringArray(["h2o", "o2", "co2"])
+	var before: Dictionary = {}
+	for ch in checked:
+		before[String(ch)] = _total(bufs, String(ch), cc)
+	var start: PackedFloat32Array = _rd.buffer_get_data(bufs["h2o"]).to_float32_array()
+
+	var ctx: Dictionary = {"cell_size": SEAM_CELL, "sun_dir": Vector3.ZERO, "dt_s": DT}
+	var groups: int = int(ceil(float(cc) / 64.0))
+	p.pre_step(_rd, ctx, cc, groups)
+	var peak: int = 0
+	var top: int = 0
+	for g in p._peaks.size():
+		if int(p._peaks[g]) > peak:
+			peak = int(p._peaks[g])
+			top = g
+	_expect(peak >= 1, "no row group asked for a finer clock than the field step, so the box never "
+		+ "reached two levels and this gate examined nothing.")
+	# POSITIVE CONTROL: the level field the real code builds has to hold more than one level, or the
+	# conservation below is a closed book over a box that never straddled a seam.
+	var lcl: int = _rd.compute_list_begin()
+	p._build_levels(_rd, lcl, p._row_groups[top], cc, SEAM_CELL, DT, Vector3.ZERO, peak, top)
+	_rd.compute_list_end()
+	_rd.submit()
+	_rd.sync()
+	var lv: PackedInt32Array = _rd.buffer_get_data(
+		bufs[LATemporalLevels.KEYS.level]).to_int32_array()
+	var seen: Dictionary = {}
+	for c in cc:
+		seen[lv[c]] = true
+	_expect(seen.size() >= 2, "every cell landed on ONE level, so no face straddles two clocks and "
+		+ "this gate cannot see a seam at all.")
+	var cl: int = _rd.compute_list_begin()
+	p.dispatch(_rd, cl, ctx, cc, groups)
+	_rd.compute_list_end()
+	_rd.submit()
+	_rd.sync()
+
+	for ch in checked:
+		var name: String = String(ch)
+		var after: float = _total(bufs, name, cc)
+		var was: float = float(before[name])
+		_expect(absf(after - was) <= TOL * maxf(absf(was), 1.0),
+			"%s: a shut box held %s and now holds %s — the seam between two clocks is not conservative."
+			% [name, String.num_scientific(was), String.num_scientific(after)])
+	var ended: PackedFloat32Array = _rd.buffer_get_data(bufs["h2o"]).to_float32_array()
+	var moved: bool = false
+	for c in cc:
+		if absf(ended[c] - start[c]) > 0.0:
+			moved = true
+	_expect(moved, "nothing crossed any face, so a closed book proves nothing.")
+
+	p.dispose(_rd)
+	for r in owned:
+		if r.is_valid():
+			_rd.free_rid(r)
+	print('LEVEL_REFLUX={"cells":%d,"peak_level":%d,"levels_present":%d,"channels":%d,"failures":%d}'
+		% [cc, peak, seen.size(), checked.size(), _fails])
+
+
 func _init() -> void:
 	QuietWindow.apply_if_automated()
 	_rd = RenderingServer.create_local_rendering_device()
@@ -153,6 +290,7 @@ func _init() -> void:
 		return
 	# UP TO ADVECT: everything that carries matter across a face, and nothing that radiates. A box that
 	# emits its own heat to space is never settled, so a rung holding RADIATION could not answer arm one.
+	_seam()
 	LAProcessSet.declare(LAProcessSet.ADVECT)
 	var ctx: Dictionary = {"cell_size": CELL, "sun_dir": Vector3.ZERO, "dt_s": DT}
 
@@ -230,11 +368,14 @@ out="$(LA_DONE_RE='^ACTIVE_ROWS=' LA_RUNG="${LA_RUNG:-5}" "$REPO_ROOT/scripts/ru
 rc=$?
 rm -f "$PROBE" "$PROBE.uid"
 line="$(printf '%s\n' "$out" | grep -m1 '^ACTIVE_ROWS=')"
-if [ -z "$line" ]; then
-  echo "ERROR: the probe produced no ACTIVE_ROWS line — refusing to report a pass." >&2
+seam="$(printf '%s\n' "$out" | grep -m1 '^LEVEL_REFLUX=')"
+if [ -z "$line" ] || [ -z "$seam" ]; then
+  echo "ERROR: the probe produced no ACTIVE_ROWS or no LEVEL_REFLUX line — an arm that did not run" >&2
+  echo "       examined nothing, so this refuses to report a pass." >&2
   printf '%s\n' "$out" | tail -20 >&2
   exit 2
 fi
+echo "$seam"
 echo "$line"
 printf '%s\n' "$out" | grep '^check_active_rows:' >&2 || true
 if [ "$rc" -eq 2 ]; then
@@ -246,11 +387,11 @@ fi
 # --- arm four: THE SEEDED WORLD, which is the only box this rig cannot build ------------------------
 # It asks the shared lint arm for its own reading, so it starts no engine of its own.
 if la_cap_dir >/dev/null; then
-  out2="$(la_report active_cells 2>&1)"
+  out2="$(la_report active_cells,transport_levels 2>&1)"
   rc2=$?
 else
   out2="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --frames "${LA_ACTIVE_FRAMES:-2}" \
-    --rung "${LA_ACTIVE_RUNG:-5}" --report active_cells 2>&1)"
+    --rung "${LA_ACTIVE_RUNG:-5}" --report active_cells,transport_levels 2>&1)"
   rc2=$?
   case "$rc2" in 0|122|123|126) ;; *) out2="" ;; esac
 fi
