@@ -30,7 +30,9 @@ sum is not admissible: it sums unlike units and its sign can differ from the mol
 ### 2. Energy residual — *is every joule accounted for?*
 Energy is **not** closed and must not be — sunlight enters and longwave leaves every step. The score is
 `energy_residual_rel`, the residual as a fraction of `energy_turnover_j` (what crossed the boundary), never
-drift, and never a fraction of `energy_booked`, which passes through zero at radiative equilibrium.
+drift, and never a fraction of `energy_booked`, which passes through zero at radiative equilibrium. The run
+book weighs enthalpy plus kinetic energy (`energy_held`); the field stores specific enthalpy, so pressure
+work rides with the mass and the equation of state restates pressure inside every substep.
 
 | **0** | no `energy_residual_rel` | **1** | residual > 50% of turnover | **2** | 10–50% | **3** | 1–10% | **4** | < 1%, latent heat structural |
 |---|---|---|---|---|---|---|---|---|---|
