@@ -57,11 +57,6 @@ func altitude_at(pos: Vector3) -> float:
 	return pos.y - ground_y
 
 
-## Flat ground is always queryable (nothing to mesh/stream in).
-func is_ready_at(_pos: Vector3) -> bool:
-	return true
-
-
 func raycast_terrain(from: Vector3, dir: Vector3, max_distance: float) -> Dictionary:
 	var miss: Dictionary = {"hit": false, "position": Vector3.ZERO, "normal": Vector3.UP}
 	var d: Vector3 = dir.normalized()

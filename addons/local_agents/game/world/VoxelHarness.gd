@@ -185,13 +185,33 @@ static func _scan_presentation(n: Node, found: PackedStringArray) -> int:
 	return seen
 
 
-## Appended to SHOT_SAVED: where the picture was taken from, so a shot says what it is looking at.
+## Appended to SHOT_SAVED: where the eye stands, what it aims at, how far the built ground lies down that
+## aim, and whether the ground under the eye is drawn.
 static func shot_info(w) -> String:
 	var cam: Camera3D = w._camera
 	if cam == null:
-		return "cam=absent"
+		return "cam=absent ground_meshed=false"
 	var up: Vector3 = w._body.up_at(cam.global_position)
 	var fwd: Vector3 = -cam.global_transform.basis.z
 	var mode: String = "fly" if cam.is_fly() else ("solar" if cam.is_solar_view() else "orbit")
-	return "cam=%s cam_alt_m=%.0f cam_pitch_deg=%.1f" % [mode,
-		w._sim.terrain().altitude_at(cam.global_position), rad_to_deg(asin(clampf(fwd.dot(up), -1.0, 1.0)))]
+	var aim: float = float(cam.aim_distance()) if cam.has_method("aim_distance") else 0.0
+	return "cam=%s cam_alt_m=%.0f cam_pitch_deg=%.1f ground_ahead_m=%.0f aim_ahead_m=%.0f ground_meshed=%s" % [
+		mode, w._sim.terrain().altitude_at(cam.global_position),
+		rad_to_deg(asin(clampf(fwd.dot(up), -1.0, 1.0))), _ground_ahead(w, cam, fwd), aim,
+		"true" if shot_ready(w) else "false"]
+
+
+## HOW FAR DOWN THE VIEW AXIS THE GROUND STANDS, in metres: the terrain body's own collider, hit by a ray
+## from the eye along its aim. Negative when the camera is aimed at nothing that has been built.
+static func _ground_ahead(w, cam: Camera3D, fwd: Vector3) -> float:
+	var hit: Dictionary = w._sim.terrain().raycast_terrain(cam.global_position, fwd, cam.far)
+	if not bool(hit.get("hit", false)):
+		return -1.0
+	return cam.global_position.distance_to(hit["position"])
+
+
+## THE PICTURE IS WORTH TAKING once the ground under the camera is drawn at least as finely as the camera
+## stands above it; before that the shot is of a body that has not arrived at the detail it is seen from.
+static func shot_ready(w) -> bool:
+	var cam: Camera3D = w._camera
+	return cam != null and cam.has_method("ground_resolved") and cam.ground_resolved()

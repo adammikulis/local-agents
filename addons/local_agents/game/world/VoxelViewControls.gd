@@ -28,8 +28,7 @@ func _init() -> void:
 
 func setup(host, camera: Camera3D = null, body: Node3D = null) -> void:
 	_host = host
-	_camera = camera
-	_body = body
+	bind_view(camera, body)
 	_build_ui()
 	_apply_locks()
 	# Re-enable a button the instant its capability is earned (campaign). No-op when no progression exists.
@@ -113,8 +112,14 @@ func _build_ui() -> void:
 	_solar_hotkey = solar_key
 
 
-## Live altitude readout: a few samples a second, the camera's height above the terrain directly under it. Uses
-## the body's ground raycast (altitude_at); over an unmeshed patch it falls back to height above the mean sphere.
+## The camera and the body its altitude is measured against. The bar is built before the world composes,
+## so the refs arrive on a second call and the readout is dead without it.
+func bind_view(camera: Camera3D, body: Node3D) -> void:
+	_camera = camera
+	_body = body
+
+
+## Live altitude readout: a few samples a second, the camera's height above the ground directly under it.
 func _process(delta: float) -> void:
 	if _alt_label == null or _camera == null or _body == null:
 		return
@@ -125,9 +130,6 @@ func _process(delta: float) -> void:
 	var alt: float = NAN
 	if _body.has_method("altitude_at"):
 		alt = _body.altitude_at(_camera.global_position)
-	if is_nan(alt) and _body.has_method("center"):
-		var r: float = _body.radius() if _body.has_method("radius") else 0.0
-		alt = _camera.global_position.distance_to(_body.center()) - r
 	_alt_label.text = "alt %s" % _format_alt(alt)
 
 

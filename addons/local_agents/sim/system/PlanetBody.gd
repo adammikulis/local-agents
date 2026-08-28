@@ -84,6 +84,14 @@ func radius() -> float:
 func sea_radius() -> float:
 	return _terrain.sea_radius() if _terrain != null else 0.0
 
+## Highest radius any terrain on this body reaches. 0 before the terrain is built.
+func max_surface_radius() -> float:
+	return _terrain.max_surface_radius() if _terrain != null else 0.0
+
+## Voxel edge (metres) of the finest mesh drawn over `world_pos`; INF where none is.
+func meshed_resolution_at(world_pos: Vector3) -> float:
+	return _terrain.meshed_resolution_at(world_pos) if _terrain != null else INF
+
 ## Local "up" at a world point: radial from the body centre.
 func up_at(world_pos: Vector3) -> Vector3:
 	var r: Vector3 = world_pos - center()
@@ -112,10 +120,6 @@ func sdf_at(world_pos: Vector3) -> float:
 func carve_sphere(world_pos: Vector3, r: float) -> void:
 	if _terrain != null:
 		_terrain.carve_sphere(world_pos, r)
-
-## True if terrain is meshed + collidable near world_pos (gates spawning).
-func is_ready_at(world_pos: Vector3) -> bool:
-	return _terrain != null and _terrain.is_ready_at(world_pos)
 
 ## Attach a VoxelViewer under `node` so terrain streams/meshes around it.
 func attach_viewer(node: Node3D, visuals: bool = true) -> void:
