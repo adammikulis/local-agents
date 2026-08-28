@@ -283,6 +283,7 @@ if [[ "$cmd" == "lint" ]]; then
     gpu_gate check_no_focus_theft
     gate check_api_version
     gate check_bin_relocatable
+    gate check_deps_cache_relocatable
     gate check_gpu_gate_list
     gpu_gate check_quiet_window
     gpu_gate check_presentation_absent

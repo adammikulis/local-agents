@@ -8,15 +8,14 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 option(LOCAL_AGENTS_BUILD_SHARED "Build shared library" ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-set(LLAMA_CPP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/llama.cpp" CACHE PATH "Path to llama.cpp headers")
-set(LOCAL_AGENTS_DEPS_BUILD "" CACHE PATH "Prebuilt godot-cpp/llama.cpp cache tree from cmake/deps")
+set(LOCAL_AGENTS_DEPS_ENTRY "" CACHE PATH "Self-contained godot-cpp/llama.cpp cache entry from cmake/deps")
 
-if (NOT EXISTS "${LOCAL_AGENTS_DEPS_BUILD}/la_deps.cmake")
+if (NOT EXISTS "${LOCAL_AGENTS_DEPS_ENTRY}/la_deps.cmake")
     message(FATAL_ERROR
-        "No prebuilt dependency tree at '${LOCAL_AGENTS_DEPS_BUILD}'. "
+        "No dependency cache entry at '${LOCAL_AGENTS_DEPS_ENTRY}'. "
         "Configure through scripts/build_extension.sh, which fills the cache and passes it in.")
 endif()
-include("${LOCAL_AGENTS_DEPS_BUILD}/la_deps.cmake")
+include("${LOCAL_AGENTS_DEPS_ENTRY}/la_deps.cmake")
 
 foreach(dep IN ITEMS godot_cpp llama llama_common mtmd ggml ggml_base ggml_cpu ggml_blas ggml_metal)
     if (LA_DEP_${dep})
@@ -57,10 +56,7 @@ set(SQLITE_SRC
 
 set(INCLUDE_DIRS
     include
-    ${LLAMA_CPP_DIR}
-    ${LLAMA_CPP_DIR}/include
-    ${LLAMA_CPP_DIR}/common
-    ${LA_LLAMA_COMMON_INCLUDES}
+    ${LA_LLAMA_INCLUDES}
     ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/sqlite
 )
 
