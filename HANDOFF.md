@@ -17,22 +17,23 @@ on the file it named. If you know the cause you are close enough to fix it, so f
 ## 0. THE WIND BLOWS PAST ITS OWN SOUND SPEED, AND THE DEFAULT BOX IS NOT EXEMPT
 
 `bash scripts/check_process_ladder.sh` climbs to `hydrostatic` and stops at `acoustic`: that rung's own
-arm, `scripts/agent_harness.sh sim --rung=3 --frames 8`, refuses to transport the h2o row because its
-cells carry a signal speed at or past light, so no timestep integrates them and the harness withholds
-every number.
+arm, `scripts/agent_harness.sh sim --rung=3 --frames 8`, reports PRESSURE_BROKEN — pressure falls going
+down in open cells.
 
-`scripts/sim_run.sh --slice --rung 3 --frames 5` completes instead, and reads non-finite cells and
-pressure falling going down in open cells.
+`bash scripts/check_wind_subsonic.sh` reads the same world's peak wind past the sound speed the
+substrate states for it, and `scripts/check_rung_acoustic.sh` says the same on its own arm.
 
-`scripts/check_rung_acoustic.sh` and `scripts/check_atmosphere_at_rest.sh` are the acceptance tests. The
-rest gate's sealed column moves, and its vented control does not finish inside
-`docs/RUN_TIMEOUT_CEILING`, so the gate reports it has no control.
+`bash scripts/check_atmosphere_at_rest.sh` is rung 3's other gate: its sealed column moves, and its
+vented control moves further.
+
+`scripts/agent_harness.sh sim --rung=8 --frames 6` refuses to transport the silicate, fungus and h2o
+rows: their own cells carry a signal speed at or past light, so no timestep integrates them.
 `docs/PHYSICS_TODO.md` E carries the wind as its own item, and E is downstream of item 1. Until it reads a physical speed no run's numbers
 mean anything. `rho_max_open` is the reading that shows it: an open cell may not be denser than the densest
 substance the table declares, and that is this item's acceptance test.
 
-`bash scripts/check_boundary_momentum_book.sh` fails on the same refusal: its capture arm runs the
-acoustic rung, which is where the momentum rows it weighs live.
+`bash scripts/check_boundary_momentum_book.sh` publishes `momentum_book_bnd` on any run holding momentum
+rows; its twenty-frame capture arm runs long enough for the wind to refuse the transport.
 An offset component of `surface` puts a box on the body without naming a radius.
 
 ## 1. BUILD THE GRADED GRID. IT IS THE TRUNK AND ITEM 0 WAITS ON IT

@@ -112,7 +112,8 @@ layout(set = 0, binding = 61, std430) restrict buffer SendMX { float send_mx[]; 
 layout(set = 0, binding = 62, std430) restrict buffer SendMY { float send_my[]; };
 layout(set = 0, binding = 63, std430) restrict buffer SendMZ { float send_mz[]; };
 // The mixture's own sound speed, m/s, off state_derive's EOS compressibility sum.
-layout(set = 0, binding = 64, std430) restrict readonly buffer CelerityBuf { float cel_m_s[]; };
+layout(set = 0, binding = 64, std430) restrict buffer CelerityBuf { float cel_m_s[]; };
+layout(set = 0, binding = 89, std430) restrict readonly buffer KCondBuf { float k_cond[]; };
 // |v| refreshed by the last momentum gather, so the drained CFL peak is next step's read.
 layout(set = 0, binding = 65, std430) restrict buffer SpeedBuf { float speed[]; };
 // The step's body impulse per cell, kg/(m^2 s), booked by state_derive; PASS_ACOUSTIC_APPLY deposits
@@ -329,15 +330,9 @@ float sub_kg_mol() {
 	return params.max_fill > 0.0 ? params.density / params.max_fill : 0.0;
 }
 
-// Acoustic impedance rho*c, kg/(m^2 s): the Riemann face pressure's weight (Toro ch. 9).
-// LA_APPROX: acoustic_face_pressure
-float impedance(uint c) {
-	return max(rho_bulk[c], 0.0) * max(cel_m_s[c], 0.0);
-}
-
 // THE ONE EMPTINESS TEST, the floor state_derive.glsl empties a cell on: no bulk state of any kind.
 bool no_matter(uint c) {
-	return !(rho_bulk[c] >= params.rho_floor) || impedance(c) <= 0.0;
+	return !(rho_bulk[c] >= params.rho_floor);
 }
 
 // The cell's h2o split by the shares the enthalpy ladder derived, mol/m^3.
@@ -372,18 +367,51 @@ float cond_kg_m3(uint c) {
 	return cloud_water_kg_m3(c) + max(silicate[c], 0.0) * M_SILICATE;
 }
 
+// Depth of face d below the cell's top, m: where the face cuts the stack.
+float face_z(uint c, uint d) {
+	vec3 gv = g_at(c);
+	float gm = length(gv);
+	return gm > 0.0 ? 0.5 * params.cell_m * (1.0 + dot(face_normal(d), gv) / gm)
+		: 0.5 * params.cell_m;
+}
+
 // The cell's pressure at face d, off the LAYERS it holds, so an equilibrium column presents ONE pressure
 // to a shared face however the interface cuts the cell.
 float face_p(uint c, uint d) {
-	float e = params.cell_m;
 	vec3 gv = g_at(c);
-	float gm = length(gv);
-	if (gm <= 0.0) {
+	if (length(gv) <= 0.0) {
 		return pressure[c];
 	}
-	float z = 0.5 * e * (1.0 + dot(face_normal(d), gv) / gm);
-	return la_stack_p(z, e, gm, condensed_frac(c), cond_kg_m3(c), max(rho_bulk[c], 0.0),
-		max(pressure[c], 0.0));
+	return la_stack_p(face_z(c, d), params.cell_m, length(gv), condensed_frac(c), cond_kg_m3(c),
+		max(rho_bulk[c], 0.0), max(pressure[c], 0.0));
+}
+
+// The layer this cell presents at face d. The gas takes the cell's own p, one state with its rho.
+vec2 face_layer(uint c, uint d) {
+	return la_stack_layer(face_z(c, d), params.cell_m, condensed_frac(c), cond_kg_m3(c),
+		max(rho_bulk[c], 0.0), max(pressure[c], 0.0), max(k_cond[c], 0.0), AIR_GAMMA);
+}
+
+// Signal speed of the layer at face d, m/s: sqrt(K/rho) of what touches it, never a mixture mean.
+float face_c(uint c, uint d) {
+	vec2 lay = face_layer(c, d);
+	return (lay.x > 0.0 && lay.y > 0.0) ? sqrt(lay.y / lay.x) : 0.0;
+}
+
+// Impedance rho*c of the layer at face d, kg/(m^2 s). LA_APPROX: acoustic_face_pressure
+float impedance(uint c, uint d) {
+	vec2 lay = face_layer(c, d);
+	return (lay.x > 0.0 && lay.y > 0.0) ? sqrt(lay.x * lay.y) : 0.0;
+}
+
+// The CELL's bulk modulus, Pa (Wood 1930): compliances add by volume fraction. Its response to a
+// uniform dp, and nothing else: no face and no clock takes a signal speed out of it.
+float bulk_mod(uint c) {
+	float fc = clamp(condensed_frac(c), 0.0, 1.0);
+	float kc = max(k_cond[c], 0.0);
+	float kg = AIR_GAMMA * max(pressure[c], 0.0);
+	float comp = (kc > 0.0 ? fc / kc : 0.0) + (kg > 0.0 ? (1.0 - fc) / kg : 0.0);
+	return comp > 0.0 ? 1.0 / comp : 0.0;
 }
 
 
@@ -671,9 +699,13 @@ float la_row_need(uint c) {
 	float dt = params.dt_s;
 	float tk = t_k(c);
 	float need = 0.0;
-	if ((params.flags & TF_VEL) != 0u) {
-		float cm = max(max(cel_m_s[c], 0.0), sqrt(AIR_GAMMA * DRY_AIR_R * tk));
-		need = sqrt(3.0) * cm * dt / L;
+	// Rock holds no bulk momentum; each face carries its own layer, and the fastest is what is resolved.
+	if ((params.flags & TF_VEL) != 0u && solid[c] == 0.0) {
+		float w = 0.0;
+		for (uint d = 0u; d < N_SLOTS; ++d) {
+			w = max(w, abs(dot(vel_at(c), face_normal(d))) + face_c(c, d));
+		}
+		need = w * dt / L;
 	}
 	if (params.mode == MODE_ADVECT || params.mode == MODE_BOTH) {
 		float v = max(speed[c], 0.0);
@@ -990,34 +1022,37 @@ void main() {
 		la_dt = la_level_dt(tlevel[gidx]);
 		uint abase = gidx * N_SLOTS;
 		send[abase] = 0.0;
+		cel_m_s[gidx] = 0.0;
 		// A cell with no bulk state carries no acoustic signal, and its impedance is rho c over a mass
 		// that is not there. Asked FIRST, so nothing downstream evaluates it.
 		if (solid[gidx] != 0.0 || no_matter(gidx)) {
 			return;
 		}
-		float ks = max(rho_bulk[gidx], 0.0) * cel_m_s[gidx] * cel_m_s[gidx];
+		float ks = bulk_mod(gidx);
 		if (!(ks > 0.0)) {
 			return;
 		}
-		float za = impedance(gidx);
 		float div_u = 0.0;
+		float cel_top = 0.0;
 		for (uint d = 0u; d < N_SLOTS; ++d) {
 			int inb = nbr[abase + d];
 			if (inb < 0) { inb = ghost[abase + d]; }
 			vec3 nrm = face_normal(d);
 			float ua = dot(vel_at(gidx), nrm);
+			float za = impedance(gidx, d);
+			cel_top = max(cel_top, face_c(gidx, d));
 			// A FACE ONTO NOTHING IS A FREE SURFACE: vacuum presents no pressure, so the outgoing
 			// characteristic alone sets the face velocity and the matter expands into it.
 			if (inb == GHOST_SPACE
 					|| (inb >= 0 && solid[inb] == 0.0 && no_matter(uint(inb)))) {
-				div_u += ua + face_p(gidx, d) / za;
+				div_u += za > 0.0 ? ua + face_p(gidx, d) / za : ua;
 				continue;
 			}
 			if (inb < 0 || solid[inb] != 0.0) {
 				continue;
 			}
 			uint nb = uint(inb);
-			float zb = impedance(nb);
+			float zb = impedance(nb, d ^ 1u);
 			float zs = za + zb;
 			if (zs <= 0.0) {
 				continue;
@@ -1026,6 +1061,7 @@ void main() {
 			// Subtractive form of the same average: exact at equilibrium for any impedance pair.
 			div_u += ua + (zb * (ub - ua) + (face_p(gidx, d) - face_p(nb, d ^ 1u))) / zs;
 		}
+		cel_m_s[gidx] = cel_top;
 		send[abase] = -ks * div_u * la_dt / params.cell_m;
 		return;
 	}
@@ -1218,9 +1254,9 @@ void main() {
 					// a face onto vacuum meets none, an open face the linearized Riemann p*.
 					bool onto_void = inb == GHOST_SPACE || (!wall && no_matter(nb));
 					float p_face = onto_void ? 0.0 : face_p(gidx, d);
-					if (!wall && !onto_void && !no_matter(gidx)) {
-						float za = impedance(gidx);
-						float zb = impedance(nb);
+					float za = impedance(gidx, d);
+					float zb = wall ? 0.0 : impedance(nb, d ^ 1u);
+					if (!wall && !onto_void && !no_matter(gidx) && za + zb > 0.0) {
 						float ua = dot(vel_at(gidx), nrm);
 						float ub = dot(vel_at(nb), nrm);
 						// Subtractive form: exact at equilibrium for any impedance pair.
@@ -1284,9 +1320,9 @@ void main() {
 				vec3 nrm_a = face_normal(d);
 				float ua = dot(vel_at(gidx), nrm_a);
 				float ub = dot(vel_at(nb), nrm_a);
-				float za = impedance(gidx);
-				float zb = impedance(nb);
-				float vn = no_matter(nb)
+				float za = impedance(gidx, d);
+				float zb = impedance(nb, d ^ 1u);
+				float vn = (no_matter(nb) || za + zb <= 0.0)
 					? (za > 0.0 ? ua + face_p(gidx, d) / za : ua)
 					: ua + (zb * (ub - ua) + (face_p(gidx, d) - face_p(nb, d ^ 1u))) / (za + zb);
 				vn += dot(transport_velocity(gidx) - vel_at(gidx), nrm_a);
@@ -1444,7 +1480,7 @@ void main() {
 			// substance declares no full amount has no volume share, and 0/0 is not a pressure.
 			if (solid[gidx] == 0.0 && params.max_fill > 0.0 && !isinf(params.max_fill)) {
 				pressure[gidx] = pressure[gidx]
-					+ rho_bulk[gidx] * cel_m_s[gidx] * cel_m_s[gidx] * (da / params.max_fill);
+					+ bulk_mod(gidx) * (da / params.max_fill);
 			}
 		}
 	}

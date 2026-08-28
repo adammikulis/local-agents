@@ -35,10 +35,17 @@ rg -qU 'if \(solid\[g\] == 0\.0\) \{\s*\n\s*return;' "$LITHO" || {
 
 # 3. THE SEAM. A wall face takes the FLUID cell's own pressure, and a face onto vacuum takes none.
 #    Reading a solid neighbour's here is what puts a lithostatic gigapascal into the momentum of the air.
-rg -qU 'float p_face = [^;]*face_p\(gidx, d\);\s*\n\s*if \(!wall[^{]*\) \{' "$TRANSPORT" || {
+rg -qU 'float p_face = [^;]*face_p\(gidx, d\);' "$TRANSPORT" || {
 	echo "FAIL  transport.glsl's wall face no longer takes the fluid cell's own pressure. Rock is" >&2
 	echo "      quasi-static and its pressure is not on the same scale; feeding it to -grad(p) is" >&2
 	echo "      what the split exists to prevent." >&2
+	fail=1
+}
+
+# 4. And the Riemann correction that could read it is guarded by that same wall test.
+rg -qU 'if \(!wall[^{]*\) \{\s*\n[^}]*p_face = p_face' "$TRANSPORT" || {
+	echo "FAIL  transport.glsl's Riemann face pressure is no longer guarded by the wall test, so a" >&2
+	echo "      solid neighbour's lithostatic pressure can reach the momentum equation." >&2
 	fail=1
 }
 

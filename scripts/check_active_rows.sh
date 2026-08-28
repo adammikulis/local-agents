@@ -39,7 +39,6 @@ const STEPS: int = 3
 const BLOB_MOL_M3: float = 500.0
 # Air at rest carrying its own sound speed, so the acoustic pair has real state to advance.
 const RHO_BULK: float = 1.225
-const CELERITY: float = 340.0
 # The seam box: a stiff right half, whose own sound speed earns it a finer clock than the left's, and
 # matter crossing every face at a speed the clock is not the business of.
 const SEAM_CELL: float = 2000.0
@@ -119,7 +118,7 @@ func _build(owned: Array[RID]) -> Dictionary:
 		bufs[String(name)] = _f32(_filled(cc, 0.0), owned)
 	for name in LAChannels.derived_buffers():
 		bufs[String(name)] = _f32(_filled(cc, 0.0), owned)
-	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "celerity", "speed", "rad_w_m3",
+	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "celerity", "k_cond", "speed", "rad_w_m3",
 			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi"]:
 		bufs[name] = _f32(_filled(cc, 0.0), owned)
 	bufs["gravity"] = _f32(_filled(cc * 3, 0.0), owned)
@@ -129,7 +128,6 @@ func _build(owned: Array[RID]) -> Dictionary:
 	ghost_tbl.fill(-1)
 	bufs["ghost"] = _i32(ghost_tbl, owned)
 	_write(bufs, "rho_bulk", _filled(cc, RHO_BULK))
-	_write(bufs, "celerity", _filled(cc, CELERITY))
 	_write(bufs, "h2o_liquid", _filled(cc, 1.0))
 	return bufs
 
@@ -166,7 +164,7 @@ func _seam() -> void:
 		bufs[String(name)] = _f32(_filled(cc, 0.0), owned)
 	for name in LAChannels.derived_buffers():
 		bufs[String(name)] = _f32(_filled(cc, 0.0), owned)
-	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "celerity", "speed", "rad_w_m3",
+	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "celerity", "k_cond", "speed", "rad_w_m3",
 			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi"]:
 		bufs[name] = _f32(_filled(cc, 0.0), owned)
 	bufs["gravity"] = _f32(_filled(cc * 3, 0.0), owned)
@@ -191,20 +189,22 @@ func _seam() -> void:
 
 	# A shut box of moving matter: a gradient so there is something to carry, and a velocity step so the
 	# right half's own courant asks for a finer clock than the left half's.
-	var cel: PackedFloat32Array = PackedFloat32Array()
 	var h2o: PackedFloat32Array = PackedFloat32Array()
 	var o2: PackedFloat32Array = PackedFloat32Array()
 	var co2: PackedFloat32Array = PackedFloat32Array()
 	# A sheared momentum column beside the flow, so every row of the group leaves a NONZERO face flux:
 	# a stale one a coarse neighbour never wrote this substep is then visible as matter appearing.
+	# The gas layer's stiffness IS its pressure: gamma p / rho is the speed the right half signals at.
+	var pres: PackedFloat32Array = PackedFloat32Array()
 	var momz: PackedFloat32Array = PackedFloat32Array()
 	var velz: PackedFloat32Array = PackedFloat32Array()
 	var spd: PackedFloat32Array = PackedFloat32Array()
 	for c in cc:
-		cel.append(SEAM_C_STIFF if c >= cc / 2 else 0.0)
 		h2o.append(500.0 - 40.0 * float(c))
 		o2.append(200.0 + 10.0 * float(c))
 		co2.append(50.0 + 3.0 * float(c))
+		pres.append((SEAM_RHO * SEAM_C_STIFF * SEAM_C_STIFF / LAPhysical.AIR_ADIABATIC_INDEX)
+			if c >= cc / 2 else SEAM_P)
 		momz.append(10.0 + 2000.0 * float(c))
 		velz.append((10.0 + 2000.0 * float(c)) / SEAM_RHO)
 		spd.append(sqrt(SEAM_V * SEAM_V + velz[c] * velz[c]))
@@ -212,13 +212,12 @@ func _seam() -> void:
 	_write(bufs, "vel_z", velz)
 	_write(bufs, "mom_z", momz)
 	_write(bufs, "speed", spd)
-	_write(bufs, "celerity", cel)
 	_write(bufs, "h2o", h2o)
 	_write(bufs, "o2", o2)
 	_write(bufs, "co2", co2)
 	_write(bufs, "h2o_liquid", _filled(cc, 1.0))
 	_write(bufs, "rho_bulk", _filled(cc, SEAM_RHO))
-	_write(bufs, "pressure", _filled(cc, SEAM_P))
+	_write(bufs, "pressure", pres)
 	_write(bufs, "temp", _filled(cc, SEAM_T))
 
 	p.setup(_rd, bufs, cc)

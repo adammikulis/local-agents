@@ -29,7 +29,7 @@ layout(set = 0, binding = 50, std430) restrict writeonly buffer BodyFX { float b
 layout(set = 0, binding = 51, std430) restrict writeonly buffer BodyFY { float bodyf_y[]; };
 layout(set = 0, binding = 52, std430) restrict writeonly buffer BodyFZ { float bodyf_z[]; };
 // The mixture's sound speed, m/s: Wood's one-pressure compressibility sum over the cell's own matter.
-layout(set = 0, binding = 53, std430) restrict writeonly buffer Celerity { float cel_m_s[]; };
+layout(set = 0, binding = 53, std430) restrict buffer KCond { float k_cond[]; };
 // Radiogenic power of this cell's own matter, W/m^3: sum over channels of amount * M * W/kg(mix, epoch).
 // transport.glsl's RADIOGENIC leg deposits it into the enthalpy.
 layout(set = 0, binding = 65, std430) restrict writeonly buffer RadW { float rad_w_m3[]; };
@@ -340,7 +340,7 @@ void main() {
 		bodyf_x[g] = 0.0;
 		bodyf_y[g] = 0.0;
 		bodyf_z[g] = 0.0;
-		cel_m_s[g] = 0.0;
+		k_cond[g] = 0.0;
 		lithify(g, f_melt, v_lithic);
 		return;   // no mass, so the frame terms deliver no momentum either
 	}
@@ -432,29 +432,7 @@ void main() {
 		pressure[g] = la_eos_p(vol, n_gas * LA_R_J_MOL_K * tk, b_vol, c_comp, LA_P_STD, p_sat);
 	}
 
-	// THE MIXTURE'S SOUND SPEED (Wood 1930): one pressure, so compressibilities add by volume — the
-	// gas at gamma*p, each condensed phase at its bulk modulus, an undeclared modulus contributing
-	// none, exactly as in the EOS.
-	float cel = 0.0;
-	if (solid[g] == 0.0) {
-		float comp = c_comp;
-		float v_gas = max(vol - b_vol, 0.0);
-		bool defined = true;
-		if (v_gas > 0.0) {
-			float cp_tot = cp_gas + f_vapour * m_h2o * subs[E_H2O].c_gas;
-			float p_now = max(pressure[g], 0.0);
-			float cv_tot = cp_tot - n_gas * LA_R_J_MOL_K;
-			if (p_now > 0.0 && cp_tot > 0.0 && cv_tot > 0.0) {
-				comp += v_gas * cv_tot / (cp_tot * p_now);
-			} else {
-				defined = false;
-			}
-		}
-		if (defined && comp > 0.0) {
-			cel = sqrt(vol / (comp * rho));
-		}
-	}
-	cel_m_s[g] = cel;
+	k_cond[g] = c_comp > 0.0 ? b_vol / c_comp : 0.0;
 
 	// THE MELT SHARE OF THIS CELL'S SILICATE, off the SAME ladder. Rock has a melting INTERVAL, so the
 	// lever rule the enthalpy curve already integrates over reads back as a linear share of the interval —
@@ -472,7 +450,7 @@ void main() {
 	lithify(g, f_melt, v_lithic);
 
 	// The derived state, which breaks before the momentum does.
-	float dv[3] = float[3](pressure[g], cel, rho);
+	float dv[3] = float[3](pressure[g], k_cond[g], rho);
 	for (int i = 0; i < 3; ++i) {
 		nf += (isnan(dv[i]) || isinf(dv[i])) ? 1.0 : 0.0;
 	}

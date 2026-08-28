@@ -92,7 +92,7 @@ func seed_tick() -> bool:
 	if LAProcessSet.has_record("pass", GRAVITY_PASS):
 		_f._gravity.solve_seed()  # the ocean just landed: relax the potential over the WHOLE seeded mass
 	if _f._gpu != null:
-		_f._gpu.derive_seeded()   # the world's own celerity, before the first step is budgeted against it
+		_f._gpu.derive_seeded()   # the world's own bulk state, before the first step is budgeted against it
 	return true
 
 

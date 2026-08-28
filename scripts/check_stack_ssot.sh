@@ -8,6 +8,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh"
 require_tool python3
+require_tool rg
 
 GLSL="$ROOT/addons/local_agents/sim/material/kernels3d/stack.glsli"
 EOS="$ROOT/addons/local_agents/sim/material/kernels3d/eos.glsli"
@@ -15,6 +16,16 @@ CPP="$ROOT/addons/local_agents/gdextensions/localagents/src/LAFieldLithostaticSe
 for f in "$GLSL" "$EOS" "$CPP"; do
 	[ -f "$f" ] || { echo "check_stack_ssot: MISSING ${f#"$ROOT"/}" >&2; exit 2; }
 done
+
+# ONE INTERFACE. The gas/condensed boundary inside a cell is where the face pressure, the face impedance
+# and the face signal speed all read the stack; a second place computing it is a second stack.
+KERN="$ROOT/addons/local_agents/sim/material/kernels3d"
+stray="$(rg -l -N -e '\bz_gas\b' "$KERN" | grep -v '/stack.glsli$' || true)"
+if [ -n "$stray" ]; then
+	echo "check_stack_ssot: the layer interface is computed outside stack.glsli:" >&2
+	printf '%s\n' "$stray" >&2
+	exit 1
+fi
 
 python3 - "$GLSL" "$EOS" "$CPP" <<'PY'
 import re, sys

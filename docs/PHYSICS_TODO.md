@@ -238,8 +238,8 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       prints and of `HANDOFF.md` item 0. It is NOT a near-vacuum division artifact: the peak falls with
       density but survives it, so gating the gauge hides it rather than fixing it. And it GROWS with run
       length rather than relaxing, so it is not a seed transient settling — something adds energy.
-      **Reproduce:** `bash scripts/check_atmosphere_at_rest.sh`, whose sealed column moves and whose
-      vented control does not finish; or `scripts/agent_harness.sh sim --rung=3 --frames 8`, the smallest
+      **Reproduce:** `bash scripts/check_wind_subsonic.sh`, or `bash scripts/check_atmosphere_at_rest.sh`
+      whose sealed column moves; or `scripts/agent_harness.sh sim --rung=3 --frames 8`, the smallest
       world that shows it, driven only by pressure and gravity, which cancel at balance and so may not
       blow it past its own sound speed.
 - [ ] **`mineral_total` still trips the conservation gate**, and the pass its per-pass probe once named no

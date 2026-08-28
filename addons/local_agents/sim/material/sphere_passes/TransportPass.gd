@@ -86,7 +86,8 @@ var _list_idx_rid: Array = []
 ## The TF_EFIELD row's electric-field outputs (driver-owned so ReducePass can read them), the boundary
 ## books, and each list's compacted-index, membership-flag and indirect-args buffers.
 func _buffers(cc: int) -> Dictionary:
-	var out: Dictionary = {"col_e": cc, "strike": cc, "radiogenic": cc,
+	# The acoustic pass writes `celerity`: the fastest layer on any of the cell's own faces.
+	var out: Dictionary = {"col_e": cc, "strike": cc, "radiogenic": cc, "celerity": cc,
 		"sw_space": cc, "rad_residual": cc,
 		"bnd_void": cc, "bnd_h_void": cc, "rim_ghost": cc, "rim_w": cc}
 	for ch in LAProcessSet.booked():
@@ -407,7 +408,7 @@ const BINDINGS: Dictionary = {
 	"mom_x": 58, "mom_y": 59, "mom_z": 60, "celerity": 64, "speed": 65, "bodyf_x": 66, "bodyf_y": 67,
 	"bodyf_z": 68, "co": 72, "so2": 73, "h2s": 74, "o2": 75, "n2": 76, "h2": 77, "grav_phi": 78,
 	"tlevel": 80, "level_idx": 81, "level_args": 82, "level_peak": 83, "act_quiet": 84, "act_claim": 85,
-	"act_queue": 86, "act_wake": 87, "act_wake_args": 88
+	"act_queue": 86, "act_wake": 87, "act_wake_args": 88, "k_cond": 89
 }
 
 ## Pass-owned scratch, in binding order: the first FACE_SCRATCH ride a face, the rest are per cell.
