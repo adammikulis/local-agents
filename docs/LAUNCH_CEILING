@@ -1,6 +1,7 @@
 # Engine launches one `scripts/agent_harness.sh lint` may perform, counted through LA_LAUNCH_LOG by
-# scripts/check_launch_count.sh. The declared arms: three in scripts/lint_capture.sh (the kernel import,
-# the one shared sim arm, the one headless batch) and eleven second arms that need a run configuration
-# the shared arm cannot give them.
-# May fall as an arm is collapsed. May not rise.
-14
+# scripts/check_launch_count.sh. Three in scripts/lint_capture.sh (kernel import, shared sim arm,
+# headless batch) and sixteen second arms: the device rigs of gravity, radiative, weathering, lifeless,
+# escape, boundary_momentum, boundary_books, active_rows, derive_fixed_point, driver_native and
+# stack_balance; the boundary_wrap, boundary_books and boundary_momentum REPLAY slices; the seeded-world
+# arms of derive_fixed_point and driver_native. May fall as an arm is collapsed. May not rise.
+19

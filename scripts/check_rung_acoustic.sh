@@ -30,7 +30,7 @@ awk -v cel="$cel" -v wind="$wind" -v cells="$cells" -v h2o="$h2o" -v resid="$res
 	if (wind > cel) { print "A cell is moving faster than its own sound speed." > "/dev/stderr"; fail = 1 }
 	if (!(cells > 0)) { print "No open cell carries motion: the acoustic group never moved anything." > "/dev/stderr"; fail = 1 }
 	if (!(h2o <= floor_rel && h2o >= -floor_rel)) { print "The h2o total moved on a box with every wall shut." > "/dev/stderr"; fail = 1 }
-	if (!(resid <= floor_rel && resid >= -floor_rel)) { print "The world total of heat, motion and height moved on a box with nothing outside it." > "/dev/stderr"; fail = 1 }
+	if (!(resid <= floor_rel && resid >= -floor_rel)) { print "The heat and the motion do not sum to a constant on a box with nothing outside it." > "/dev/stderr"; fail = 1 }
 	exit fail
 }' || {
 	echo

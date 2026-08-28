@@ -169,7 +169,10 @@ func _init() -> void:
 	_expect(float(alive["o2"]) > 0.0, "the positive control fixed no carbon: a lit, warm, wet, fertile, "
 		+ "CO2-rich cell HOLDING BIOMASS credited no O2 — photosynthesis is dead, so the lifeless arm "
 		+ "below proves nothing.")
-	_expect(float(alive["co2"]) < CO2_AT_CELL, "the positive control drew no CO2 while crediting O2.")
+	# AGAINST THE OTHER ARM, never against the seeded double: both readbacks are float32 of one value,
+	# so they differ only where the reaction ran. Compared to the double, float32 rounding alone passes.
+	_expect(float(alive["co2"]) < float(lifeless["co2"]),
+		"the positive control drew no CO2 while crediting O2.")
 	_expect(float(lifeless["o2"]) == 0.0, "life ignites from nothing: a cell with ZERO biomass credited "
 		+ "O2 (%s) — a bio record runs without its living catalyst." % String.num_scientific(float(lifeless["o2"])))
 	for key in ["biomass", "fungus", "detritus", "fuel"]:
@@ -183,6 +186,8 @@ func _init() -> void:
 	quit(1 if _fails > 0 else 0)
 GD
 
+# An unimported kernel loads as null and the pass runs empty, which reads as a physics verdict here.
+"$REPO_ROOT/scripts/godot_import.sh" "$REPO_ROOT" >/dev/null 2>&1 || true
 out="$(LA_DONE_RE='^LIFELESS_PLANET=' "$REPO_ROOT/scripts/run_sim_offscreen.sh" \
   --path "$REPO_ROOT" -s "res://addons/local_agents/tests/zz_lifeless_gate.gd" 2>&1)"
 rc=$?

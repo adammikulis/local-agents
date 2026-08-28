@@ -3,14 +3,11 @@ extends RefCounted
 
 ## Save/restore of the material field's per-cell state.
 
-# Channel name -> the field's CPU mirror array property.
-const CPU_MIRROR: Dictionary = {
-	"h_j_m3": "_h", "h2o": "_h2o", "silicate": "_silicate", "fire": "_fire",
-	"o2": "_o2", "co2": "_co2", "biomass": "_biomass", "cement": "_cement",
-	"shock": "_shock", "charge": "_charge",
-	"vel_x": "_vel_x", "vel_y": "_vel_y", "vel_z": "_vel_z", "fuel": "_fuel", "fungus": "_fungus",
-	"detritus": "_detritus", "pressure": "_pressure",
-}
+
+## The field's CPU mirror for a channel, by the rule LAFieldCellMass3D reads them under: `_` and the
+## channel's own name, the enthalpy channel under the name the field holds it by.
+static func mirror_of(name: String) -> String:
+	return "_h" if name == "h_j_m3" else "_" + name
 
 
 ## True once the field has activated its GPU driver.
@@ -40,12 +37,12 @@ static func restore(field, data: Dictionary) -> bool:
 	if channels.is_empty():
 		return false
 	field._gpu.restore_channels(channels)
+	# EVERY MIRROR THE CAPTURE CARRIES. A subset leaves the rest holding the pre-load world, and what
+	# reads a mirror — the body's mass among them — then weighs two worlds at once.
 	for name in channels.keys():
-		var key: String = String(name)
-		if not CPU_MIRROR.has(key):
-			continue
-		var arr: PackedFloat32Array = channels[key]
-		if arr.size() == field._cell_count:
-			field.set(CPU_MIRROR[key], arr)
+		var arr: PackedFloat32Array = channels[name]
+		var key: String = mirror_of(String(name))
+		if arr.size() == field._cell_count and field.get(key) is PackedFloat32Array:
+			field.set(key, arr)
 	field._atmos_dirty = true
 	return true

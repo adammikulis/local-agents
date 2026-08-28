@@ -123,6 +123,8 @@ func _load_seeded(k: String) -> bool:
 	if LAProcessSet.has_record("pass", GRAVITY_PASS):
 		_f._gravity.solve_seed()
 	_f._gpu.derive_seeded()
+	# The body is the matter it is made of, so a world that was LOADED is weighed like one that was walked.
+	_f._body_measure.measure(_f, LABodySeeds.spin_axis_of(_f._body_key))
 	return true
 
 

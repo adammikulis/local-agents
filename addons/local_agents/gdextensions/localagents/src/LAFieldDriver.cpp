@@ -163,6 +163,7 @@ void LAFieldDriver::setup_transport(const Dictionary &p_plan) {
 	_level_off = plan_int(p_plan, "level_off", 0);
 	_k_off = plan_int(p_plan, "k_off", 0);
 	_n_off = plan_int(p_plan, "n_off", 0);
+	_dispatch_off = plan_int(p_plan, "dispatch_off", 0);
 }
 
 int LAFieldDriver::_args_offset(int p_group, int p_bin) const {
@@ -190,6 +191,9 @@ const PackedByteArray &LAFieldDriver::_block(const Array &p_table, int p_slot, i
 		put_u32(w, _level_off, (uint32_t)p_level);
 		put_u32(w, _k_off, (uint32_t)p_k);
 		put_u32(w, _n_off, (uint32_t)p_n);
+	}
+	if (_dispatch_off > 0 && _dispatch_off <= room) {
+		put_u32(w, _dispatch_off, _dispatch_id);
 	}
 	return _scratch;
 }
@@ -276,6 +280,11 @@ void LAFieldDriver::_run_row(int64_t p_cl, int p_row, const Array &p_pc_rows, in
 		return;
 	}
 	const Array table = p_pc_rows[p_row];
+	// One stamp for this row's whole substep: its gather admits the faces its own outflow wrote.
+	// Zero is the buffer's cleared state and belongs to no dispatch.
+	if (++_dispatch_id == 0u) {
+		_dispatch_id = 1u;
+	}
 	int slots[3];
 	int count = 0;
 	if (p_acoustic_pair) {

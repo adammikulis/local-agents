@@ -226,26 +226,17 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
 - [ ] **Five matter rows trip the conservation gate on a clean tree** — h2o, nitrogen, mineral, oxidant and
       element_C — and the energy row reads UNMEASURED rather than conserved. **Reproduce:**
       `scripts/check_conservation.sh`.
-- [ ] **EVERY GAS ENDS UP INSIDE SOLID ROCK, and the seed did not put it there.** At the capture's own
-      arm each gas channel holds a near-identical amount in solid cells whatever its total. At frame 2 of
-      the same arm `all_X` and `open_X` are equal to the last bit, so it accumulates over the run.
-      **Reproduce:** `for n in 2 20; do scripts/sim_run.sh --rung 8 --frames $n --seed 4242 --from-seal
-      --report all_n2,open_n2,all_ch4,open_ch4; done`, or `bash scripts/check_gas_in_rock.sh` under a
-      lint capture.
 
-- [ ] **FREE OXYGEN APPEARS ON A LIFELESS PLANET.** `MaterialField3D.O2_AMBIENT` is zero and
-      `LAPlanetComposition::seed` places no gas at all, yet `o2_total` reads non-zero with `biomass_total`
-      at zero. **Reproduce:** `bash scripts/check_lifeless_planet.sh`.
-
-- [ ] **THE ENERGY CLOSURE CANNOT BE READ.** `energy_run_drift_rel` weighs enthalpy plus kinetic plus
-      potential, and it lands under the float32 noise floor of its own sum whether or not transport's
-      `v dot dp` debit is compiled in, so nothing distinguishes a book that closes from one that does not.
-      **Reproduce:** `scripts/sim_run.sh --rung 3 --frames 8 --report
+- [ ] **THE ENERGY CLOSURE CANNOT BE READ.** `energy_run_drift_rel` weighs enthalpy plus kinetic, and it
+      lands under the float32 noise floor of its own sum whether or not transport's `v dot dp` debit is
+      compiled in, so nothing distinguishes a book that closes from one that does not. **Reproduce:**
+      `scripts/sim_run.sh --rung 3 --frames 8 --report
       energy_stock,energy_kinetic,energy_potential,energy_run_drift_rel`, then again with the `is_signed`
       debit in `transport.glsl`'s gather deleted.
-
-- [ ] **`o2_first` latches at zero**, so the o2 row has no scale to be a fraction of. A baseline of zero is
-      not a baseline.
+- [ ] **THE POTENTIAL STORE IS NOT BOOKED, AND A RELOADED WORLD DOES NOT REPRODUCE IT.** `energy_potential`
+      is gauged and left out of the run book: the same mass in the same cells reads a different potential
+      after a load than after a walk. **Reproduce:** `bash scripts/check_seal_cache.sh` with
+      `energy_potential` added to the ledger's `energy_held`.
 
 - [ ] **`LA_PASS_PROBE` sums bare fill fractions**, which a kernel moving fill fractions conserves by
       construction, so it cannot see a volume-weighted loss and its silence is not evidence. Every

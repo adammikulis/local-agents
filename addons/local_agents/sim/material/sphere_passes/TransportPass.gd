@@ -43,6 +43,7 @@ const FLUSH_EVERY: int = 4096
 const PC_LEVEL: int = 104
 const PC_K: int = 108
 const PC_N: int = 112
+const PC_DISPATCH: int = 124
 
 ## Rows that advance together on one time axis; a solitary row is its own group.
 var _row_groups: Array = []
@@ -52,9 +53,6 @@ var _peaks: PackedInt32Array = PackedInt32Array()
 var _peak_top: int = 0
 var _args_rid: RID = RID()
 var _peak_rid: RID = RID()
-var _idx_rid: RID = RID()
-var _quiet_rid: RID = RID()
-var _wake_rid: RID = RID()
 var _wake_args_rid: RID = RID()
 ## Interior cells plus the ghost tail, and the row -> its group slot.
 var _total: int = 0
@@ -66,7 +64,7 @@ var _sets: Array = []
 var _rows: Array = []
 ## Per-face scratch, cell*6: what left each face this step, and the enthalpy and charge that rode with it.
 ## Pass-owned scratch, binding to buffer: what left each face and the enthalpy, charge and momentum
-## that rode with it, then the RADIATE row's own within-step emissivity, beam share and reflected pair.
+## that rode with it, the RADIATE row's emissivity, beam share and reflected pair, and the dispatch stamp.
 var _scr: Dictionary = {}
 ## resist 0 and aux 1 for a row that names neither.
 var _zero: RID = RID()
@@ -129,9 +127,6 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	_peaks.resize(_row_groups.size())
 	_args_rid = _single(bufs, LevelsScript.KEYS.args)
 	_peak_rid = _single(bufs, LevelsScript.KEYS.peak)
-	_idx_rid = _single(bufs, LevelsScript.KEYS.idx)
-	_quiet_rid = _single(bufs, ActiveScript.KEYS.quiet)
-	_wake_rid = _single(bufs, ActiveScript.KEYS.wake)
 	_wake_args_rid = _single(bufs, ActiveScript.KEYS.wake_args)
 	_total = cc + ghost_count
 	_row_group.resize(_rows.size())
@@ -182,7 +177,7 @@ func _plan() -> Dictionary:
 		"wake_args": _wake_args_rid, "grain_set": _grain_set, "list_sets": _list_sets,
 		"queue_bin": ActiveScript.QUEUE_BIN, "slots": LevelsScript.SLOTS,
 		"group_count": group_count(), "flush_every": FLUSH_EVERY,
-		"level_off": PC_LEVEL, "k_off": PC_K, "n_off": PC_N}
+		"level_off": PC_LEVEL, "k_off": PC_K, "n_off": PC_N, "dispatch_off": PC_DISPATCH}
 
 
 ## XUV irradiance at this body, W/m^2, taken once per dispatch off the ctx the star publishes into.
@@ -328,7 +323,7 @@ const BINDINGS: Dictionary = {
 }
 
 ## Pass-owned scratch, in binding order: the first FACE_SCRATCH ride a face, the rest are per cell.
-const SCRATCH: Dictionary = {0: 8, 1: 9, 2: 14, 3: 61, 4: 62, 5: 63, 6: 44, 7: 45, 8: 52, 9: 53}
+const SCRATCH: Dictionary = {0: 8, 1: 9, 2: 14, 3: 61, 4: 62, 5: 63, 6: 44, 7: 45, 8: 52, 9: 53, 10: 90}
 const FACE_SCRATCH: int = 6
 
 
@@ -519,7 +514,7 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float,
 	if String(row["channel"]) == "h_j_m3":
 		flags |= LATransportRecords.Flag.ENTHALPY
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(124)
+	pc.resize(128)
 	pc.encode_u32(0, cc)
 	pc.encode_u32(4, pass_id)
 	pc.encode_u32(8, int(row["mode"]))
