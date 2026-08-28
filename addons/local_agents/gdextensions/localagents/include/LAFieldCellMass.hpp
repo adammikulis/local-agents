@@ -2,6 +2,7 @@
 #define LOCAL_AGENTS_LA_FIELD_CELL_MASS_HPP
 
 #include <godot_cpp/classes/ref_counted.hpp>
+#include <godot_cpp/classes/rendering_device.hpp>
 #include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_string_array.hpp>
@@ -16,6 +17,9 @@ class LAFieldCellMass3D : public RefCounted {
 public:
 	// Kilograms per LASubstances id in one cell, and the moles of gas in it.
 	static Dictionary masses_at(Object *p_field, int p_c, double p_cell_m3);
+	// The regolith walk's products onto the device: the permeable mask as floats, grain size and Athy
+	// porosity, each only when the walk produced it.
+	static void upload_regolith(RenderingDevice *p_rd, const Dictionary &p_bufs, Object *p_field);
 	static double gas_moles_at(Object *p_field, int p_c, double p_cell_m3);
 	// [mirror array, molar mass kg/mol] for every channel the field carries as an amount of matter.
 	static Array mirrors(Object *p_field);

@@ -34,7 +34,6 @@ const uint MODE_MOMENTS = 2u;
 const uint MODE_SEED = 3u;
 const uint MODE_GRADIENT = 5u;
 const uint MODE_FIELD_STATS = 7u;
-const uint MODE_MONOPOLE = 8u;
 const uint MODE_VERT_UP = 9u;
 const uint MODE_VERT_DOWN = 10u;
 const uint MODE_VERT_DOWN_KEY = 11u;
@@ -57,14 +56,7 @@ layout(push_constant, std430) uniform Params {
 	float base_edge;   // a LEVEL 0 cell's edge, m
 	float ox;          // the box's minimum corner, m
 	float oy;
-	float oz;       // LAPhysical.GRAVITATIONAL_CONSTANT
-	// MODE_MONOPOLE only: the DECLARED body's centre, radius and mass. A slice is a partial slab, so its
-	// own mass is not the field's source and Poisson is never relaxed over it.
-	float mono_cx;
-	float mono_cy;
-	float mono_cz;
-	float mono_r;     // declared body radius, m
-	float mono_m;     // declared body mass, kg
+	float oz;
 } params;
 
 shared float s_red[64];
@@ -119,8 +111,18 @@ void la_stencil(uint c, out float w_sum, out float w_phi) {
 	}
 }
 
-// Area-weighted potential across one slot and the centre distance to it; false at the box face.
-bool la_slot_mean(uint c, uint d, out float p, out float dist) {
+// ref(nb) - ref(c) of the monopole reference in product form: float32 never holds the full potential.
+float ref_drop(uint c, uint nb) {
+	float total = moments[0];
+	if (total <= 0.0) { return 0.0; }
+	vec3 com = vec3(moments[1], moments[2], moments[3]);
+	float rc = max(length(pos_at(c) - com), cell_edge[c]);
+	float rn = max(length(pos_at(nb) - com), cell_edge[nb]);
+	return -params.g_si * total * (rc - rn) / (rc * rn);
+}
+
+// Area-weighted potential DROP from c across one slot and the centre distance to it; false at the box face.
+bool la_slot_mean(uint c, uint d, out float drop, out float dist) {
 	float a = 0.0;
 	float ap = 0.0;
 	float ad = 0.0;
@@ -129,26 +131,26 @@ bool la_slot_mean(uint c, uint d, out float p, out float dist) {
 		if (nb < 0) { continue; }
 		float w = la_face_area(c, nb);
 		a += w;
-		ap += w * (phi[uint(nb)] + grav_ref[uint(nb)]);
+		ap += w * (phi[uint(nb)] - phi[c] + ref_drop(c, uint(nb)));
 		ad += w * la_face_dist(c, nb);
 	}
 	if (a <= 0.0) { return false; }
-	p = ap / a;
+	drop = ap / a;
 	dist = ad / a;
 	return true;
 }
 
 // d(phi)/d(axis) across a slot pair: central where both sides exist, one-sided at the box face.
 float axis_deriv(uint c, uint lo_slot, uint hi_slot) {
-	float plo = 0.0;
-	float phi_hi = 0.0;
+	float dr_lo = 0.0;
+	float dr_hi = 0.0;
 	float dlo = 0.0;
 	float dhi = 0.0;
-	bool has_lo = la_slot_mean(c, lo_slot, plo, dlo);
-	bool has_hi = la_slot_mean(c, hi_slot, phi_hi, dhi);
-	if (has_lo && has_hi) { return (phi_hi - plo) / (dlo + dhi); }
-	if (has_hi) { return (phi_hi - phi[c] - grav_ref[c]) / dhi; }
-	if (has_lo) { return (phi[c] + grav_ref[c] - plo) / dlo; }
+	bool has_lo = la_slot_mean(c, lo_slot, dr_lo, dlo);
+	bool has_hi = la_slot_mean(c, hi_slot, dr_hi, dhi);
+	if (has_lo && has_hi) { return (dr_hi - dr_lo) / (dlo + dhi); }
+	if (has_hi) { return dr_hi / dhi; }
+	if (has_lo) { return -dr_lo / dlo; }
 	return 0.0;
 }
 
@@ -250,7 +252,7 @@ void mode_gradient(uint gidx, bool live) {
 			for (uint f2 = la_face_lo(gidx); f2 < la_face_hi(gidx); ++f2) {
 				int nb2 = nbr[f2];
 				if (nb2 >= 0 && (cellflag[uint(nb2)] & FLAG_BOUNDARY) != 0u) {
-					outflux += (phi[gidx] + grav_ref[gidx] - phi[uint(nb2)] - grav_ref[uint(nb2)])
+					outflux += (phi[gidx] - phi[uint(nb2)] - ref_drop(gidx, uint(nb2)))
 						* la_face_area(gidx, nb2) / la_face_dist(gidx, nb2);
 				}
 			}
@@ -266,41 +268,6 @@ void mode_gradient(uint gidx, bool live) {
 		partials[b + 5u] = hits;
 		partials[b + 8u] = flux;
 		partials[b + 9u] = mass_in;
-	}
-}
-
-// The declared body's analytic field: g = -G M(<r) r_hat / r^2, M(<r) the shell theorem inside a uniform
-// body. Writes the same g_field and the same mean-|g| partials the Poisson gradient writes.
-// LA_APPROX: slice_monopole_gravity
-void mode_monopole(uint gidx, bool live) {
-	float mag = 0.0;
-	if (live) {
-		vec3 rv = pos_at(gidx) - vec3(params.mono_cx, params.mono_cy, params.mono_cz);
-		float r = length(rv);
-		vec3 g = vec3(0.0);
-		float ph = 0.0;
-		if (r > 0.0 && params.mono_r > 0.0) {
-			float frac = min(r / params.mono_r, 1.0);
-			float m_eff = params.mono_m * frac * frac * frac;
-			mag = params.g_si * m_eff / (r * r);
-			g = rv * (-mag / r);
-			// The same body's potential, zero at infinity: -GM/r outside, the uniform-sphere form inside.
-			float rb = params.mono_r;
-			ph = r >= rb ? -params.g_si * params.mono_m / r
-				: -params.g_si * params.mono_m * (3.0 * rb * rb - r * r) / (2.0 * rb * rb * rb);
-		}
-		g_field[gidx * 3u] = g.x;
-		g_field[gidx * 3u + 1u] = g.y;
-		g_field[gidx * 3u + 2u] = g.z;
-		phi[gidx] = ph;
-	}
-	float acc = wg_sum(mag);
-	float hits = wg_sum(mag > 0.0 ? 1.0 : 0.0);
-	if (gl_LocalInvocationID.x == 0u) {
-		uint b = gl_WorkGroupID.x * PART_STRIDE;
-		partials[b + 4u] = acc;
-		partials[b + 5u] = hits;
-		partials[b + 8u] = 0.0;
 	}
 }
 
@@ -430,9 +397,6 @@ void main() {
 			return;
 		case MODE_FIELD_STATS:
 			mode_field_stats();
-			return;
-		case MODE_MONOPOLE:
-			mode_monopole(gidx, live);
 			return;
 	}
 }

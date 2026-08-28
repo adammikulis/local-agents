@@ -26,6 +26,7 @@ static func porosity_at(shells: int) -> float:
 ## those pores is the body's own, and LAFieldHydrosphereSeed lays it.
 func compute() -> void:
 	if _f._grid == null or _f._solid.size() != _f._cell_count:
+		push_error("LAMaterialFieldRegolith3D.compute: no grid or the solid mask is %d over %d cells; no regolith." % [_f._solid.size(), _f._cell_count])
 		return
 	var cell_count: int = _f._cell_count
 	_f._regolith = PackedByteArray()

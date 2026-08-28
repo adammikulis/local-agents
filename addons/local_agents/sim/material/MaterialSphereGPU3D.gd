@@ -127,7 +127,6 @@ func setup(field) -> void:
 	for gas in ["h2", "co", "so2", "h2s", "ch4"]:
 		seed_field(String(gas), field.get("_" + String(gas)), field._seal)
 	_seed("h2o", field._h2o)            # the ocean basin + the primed water table
-	_seed("porosity", field._porosity)  # Athy pore fraction: the ONE phi permeability and capacity both read
 	_seed_solid()
 	_seed_silicate()
 	_seed_regolith()                    # aquifer permeability mask + grain-size field (static)
@@ -717,7 +716,8 @@ func _make_vec3_flat(getter: Callable) -> RID:
 
 ## Seed a channel from its CPU mirror.
 func _seed(name: String, arr: PackedFloat32Array) -> void:
-	if not _bufs.has(name) or arr.size() != _cc:
+	if not _bufs.has(name) or arr.size() == 0 or arr.size() % _cc != 0:
+		push_error("LAMaterialSphereGPU3D._seed: %s has no buffer or %d values over %d cells; nothing uploaded." % [name, arr.size(), _cc])
 		return
 	var bytes: PackedByteArray = arr.to_byte_array()
 	_rd.buffer_update(_bufs[name], 0, bytes.size(), bytes)
@@ -731,21 +731,7 @@ func _seed_solid() -> void:
 	_rd.buffer_update(_bufs["solid"], 0, b.size(), b)
 
 func _seed_regolith() -> void:
-	var m: PackedByteArray = _field._regolith
-	if m.size() != _cc:
-		return
-	var f: PackedFloat32Array = PackedFloat32Array()
-	f.resize(_cc)
-	for i in _cc:
-		f[i] = 1.0 if m[i] != 0 else 0.0
-	var b: PackedByteArray = f.to_byte_array()
-	_rd.buffer_update(_bufs["regolith"], 0, b.size(), b)
-	# Grain size rides along: same lifetime, same derivation pass (LAMaterialFieldRegolith3D.compute), and it
-	# is meaningless without the mask that says which cells are aquifer.
-	var g: PackedFloat32Array = _field._grain
-	if g.size() == _cc:
-		var gb: PackedByteArray = g.to_byte_array()
-		_rd.buffer_update(_bufs["grain"], 0, gb.size(), gb)
+	LAFieldCellMass3D.upload_regolith(_rd, _bufs, _field)
 
 
 ## Seeded rock is bedrock, so it is both present and fully consolidated. Declared where it lands.

@@ -16,7 +16,7 @@ const PART_STRIDE: int = 10
 ## gravity_poisson.glsl `moments`: 0 mass · 1..3 centre of mass · 4 mean |g| · 6 Gauss ratio.
 const MOMENT_SLOTS: int = 7
 const GROUP: int = 64
-const PC_BYTES: int = 56
+const PC_BYTES: int = 36
 
 const MODE_FLAGS: int = 0
 const MODE_DENSITY: int = 1
@@ -24,7 +24,6 @@ const MODE_MOMENTS: int = 2
 const MODE_SEED: int = 3
 const MODE_GRADIENT: int = 5
 const MODE_FIELD_STATS: int = 7
-const MODE_MONOPOLE: int = 8
 const MODE_VERT_UP: int = 9
 const MODE_VERT_DOWN: int = 10
 const MODE_VERT_DOWN_KEY: int = 11
@@ -60,7 +59,7 @@ var _residual_rel: float = INF          # until a solve has been drained, the fi
 var _last: Dictionary = {}              # what the last drain published; the step's report reads it
 var _failed_announced: bool = false
 ## SLICE: centre xyz, radius, mass of the declared body. Empty = solve Poisson from the grid's own mass.
-var _mono: PackedFloat32Array = PackedFloat32Array()
+var _slab: bool = false                  # a slab carries the declared body's field, uploaded once
 var _phi_rid: RID = RID()
 var _iterations: int = 0
 var _density_rid: RID = RID()
@@ -137,7 +136,7 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 
 
 func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:
-	ctx["gravity_self"] = 1.0 if not _mono.is_empty() else 0.5
+	ctx["gravity_self"] = 1.0 if _slab else 0.5
 	if not _dispatchable() or not _set.is_valid():
 		if not _failed_announced:
 			_failed_announced = true
@@ -145,8 +144,7 @@ func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: i
 				+ "`above`/`below` read in the tree points nowhere. Usual cause: gravity_poisson.glsl was "
 				+ "never imported — run `godot --headless --path . --import` in this worktree.")
 		return
-	# The declared-monopole field is static: written once at the seed, never re-solved.
-	if not _mono.is_empty():
+	if _slab:
 		return
 	# Only solve_converged dispatches; it owns the sequence around the native solve.
 	var phase: String = String(ctx.get("gravity_solve", ""))
@@ -170,7 +168,7 @@ func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: i
 ## conjugate gradient in the extension over the same operator; gradient, verticals and residual on the
 ## device again. Returns the residual the device measured, or INF when nothing could be solved.
 func solve_converged(rd: RenderingDevice, grid, cc: int, groups: int) -> float:
-	if not _dispatchable() or not _set.is_valid() or not _mono.is_empty() or grid == null:
+	if not _dispatchable() or not _set.is_valid() or _slab or grid == null:
 		return INF
 	var ctx: Dictionary = {"gravity_solve": "pre"}
 	var cl: int = rd.compute_list_begin()
@@ -197,17 +195,12 @@ func solve_converged(rd: RenderingDevice, grid, cc: int, groups: int) -> float:
 	return _residual_rel
 
 
-## SLICE ONLY: the declared body the analytic field points at, set before the seed dispatch.
-func set_monopole(centre: Vector3, r_body: float, m_kg: float) -> void:
-	_mono = PackedFloat32Array([centre.x, centre.y, centre.z, r_body, m_kg])
-
-
-## SLICE ONLY, once at the seed: write the declared body's monopole and its mean-|g| stats.
-func dispatch_monopole(_rd: RenderingDevice, cl: int, cc: int, groups: int) -> void:
-	if not _dispatchable() or not _set.is_valid() or _mono.is_empty():
+## SLICE ONLY, once at the seed, after the body's field is uploaded: the vertical relation and |g| stats.
+func dispatch_slab(_rd: RenderingDevice, cl: int, cc: int, groups: int) -> void:
+	_slab = true
+	if not _dispatchable() or not _set.is_valid():
 		return
-	# The one vertical relation reads the gravity the monopole just wrote.
-	_issue(cl, [[MODE_MONOPOLE, 0, groups], [MODE_VERT_UP, 0, groups], [MODE_VERT_DOWN, 0, groups],
+	_issue(cl, [[MODE_VERT_UP, 0, groups], [MODE_VERT_DOWN, 0, groups],
 		[MODE_VERT_DOWN_KEY, 0, groups], [MODE_FIELD_STATS, 0, 1]], cc)
 	_solves += 1
 	_read_due = true
@@ -239,8 +232,6 @@ func _push(mode: int, colour: int, cc: int) -> PackedByteArray:
 	pc.encode_float(24, _origin.x)
 	pc.encode_float(28, _origin.y)
 	pc.encode_float(32, _origin.z)
-	for i in 5:
-		pc.encode_float(36 + i * 4, _mono[i] if i < _mono.size() else 0.0)
 	return pc
 
 

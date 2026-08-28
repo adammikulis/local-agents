@@ -19,18 +19,18 @@ is measured, and no item about a higher rung is examined until the rungs below i
 
 ---
 
-## 1. THE SEALED COLUMN DOES NOT HOLD ITS OWN BALANCE AT THE GATE'S OWN CELL SIZE (rung 3, the first red rung, on the slab it is accepted on)
+## 1. RUNG 3 DOES NOT COMPLETE ON THE GRADED PLANET (the first red rung; the slab's rest gate is green)
 
-`bash scripts/check_atmosphere_at_rest.sh` exits 1: the sealed arm reads past its bar on both
-`wind_speed_max / celerity_max` and `pressure_rest_rel`. The same gate at
-`LA_REST_CELL_M=500 bash scripts/check_atmosphere_at_rest.sh` exits 0, both arms, and
-`LA_REST_FRAMES=48` moves `pressure_rest_rel` no further than `LA_REST_FRAMES=3` does.
+`scripts/sim_run.sh --rung 3 --frames 8` exits 4; the run logs `FluxPass: the h2o record's own cells
+carry a signal speed at or past light, so no timestep integrates them`.
 
-## 1b. RUNG 3 DOES NOT COMPLETE ON THE GRADED PLANET (the smoke test of the same kernel)
+## 1b. A FACE ONTO SPACE CARRIES NO MATTER, AND GAS VENTING INTO VACUUM DOES NOT COOL
 
-`scripts/sim_run.sh --rung 3 --frames 8` on the graded planet exits 4 with `timeout waiting for fence`;
-the run does not complete a step inside `docs/RUN_TIMEOUT_CEILING` at `docs/CELL_BUDGET` cells.
-`scripts/sim_run.sh --rung 2 --frames 8` completes.
+`LA_BOUNDARY_FACES=shut,shut,shut,space,shut,shut scripts/sim_run.sh --path . --slice --rung 3
+--slice-box "0,surface,0,1,20,1,2000" --frames 3 --report wind_speed_max`: the top cell's density and
+pressure rise while the cells under it drain upward at hundreds of m/s, and every air cell stays at the
+seed temperature while its pressure halves. `bash scripts/check_atmosphere_at_rest.sh` prints the
+vented arm at a Mach number far past free expansion.
 
 ## 2. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the books above it
 

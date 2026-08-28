@@ -1,3 +1,4 @@
+#include "LAGridGeometry.hpp"
 #include "LAGravitySolve.hpp"
 
 #include <godot_cpp/core/class_db.hpp>
@@ -60,13 +61,13 @@ Dictionary LAGravitySolve::solve(Object *p_grid, const PackedFloat32Array &p_den
 	}
 	// The monopole reference in double, phi the DEVIATION from it: sum_f w (dphi_nb - dphi_c) = src - sum_f w (ref_nb - ref_c) on
 	// the interior, dphi = 0 on the ring. L phi = -sum_f w (phi_nb - phi_c) is SPD there.
-	const PackedVector3Array cw = p_grid->get("centres");
+	const PackedFloat64Array cw = LAGridGeometry::centres_f64(p_grid);
 	const double total = double(p_moments[0]);
 	const Vector3 com(p_moments[1], p_moments[2], p_moments[3]);
 	std::vector<double> ref(cc, 0.0);
 	if (total > 0.0 && cw.size() >= cc) {
 		for (int c = 0; c < cc; c++) {
-			const double r = std::max(double((cw[c] - com).length()), double(edge[c]));
+			const double r = std::max(std::hypot(cw[c * 3] - double(com.x), cw[c * 3 + 1] - double(com.y), cw[c * 3 + 2] - double(com.z)), double(edge[c]));
 			ref[c] = -p_g_si * total / r;
 		}
 	}
@@ -205,21 +206,33 @@ Dictionary LAGravitySolve::solve_device(RenderingDevice *p_rd, Object *p_grid, c
 	return out;
 }
 
-PackedFloat32Array LAGravitySolve::sum(const PackedFloat32Array &p_a, const PackedFloat32Array &p_b) {
-	PackedFloat32Array out;
-	if (p_a.size() != p_b.size()) {
+// The full potential per cell in double: the device's deviation plus the monopole reference the solve
+// stated it against, from the same double centres.
+PackedFloat64Array LAGravitySolve::phi_abs(Object *p_grid, const PackedFloat32Array &p_dev,
+		const PackedFloat32Array &p_moments, double p_g_si) {
+	PackedFloat64Array out;
+	if (!p_grid || p_moments.size() < 4) {
 		return out;
 	}
-	out.resize(p_a.size());
-	float *w = out.ptrw();
-	for (int i = 0; i < p_a.size(); i++) {
-		w[i] = p_a[i] + p_b[i];
+	const PackedFloat64Array cw = LAGridGeometry::centres_f64(p_grid);
+	const PackedFloat32Array edge = p_grid->call("cell_edges");
+	const int cc = p_dev.size();
+	if (cw.size() != cc * 3 || edge.size() < cc) {
+		return out;
+	}
+	const double total = double(p_moments[0]);
+	const double cx = p_moments[1], cy = p_moments[2], cz = p_moments[3];
+	out.resize(cc);
+	double *w = out.ptrw();
+	for (int c = 0; c < cc; c++) {
+		const double r = std::max(std::hypot(cw[c * 3] - cx, cw[c * 3 + 1] - cy, cw[c * 3 + 2] - cz), double(edge[c]));
+		w[c] = double(p_dev[c]) + (total > 0.0 ? -p_g_si * total / r : 0.0);
 	}
 	return out;
 }
 
 void LAGravitySolve::_bind_methods() {
-	ClassDB::bind_static_method("LAGravitySolve", D_METHOD("sum", "a", "b"), &LAGravitySolve::sum);
+	ClassDB::bind_static_method("LAGravitySolve", D_METHOD("phi_abs", "grid", "dev", "moments", "g_si"), &LAGravitySolve::phi_abs);
 	ClassDB::bind_static_method("LAGravitySolve",
 			D_METHOD("solve_device", "rd", "grid", "density", "phi", "flags", "moments", "g_si", "tol_rel", "max_iter"),
 			&LAGravitySolve::solve_device);

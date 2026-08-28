@@ -147,6 +147,12 @@ float face_cos(uint c, uint d) {
 	return gm > 0.0 ? dot(face_normal(d), gv) / gm : 0.0;
 }
 
+// Potential of n minus c across face d of c, J/kg: the pair's gravity integrated over the centre
+// distance. Never a difference of two full potentials, which float32 cannot hold at a body's radius.
+float la_dphi(uint c, uint n, uint d) {
+	return -dot(0.5 * (g_at(c) + g_at(n)), face_normal(d)) * la_face_dist(c, int(n));
+}
+
 // Depth of face d below the cell's top, m, over the cell's OWN edge.
 float face_z(uint c, uint d) {
 	return 0.5 * cell_edge[c] * (1.0 + face_cos(c, d));

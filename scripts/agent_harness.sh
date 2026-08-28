@@ -329,6 +329,7 @@ if [[ "$cmd" == "lint" ]]; then
     gate check_doc_claims
     gate check_doc_prose
     gate check_no_deferral
+    gate check_potential_differences
     gate check_readme_commands
     gate check_approximations
     gate check_comment_density
