@@ -13,7 +13,7 @@ const PASS_SCRIPTS: PackedStringArray = [
 	"res://addons/local_agents/sim/material/sphere_passes/GravityPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/PressurePass.gd",
-	"res://addons/local_agents/sim/material/sphere_passes/TransportPass.gd",
+	"res://addons/local_agents/sim/material/sphere_passes/FluxPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/ReactionsPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/ReducePass.gd"]
 
@@ -154,7 +154,7 @@ func setup(field) -> void:
 			p.grid_origin = _grid.origin
 			p.grid_cell_size = _grid.cell_size
 			_passes.append(p)
-			_pass_names.append(path.get_file().get_basename())   # e.g. "TransportPass" — timestamp label
+			_pass_names.append(path.get_file().get_basename())   # e.g. "FluxPass" — timestamp label
 	# A pass declares the buffers it needs and the DRIVER allocates them, so they are driver-owned and can be
 	# read back. Every declaration lands before any _setup, so a pass may bind another pass's buffer.
 	for i in _passes.size():
@@ -345,12 +345,13 @@ func _drain_pending() -> void:
 	_drain_passes()
 
 
-## The seeded field's derived state and its maxima, before any time passes, so the first step's substep
-## budget is a reading of the world instead of a value invented for it.
-func derive_seeded() -> void:
+## The seeded field's derived state and its maxima, before any time passes. `sealing` marks the LAST
+## derive of the seed: a reference taken over a world still being built names nothing.
+func derive_seeded(sealing: bool = false) -> void:
 	if _rd == null or _grid == null: return
 	_ctx["cell_size"] = _grid.cell_size
 	_ctx["cell_size_min"] = _grid.cell_size * pow(0.5, float(_grid.max_level))
+	_ctx["seeding"] = not sealing
 	for i in _passes.size():
 		if not (_pass_names[i] in ["StateDerivePass", "ReducePass"]): continue
 		var cl: int = _rd.compute_list_begin()
@@ -359,6 +360,7 @@ func derive_seeded() -> void:
 		_rd.submit()
 		_rd.sync()
 		_passes[i]._drain(_rd)
+	_ctx.erase("seeding")
 
 
 ## Each pass's own readings, taken here because the device was just synced. A pass owns its keys; two passes
@@ -409,7 +411,7 @@ func _read_gpu_pass_timings() -> void:
 	LASimReport.gauge("gpu_dispatch_ms", _gpu_dispatch_ms)
 
 
-## "TransportPass" -> "transport"; a short, gauge-key-safe name (strip "Pass", snake_case the rest).
+## "FluxPass" -> "transport"; a short, gauge-key-safe name (strip "Pass", snake_case the rest).
 func _gpu_gauge_key(pass_index: int) -> String:
 	var n: String = _pass_names[pass_index]
 	if n.ends_with("Pass"):

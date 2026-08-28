@@ -19,13 +19,18 @@ is measured, and no item about a higher rung is examined until the rungs below i
 
 ---
 
-## 1. RUNG 3 CANNOT RUN AT THE GRID'S CELL COUNT (the first red rung)
+## 1. THE SEALED COLUMN DOES NOT HOLD ITS OWN BALANCE AT THE GATE'S OWN CELL SIZE (rung 3, the first red rung, on the slab it is accepted on)
 
-`scripts/sim_run.sh --rung 3 --frames 2` on the graded planet exits 4 with `timeout waiting for fence`:
-`transport.glsl`'s row-per-substance dispatch does not complete a step inside `docs/RUN_TIMEOUT_CEILING`
-at `docs/CELL_BUDGET` cells. The flux kernel that replaces it (one conservative face flux per face,
-mass, momentum and enthalpy together, well-balanced against the solved potential) is built on the slab
-first: `bash scripts/check_atmosphere_at_rest.sh` is its acceptance, both arms.
+`bash scripts/check_atmosphere_at_rest.sh` exits 1: the sealed arm reads past its bar on both
+`wind_speed_max / celerity_max` and `pressure_rest_rel`. The same gate at
+`LA_REST_CELL_M=500 bash scripts/check_atmosphere_at_rest.sh` exits 0, both arms, and
+`LA_REST_FRAMES=48` moves `pressure_rest_rel` no further than `LA_REST_FRAMES=3` does.
+
+## 1b. RUNG 3 DOES NOT COMPLETE ON THE GRADED PLANET (the smoke test of the same kernel)
+
+`scripts/sim_run.sh --rung 3 --frames 8` on the graded planet exits 4 with `timeout waiting for fence`;
+the run does not complete a step inside `docs/RUN_TIMEOUT_CEILING` at `docs/CELL_BUDGET` cells.
+`scripts/sim_run.sh --rung 2 --frames 8` completes.
 
 ## 2. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the books above it
 

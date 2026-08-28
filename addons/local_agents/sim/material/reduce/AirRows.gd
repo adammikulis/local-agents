@@ -27,7 +27,6 @@ static func rows() -> Array:
 		{"key": "wind_speed_max", "source": "speed", "op": Rec.Op.MAX, "mask": Rec.Mask.OPEN},
 		{"key": "wind_x_sum", "source": "vel_x", "op": Rec.Op.SUM, "mask": Rec.Mask.OPEN},
 		{"key": "wind_z_sum", "source": "vel_z", "op": Rec.Op.SUM, "mask": Rec.Mask.OPEN},
-		{"key": "shock_cells", "source": "shock", "op": Rec.Op.COUNT_GT, "mask": Rec.Mask.OPEN, "threshold": 0.0},
 		# The storm's electrics, read off what transport published rather than re-marched on the CPU.
 		{"key": "charge_peak", "source": "charge", "op": Rec.Op.MAX, "mask": Rec.Mask.OPEN},
 		{"key": "e_peak", "source": "col_e", "op": Rec.Op.MAX, "mask": Rec.Mask.OPEN},

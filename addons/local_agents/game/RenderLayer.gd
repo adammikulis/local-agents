@@ -30,12 +30,9 @@ func build(world: Node, sim: LASimulation, input: LAVoxelInputController) -> voi
 func _build_camera() -> void:
 	var body: Node3D = _sim.body()
 	_camera.current = true
-	# A SECOND viewer asking for visuals + collision meshing; the sim's data-only viewer already streams.
 	body.attach_viewer(_camera, true)
 	if _camera.has_method("set_orbit_target"):
 		_camera.set_orbit_target(body.center(), body.radius())
-	if _camera.has_method("set_ecology"):
-		_camera.set_ecology(_sim.ecology())
 
 
 func _build_sky() -> void:

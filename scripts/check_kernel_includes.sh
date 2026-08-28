@@ -21,7 +21,7 @@ n_kernels=$(printf '%s' "$KERNELS" | grep -c . || true)
 require_scanned "$n_kernels" 5 "compute kernels"
 
 INCLUDES="$(find "$PROJ" -name '*.glsli' \
-	-not -path '*/.godot/*' -not -path '*/.claude/*' -not -path '*/.git/*' \
+	-not -path "$PROJ/.godot/*" -not -path "$PROJ/.claude/*" -not -path "$PROJ/.git/*" \
 	-not -path '*/thirdparty/*' 2>/dev/null | sort)"
 n_includes=$(printf '%s' "$INCLUDES" | grep -c . || true)
 require_scanned "$n_includes" 5 "kernel includes"

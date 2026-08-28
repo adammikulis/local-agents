@@ -1,0 +1,406 @@
+// THE DRIFT AND DIFFUSION CLOSURES. Each says how fast one phase travels RELATIVE to the mixture the
+// face flux carries, or what diffusivity a face presents. Include after flux.glsl's buffers and the
+// Params block.
+
+#ifndef LA_CLOSURES_GLSLI
+#define LA_CLOSURES_GLSLI
+
+const float KELVIN = 273.15;                        // LAPhysical.KELVIN_OFFSET
+const float STEFAN = 5.670374419e-8;                // LAPhysical.STEFAN_BOLTZMANN
+const float KOZENY_CARMAN_C = 180.0;                // LAPhysical.KOZENY_CARMAN_C
+const float SMAGORINSKY_COEFF = 0.1650789493;       // LAPhysical.SMAGORINSKY_COEFF
+const float DRY_AIR_R = 287.0222603;                // LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK
+const float AIR_GAMMA = 1.399764846;                // LAPhysical.AIR_ADIABATIC_INDEX
+const float AIR_DENSITY = 1.225;                    // LAPhysical.AIR_DENSITY_KG_M3
+const float EPS0 = 8.8541878128e-12;                // LAPhysical.VACUUM_PERMITTIVITY_F_M
+const float RREA_THRESHOLD = 2.84e5;                // LAPhysical.RREA_THRESHOLD_V_M
+const float CLOUD_COND = 1.0e-14;                   // LAPhysical.CLOUD_CONDUCTIVITY_S_M
+const float CLEAR_AIR_COND = 1.0e-13;               // LAPhysical.CLEAR_AIR_CONDUCTIVITY_S_M
+const float CHANNEL_COND = 1.0e4;                   // LAPhysical.LIGHTNING_CHANNEL_CONDUCTIVITY_S_M
+const float CHARGING_LWC = 1.0e-3;                  // LAPhysical.CHARGING_LWC_KG_M3
+const float NIC_CHARGE_RATE = 1.0e-9;               // LAPhysical.NIC_CHARGE_RATE_C_M3_S
+const float CHARGE_ZONE_WARM_C = -10.0;             // LAPhysical.CHARGE_ZONE_WARM_C
+const float CHARGE_ZONE_COLD_C = -25.0;             // LAPhysical.CHARGE_ZONE_COLD_C
+const float CONVECTIVE_UPDRAFT = 10.0;              // LAPhysical.CONVECTIVE_UPDRAFT_M_S
+const float MELT_VISC = 100.0;                      // LAPhysical.BASALT_MELT_VISCOSITY_PA_S
+const float ROSCOE_N = 2.5;                         // LAPhysical.EINSTEIN_ROSCOE_EXPONENT
+const float LOCKUP_CRYSTAL_FRAC = 0.6;              // LAPhysical.RHEOLOGICAL_LOCKUP_CRYSTAL_FRAC
+const float DIFFUSIVITY = 1.66;                     // LAPhysical.TWO_STREAM_DIFFUSIVITY
+const float C2_CM_K = 1.4387768775;                 // LAPhysical.PLANCK_C2_CM_K
+const float KAPPA_REF_PA = 1.0e4;                   // LAPhysical.ABSORPTION_REF_PRESSURE_PA
+const float R_CO2 = 188.924269;                     // LAPhysical.CO2_GAS_CONST_J_KGK
+const float RHO_WATER = 997.0;                      // LAPhysical.WATER_DENSITY_KG_M3
+const float R_VAPOUR = 461.52;                      // LAPhysical.VAPOUR_GAS_CONST_J_KGK
+const float M_H2O = 0.018015;                       // LASubstances.h2o.molar_mass
+const float M_O2 = 0.0319988;                       // LASubstances.o2.molar_mass
+const float M_N2 = 0.0280134;                       // LASubstances.n2.molar_mass
+const float M_H2 = 0.00201588;                      // LASubstances.h2.molar_mass
+const float M_CO2 = 0.0440095;                      // LASubstances.co2.molar_mass
+const float M_CH4 = 0.01604276;                     // LASubstances.ch4.molar_mass
+const float M_CO = 0.0280104;                       // LASubstances.co.molar_mass
+const float M_SO2 = 0.0640588;                      // LASubstances.so2.molar_mass
+const float M_H2S = 0.03407588;                     // LASubstances.h2s.molar_mass
+const float RHO_SILICATE = 2900.0;                  // LASubstances.silicate.density
+const float M_SILICATE = 0.1161612;                 // LASubstances.silicate.molar_mass
+const float RHO_CELLULOSE = 500.0;                  // LASubstances.cellulose.density
+const float M_CELLULOSE = 0.030026;                 // LASubstances.cellulose.molar_mass
+// mol/m^3 at which a cell is FULL of a substance; amount/full is its volume fraction of the cell.
+const float FULL_H2O = RHO_WATER / M_H2O;
+const float FULL_SILICATE = RHO_SILICATE / M_SILICATE;
+const float FULL_CELLULOSE = RHO_CELLULOSE / M_CELLULOSE;
+const float ALBEDO_GROUND = 0.15;                   // LAPhysical.ALBEDO_BARE_GROUND
+const float ALBEDO_WATER = 0.06;                    // LAPhysical.ALBEDO_OCEAN
+const float ALBEDO_ICE = 0.65;                      // LAPhysical.ALBEDO_SNOW_ICE
+const float ALBEDO_VEG = 0.12;                      // LAPhysical.ALBEDO_VEGETATION
+const float EMIS_WATER = 0.96;                      // LAPhysical.EMISSIVITY_WATER
+const float EMIS_SNOW = 0.99;                       // LAPhysical.EMISSIVITY_SNOW
+const float EMIS_ROCK = 0.95;                       // LAPhysical.BASALT_EMISSIVITY
+const float R_GAS = 8.314462618;                    // LAPhysical.GAS_CONSTANT_J_MOL_K
+const float LAMBDA_HYDRO = 3.0;                     // LAPhysical.ESCAPE_PARAM_HYDRODYNAMIC
+const float XUV_EFF = 0.15;                         // LAPhysical.XUV_HEATING_EFFICIENCY
+const float SQRT_PI = sqrt(radians(180.0));
+const int GHOST_SPACE = -2;                         // LAFieldBoundary3D.SPACE_REDIRECT
+const float C_LIGHT = 299792458.0;                  // LAPhysical.SPEED_OF_LIGHT_M_S
+
+
+vec3 g_at(uint c) {
+	return vec3(g_field[c * 3u], g_field[c * 3u + 1u], g_field[c * 3u + 2u]);
+}
+
+vec3 vel_at(uint c) {
+	return vec3(vel_x[c], vel_y[c], vel_z[c]);
+}
+
+// Outward unit normal of face d. Slot order -X,+X,-Y,+Y,-Z,+Z.
+vec3 face_normal(uint d) {
+	float s = (d & 1u) == 1u ? 1.0 : -1.0;
+	uint axis = d >> 1u;
+	return vec3(axis == 0u ? s : 0.0, axis == 1u ? s : 0.0, axis == 2u ? s : 0.0);
+}
+
+float t_k(uint c) {
+	return max(temp[c] + KELVIN, 1.0);
+}
+
+// Ideal-gas air density from the cell's own pressure and temperature, kg/m^3.
+float air_rho(uint c) {
+	return max(pressure[c], 0.0) / (DRY_AIR_R * t_k(c));
+}
+
+// The full potential of a cell, J/kg.
+float la_phi(uint c) { return grav_phi[c] + grav_ref[c]; }
+
+// The cell's own grain diameter, or the row's seed where the cell declares none, m.
+float grain_d_at(uint c) {
+	return grain[c] > 0.0 ? grain[c] : params.grain_d;
+}
+
+// kg one mole of this row's substance weighs: pure density over the full amount. 0 for a row that
+// carries no matter, whose max_fill is +inf.
+float sub_kg_mol() {
+	return params.max_fill > 0.0 ? params.density / params.max_fill : 0.0;
+}
+
+// THE ONE EMPTINESS TEST, the same one state_derive.glsl empties a cell on: no matter at all.
+bool no_matter(uint c) {
+	return !(rho_bulk[c] > 0.0);
+}
+
+// The cell's h2o split by the shares the enthalpy ladder derived, mol/m^3.
+float h2o_ice(uint c)    { return max(h2o[c], 0.0) * clamp(h2o_solid[c], 0.0, 1.0); }
+float h2o_water(uint c)  { return max(h2o[c], 0.0) * clamp(h2o_liquid[c], 0.0, 1.0); }
+float h2o_gas(uint c)    { return max(h2o[c], 0.0) * clamp(h2o_vapour[c], 0.0, 1.0); }
+
+// CONDENSED cloud water, droplets and ice alike, kg/m^3.
+float cloud_water_kg_m3(uint c) {
+	return (h2o_water(c) + h2o_ice(c)) * M_H2O;
+}
+
+// Volume fraction of the cell that is condensed, so a beam meets it geometrically.
+float condensed_frac(uint c) {
+	float f = solid[c] != 0.0 ? 1.0 : 0.0;
+	f += max(silicate[c], 0.0) / FULL_SILICATE + (h2o_water(c) + h2o_ice(c)) / FULL_H2O;
+	return clamp(f, 0.0, 1.0);
+}
+
+// Mass of the cell's condensed phases per unit CELL volume, kg/m^3: what lies at the bottom of it.
+float cond_kg_m3(uint c) {
+	return cloud_water_kg_m3(c) + max(silicate[c], 0.0) * M_SILICATE;
+}
+
+// Non-inductive charge separation in the riming band, C/m^3 this step: the pair creates nothing.
+float separation_dq(uint c, vec3 up, float dt) {
+	float band = clamp((CHARGE_ZONE_WARM_C - temp[c]) / (CHARGE_ZONE_WARM_C - CHARGE_ZONE_COLD_C),
+		0.0, 1.0);
+	float wet = clamp(cloud_water_kg_m3(c) / CHARGING_LWC, 0.0, 1.0);
+	float lift = clamp(dot(vel_at(c), up) / CONVECTIVE_UPDRAFT, 0.0, 1.0);
+	return NIC_CHARGE_RATE * band * wet * lift * dt;
+}
+
+// --- the cell's own hydrostatic stack --------------------------------------------------------------
+
+// How far face d lies below the cell's centre, in half-edges: the face's DEPTH IN THIS CELL'S OWN
+// stack, so the cell's six faces present its own weight back and nothing else's.
+float face_cos(uint c, uint d) {
+	vec3 gv = g_at(c);
+	float gm = length(gv);
+	return gm > 0.0 ? dot(face_normal(d), gv) / gm : 0.0;
+}
+
+// Depth of face d below the cell's top, m, over the cell's OWN edge.
+float face_z(uint c, uint d) {
+	return 0.5 * cell_edge[c] * (1.0 + face_cos(c, d));
+}
+
+// The cell's MEAN pressure over face d, off the matter it holds.
+float face_p(uint c, uint d) {
+	vec3 gv = g_at(c);
+	float gm = length(gv);
+	if (gm <= 0.0) {
+		return max(pressure[c], 0.0);
+	}
+	return la_stack_face_p(face_cos(c, d), cell_edge[c], gm, cond_kg_m3(c),
+		max(rho_bulk[c], 0.0), max(pressure[c], 0.0));
+}
+
+// The GAS alone at face d, Pa: the same reconstruction with the condensed head left off.
+float face_p_gas(uint c, uint d) {
+	vec3 gv = g_at(c);
+	float gm = length(gv);
+	if (gm <= 0.0) {
+		return max(pressure[c], 0.0);
+	}
+	float m_gas = max(max(rho_bulk[c], 0.0) - cond_kg_m3(c), 0.0);
+	return la_stack_face_p(face_cos(c, d), cell_edge[c], gm, 0.0, m_gas, max(pressure[c], 0.0));
+}
+
+// The layer this cell presents at face d, stated AT THAT FACE: density in x, bulk modulus in y.
+vec2 face_layer(uint c, uint d) {
+	float pg = max(face_p_gas(c, d), 0.0);
+	return la_stack_layer(face_z(c, d), cell_edge[c], condensed_frac(c), cond_kg_m3(c),
+		pg / (DRY_AIR_R * t_k(c)), pg, max(k_cond[c], 0.0), AIR_GAMMA);
+}
+
+// Signal speed of the layer at face d, m/s: sqrt(K/rho) of what touches it, never a mixture mean.
+float face_c(uint c, uint d) {
+	vec2 lay = face_layer(c, d);
+	return (lay.x > 0.0 && lay.y > 0.0) ? sqrt(lay.y / lay.x) : 0.0;
+}
+
+// Impedance rho*c of the layer at face d, kg/(m^2 s).
+float impedance(uint c, uint d) {
+	vec2 lay = face_layer(c, d);
+	return (lay.x > 0.0 && lay.y > 0.0) ? sqrt(lay.x * lay.y) : 0.0;
+}
+
+// --- eddy viscosity --------------------------------------------------------------------------------
+
+// Area-weighted velocity across one slot, and the centre distance to it. The cell's own at a wall.
+vec3 slot_vel(uint c, uint d, out float dist) {
+	float a = 0.0;
+	vec3 av = vec3(0.0);
+	float ad = 0.0;
+	for (uint f = la_slot_lo(c, d); f < la_slot_hi(c, d); ++f) {
+		int nb = nbr[f];
+		if (nb < 0) { nb = ghost[f]; }
+		if (nb < 0) { continue; }
+		float w = la_face_area(c, nbr[f]);
+		a += w;
+		av += w * vel_at(uint(nb));
+		ad += w * la_face_dist(c, nbr[f]);
+	}
+	if (a <= 0.0) {
+		dist = 0.5 * cell_edge[c];
+		return vel_at(c);
+	}
+	dist = ad / a;
+	return av / a;
+}
+
+// Magnitude of the resolved strain-rate tensor, 1/s: |S| = sqrt(2 S_ij S_ij).
+float strain_rate(uint c) {
+	mat3 grad = mat3(0.0);
+	for (uint a = 0u; a < 3u; ++a) {
+		uint slot = a * 2u;
+		float dlo = 0.0;
+		float dhi = 0.0;
+		vec3 vlo = slot_vel(c, slot, dlo);
+		vec3 vhi = slot_vel(c, opposite_slot(slot), dhi);
+		vec3 d = (vhi - vlo) / max(dlo + dhi, 1.0e-30);
+		grad[0][a] = d.x;
+		grad[1][a] = d.y;
+		grad[2][a] = d.z;
+	}
+	float s2 = 0.0;
+	for (uint i = 0u; i < 3u; ++i) {
+		for (uint j = 0u; j < 3u; ++j) {
+			float sij = 0.5 * (grad[i][j] + grad[j][i]);
+			s2 += 2.0 * sij * sij;
+		}
+	}
+	return sqrt(s2);
+}
+
+// Smagorinsky eddy viscosity, m^2/s: nu_t = (C_s dx)^2 |S| plus that fluid's molecular floor.
+float eddy_viscosity_of(uint c, float rho, float mu) {
+	float mixing = SMAGORINSKY_COEFF * cell_edge[c];
+	float nu_mol = rho > 0.0 ? mu / rho : 0.0;
+	return nu_mol + mixing * mixing * strain_rate(c);
+}
+
+float eddy_viscosity(uint c) {
+	return eddy_viscosity_of(c, params.fluid_rho, params.fluid_visc);
+}
+
+// Einstein-Roscoe: the melt's own viscosity times the crystal framework it is carrying, Pa s.
+float melt_viscosity(uint c) {
+	float crystal = 1.0 - clamp(silicate_melt[c], 0.0, 1.0);
+	float r = clamp(crystal / LOCKUP_CRYSTAL_FRAC, 0.0, 0.9999);
+	return MELT_VISC * pow(1.0 - r, -ROSCOE_N);
+}
+
+// --- drift velocities ------------------------------------------------------------------------------
+
+// Terminal settling velocity of a grain of diameter `d` in a fluid, m/s (Stokes drag: the buoyant
+// weight balanced by 3 pi mu d w).
+float stokes_settling(uint c, float d, float rho, float mu) {
+	return max(params.density - rho, 0.0) * length(g_at(c)) * d * d / (18.0 * max(mu, 1.0e-30));
+}
+
+float settling_speed(uint c) {
+	if ((params.flags & TF_SETTLE) == 0u) {
+		return 0.0;
+	}
+	return stokes_settling(c, grain_d_at(c), params.fluid_rho, params.fluid_visc);
+}
+
+// Share of grains a fluid holds up. u* = sqrt(nu_t |S|) is the friction velocity, which in a boundary
+// layer is the scale of the vertical turbulent fluctuations (Bagnold: suspension once u* > w_s).
+float suspended_share(uint c, float rho, float mu) {
+	float w_s = stokes_settling(c, grain_d_at(c), rho, mu);
+	if (w_s <= 0.0) {
+		return 1.0;      // no denser than its fluid, so nothing pulls it out
+	}
+	return clamp(sqrt(max(eddy_viscosity_of(c, rho, mu) * strain_rate(c), 0.0)) / w_s, 0.0, 1.0);
+}
+
+// Hydraulic resistance of half a cell to pore flow, the reciprocal of its Kozeny-Carman permeability.
+// An OPEN cell has no matrix and resists nothing; rock with no pore space is impermeable.
+float darcy_resistance(uint c) {
+	if (solid[c] == 0.0) {
+		return 0.0;
+	}
+	float phi = clamp(porosity[c], 0.0, 0.999);
+	if (phi <= 0.0) {
+		return 1.0e30;
+	}
+	float d = grain_d_at(c);
+	float k = d * d * phi * phi * phi / (KOZENY_CARMAN_C * max((1.0 - phi) * (1.0 - phi), 1.0e-12));
+	return 1.0 / max(k, 1.0e-30);
+}
+
+// Darcy velocity across the bond, m/s per unit head gradient: two half-cells in series, K = rho g k/mu.
+float darcy_conductivity(uint a, uint b) {
+	float r = 0.5 * (darcy_resistance(a) + darcy_resistance(b));
+	if (r <= 0.0) {
+		return 0.0;
+	}
+	return params.fluid_rho * length(g_at(a)) / (r * max(params.fluid_visc, 1.0e-30));
+}
+
+// --- the electric column ---------------------------------------------------------------------------
+
+// Gauss's law along the field line: charge integrated outward is a surface charge, so a field. V/m.
+float column_field(uint c) {
+	vec3 gv = g_at(c);
+	if (length(gv) <= 0.0) {
+		return 0.0;
+	}
+	vec3 up = -normalize(gv);
+	float sigma = 0.0;
+	uint at = c;
+	for (uint i = 0u; i < 64u; ++i) {
+		if (solid[at] != 0.0) {
+			break;
+		}
+		sigma += charge[at] * la_step_len(up, cell_edge[at]);
+		int nx = la_step(at, up);
+		if (nx < 0) {
+			break;
+		}
+		at = uint(nx);
+	}
+	return abs(sigma) / EPS0;
+}
+
+// Relativistic runaway breakdown field at this cell, V/m: the threshold falls with air density.
+float rrea_threshold(uint c) {
+	if (pressure[c] <= 0.0) {
+		return 0.0;
+	}
+	return RREA_THRESHOLD * air_rho(c) / AIR_DENSITY;
+}
+
+// Past the runaway threshold the local air density sets, the dielectric stops being one: the
+// conductivity jumps to a return-stroke channel's. `e` is this cell's column field.
+float ohmic_conductivity_at(uint c, float e) {
+	float ambient = mix(CLEAR_AIR_COND, CLOUD_COND,
+		clamp(cloud_water_kg_m3(c) / CHARGING_LWC, 0.0, 1.0));
+	float threshold = rrea_threshold(c);
+	return (threshold > 0.0 && e >= threshold) ? CHANNEL_COND : ambient;
+}
+
+// --- the space face --------------------------------------------------------------------------------
+
+float wind_term(float n, float m, float m_max) {
+	return m < m_max ? max(n, 0.0) * m : 0.0;   // kg/m^3 the wind lifts; a bound species adds none
+}
+
+// LAW_ESCAPE: the box edge is space. Bound gas: Jeans tail effusion (Jeans 1925; Chamberlain & Hunten
+// 1987), tail excess out via `tail_j_mol`; unbound: the XUV energy-limited wind (Watson et al. 1981;
+// Erkaev et al. 2007). LA_APPROX: top_cell_exobase
+float escape_speed(uint c, uint d, out float tail_j_mol) {
+	tail_j_mol = 0.0;
+	vec3 gv = g_at(c);
+	float gmag = length(gv);
+	float depth = -la_phi(c);
+	float kg_mol = sub_kg_mol();
+	if (gmag <= 0.0 || depth <= 0.0 || kg_mol <= 0.0) {
+		return 0.0;
+	}
+	vec3 up = -gv / gmag;
+	float cosf = dot(up, face_normal(d));
+	if (cosf <= 0.0) {
+		return 0.0;
+	}
+	float tk = t_k(c);
+	float lam = kg_mol * depth / (R_GAS * tk);
+	float v_eff = 0.0;
+	if (lam >= LAMBDA_HYDRO) {
+		v_eff = sqrt(2.0 * R_GAS * tk / kg_mol) / (2.0 * SQRT_PI) * (1.0 + lam) * exp(-lam);
+		tail_j_mol = R_GAS * tk * ((lam * lam + 2.0 * lam + 2.0) / (lam + 1.0) - 1.5);
+	} else {
+		vec3 sun = vec3(params.sun_x, params.sun_y, params.sun_z);
+		float sl = length(sun);
+		if (sl <= 0.0) {
+			return 0.0;
+		}
+		float mu = dot(up, sun / sl);
+		if (mu <= 0.0) {
+			return 0.0;
+		}
+		float m_max = LAMBDA_HYDRO * R_GAS * tk / depth;
+		float rho_wind = wind_term(h2o_gas(c), M_H2O, m_max) + wind_term(co2[c], M_CO2, m_max)
+			+ wind_term(ch4[c], M_CH4, m_max) + wind_term(co_gas[c], M_CO, m_max)
+			+ wind_term(so2[c], M_SO2, m_max) + wind_term(h2s[c], M_H2S, m_max)
+			+ wind_term(o2_gas[c], M_O2, m_max) + wind_term(n2_gas[c], M_N2, m_max)
+			+ wind_term(h2_gas[c], M_H2, m_max);
+		if (rho_wind <= 0.0) {
+			return 0.0;
+		}
+		v_eff = XUV_EFF * params.xuv_w_m2 * mu / (depth * rho_wind);
+	}
+	return v_eff * cosf;
+}
+
+#endif

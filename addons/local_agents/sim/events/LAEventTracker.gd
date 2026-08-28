@@ -47,8 +47,6 @@ func _build_registry() -> void:
 		# Wildfire: the ecology fire count rising off zero (fire ignited and is spreading).
 		_threshold("wildfire", "fires", "cross_up", 0.5, 0.5, 7.0, 1.5,
 			"a wildfire has broken out and is spreading"),
-		_threshold_increment("impact", "shock_cells", 1.0, 3.0, 12.0,
-			"a violent impact just shook the ground"),
 		# NO FLOOD DETECTOR. `water_total` is a GLOBAL sum, and a flood is local: one valley filling while
 		# another dries sums to zero. What a global rise in liquid water actually means is planet-wide net
 		_threshold("storm", "wind", "cross_up", 8.0, 4.0, 10.0, 0.5,
@@ -110,9 +108,6 @@ func _snapshot() -> Dictionary:
 			snap["wind"] = (_material.wind() as Vector2).length()
 		if _material.has_method("bolts_fired"):
 			snap["bolts"] = _material.bolts_fired()
-		var shock_n: Variant = _material.shock_cell_count() if _material.has_method("shock_cell_count") else null
-		if shock_n != null:
-			snap["shock_cells"] = shock_n
 	if _queries != null and _queries.has_method("melt_total"):
 		snap["melt_total"] = _queries.melt_total()
 	snap["fires"] = _fire_count()

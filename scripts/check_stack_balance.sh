@@ -12,13 +12,20 @@ require_tool rg
 . "$SCRIPT_DIR/lib_capture.sh"
 la_examined "$(basename "$0")" || exit $?
 
-# AND THE DEPTH IS AN ALTITUDE. Projecting the step onto a frozen gravity vector reads a step ACROSS a
-# radial field as a plunge into it, and hands two neighbours face pressures that differ by orders.
-T="$ROOT/addons/local_agents/sim/material/kernels3d/transport.glsl"
+# AND THE DEPTH IS THE CELL'S OWN. A face's depth in this cell's stack is its own gravity against its
+# own face normal, which makes the two faces of an axis exact opposites and the six sum to the weight.
+# Reading it off the geopotential between two CENTRES brings the neighbour's gravity in, the opposites
+# stop cancelling, and the cell keeps a share of its own weight that no body force answers.
+T="$ROOT/addons/local_agents/sim/material/kernels3d/closures.glsli"
 [ -f "$T" ] || { echo "check_stack_balance: MISSING ${T#"$ROOT"/}" >&2; exit 2; }
-if ! rg -q -e 'grav_phi\[c\] - grav_phi\[uint\(inb\)\]' "$T"; then
-	echo "check_stack_balance: transport.glsl no longer measures a face's depth by the geopotential" >&2
-	echo "                     between the two cell centres." >&2
+if ! rg -q -e 'return gm > 0\.0 \? dot\(face_normal\(d\), gv\) / gm : 0\.0;' "$T"; then
+	echo "check_stack_balance: closures.glsli no longer measures a face's depth by the cell's OWN" >&2
+	echo "                     gravity direction against that face's normal." >&2
+	exit 1
+fi
+if rg -q -e 'grav_phi\[c\] - grav_phi\[uint\(inb\)\]' "$T"; then
+	echo "check_stack_balance: the face depth is back on the geopotential between two cell centres," >&2
+	echo "                     which is a different quantity and does not self-balance." >&2
 	exit 1
 fi
 

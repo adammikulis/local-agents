@@ -458,7 +458,6 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c, 
 	// height is only 1/g's own linearization, and g falls by tens of percent over this box: taking each
 	// cell's own H makes every cell a different atmosphere, and two neighbours then disagree about
 	// which of them holds the denser air. The same lambda = M depth / (R T) the escape law reads.
-	// LA_APPROX: cell_centre_barometric
 	// The deepest air the flood reached, as the exponent's ZERO. Any constant anchor cancels in the
 	// renormalisation below; this one keeps every exponent negative, so nothing overflows.
 	double phi_ref = 0.0;
@@ -477,14 +476,25 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c, 
 	if (!have_ref) {
 		return;
 	}
+	const PackedFloat32Array edges = grid->call("cell_edges");
+	// A CELL HOLDS WHAT ITS VOLUME HOLDS, not what its centre stands at. Over a cube whose potential
+	// falls linearly along g, the mean of the exponential is its centre value times sinh(x)/x per axis,
+	// x being half that axis's potential drop over R T / M. It is the same law, integrated.
 	for (int c = 0; c < cc; c++) {
 		if (sky[c] == 0 || !std::isfinite(double(p_phi[c]))) {
 			continue;
 		}
+		const double e = c < edges.size() ? double(edges[c]) : 0.0;
+		const double gx[3] = { std::abs(double(p_gravity[c * 3])), std::abs(double(p_gravity[c * 3 + 1])),
+			std::abs(double(p_gravity[c * 3 + 2])) };
+		double mean = 1.0;
+		for (int a = 0; a < 3; a++) {
+			const double x = gx[a] * e * 0.5 / rt_over_m;
+			mean *= (x > 0.0) ? std::sinh(x) / x : 1.0;
+		}
 		// phi rises outward, so this is 1 at that anchor and falls from there.
-		f[c] = float(std::exp(-(double(p_phi[c]) - phi_ref) / rt_over_m));
+		f[c] = float(std::exp(-(double(p_phi[c]) - phi_ref) / rt_over_m) * mean);
 	}
-	const PackedFloat32Array edges = grid->call("cell_edges");
 	std::vector<double> vol(cc, 0.0);
 	for (int c = 0; c < cc && c < edges.size(); c++) {
 		const double e = double(edges[c]);

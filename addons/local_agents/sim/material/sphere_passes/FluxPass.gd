@@ -1,22 +1,23 @@
 extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 
-## Everything that moves between cells, through one kernel: transport.glsl once per LATransportRecords row.
+## Everything that crosses a face, through one kernel: flux.glsl states each face once, then runs
+## LATransportRecords row by row over it.
 
-const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/transport.glsl"
+const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/flux.glsl"
 
 const BoundaryRowsScript: GDScript = preload("res://addons/local_agents/sim/material/reduce/BoundaryRows.gd")
 const LevelsScript: GDScript = preload("res://addons/local_agents/sim/material/sphere_passes/TemporalLevels.gd")
 const ActiveScript: GDScript = preload("res://addons/local_agents/sim/material/sphere_passes/ActiveCells.gd")
 
-## Dispatch tags: the gather halves, the grain prologue, the detector compaction, the RADIATE row's
-## reflected-shortwave march, the acoustic pair, the temporal levels and the active-cell list.
-enum { PASS_OUTFLOW, PASS_GATHER, PASS_GRAIN, PASS_LIST_RESET, PASS_LIST_APPEND, PASS_LIST_ARGS,
-	PASS_SW, PASS_ACOUSTIC, PASS_ACOUSTIC_APPLY,
+## Dispatch tags: the flux and apply halves, the grain prologue, the detector compaction, the
+## reflected-shortwave march, the face solve, the momentum close, the temporal levels and the list.
+enum { PASS_FLUX, PASS_APPLY, PASS_GRAIN, PASS_LIST_RESET, PASS_LIST_APPEND, PASS_LIST_ARGS,
+	PASS_SW, PASS_FACE, PASS_MOMENTUM,
 	PASS_LEVEL_SEED, PASS_LEVEL_RELAX, PASS_LEVEL_RESET, PASS_LEVEL_SCAN,
 	PASS_LEVEL_SORT, PASS_LEVEL_PEAK,
 	PASS_ACT_AGE, PASS_ACT_WAKE, PASS_ACT_MARK, PASS_ACT_WAKE_RESET, PASS_ACT_SEED }
 
-## transport.glsl's ACT_NO_GROUP: this row's crossings wake no second group.
+## flux.glsl's ACT_NO_GROUP: this record's crossings wake no second group.
 const NO_GROUP: int = 0xffffffff
 
 ## List-args layout: 0-2 the indirect uvec3, 3 the atomic list length, 4 the sorted offset, 5 the
@@ -28,6 +29,9 @@ enum Arg { GROUPS_X = 0, GROUPS_Y = 1, GROUPS_Z = 2, LIST_COUNT = 3, OFFSET = 4,
 const GRAIN_ROW: Dictionary = {"channel": "silicate", "substance": "silicate",
 	"mode": LATransportRecords.POTENTIAL}
 
+## The three legs momentum crosses a boundary on.
+const MOMENTUM_BOOKS: PackedStringArray = ["mom_x", "mom_y", "mom_z"]
+
 var _pipe: RID = RID()
 
 ## Dispatches one submit may hold. The device waits on a fence to read a buffer back, and a submit
@@ -36,12 +40,12 @@ const FLUSH_EVERY: int = 4096
 
 ## Byte offsets of the level, substep index and substep count in the Params block below: the three the
 ## driver rewrites per substep.
-const PC_LEVEL: int = 96
-const PC_K: int = 100
-const PC_N: int = 104
-const PC_DISPATCH: int = 116
+const PC_LEVEL: int = 92
+const PC_K: int = 96
+const PC_N: int = 100
+const PC_BYTES: int = 112
 
-## Rows that advance together on one time axis; a solitary row is its own group.
+## Records that advance together on one time axis; a solitary record is its own group.
 var _row_groups: Array = []
 ## Per group: the finest temporal level its own state asked for, read back before the step records;
 ## -1 = a state no timestep integrates. `_peak_top` is the finest any group asked, for the drain.
@@ -50,36 +54,36 @@ var _peak_top: int = 0
 var _args_rid: RID = RID()
 var _peak_rid: RID = RID()
 var _wake_args_rid: RID = RID()
-## Interior cells plus the ghost tail, and the row -> its group slot.
+## Interior cells plus the ghost tail, and the record -> its group slot.
 var _total: int = 0
 var _row_group: PackedInt32Array = PackedInt32Array()
 ## Something outside this pass wrote the field, so the next step seeds every list with the whole box.
 var _wake_pending: bool = true
-## Per row: its uniform set. An invalid entry is a row whose buffers the driver has not got.
+## Per record: its uniform set. An invalid entry is a record whose buffers the driver has not got.
 var _sets: Array = []
 var _rows: Array = []
-## Pass-owned scratch, binding to buffer: what left each face and the enthalpy, charge and momentum
-## that rode with it, the RADIATE row's emissivity, beam share and reflected pair, and the dispatch stamp.
+## Pass-owned scratch, binding to buffer: the face state and each record's own per-face flux, the
+## RADIATE march's emissivity, beam share and reflected pair, and the mixture's eddy viscosity.
 var _scr: Dictionary = {}
-## resist 0 and aux 1 for a row that names neither.
+## resist 0 and aux 1 for a record that names neither.
 var _zero: RID = RID()
 var _one: RID = RID()
-## Enthalpy of transported enthalpy: none, so a row moving `h_j_m3` carries this zero buffer.
+## Enthalpy of transported enthalpy: none, so a record moving `h_j_m3` carries this zero buffer.
 var _no_h: RID = RID()
-## Band edges, absorption coefficients and the Planck CDF the RADIATE row reads.
+## Band edges, absorption coefficients and the Planck CDF the RADIATE record reads.
 var _rad_table: RID = RID()
 var _band_count: int = 0
 ## The grain prologue's uniform set.
 var _grain_set: RID = RID()
-## Per LATransportRecords.lists() entry: its synthetic row, uniform set, and args/idx RIDs.
+## Per LATransportRecords.lists() entry: its synthetic record, uniform set, and args/idx RIDs.
 var _list_rows: Array = []
 var _list_sets: Array = []
 var _list_args_rid: Array = []
 var _list_idx_rid: Array = []
 
 
-## The TF_EFIELD row's electric-field outputs (driver-owned so ReducePass can read them), the boundary
-## books, and each list's compacted-index, membership-flag and indirect-args buffers.
+## The TF_EFIELD record's electric-field outputs (driver-owned so ReducePass can read them), the
+## boundary books, and each list's compacted-index, membership-flag and indirect-args buffers.
 func _buffers(cc: int) -> Dictionary:
 	var out: Dictionary = {"col_e": cc, "strike": cc, "radiogenic": cc, "celerity": cc,
 		"sw_space": cc, "rad_residual": cc,
@@ -92,19 +96,19 @@ func _buffers(cc: int) -> Dictionary:
 		var keys: Dictionary = LATransportRecords.list_buffers(String(lrow["label"]))
 		out[String(keys["idx"])] = cc
 		out[String(keys["args"])] = {"n": int(Arg.SLOTS), "indirect": true}
-	# The temporal levels are StateDerivePass's declaration: its restate walks the same sorted list this
-	# pass dispatches over, and it runs at rungs where this pass does not exist.
+	# The temporal levels are StateDerivePass's declaration: its restate walks the same sorted list
+	# this pass dispatches over, and it runs at rungs where this pass does not exist.
 	out.merge(ActiveScript.buffers(cc + ghost_count, group_count()))
 	return out
 
 
-## One slot per row group, plus the grain prologue's own LAST: it derives where a cell's loose mineral
-## sits, so it is awake wherever silicate moved rather than wherever anything did.
+## One slot per record group, plus the grain prologue's own LAST: it derives where a cell's loose
+## mineral sits, so it is awake wherever silicate moved rather than wherever anything did.
 static func group_count() -> int:
 	return _grouping(LAProcessSet.transport_rows()).size() + 1
 
 
-## Consecutive rows that advance on ONE time axis: the acoustic pair and the momentum rows it carries.
+## Consecutive records that advance on ONE time axis: the acoustic set and the momentum that closes it.
 static func _grouping(rows: Array) -> Array:
 	var out: Array = []
 	for r in rows.size():
@@ -129,7 +133,8 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 		for gi in _row_groups[g]:
 			_row_group[gi] = g
 
-	# Ghost tail cells run pass 0, so every buffer the kernel indexes by cell carries the tail.
+	# Ghost tail cells are read by the interior cells beside them, so every per-cell buffer the
+	# kernel indexes carries the tail.
 	var tc: int = cc + ghost_count
 	for i in SCRATCH:
 		_scr[i] = _scratch(face_count if i < FACE_SCRATCH else tc)
@@ -156,23 +161,21 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	_driver.setup_transport(_plan())
 
 
-## What the native driver walks: the sets, the groups and the buffers. Every ROW stays in
+## What the native driver walks: the sets, the groups and the buffers. Every RECORD stays in
 ## LATransportRecords; nothing here restates one.
 func _plan() -> Dictionary:
 	var radiate: PackedInt32Array = PackedInt32Array()
 	for row: Dictionary in _rows:
 		radiate.append(1 if int(row["mode"]) == LATransportRecords.RADIATE else 0)
-	var acoustic: PackedInt32Array = PackedInt32Array()
 	var groups: Array = []
 	for group: PackedInt32Array in _row_groups:
 		groups.append(group)
-		acoustic.append(1 if _vel_row(_rows[group[group.size() - 1]]) else 0)
 	return {"pipe": _pipe, "row_sets": _sets, "row_group": _row_group, "row_radiate": radiate,
-		"groups": groups, "group_acoustic": acoustic, "args": _args_rid,
+		"groups": groups, "args": _args_rid,
 		"wake_args": _wake_args_rid, "grain_set": _grain_set, "list_sets": _list_sets,
 		"queue_bin": ActiveScript.QUEUE_BIN, "slots": LevelsScript.SLOTS,
 		"group_count": group_count(), "flush_every": FLUSH_EVERY,
-		"level_off": PC_LEVEL, "k_off": PC_K, "n_off": PC_N, "dispatch_off": PC_DISPATCH}
+		"level_off": PC_LEVEL, "k_off": PC_K, "n_off": PC_N}
 
 
 ## XUV irradiance at this body, W/m^2, taken once per dispatch off the ctx the star publishes into.
@@ -186,7 +189,7 @@ func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: i
 	var sun: Vector3 = ctx.get("sun_dir", Vector3.ZERO)
 	# No sun in the ctx is no star, which is no XUV — never an assumed one.
 	_xuv_w_m2 = float(ctx.get("xuv_w_m2", 0.0))
-	# The equation of state, restated after every substep's gather. StateDerivePass owns the kernel, the
+	# The equation of state, restated after every substep. StateDerivePass owns the kernel, the
 	# bindings and the block; this pass owns when the substep asks for it.
 	_driver.run_transport(cl, _peaks, _pc_rows(cc, dt_s, sun),
 		_pc_grain(cc, dt_s, sun), _pc_lists(cc, dt_s, sun),
@@ -215,8 +218,8 @@ func wake_all() -> void:
 	_wake_pending = true
 
 
-## THE PEAK LEVEL PER GROUP, before the step records: a submit of its own, so the loop bounds come from
-## the state this step starts in rather than from a reading one step stale.
+## THE PEAK LEVEL PER GROUP, before the step records: a submit of its own, so the loop bounds come
+## from the state this step starts in rather than from a reading one step stale.
 func pre_step(rd: RenderingDevice, ctx: Dictionary, cc: int, _groups: int) -> void:
 	if not _dispatchable() or not _peak_rid.is_valid() or _row_groups.is_empty():
 		return
@@ -258,16 +261,16 @@ func pre_step(rd: RenderingDevice, ctx: Dictionary, cc: int, _groups: int) -> vo
 		if _peaks[g2] < lim:
 			continue
 		_peaks[g2] = -1
-		push_error("TransportPass: the %s row's own cells carry a signal speed at or past light, so "
+		push_error("FluxPass: the %s record's own cells carry a signal speed at or past light, so "
 			% String(_rows[_row_groups[g2][0]]["channel"]) + "no timestep integrates them.")
 
 
-## A signed per-axis momentum row, whose gather refreshes its velocity component.
+## The record that closes a group with the interface pressure and the body impulse.
 static func _vel_row(row: Dictionary) -> bool:
-	return row.has("axis") and bool(row.get("signed", false))
+	return bool(row.get("momentum", false))
 
 
-## A row of the acoustic substep group: a momentum row, or compressible matter flagged into it.
+## A record of the acoustic substep group: the momentum close, or compressible matter flagged into it.
 static func _group_row(row: Dictionary) -> bool:
 	return _vel_row(row) or bool(row.get("acoustic", false))
 
@@ -299,7 +302,7 @@ func _active_cells(rd: RenderingDevice) -> float:
 	return float(n)
 
 
-## Bindings that are just a driver buffer by name: its key to transport.glsl's binding number. ONE
+## Bindings that are just a driver buffer by name: its key to flux.glsl's binding number. ONE
 ## declaration of what this pass needs, so a buffer the driver never made is a named error, not a
 ## silent set. The level and activity names are LATemporalLevels.KEYS and LAActiveCells.KEYS.
 const BINDINGS: Dictionary = {
@@ -317,13 +320,11 @@ const BINDINGS: Dictionary = {
 }
 
 ## Pass-owned scratch, in binding order: the first FACE_SCRATCH ride a face, the rest are per cell.
-const SCRATCH: Dictionary = {0: 8, 1: 9, 2: 14, 3: 61, 4: 62, 5: 63, 6: 44, 7: 45, 8: 52, 9: 53, 10: 90}
+const SCRATCH: Dictionary = {0: 8, 1: 9, 2: 14, 3: 62, 4: 63, 5: 90, 6: 44, 7: 45, 8: 52, 9: 53, 10: 61}
 const FACE_SCRATCH: int = 6
 
 
-
-
-## The uniform set for one row, or RID() when a buffer it names does not exist.
+## The uniform set for one record, or RID() when a buffer it names does not exist.
 func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 	var channel: String = String(row["channel"])
 	var drive: String = String(row.get("drive", ""))
@@ -331,8 +332,8 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 	var aux: String = String(row.get("aux", ""))
 	var frac: String = String(row.get("frac", ""))
 	var moves_enthalpy: bool = channel == "h_j_m3"
-	# Mass does not move without its heat, so the enthalpy field is required of every row that carries mass.
-	# The detector-list buffers a synthetic row compacts into; empty for an ordinary row.
+	# Mass does not move without its heat, so the enthalpy field is required of every record carrying mass.
+	# The detector-list buffers a synthetic record compacts into; empty for an ordinary record.
 	var list: Dictionary = LATransportRecords.list_buffers(String(row.get("list", "")))
 	var entries: Array = []
 	for key in BINDINGS.keys() + [channel, drive, resist, aux, frac, "h_h2o", "h_silicate",
@@ -342,7 +343,7 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 		if name == "" or (name == "h_j_m3" and moves_enthalpy):
 			continue
 		if not bufs.has(name):
-			push_error("TransportPass: no \"%s\" buffer, so the %s row does not move." % [name, channel])
+			push_error("FluxPass: no \"%s\" buffer, so the %s record does not move." % [name, channel])
 			return RID()
 		if BINDINGS.has(name):
 			entries.append([BINDINGS[name], bufs[name]])
@@ -357,39 +358,43 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 		[12, _one if aux == "" else _single(bufs, aux)],
 		[21, _rad_table],
 		[29, _one if frac == "" else _single(bufs, frac)],
-		# Only a detector's own compaction passes touch these; an ordinary row binds the void.
+		# Only a detector's own compaction passes touch these; an ordinary record binds the void.
 		[34, _zero if list.is_empty() else bufs[String(list["idx"])]],
 		[35, _zero if list.is_empty() else bufs[String(list["args"])]],
-		# Heat travels with the matter that holds it, so a row reads the enthalpy of ITS OWN entry.
+		# Heat travels with the matter that holds it, so a record reads the enthalpy of ITS OWN entry.
 		[46, _single(bufs, _carried_key(String(row["substance"])))],
-		# A booked channel's boundary crossings; an unbooked row writes a void pair nothing reads.
-		# A signed channel books its amount leg only; the kernel never writes its heat leg.
+		# A booked channel's boundary crossings; an unbooked record writes a void pair nothing reads.
 		[48, _single(bufs, _book(channel, false))],
 		[49, _single(bufs, _book(channel, true))],
 		# O3 partial density, kg/m^3: zeros until a photochemical o3 channel exists to swap in.
 		[56, _zero],
-		# The momentum riding a mass row's exterior crossing; a signed row books through binding 48
-		# and binds the void here.
-		[69, _single(bufs, "bnd_void" if bool(row.get("signed", false)) else _book("mom_x", false))],
-		[70, _single(bufs, "bnd_void" if bool(row.get("signed", false)) else _book("mom_y", false))],
-		[71, _single(bufs, "bnd_void" if bool(row.get("signed", false)) else _book("mom_z", false))],
-		# The charge riding a mass row's crossing; a signed channel books its own through binding 48.
-		[79, _single(bufs, "bnd_void" if BoundaryRowsScript.BOOKED_SIGNED.has(channel)
-			else _book("charge", false))],
+		# The momentum riding a crossing, on its own three legs.
+		[69, _single(bufs, _mom_book("mom_x"))],
+		[70, _single(bufs, _mom_book("mom_y"))],
+		[71, _single(bufs, _mom_book("mom_z"))],
+		# The charge riding a crossing; the charge channel books its own through binding 48.
+		[79, _single(bufs, "bnd_void" if channel == "charge" else _book("charge", false))],
 	]
 	return _uset(_pipe, entries)
 
 
-## The book a channel's crossings land in. A channel this world cannot move cannot cross, so it books
-## into the void pair no reduce row reads.
+## The book a channel's crossings land in. A channel this world cannot move cannot cross, and momentum
+## books on its own three legs, so both take the void pair no reduce row reads.
 func _book(channel: String, heat: bool) -> String:
 	var void_key: String = BoundaryRowsScript.HEAT_PREFIX + "void" if heat \
 		else BoundaryRowsScript.BOOKED_PREFIX + "void"
-	if not LAProcessSet.books(channel):
+	if MOMENTUM_BOOKS.has(channel) or not LAProcessSet.books(channel):
 		return void_key
 	if heat and not BoundaryRowsScript.BOOKED.has(channel):
 		return void_key
 	return (BoundaryRowsScript.HEAT_PREFIX if heat else BoundaryRowsScript.BOOKED_PREFIX) + channel
+
+
+## One momentum leg's book, or the void where this world books no momentum.
+func _mom_book(axis: String) -> String:
+	if not LAProcessSet.books(axis):
+		return BoundaryRowsScript.BOOKED_PREFIX + "void"
+	return BoundaryRowsScript.BOOKED_PREFIX + axis
 
 
 ## The buffer holding the enthalpy of the mixture entry a substance's heat sits in.
@@ -404,16 +409,15 @@ func _carried_key(substance: String) -> String:
 
 # --- push constant ----------------------------------------------------------------------------------------
 
-## Row keys the kernel unpacks as flags: a switch it reads as a bool, and a key it reads as named-or-not.
-const SWITCHES: Array = [["signed", LATransportRecords.Flag.SIGNED],
-	["settle", LATransportRecords.Flag.SETTLE], ["efield", LATransportRecords.Flag.EFIELD],
-	["dilute", LATransportRecords.Flag.DILUTE],
+## Record keys the kernel unpacks as flags: a switch it reads as a bool, and a key it reads as
+## named-or-not.
+const SWITCHES: Array = [["settle", LATransportRecords.Flag.SETTLE],
+	["efield", LATransportRecords.Flag.EFIELD], ["dilute", LATransportRecords.Flag.DILUTE],
 	["relax", LATransportRecords.Flag.RELAX], ["radiogenic", LATransportRecords.Flag.RADIOGENIC]]
-const NAMED: Array = [["drive", LATransportRecords.Flag.DRIVEN],
-	["frac", LATransportRecords.Flag.FRACTION]]
+const NAMED: Array = [["frac", LATransportRecords.Flag.FRACTION]]
 
 
-## One push-constant block per row per slot the driver may issue, built once per step. The driver
+## One push-constant block per record per slot the driver may issue, built once per step. The driver
 ## rewrites only the level and the substep pair, so a substep costs no encoding at all.
 func _pc_rows(cc: int, dt_s: float, sun: Vector3) -> Array:
 	var out: Array = []
@@ -433,20 +437,22 @@ func _pc_rows(cc: int, dt_s: float, sun: Vector3) -> Array:
 		ht[LAFieldDriver.SLOT_ACT_MARK] = _pc(head, cc, PASS_ACT_MARK, dt_s, sun, 0, 0, 1, g)
 		ht[LAFieldDriver.SLOT_LEVEL_SCAN] = _pc(head, cc, PASS_LEVEL_SCAN, dt_s, sun, 0, 0, 1, g)
 		ht[LAFieldDriver.SLOT_LEVEL_SORT] = _pc(head, cc, PASS_LEVEL_SORT, dt_s, sun, 0, 0, 1, g)
+		# ONE FACE SOLVE PER SUBSTEP, on the group's head, before any record reads a face.
+		ht[LAFieldDriver.SLOT_FACE] = _pc(head, cc, PASS_FACE, dt_s, sun, 0, 0, 1, g)
 		for gi in group:
 			var row: Dictionary = _rows[gi]
 			var rt: Array = out[gi]
 			rt[LAFieldDriver.SLOT_LEVEL_SEED] = _pc(row, cc, PASS_LEVEL_SEED, dt_s, sun, 0, 0, 1, g)
-			rt[LAFieldDriver.SLOT_OUTFLOW] = _pc(row, cc, PASS_OUTFLOW, dt_s, sun, 0, 0, 1, g)
-			rt[LAFieldDriver.SLOT_GATHER] = _pc(row, cc, PASS_GATHER, dt_s, sun, 0, 0, 1, g)
+			# The momentum record moves no matter of its own: it has no flux or apply half.
+			if not _vel_row(row):
+				rt[LAFieldDriver.SLOT_OUTFLOW] = _pc(row, cc, PASS_FLUX, dt_s, sun, 0, 0, 1, g)
+				rt[LAFieldDriver.SLOT_GATHER] = _pc(row, cc, PASS_APPLY, dt_s, sun, 0, 0, 1, g)
 			if int(row["mode"]) == LATransportRecords.RADIATE:
 				rt[LAFieldDriver.SLOT_SW] = _pc(row, cc, PASS_SW, dt_s, sun, 0, 0, 1, g)
-		# The acoustic pair rides the group's last row, so that row carrying velocity IS the test.
+		# The pressure and the body impulse close the group, on the record that carries them.
 		var last: int = group[group.size() - 1]
 		if _vel_row(_rows[last]):
-			var lt: Array = out[last]
-			lt[LAFieldDriver.SLOT_ACOUSTIC] = _pc(_rows[last], cc, PASS_ACOUSTIC, dt_s, sun, 0, 0, 1, g)
-			lt[LAFieldDriver.SLOT_ACOUSTIC_APPLY] = _pc(_rows[last], cc, PASS_ACOUSTIC_APPLY,
+			out[last][LAFieldDriver.SLOT_MOMENTUM] = _pc(_rows[last], cc, PASS_MOMENTUM,
 				dt_s, sun, 0, 0, 1, g)
 	return out
 
@@ -473,7 +479,7 @@ func _pc_grain(cc: int, dt_s: float, sun: Vector3) -> Array:
 
 
 ## THE DETECTOR LISTS: where the strikes and the non-finite values are. A detector looks everywhere
-## because a value it has never seen can sit anywhere; no row dispatches over one.
+## because a value it has never seen can sit anywhere; no record dispatches over one.
 func _pc_lists(cc: int, dt_s: float, sun: Vector3) -> Array:
 	var out: Array = []
 	for r in _list_rows.size():
@@ -487,7 +493,7 @@ func _pc_lists(cc: int, dt_s: float, sun: Vector3) -> Array:
 	return out
 
 
-## transport.glsl's Params block, in its declared order.
+## flux.glsl's Params block, in its declared order.
 func _pc(row: Dictionary, cc: int, pass_id: int, dt_s: float,
 		sun: Vector3, level: int = 0, substep_k: int = 0, substep_n: int = 1,
 		act_group: int = 0) -> PackedByteArray:
@@ -495,7 +501,7 @@ func _pc(row: Dictionary, cc: int, pass_id: int, dt_s: float,
 	var entry: Dictionary = LASubstances.table().get(substance, {})
 	var fluid: Vector2 = LATransportRecords.fluid_properties(
 		int(row.get("fluid", LATransportRecords.Fluid.VACUUM)))
-	# EVERY ROW PASS WALKS A LIST NOW, so the remap is unconditional.
+	# EVERY RECORD PASS WALKS A LIST NOW, so the remap is unconditional.
 	var flags: int = LATransportRecords.Flag.VEL if _vel_row(row) else 0
 	flags |= LATransportRecords.Flag.LEVEL
 	for pair: Array in SWITCHES:
@@ -504,11 +510,11 @@ func _pc(row: Dictionary, cc: int, pass_id: int, dt_s: float,
 	for pair2: Array in NAMED:
 		if String(row.get(String(pair2[0]), "")) != "":
 			flags |= int(pair2[1])
-	# The row whose amount IS enthalpy books joules on both boundary legs.
+	# The record whose amount IS enthalpy books joules on both boundary legs.
 	if String(row["channel"]) == "h_j_m3":
 		flags |= LATransportRecords.Flag.ENTHALPY
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(120)
+	pc.resize(PC_BYTES)
 	pc.encode_u32(0, cc)
 	pc.encode_u32(4, pass_id)
 	pc.encode_u32(8, int(row["mode"]))
@@ -519,7 +525,7 @@ func _pc(row: Dictionary, cc: int, pass_id: int, dt_s: float,
 	pc.encode_float(28, float(row.get("repose_tan", 0.0)))
 	var max_fill: float = LATransportRecords.max_fill(substance) if substance != "" else INF
 	pc.encode_float(32, float(entry.get("density", 0.0)))
-	# Enthalpy, momentum and a shock front are not matter occupying volume, so no cell is ever full of them.
+	# Enthalpy and momentum are not matter occupying volume, so no cell is ever full of them.
 	pc.encode_float(36, max_fill)
 	pc.encode_float(40, fluid.x)
 	pc.encode_float(44, fluid.y)
@@ -538,16 +544,15 @@ func _pc(row: Dictionary, cc: int, pass_id: int, dt_s: float,
 	# heat); 0 for a substance on a phase ladder, whose entry is the channel itself.
 	pc.encode_float(80, float(entry.get("molar_mass", 0.0)) * LAMatterChannels.specific_heat(substance))
 	pc.encode_u32(84, cc + ghost_count)
-	pc.encode_u32(88, int(row.get("axis", 0)))
 	# XUV irradiance AT THIS BODY, already distance-corrected by the star that emitted it; the zenith
 	# cosine is what still scales it in-kernel.
-	pc.encode_float(92, _xuv_w_m2)
+	pc.encode_float(88, _xuv_w_m2)
 	pc.encode_u32(PC_LEVEL, level)
 	pc.encode_u32(PC_K, substep_k)
 	pc.encode_u32(PC_N, substep_n)
-	pc.encode_u32(108, act_group)
-	# A row carrying silicate also wakes the prologue that derives where that mineral sits.
-	pc.encode_u32(112, group_count() - 1 if String(row["channel"]) == "silicate" else NO_GROUP)
+	pc.encode_u32(104, act_group)
+	# A record carrying silicate also wakes the prologue that derives where that mineral sits.
+	pc.encode_u32(108, group_count() - 1 if String(row["channel"]) == "silicate" else NO_GROUP)
 	return pc
 
 

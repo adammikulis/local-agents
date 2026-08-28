@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# THE ESCAPE LAW, judged by the real evaluator: TransportPass dispatching transport.glsl over a rig whose
+# THE ESCAPE LAW, judged by the real evaluator: FluxPass dispatching flux.glsl over a rig whose
 # box edge faces space. (a) closure — what left the top equals the bnd book; (b) physics — cold top or no
 # XUV escapes nothing, a bound gas escapes thermally, an unbound gas escapes only under the epoch's XUV;
 # (c) selectivity — the escape parameter keeps every heavy species in. Arm two runs the seeded world and
@@ -12,8 +12,8 @@ la_examined "$(basename "$0")" || exit $?
 GODOT="${GODOT:-godot}"
 command -v "$GODOT" >/dev/null 2>&1 || { echo "ERROR: godot not on PATH — a gate that cannot run FAILS." >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 not on PATH — a gate that cannot run FAILS." >&2; exit 2; }
-KERNEL="$REPO_ROOT/addons/local_agents/sim/material/kernels3d/transport.glsl"
-[ -f "$KERNEL" ] || { echo "ERROR: transport.glsl missing." >&2; exit 2; }
+KERNEL="$REPO_ROOT/addons/local_agents/sim/material/kernels3d/flux.glsl"
+[ -f "$KERNEL" ] || { echo "ERROR: flux.glsl missing." >&2; exit 2; }
 [ -f "$REPO_ROOT/scripts/sim_run.sh" ] || { echo "ERROR: sim_run.sh missing." >&2; exit 2; }
 
 # --- arm one: the rig — a two-cell box, gravity along -x, the +x face DECLARED space -----------------
@@ -23,7 +23,7 @@ extends SceneTree
 
 const QuietWindow: GDScript = preload("res://addons/local_agents/runtime/QuietWindow.gd")
 
-const PASS_PATH: String = "res://addons/local_agents/sim/material/sphere_passes/TransportPass.gd"
+const PASS_PATH: String = "res://addons/local_agents/sim/material/sphere_passes/FluxPass.gd"
 const CELL: float = 0.5
 const DT: float = 1.0e-4
 const T_C: float = 26.85

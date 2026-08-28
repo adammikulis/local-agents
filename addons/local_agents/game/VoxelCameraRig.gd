@@ -124,22 +124,15 @@ func _clamp_focus() -> void:
 # Screen shake (earthquakes, big impacts).
 const SHAKE_MAG: float = 1.8
 const TRAUMA_DECAY: float = 1.1
-const SEISMIC_TRAUMA_GAIN: float = 2.0
 var _trauma: float = 0.0
 var _shake_applied: Vector3 = Vector3.ZERO
 # This rig's own shake stream.
 var _shake_rng: LASimRng = LASimRng.make(LASimRng.DEFAULT_SEED, "camera_shake")
-var _ecology: Object = null                # LAEcologyService — source of the seismic field (set by VoxelWorld)
 
 
 ## Add camera trauma (0..1).
 func add_shake(amount: float) -> void:
 	_trauma = clampf(_trauma + amount, 0.0, 1.0)
-
-
-## Wire the ecology so the rig can query seismic_energy_at() and shake in response to ground motion.
-func set_ecology(ecology: Object) -> void:
-	_ecology = ecology
 
 
 func _ready() -> void:
@@ -837,7 +830,7 @@ func _process(delta: float) -> void:
 	# Don't drive movement in the editor (@tool) preview.
 	if Engine.is_editor_hint():
 		return
-	# Undo last frame's shake so the seismic offset never accumulates into the base position.
+	# Undo last frame's shake so the offset never accumulates into the base position.
 	global_position -= _shake_applied
 	_shake_applied = Vector3.ZERO
 	# SUNNYSIDE.
@@ -866,15 +859,10 @@ func _process(delta: float) -> void:
 	# re-solved every frame and not only when the player moves; solved once, the eye ends up inside a hill.
 	elif _orbit_mode and not _solar_view:
 		_update_orbit_transform()
-	_apply_seismic_shake(delta)
+	_decay_shake(delta)
 
 
-func _apply_seismic_shake(delta: float) -> void:
-	if _ecology != null and _ecology.has_method("seismic_energy_at"):
-		var seismic: float = _ecology.seismic_energy_at(global_position)
-		if seismic > 0.0:
-			add_shake(seismic * SEISMIC_TRAUMA_GAIN * delta)
-
+func _decay_shake(delta: float) -> void:
 	_trauma = maxf(0.0, _trauma - TRAUMA_DECAY * delta)
 	if _trauma > 0.0:
 		var s: float = _trauma * _trauma * SHAKE_MAG

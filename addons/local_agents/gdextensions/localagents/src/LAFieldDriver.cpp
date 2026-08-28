@@ -151,7 +151,6 @@ void LAFieldDriver::setup_transport(const Dictionary &p_plan) {
 	_row_group = p_plan.get("row_group", PackedInt32Array());
 	_row_radiate = p_plan.get("row_radiate", PackedInt32Array());
 	_groups = p_plan.get("groups", Array());
-	_group_acoustic = p_plan.get("group_acoustic", PackedInt32Array());
 	_args = plan_rid(p_plan, "args");
 	_wake_args = plan_rid(p_plan, "wake_args");
 	_grain_set = plan_rid(p_plan, "grain_set");
@@ -163,7 +162,6 @@ void LAFieldDriver::setup_transport(const Dictionary &p_plan) {
 	_level_off = plan_int(p_plan, "level_off", 0);
 	_k_off = plan_int(p_plan, "k_off", 0);
 	_n_off = plan_int(p_plan, "n_off", 0);
-	_dispatch_off = plan_int(p_plan, "dispatch_off", 0);
 }
 
 int LAFieldDriver::_args_offset(int p_group, int p_bin) const {
@@ -191,9 +189,6 @@ const PackedByteArray &LAFieldDriver::_block(const Array &p_table, int p_slot, i
 		put_u32(w, _level_off, (uint32_t)p_level);
 		put_u32(w, _k_off, (uint32_t)p_k);
 		put_u32(w, _n_off, (uint32_t)p_n);
-	}
-	if (_dispatch_off > 0 && _dispatch_off <= room) {
-		put_u32(w, _dispatch_off, _dispatch_id);
 	}
 	return _scratch;
 }
@@ -273,42 +268,33 @@ void LAFieldDriver::build_levels(int64_t p_cl, int p_group, const Array &p_pc_ro
 	}
 }
 
-void LAFieldDriver::_run_row(int64_t p_cl, int p_row, const Array &p_pc_rows, int p_level, int p_k,
-		int p_n, bool p_acoustic_pair) {
+// ONE SLOT OF ONE RECORD, over its group's active cells at this level: what it costs is what moves.
+void LAFieldDriver::_run_slot(int64_t p_cl, int p_row, const Array &p_pc_rows, int p_slot,
+		int p_level, int p_k, int p_n) {
 	const RID uset = rid_at(_row_sets, p_row);
 	if (!uset.is_valid() || !_args.is_valid()) {
 		return;
 	}
-	const Array table = p_pc_rows[p_row];
-	// One stamp for this row's whole substep: its gather admits the faces its own outflow wrote.
-	// Zero is the buffer's cleared state and belongs to no dispatch.
-	if (++_dispatch_id == 0u) {
-		_dispatch_id = 1u;
-	}
-	int slots[3];
-	int count = 0;
-	if (p_acoustic_pair) {
-		slots[count++] = SLOT_ACOUSTIC;
-		slots[count++] = SLOT_ACOUSTIC_APPLY;
-	} else {
-		slots[count++] = SLOT_OUTFLOW;
-		slots[count++] = SLOT_GATHER;
-		if (p_row < _row_radiate.size() && _row_radiate[p_row] != 0) {
-			slots[count++] = SLOT_SW;
-		}
+	const PackedByteArray &pc = _block(p_pc_rows[p_row], p_slot, p_level, p_k, p_n);
+	if (pc.is_empty()) {
+		return;
 	}
 	const int group = p_row < _row_group.size() ? _row_group[p_row] : 0;
-	for (int i = 0; i < count; ++i) {
-		const PackedByteArray &pc = _block(table, slots[i], p_level, p_k, p_n);
-		if (pc.is_empty()) {
-			continue;
-		}
-		_rd->compute_list_bind_compute_pipeline(p_cl, _pipe);
-		_rd->compute_list_bind_uniform_set(p_cl, uset, 0);
-		_rd->compute_list_set_push_constant(p_cl, pc, pc.size());
-		// THE ROW WALKS ITS GROUP'S ACTIVE CELLS at this level: what it costs is what is moving.
-		_rd->compute_list_dispatch_indirect(p_cl, _args, (uint32_t)_args_offset(group, p_level));
-		_rd->compute_list_add_barrier(p_cl);
+	_rd->compute_list_bind_compute_pipeline(p_cl, _pipe);
+	_rd->compute_list_bind_uniform_set(p_cl, uset, 0);
+	_rd->compute_list_set_push_constant(p_cl, pc, pc.size());
+	_rd->compute_list_dispatch_indirect(p_cl, _args, (uint32_t)_args_offset(group, p_level));
+	_rd->compute_list_add_barrier(p_cl);
+}
+
+// THE FLUX AND THE APPLY: the record writes what crosses each of its cells' own faces, then reads
+// those faces back into the cells. Nothing between the two touches them.
+void LAFieldDriver::_run_row(int64_t p_cl, int p_row, const Array &p_pc_rows, int p_level, int p_k,
+		int p_n) {
+	_run_slot(p_cl, p_row, p_pc_rows, SLOT_OUTFLOW, p_level, p_k, p_n);
+	_run_slot(p_cl, p_row, p_pc_rows, SLOT_GATHER, p_level, p_k, p_n);
+	if (p_row < _row_radiate.size() && _row_radiate[p_row] != 0) {
+		_run_slot(p_cl, p_row, p_pc_rows, SLOT_SW, p_level, p_k, p_n);
 	}
 }
 
@@ -388,7 +374,6 @@ int64_t LAFieldDriver::run_transport(int64_t p_cl, const PackedInt32Array &p_pea
 		build_levels(cl, g, p_pc_rows, levels);
 		const int n = 1 << levels;
 		const int last = group[group.size() - 1];
-		const bool acoustic = g < _group_acoustic.size() && _group_acoustic[g] != 0;
 		const int first = group[0];
 		const RID head = rid_at(_row_sets, first);
 		const Array head_pc = p_pc_rows[first];
@@ -396,12 +381,14 @@ int64_t LAFieldDriver::run_transport(int64_t p_cl, const PackedInt32Array &p_pea
 			const int lk = coarsest_at(k, levels);
 			// THE BUBBLE, one substep at a time.
 			_rebuild_active(cl, head, head_pc, g, lk, k == 0);
+			// EVERY FACE STATES ITSELF ONCE, before any record reads one: the pair's interface
+			// pressure and velocity, off the state this substep starts in.
+			_run_slot(cl, first, p_pc_rows, SLOT_FACE, lk, k, n);
 			for (int i = 0; i < group.size(); ++i) {
-				_run_row(cl, group[i], p_pc_rows, lk, k, n, false);
+				_run_row(cl, group[i], p_pc_rows, lk, k, n);
 			}
-			if (acoustic) {
-				_run_row(cl, last, p_pc_rows, lk, k, n, true);
-			}
+			// THE PRESSURE AND THE BODY IMPULSE LAST, against the mass the records just moved.
+			_run_slot(cl, last, p_pc_rows, SLOT_MOMENTUM, lk, k, n);
 			_restate(cl, g, lk);
 			_recorded += group.size() + 5;
 			if (_recorded > _flush_every) {
@@ -515,8 +502,8 @@ void LAFieldDriver::_bind_methods() {
 	BIND_ENUM_CONSTANT(SLOT_OUTFLOW);
 	BIND_ENUM_CONSTANT(SLOT_GATHER);
 	BIND_ENUM_CONSTANT(SLOT_SW);
-	BIND_ENUM_CONSTANT(SLOT_ACOUSTIC);
-	BIND_ENUM_CONSTANT(SLOT_ACOUSTIC_APPLY);
+	BIND_ENUM_CONSTANT(SLOT_FACE);
+	BIND_ENUM_CONSTANT(SLOT_MOMENTUM);
 	BIND_ENUM_CONSTANT(SLOT_ACT_AGE);
 	BIND_ENUM_CONSTANT(SLOT_ACT_WAKE);
 	BIND_ENUM_CONSTANT(SLOT_ACT_MARK);

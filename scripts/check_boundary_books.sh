@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# A CROSSING IS BOOKED, judged by the REAL evaluator: TransportPass dispatching transport.glsl over a
+# A CROSSING IS BOOKED, judged by the REAL evaluator: FluxPass dispatching flux.glsl over a
 # rig whose CONSTANT face carries a real captured exterior, recorded here by a short global run. The rig
 # holds every booked channel to per-dispatch closure and the differing state to a nonzero crossing; arm
 # two runs the real slice on the same capture and holds the crossings to reaching the ledger.
@@ -10,8 +10,8 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GODOT="${GODOT:-godot}"
 command -v "$GODOT" >/dev/null 2>&1 || { echo "ERROR: godot not on PATH — a gate that cannot run FAILS." >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 not on PATH — a gate that cannot run FAILS." >&2; exit 2; }
-KERNEL="$REPO_ROOT/addons/local_agents/sim/material/kernels3d/transport.glsl"
-[ -f "$KERNEL" ] || { echo "ERROR: transport.glsl missing." >&2; exit 2; }
+KERNEL="$REPO_ROOT/addons/local_agents/sim/material/kernels3d/flux.glsl"
+[ -f "$KERNEL" ] || { echo "ERROR: flux.glsl missing." >&2; exit 2; }
 [ -f "$REPO_ROOT/scripts/sim_run.sh" ] || { echo "ERROR: sim_run.sh missing." >&2; exit 2; }
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
 la_examined "$(basename "$0")" || exit $?
@@ -54,7 +54,7 @@ extends SceneTree
 # An automated run's window is minimized; macOS clamps an off-view position back on screen.
 const QuietWindow: GDScript = preload("res://addons/local_agents/runtime/QuietWindow.gd")
 
-const PASS_PATH: String = "res://addons/local_agents/sim/material/sphere_passes/TransportPass.gd"
+const PASS_PATH: String = "res://addons/local_agents/sim/material/sphere_passes/FluxPass.gd"
 const CELL: float = 0.5
 const P_IN: float = 101325.0
 const T_C: float = 15.0

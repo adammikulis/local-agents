@@ -1,30 +1,29 @@
 class_name LATransportRecords
 extends RefCounted
 
-## What moves, and by what rule. transport.glsl runs every row through one gather.
+## WHAT MOVES, AND HOW IT SLIPS THROUGH THE MIXTURE. flux.glsl solves one interface velocity per
+## face; each record names the phase share riding it and the closure giving that phase its own drift.
 
-## What drives a record across a face. Matches the MODE_* constants in transport.glsl.
+## What a record's matter rides. Matches the MODE_* constants in flux.glsl.
 enum { POTENTIAL, ADVECT, BOTH, DIFFUSE, CONDUCT, RADIATE, SEPARATE }
 
-## The transport law that sets a row's mobility from the cell's own state. Matches LAW_* in transport.glsl.
-enum Law { NONE, SHALLOW, FILM, DARCY, EDDY, SOUND, OHMIC, PGF, ESCAPE }
+## The closure that gives a phase its drift or a face its diffusivity. Matches LAW_* in flux.glsl.
+enum Law { NONE, SHALLOW, FILM, DARCY, EDDY, OHMIC, ESCAPE }
 
-## The fluid a row moves THROUGH, whose density and viscosity its law reads.
+## The fluid a record moves THROUGH, whose density and viscosity its closure reads.
 enum Fluid { VACUUM, WATER, AIR }
 
-## Per-row switches, packed into the kernel's `flags`. Matches the TF_* constants in transport.glsl.
-enum Flag { SIGNED = 1, SETTLE = 2, EFIELD = 4, DRIVEN = 8, FRACTION = 16, DILUTE = 32,
+## Per-record switches, packed into the kernel's `flags`. Matches the TF_* constants in flux.glsl.
+enum Flag { SETTLE = 2, EFIELD = 4, FRACTION = 16, DILUTE = 32,
 	RADIOGENIC = 64, ENTHALPY = 128, RELAX = 256, VEL = 512, LEVEL = 1024 }
 
 
-## `settle` adds the grain's terminal velocity to the advecting fluid; `frac` is the derived share moved.
-## `relax` carries the boundary rim's nudge toward a REPLAY face's driving state — once per channel.
-## `label` is the row's one name; LAProcessSet assigns each to exactly one rung.
+## `settle` adds the grain's terminal velocity; `frac` is the derived share moved; `relax` carries
+## the boundary rim's nudge, once per channel. `label` is the record's one name.
 static func rows() -> Array:
 	return [
 		# FIRST: the riming pair separates charge before anything relaxes or carries it.
-		{"label": "charge_separate", "channel": "charge", "substance": "", "mode": SEPARATE,
-			"signed": true},
+		{"label": "charge_separate", "channel": "charge", "substance": "", "mode": SEPARATE},
 
 		{"label": "h2o_surface", "channel": "h2o", "substance": "h2o", "mode": POTENTIAL,
 			"law": Law.SHALLOW, "frac": "h2o_liquid"},
@@ -32,15 +31,16 @@ static func rows() -> Array:
 		{"label": "h2o_groundwater", "channel": "h2o", "substance": "h2o", "mode": POTENTIAL,
 			"law": Law.DARCY, "fluid": Fluid.WATER, "frac": "h2o_liquid"},
 
-		# One silicate channel, four laws. Cemented rock has no row: that is what being rock means.
-		{"label": "silicate_melt_film", "channel": "silicate", "substance": "silicate", "mode": POTENTIAL,
-			"law": Law.FILM, "frac": "silicate_melt", "dilute": true},
+		# One silicate channel, four closures. Cemented rock has none: that is what being rock means.
+		{"label": "silicate_melt_film", "channel": "silicate", "substance": "silicate",
+			"mode": POTENTIAL, "law": Law.FILM, "frac": "silicate_melt", "dilute": true},
 
 		{"label": "silicate_susp_water", "channel": "silicate", "substance": "silicate", "mode": ADVECT,
 			"fluid": Fluid.WATER, "settle": true, "frac": "silicate_susp_water", "dilute": true},
 
 		{"label": "silicate_susp_air", "channel": "silicate", "substance": "silicate", "mode": ADVECT,
-			"fluid": Fluid.AIR, "settle": true, "frac": "silicate_susp_air", "dilute": true, "relax": true},
+			"fluid": Fluid.AIR, "settle": true, "frac": "silicate_susp_air", "dilute": true,
+			"relax": true},
 
 		{"label": "silicate_bed", "channel": "silicate", "substance": "silicate", "mode": POTENTIAL,
 			"law": Law.SHALLOW, "repose_tan": LAPhysical.REPOSE_TAN_DRY_GRANULAR,
@@ -52,11 +52,8 @@ static func rows() -> Array:
 		{"label": "fert_soil", "channel": "fert", "substance": "fixed_n", "mode": DIFFUSE,
 			"law": Law.DARCY, "fluid": Fluid.WATER, "relax": true},
 
-		{"label": "shock_sound", "channel": "shock", "substance": "", "mode": DIFFUSE, "law": Law.SOUND,
-			"fluid": Fluid.AIR},
-
-		{"label": "charge_ohmic", "channel": "charge", "substance": "", "mode": DIFFUSE, "law": Law.OHMIC,
-			"fluid": Fluid.AIR, "efield": true},
+		{"label": "charge_ohmic", "channel": "charge", "substance": "", "mode": DIFFUSE,
+			"law": Law.OHMIC, "fluid": Fluid.AIR, "efield": true},
 
 		# The heat equation: conduction down the temperature gradient, and the rock's own decay as the
 		# volumetric source term beside it.
@@ -65,8 +62,8 @@ static func rows() -> Array:
 
 		{"label": "heat_radiate", "channel": "h_j_m3", "substance": "", "mode": RADIATE},
 
-		# THE ACOUSTIC GROUP: compressible matter and its momentum advance together on the acoustic
-		# substep — a mass flux at frame cadence against a stiff equation of state has loop gain c dt/L.
+		# THE ACOUSTIC GROUP: every compressible substance rides the one interface velocity the face
+		# solved, and the momentum record closes it with the pressure that velocity came from.
 		{"label": "h2o_liquid_advect", "channel": "h2o", "substance": "h2o", "mode": ADVECT,
 			"fluid": Fluid.WATER, "frac": "h2o_liquid", "acoustic": true},
 
@@ -90,21 +87,11 @@ static func rows() -> Array:
 		{"label": "ch4_eddy", "channel": "ch4", "substance": "ch4", "mode": BOTH, "law": Law.EDDY,
 			"fluid": Fluid.AIR, "relax": true, "acoustic": true},
 
-		# -grad(p) alone: bulk momentum advection EMERGES from the mass fluxes, each of which carries
-		# the donor's momentum share exactly as it carries heat and charge.
-		{"label": "mom_x_pgf", "channel": "mom_x", "substance": "", "mode": POTENTIAL,
-			"law": Law.PGF, "axis": 0, "drive": "pressure", "signed": true},
-		{"label": "mom_y_pgf", "channel": "mom_y", "substance": "", "mode": POTENTIAL,
-			"law": Law.PGF, "axis": 1, "drive": "pressure", "signed": true},
-		{"label": "mom_z_pgf", "channel": "mom_z", "substance": "", "mode": POTENTIAL,
-			"law": Law.PGF, "axis": 2, "drive": "pressure", "signed": true},
-
-		{"label": "mom_x_eddy", "channel": "mom_x", "substance": "", "mode": DIFFUSE,
-			"law": Law.EDDY, "axis": 0, "fluid": Fluid.AIR, "signed": true, "relax": true},
-		{"label": "mom_y_eddy", "channel": "mom_y", "substance": "", "mode": DIFFUSE,
-			"law": Law.EDDY, "axis": 1, "fluid": Fluid.AIR, "signed": true, "relax": true},
-		{"label": "mom_z_eddy", "channel": "mom_z", "substance": "", "mode": DIFFUSE,
-			"law": Law.EDDY, "axis": 2, "fluid": Fluid.AIR, "signed": true, "relax": true},
+		# THE MOMENTUM RECORD, last of the group and the only reader of the interface pressure. Bulk
+		# advection is not here: it emerges from the mass the records above moved.
+		{"label": "mom_flux", "channel": "mom_x", "substance": "", "mode": POTENTIAL,
+			"law": Law.EDDY, "fluid": Fluid.AIR, "momentum": true, "acoustic": true,
+			"books": ["mom_x", "mom_y", "mom_z"]},
 	] + escape_rows()
 
 
@@ -119,11 +106,11 @@ static func escape_rows() -> Array:
 	return out
 
 
-## DETECTORS, not dispatch lists: what a row runs over is its group's active cells. Each compacts the
-## cells where `prim` is positive so the drain can read WHERE, without a CPU walk of the grid.
+## DETECTORS, not dispatch lists: what a record runs over is its group's active cells. Each compacts
+## the cells where `prim` is positive so the drain can read WHERE, without a CPU walk of the grid.
 static func lists() -> Array:
 	return [
-		# STRIKE gives a bolt its position. Built before the rows run, so the list carries the
+		# STRIKE gives a bolt its position. Built before the records run, so the list carries the
 		# previous step's strikes.
 		{"label": "strike", "prim": "strike", "emit_idx": true},
 	]

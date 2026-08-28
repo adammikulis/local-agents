@@ -2,7 +2,7 @@ class_name LAEcologyStimulus
 extends Node
 
 
-var _material = null                      # LAMaterialField — the ONE substrate (ground disturbance / shock inject)
+var _material = null                      # LAMaterialField — the ONE substrate (ground disturbance)
 
 
 func set_material_field(m) -> void:
@@ -12,16 +12,6 @@ func set_material_field(m) -> void:
 func disturb_ground(world_pos: Vector3, radius: float, strength: float) -> void:
 	if _material != null and _material.has_method("disturb_terrain"):
 		_material.disturb_terrain(world_pos, radius, strength)
-	# EVERY ground disturbance is also FELT as a seismic pulse — the camera shake emerges from this, so
-	# no caller needs its own shake call. A wider disturbance moves more ground, so it hits harder.
-	broadcast_seismic(world_pos, strength * clampf(radius / 12.0, 0.3, 4.0))
-
-
-func broadcast_seismic(world_pos: Vector3, magnitude: float) -> void:
-	if magnitude <= 0.0:
-		return
-	if _material != null and _material.has_method("emit_shock"):
-		_material.emit_shock(world_pos, magnitude)
 
 
 static func blast_falloff(d: float, radius: float) -> float:

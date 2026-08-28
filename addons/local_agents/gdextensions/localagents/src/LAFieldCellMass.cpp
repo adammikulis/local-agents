@@ -18,7 +18,7 @@ using namespace godot;
 namespace {
 
 const char *CHANNELS_GD = "res://addons/local_agents/sim/material/Channels.gd";
-const char *TRANSPORT_PASS_GD = "res://addons/local_agents/sim/material/sphere_passes/TransportPass.gd";
+const char *TRANSPORT_PASS_GD = "res://addons/local_agents/sim/material/sphere_passes/FluxPass.gd";
 
 // The mirrors of every channel whose row passes `p_want`, paired with the molar mass of its substance.
 Array walk(Object *p_field, const String &p_key, const String &p_value, bool p_names_only,

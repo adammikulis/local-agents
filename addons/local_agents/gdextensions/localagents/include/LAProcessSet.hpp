@@ -56,6 +56,7 @@ public:
 	static Array reduce_rows(int p_rung);
 	static int reduce_rung(const String &p_key, const PackedStringArray &p_book);
 	static int channel_rung(const String &p_channel);
+	static PackedStringArray row_books(const Dictionary &p_row);
 	static PackedStringArray booked(int p_rung);
 	static bool books(const String &p_channel);
 	static Array reaction_records(int p_rung);

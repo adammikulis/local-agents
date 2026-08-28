@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # THE CELL LIST A ROW WALKS, in space and in time — ONE machine, one rig, one engine. It drives
-# TransportPass on sealed lines: across a seam between two clocks, where every matter channel holds
+# FluxPass on sealed lines: across a seam between two clocks, where every matter channel holds
 # its total; settled, where the active count falls to nothing while the books still close; and with
 # one blob, which may not outrun one cell per substep nor lose a mole at the edge of its own bubble.
 # EXIT 0 clean · 1 a leak or it never emptied · 2 could not run.
@@ -12,8 +12,8 @@ la_examined "$(basename "$0")" || exit $?
 GODOT="${GODOT:-godot}"
 command -v "$GODOT" >/dev/null 2>&1 || { echo "ERROR: godot not on PATH — a gate that cannot run FAILS." >&2; exit 2; }
 command -v rg >/dev/null 2>&1 || { echo "ERROR: rg absent — a gate that cannot run FAILS." >&2; exit 2; }
-PASS="$REPO_ROOT/addons/local_agents/sim/material/sphere_passes/TransportPass.gd"
-[ -f "$PASS" ] || { echo "ERROR: TransportPass.gd missing." >&2; exit 2; }
+PASS="$REPO_ROOT/addons/local_agents/sim/material/sphere_passes/FluxPass.gd"
+[ -f "$PASS" ] || { echo "ERROR: FluxPass.gd missing." >&2; exit 2; }
 [ -f "$REPO_ROOT/scripts/run_sim_offscreen.sh" ] || { echo "ERROR: run_sim_offscreen.sh missing." >&2; exit 2; }
 
 PROBE="$REPO_ROOT/addons/local_agents/tests/zz_active_rows_gate.gd"
@@ -23,7 +23,7 @@ extends SceneTree
 # An automated run's window is minimized; macOS clamps an off-view position back on screen.
 const QuietWindow: GDScript = preload("res://addons/local_agents/runtime/QuietWindow.gd")
 
-const PASS_PATH: String = "res://addons/local_agents/sim/material/sphere_passes/TransportPass.gd"
+const PASS_PATH: String = "res://addons/local_agents/sim/material/sphere_passes/FluxPass.gd"
 const CELL: float = 4000.0
 const DT: float = 1.0
 const NX: int = 16
@@ -38,7 +38,7 @@ const SEAM_CELL: float = 2000.0
 const SEAM_P: float = 101325.0
 const SEAM_T: float = 15.0
 const SEAM_V: float = 20.0
-## The right half is shock-heated, and a gas's own sqrt(gamma R T) is then the seam.
+## The right half is heated, and a gas's own sqrt(gamma R T) is then the seam.
 const SEAM_T_STIFF: float = 10000.0
 const SEAM_RHO: float = 10.0
 const TOL: float = 1.0e-5
@@ -342,13 +342,13 @@ func _init() -> void:
 	# gradient, so whatever wakes is what the front reached.
 	var blob: PackedFloat32Array = _filled(cc, 0.0)
 	blob[SEED_CELL] = BLOB_MOL_M3
-	_write(box, "shock", blob)
+	_write(box, "n2", blob)
 	var pb: RefCounted = _attach(box, owned_b)
-	var before: float = _total(box, "shock", vol_a)
+	var before: float = _total(box, "n2", vol_a)
 	_expect(before > 0.0, "the blob seeded nothing, so this arm examined nothing.")
 	for _k in STEPS:
 		_step(pb, ctx, cc)
-	var after: PackedFloat32Array = _read(box, "shock")
+	var after: PackedFloat32Array = _read(box, "n2")
 	var sum: float = 0.0
 	var reach: int = 0
 	for c in cc:

@@ -23,11 +23,14 @@ if [ -n "$hits" ]; then
 fi
 
 # The per-cell replacement has to BE there: the level field, the sort it drives, and the suffix dispatch.
-KERNEL="$SIM/material/kernels3d/transport.glsl"
-[ -f "$KERNEL" ] || { echo "check_no_global_cfl: MISSING $KERNEL" >&2; exit 2; }
+KERNEL="$SIM/material/kernels3d/flux.glsl"
+LEVELS="$SIM/material/kernels3d/active_levels.glsli"
+for f in "$KERNEL" "$LEVELS"; do
+	[ -f "$f" ] || { echo "check_no_global_cfl: MISSING $f" >&2; exit 2; }
+done
 for token in la_row_level PASS_LEVEL_SEED PASS_LEVEL_RELAX PASS_LEVEL_SORT TF_LEVEL; do
-	rg -q "$token" "$KERNEL" || {
-		echo "check_no_global_cfl: transport.glsl carries no '$token', so no cell has its own clock." >&2
+	rg -q "$token" "$KERNEL" "$LEVELS" || {
+		echo "check_no_global_cfl: the flux kernel carries no '$token', so no cell has its own clock." >&2
 		fail=1
 	}
 done

@@ -309,11 +309,8 @@ func _on_impact() -> void:
 		var field: Object = _ecology.material_field()
 		if field != null and field._inject != null and field._inject.has_method("add_heat_energy"):
 			field._inject.add_heat_energy(_impact_point, _impact_energy_j(), r * 2.2)
-		# The impact IS a shock source + an ejecta source — both are the substrate's own primitives now (no
-		# per-actor wave/debris code). emit_shock radiates a seismic wave (tremor + panic); eject throws molten
-		# debris parcels that arc under radial gravity and re-deposit on landing (a glowing ejecta blanket).
-		if field != null and field.has_method("emit_shock"):
-			field.emit_shock(_impact_point, 2.0 + _size * 2.0)
+		# The impact IS an ejecta source, the substrate's own primitive: eject throws molten debris
+		# parcels that arc under radial gravity and re-deposit on landing.
 		if field != null and field.has_method("eject"):
 			var up: Vector3 = (_impact_point - field._origin).normalized() if "_origin" in field else Vector3.UP
 			field.eject(_impact_point, 0.4 * _size, 900.0 * _size, up * 0.6)

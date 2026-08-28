@@ -1,7 +1,7 @@
 class_name LAMaterialCharge3D
 extends RefCounted
 
-## A DETECTOR. transport.glsl marches the column once for its own conductivity and publishes the field,
+## A DETECTOR. flux.glsl marches the column once for its own conductivity and publishes the field,
 ## the threshold comparison and the strike; nothing here re-derives any of it.
 
 var _f = null

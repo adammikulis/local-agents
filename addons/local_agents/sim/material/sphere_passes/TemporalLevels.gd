@@ -3,7 +3,7 @@ extends RefCounted
 
 ## LEVELS IN TIME. A cell subdivides its OWN timestep; the quiet interior steps once (Berger & Oliger 1984).
 
-## Slots per level in the args buffer: TransportPass.Arg. 0-2 the indirect uvec3, 3 the histogram count,
+## Slots per level in the args buffer: FluxPass.Arg. 0-2 the indirect uvec3, 3 the histogram count,
 ## 4 the sorted offset, 5 the scatter cursor, 6 the suffix count at this level or finer.
 const SLOTS: int = 8
 

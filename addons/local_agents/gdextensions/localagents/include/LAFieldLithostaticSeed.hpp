@@ -12,7 +12,7 @@ class LAFieldLithostaticSeed : public RefCounted {
 	GDCLASS(LAFieldLithostaticSeed, RefCounted);
 
 public:
-	// THE SEEDED WORLD PUT INTO THE BALANCE THE STEPPER HOLDS. Marches transport.glsl's own face-pressure
+	// THE SEEDED WORLD PUT INTO THE BALANCE THE STEPPER HOLDS. Marches flux.glsl's own face-pressure
 	// relation cell by cell along the solved gravity: an open cell's amounts are scaled until its equation
 	// of state states the marched pressure, a solid cell's lithic phases are squeezed by the substance
 	// table at the pressure standing over them. Returns the pressure it marched, per cell.

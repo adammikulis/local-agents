@@ -9,7 +9,6 @@ const PANEL_SIZE: Vector2 = Vector2(300.0, 132.0)
 
 # Component weights (bring the three sources into a comparable visual range).
 const W_KINETIC: float = 1.0
-const W_SEISMIC: float = 8.0
 const W_THERMAL: float = 0.6
 
 # Per-state kinetic multiplier on a creature's speed: an agitated animal carries more energy than a
@@ -25,7 +24,6 @@ var _ecology: Node = null
 var _material: Node = null
 
 var _kin: PackedFloat32Array = PackedFloat32Array()
-var _seis: PackedFloat32Array = PackedFloat32Array()
 var _therm: PackedFloat32Array = PackedFloat32Array()
 var _count: int = 0
 var _accum: float = 0.0
@@ -45,7 +43,6 @@ func setup(world: Node, ecology: Node, material: Node) -> void:
 	position = Vector2(-PANEL_SIZE.x - 16.0, 52.0)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_kin.resize(HISTORY)
-	_seis.resize(HISTORY)
 	_therm.resize(HISTORY)
 
 
@@ -59,13 +56,12 @@ func _process(delta: float) -> void:
 	var sample: Dictionary = _sample_energy()
 	var i: int = _count % HISTORY
 	_kin[i] = float(sample["kinetic"])
-	_seis[i] = float(sample["seismic"])
 	_therm[i] = float(sample["thermal"])
 	_count += 1
 	queue_redraw()
 
 
-## Total scene energy right now (the streamer reads this too). {kinetic, seismic, thermal, total}.
+## Total scene energy right now (the streamer reads this too). {kinetic, thermal, total}.
 func _sample_energy() -> Dictionary:
 	var kinetic: float = 0.0
 	var tree: SceneTree = get_tree()
@@ -80,10 +76,6 @@ func _sample_energy() -> Dictionary:
 			var mass: float = size * size * size          # mass ∝ volume
 			kinetic += 0.5 * mass * v * v
 
-	var seismic: float = 0.0
-	if _ecology != null and _ecology.has_method("total_seismic_energy"):
-		seismic = float(_ecology.total_seismic_energy())
-
 	var thermal: float = 0.0
 	if _material != null:
 		if _material.has_method("hot_cell_count"):
@@ -91,8 +83,8 @@ func _sample_energy() -> Dictionary:
 		if _material.has_method("lava_cell_count"):
 			thermal += 3.0 * float(_material.lava_cell_count())
 
-	var total: float = W_KINETIC * kinetic + W_SEISMIC * seismic + W_THERMAL * thermal
-	return {"kinetic": W_KINETIC * kinetic, "seismic": W_SEISMIC * seismic, "thermal": W_THERMAL * thermal, "total": total}
+	var total: float = W_KINETIC * kinetic + W_THERMAL * thermal
+	return {"kinetic": W_KINETIC * kinetic, "thermal": W_THERMAL * thermal, "total": total}
 
 
 ## The current total scene energy (0 until the first sample) — for the streamer intensity source.
@@ -100,7 +92,7 @@ func current_total() -> float:
 	if _count == 0:
 		return 0.0
 	var i: int = (_count - 1) % HISTORY
-	return _kin[i] + _seis[i] + _therm[i]
+	return _kin[i] + _therm[i]
 
 
 func _draw() -> void:
@@ -114,7 +106,7 @@ func _draw() -> void:
 	# Auto-scale to the recent peak (eased so it doesn't jitter).
 	var maxv: float = 1.0
 	for k in range(n):
-		var t: float = _kin[k] + _seis[k] + _therm[k]
+		var t: float = _kin[k] + _therm[k]
 		if t > maxv:
 			maxv = t
 	_peak = maxf(maxv, lerpf(_peak, maxv, 0.1))
@@ -124,9 +116,8 @@ func _draw() -> void:
 	var gw: float = size.x - pad * 2.0
 	var gh: float = size.y - gy - pad
 
-	# Stacked area: thermal (base) + seismic + kinetic, so the TOTAL is the top line.
+	# Stacked area: thermal (base) + kinetic, so the TOTAL is the top line.
 	var kin_c: Color = Color(0.35, 0.8, 0.45)      # green — life in motion
-	var seis_c: Color = Color(0.85, 0.55, 0.25)    # orange — ground shake
 	var therm_c: Color = Color(0.9, 0.3, 0.25)     # red — heat
 	var start: int = _count - n
 	var prev: Vector2 = Vector2.ZERO
@@ -135,14 +126,11 @@ func _draw() -> void:
 		var frac: float = float(k) / float(HISTORY - 1)
 		var x: float = gx + frac * gw
 		var stack_t: float = _therm[idx]
-		var stack_ts: float = stack_t + _seis[idx]
-		var stack_all: float = stack_ts + _kin[idx]
+		var stack_all: float = stack_t + _kin[idx]
 		var y_t: float = gy + gh * (1.0 - clampf(stack_t / _peak, 0.0, 1.0))
-		var y_ts: float = gy + gh * (1.0 - clampf(stack_ts / _peak, 0.0, 1.0))
 		var y_all: float = gy + gh * (1.0 - clampf(stack_all / _peak, 0.0, 1.0))
 		draw_line(Vector2(x, gy + gh), Vector2(x, y_t), therm_c, 1.0)
-		draw_line(Vector2(x, y_t), Vector2(x, y_ts), seis_c, 1.0)
-		draw_line(Vector2(x, y_ts), Vector2(x, y_all), kin_c, 1.0)
+		draw_line(Vector2(x, y_t), Vector2(x, y_all), kin_c, 1.0)
 		if k > 0:
 			draw_line(prev, Vector2(x, y_all), Color(1, 1, 1, 0.85), 1.5)
 		prev = Vector2(x, y_all)

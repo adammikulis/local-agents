@@ -103,7 +103,7 @@ func seed_tick() -> bool:
 	if LAProcessSet.has_record("pass", GRAVITY_PASS):
 		_f._gravity.solve()  # the ocean just landed: relax the potential over the WHOLE seeded mass
 	if _f._gpu != null:
-		_f._gpu.derive_seeded()   # the world's own bulk state, before the first step is budgeted on it
+		_f._gpu.derive_seeded(true)   # the world's own bulk state, before the first step is budgeted on it
 	_store_seeded(bake)
 	return true
 
@@ -124,7 +124,7 @@ func _load_seeded(k: String) -> bool:
 		_f._seal.restore(data.get("created", {}))
 	if LAProcessSet.has_record("pass", GRAVITY_PASS):
 		_f._gravity.solve()
-	_f._gpu.derive_seeded()
+	_f._gpu.derive_seeded(true)
 	# The body is the matter it is made of, so a world that was LOADED is weighed like one that was walked.
 	_f._body_measure.measure(_f, LABodySeeds.spin_axis_of(_f._body_key))
 	return true
@@ -225,7 +225,7 @@ const MIRRORS: Dictionary = {
 	"porosity": "_porosity", "fire": "_fire", "fuel": "_fuel", "fert": "_fert", "o2": "_o2",
 	"co2": "_co2", "biomass": "_biomass", "cement": "_cement", "silicate_melt": "_silicate_melt",
 	"silicate_bed": "_silicate_bed", "silicate_susp_air": "_silicate_susp_air",
-	"silicate_susp_water": "_silicate_susp_water", "shock": "_shock", "charge": "_charge",
+	"silicate_susp_water": "_silicate_susp_water", "charge": "_charge",
 	"vel_x": "_vel_x", "vel_y": "_vel_y", "vel_z": "_vel_z", "pressure": "_pressure",
 	"detritus": "_detritus", "fungus": "_fungus"}
 

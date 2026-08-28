@@ -73,8 +73,8 @@ grep -qE '^var partners: PackedInt32Array' "$GRID" || {
   echo "check_neighbour_slots: LAVoxelGrid publishes no partners face table." >&2; fail=1; }
 grep -qE '^var slot_off: PackedInt32Array' "$GRID" || {
   echo "check_neighbour_slots: LAVoxelGrid publishes no slot_off face index." >&2; fail=1; }
-grep -qE 'la_back_face\(' "$K/transport.glsl" || {
-  echo "check_neighbour_slots: transport.glsl's gather does not read the stored partner face." >&2
+grep -qE 'la_back_face\(' "$K/transport_radiate.glsli" || {
+  echo "check_neighbour_slots: the radiative march does not read the stored partner face." >&2
   fail=1; }
 
 if [ "$fail" -ne 0 ]; then

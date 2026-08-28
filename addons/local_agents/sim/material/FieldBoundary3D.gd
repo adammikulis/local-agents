@@ -9,7 +9,7 @@ enum { SHUT, WRAP, CONSTANT, REPLAY, SPACE }
 
 const MODE_NAMES: Dictionary = {"shut": SHUT, "wrap": WRAP, "constant": CONSTANT, "replay": REPLAY,
 	"space": SPACE}
-## Redirect value marking a SPACE face — transport.glsl GHOST_SPACE. A wall stays -1.
+## Redirect value marking a SPACE face — flux.glsl GHOST_SPACE. A wall stays -1.
 const SPACE_REDIRECT: int = -2
 const SETTING: String = "local_agents/sim/boundary_faces"
 const ENV_VAR: String = "LA_BOUNDARY_FACES"

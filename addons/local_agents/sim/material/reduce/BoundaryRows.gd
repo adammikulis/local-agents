@@ -3,7 +3,7 @@ extends RefCounted
 
 const Rec: GDScript = preload("res://addons/local_agents/sim/material/ReduceRecords.gd")
 
-## Channels whose boundary crossings transport.glsl books. Every transportable conserved channel is here;
+## Channels whose boundary crossings flux.glsl books. Every transportable conserved channel is here;
 ## a channel that can cross and is not booked reads as drift and the conservation gate fires.
 const BOOKED: PackedStringArray = ["h2o", "silicate", "o2", "co2", "n2", "h2", "co", "so2", "h2s",
 	"ch4", "fungus", "fert", "h_j_m3"]

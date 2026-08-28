@@ -35,7 +35,7 @@ var _sample_accum: float = 0.0
 var _intensity: float = 0.0
 var _time_since_line: float = 0.0
 var _pending_request: bool = false
-# The scene's total physical energy (kinetic + seismic + thermal) feeds the scanner directly: a RISE in
+# The scene's total physical energy (kinetic + thermal) feeds the scanner directly: a RISE in
 # energy — a herd breaking into a run, a meteor's impact, a wildfire flaring — pushes intensity, so how
 # hard the caster reacts scales with how much actually just happened, not a per-event constant.
 const ENERGY_TO_INTENSITY: float = 0.02   # intensity points per unit of energy RISE between samples
