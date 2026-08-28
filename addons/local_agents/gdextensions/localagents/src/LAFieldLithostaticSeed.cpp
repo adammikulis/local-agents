@@ -382,13 +382,19 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c, 
 		return;
 	}
 	const double edge = double(grid->get("cell_size"));
+	Object *terrain = Object::cast_to<Object>(p_field->get("_terrain"));
+	const double datum = terrain ? double(terrain->call("sea_radius")) : 0.0;
 	const PackedInt32Array nbr = grid->get("neighbours");
 	const PackedFloat32Array h2o = p_field->get("_h2o");
 	const PackedFloat32Array sil = p_field->get("_silicate");
 	const double full_h2o = LASubstances::full_mol_m3("h2o");
+	// Saturated vapour at the seed temperature, mol/m^3: h2o past this is a condensed phase, and a
+	// condensed phase is what a column has a SURFACE at. A trace of vapour is not one.
+	const double n_sat = LASubstances::saturation_p_at("h2o", p_temp_c)
+			/ (la_physical("GAS_CONSTANT_J_MOL_K") * (p_temp_c + la_physical("KELVIN_OFFSET")));
 	const double full_sil = LASubstances::full_mol_m3("silicate");
 	// A ghost tail rides after the interior block, so the table is at least the interior's six slots.
-	if (nbr.size() < cc * 6 || h2o.size() != cc || sil.size() != cc
+	if (nbr.size() < cc * 6 || h2o.size() != cc || sil.size() != cc || !(datum > 0.0)
 			|| !(full_h2o > 0.0) || !(full_sil > 0.0) || !(edge > 0.0)) {
 		UtilityFunctions::push_error("LAFieldLithostaticSeed.shape_atmosphere: no neighbour table or no "
 				"condensed amounts, so no column knows where its own surface is.");
@@ -399,7 +405,7 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c, 
 	// DOWN it. A rotating body's plumb line is not its radius.
 	std::vector<double> h(cc, 0.0), scale(cc, 0.0);
 	std::vector<double> cond(cc, 0.0);
-	std::vector<int> below(cc, -1);
+	std::vector<int> below(cc, -1), above(cc, -1);
 	for (int c = 0; c < cc; c++) {
 		const Vector3 g(p_gravity[c * 3], p_gravity[c * 3 + 1], p_gravity[c * 3 + 2]);
 		const double gm = double(g.length());
@@ -408,10 +414,13 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c, 
 		}
 		const Vector3 up = -g / gm;
 		h[c] = double((Vector3(grid->call("cell_world_pos", c)) - centre).dot(up));
-		below[c] = nbr[c * 6 + (slot_toward(up) ^ 1)];
+		const int us = slot_toward(up);
+		above[c] = nbr[c * 6 + us];
+		below[c] = nbr[c * 6 + (us ^ 1)];
 		scale[c] = m->scale_height_at(p_temp_c, gm);
 		cond[c] = solid[c] != 0 ? 1.0
-				: MIN(double(MAX(h2o[c], 0.0f)) / full_h2o + double(MAX(sil[c], 0.0f)) / full_sil, 1.0);
+				: MIN(MAX(double(MAX(h2o[c], 0.0f)) - n_sat, 0.0) / full_h2o
+						+ double(MAX(sil[c], 0.0f)) / full_sil, 1.0);
 	}
 	// THE LOCAL SURFACE, low to high so a cell reads the column under it: the top of the condensed matter
 	// standing in this cell, or the surface the cell below it stands at. Over ocean that is the water the
@@ -428,10 +437,19 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c, 
 			surf[c] = surf[below[c]];
 		}
 	}
+	// AIR IS WHAT IS OPEN TO THE SKY. High to low, so a cell reads the one over it: an open cell under
+	// open cells all the way out of the box holds atmosphere, and a void sealed under rock holds none --
+	// it is a cavity, not a column, and the barometric law has nothing to say about it.
+	std::vector<char> sky(cc, 0);
+	for (size_t i = up_order.size(); i-- > 0;) {
+		const int c = up_order[i];
+		const int a = above[c];
+		sky[c] = (solid[c] == 0 && (a < 0 || a >= cc || sky[a] != 0)) ? 1 : 0;
+	}
 	PackedFloat32Array f = unit_factor(cc);
 	f.fill(-1.0f);
 	for (int c = 0; c < cc; c++) {
-		if (solid[c] != 0 || !std::isfinite(scale[c]) || scale[c] <= 0.0 || !std::isfinite(surf[c])) {
+		if (sky[c] == 0 || !std::isfinite(scale[c]) || scale[c] <= 0.0 || !std::isfinite(surf[c])) {
 			continue;
 		}
 		// THE CELL'S OWN SHARE OF THE COLUMN OVER ITS OWN SURFACE, which is the MEAN of exp(-z/H) over
@@ -440,13 +458,19 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c, 
 		// mean, so the mean density is what makes the two agree, and measuring the height from the
 		// column's own surface is what makes a vertical pair of them consistent. A cell under the water
 		// or in the rock holds what the composition put there and the profile leaves it alone.
-		const double mid = h[c] - surf[c];
-		if (mid < -0.5 * edge) {
+		// THE BAROMETRIC INTEGRAL OVER THE CELL'S OPEN HEIGHT, from ONE datum for the whole body: a
+		// pressure surface is level, so a column over a mountain holds less air rather than holding
+		// sea-level air higher up. The span starts at this column's own surface where that cuts the
+		// cell, so a half-buried cell holds the air over its rock and not the rock's worth of it.
+		const double z_bot = MAX(h[c] - 0.5 * edge, surf[c]);
+		const double z_top = h[c] + 0.5 * edge;
+		// THE ATMOSPHERE STANDS ON THE SEA SURFACE OR ON WHAT RISES OUT OF IT. A column whose own surface
+		// is under the datum is a drowned pocket the vertical walk stepped into, not a column of air.
+		if (!(z_top > z_bot) || surf[c] < datum) {
 			continue;
 		}
-		const double z0 = MAX(mid - 0.5 * edge, 0.0);
-		f[c] = float((scale[c] / edge)
-				* (std::exp(-z0 / scale[c]) - std::exp(-(z0 + edge) / scale[c])));
+		f[c] = float((scale[c] / edge) * (std::exp(-(z_bot - datum) / scale[c])
+				- std::exp(-(z_top - datum) / scale[c])));
 	}
 	redistribute_gases(p_field, f);
 }
