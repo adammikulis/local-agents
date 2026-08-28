@@ -72,6 +72,9 @@ constexpr double HALITE_FUSION_J_MOL = 2.816e4;      // CRC 97th ed.
 constexpr double HALITE_CP_J_MOLK = 50.5;            // CRC 97th ed., 298 K
 constexpr double HALITE_EXPANSION_PER_K = 1.19e-4;   // CRC linear 39.6e-6 x3
 constexpr double HALITE_BULK_MODULUS_PA = 2.44e10;   // Spetzler et al. 1972
+constexpr double CALCITE_BULK_MODULUS_PA = 7.33e10;  // Redfern & Angel 1999, Contrib Mineral Petrol 134:102
+constexpr double APATITE_BULK_MODULUS_PA = 9.3e10;   // fluorapatite, Brunet et al. 1999, Eur J Mineral 11:1023
+constexpr double ORGANIC_BULK_MODULUS_PA = 5.0e9;    // kerogen, Yu et al. 2018, Fuel 224:412
 constexpr double HALITE_CONDUCTIVITY_W_MK = 6.5;     // single crystal, Urquhart & Bauer 2015
 
 constexpr double APATITE_DENSITY_KG_M3 = 3190.0;     // fluorapatite, Handbook of Mineralogy
@@ -312,6 +315,7 @@ Dictionary organic_entry(const char *p_element_symbol, double p_entropy_j_kgk, c
 		d["albedo"] = pc("ALBEDO_VEGETATION");
 	}
 	d["conductivity"] = pc("THERMAL_CONDUCT_ORGANIC_W_MK");
+	d["bulk_modulus_pa"] = ORGANIC_BULK_MODULUS_PA;
 	return d;
 }
 
@@ -329,6 +333,7 @@ Dictionary cellulose_entry() {
 	d["pyrolysis_ea_over_r_k"] = pc("CELLULOSE_PYROLYSIS_EA_OVER_R_K");
 	d["albedo"] = pc("ALBEDO_VEGETATION");
 	d["conductivity"] = pc("THERMAL_CONDUCT_CELLULOSE_W_MK");
+	d["bulk_modulus_pa"] = ORGANIC_BULK_MODULUS_PA;
 	return d;
 }
 
@@ -394,6 +399,7 @@ Dictionary carbonate_entry() {
 	d["density"] = pc("CALCITE_DENSITY_KG_M3");
 	d["density_ref_t_c"] = pc("LAB_REFERENCE_TEMP_C");
 	d["expansion_per_k"] = pc("CALCITE_VOLUME_EXPANSION_PER_K");
+	d["bulk_modulus_pa"] = CALCITE_BULK_MODULUS_PA;
 	d["specific_heat"] = pc("CALCITE_SPECIFIC_HEAT_J_KGK");
 	d["conductivity"] = pc("THERMAL_CONDUCT_ROCK_W_MK");
 	d["emissivity"] = pc("BASALT_EMISSIVITY");
@@ -403,6 +409,8 @@ Dictionary carbonate_entry() {
 	return d;
 }
 
+// Plant-available nitrogen: nitrate and ammonium DISSOLVED in the soil solution and on its exchange
+// sites, so it displaces no volume of its own and carries no bulk modulus.
 Dictionary fixed_n_entry() {
 	const ElementCount f[] = { { "N", 1.0 } };
 	Dictionary d;
@@ -517,8 +525,10 @@ void add_planet_minerals() {
 			HALITE_CONDUCTIVITY_W_MK, hal_extra);
 
 	const Dictionary f_ap = LAPlanetComposition::apatite_formula();
+	Dictionary ap_extra = rock.duplicate();
+	ap_extra["bulk_modulus_pa"] = APATITE_BULK_MODULUS_PA;
 	t["apatite"] = entry(f_ap, APATITE_DENSITY_KG_M3,
-			APATITE_CP_J_MOLK / LAElementAbundances::molar_mass(f_ap), APATITE_CONDUCTIVITY_W_MK, rock);
+			APATITE_CP_J_MOLK / LAElementAbundances::molar_mass(f_ap), APATITE_CONDUCTIVITY_W_MK, ap_extra);
 }
 
 // Formation enthalpies of the dead organic pool's elements, J/mol, by Hess from the oxidation heats.

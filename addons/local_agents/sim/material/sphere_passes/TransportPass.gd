@@ -398,7 +398,7 @@ func _active_cells(rd: RenderingDevice) -> float:
 ## declaration of what this pass needs, so a buffer the driver never made is a named error, not a
 ## silent set. The level and activity names are LATemporalLevels.KEYS and LAActiveCells.KEYS.
 const BINDINGS: Dictionary = {
-	"nbr": 2, "solid": 3, "gravity": 4, "vel_x": 5, "vel_y": 6, "vel_z": 7, "charge": 13, "temp": 15,
+	"nbr": 2, "solid": 3, "g_rest": 4, "vel_x": 5, "vel_y": 6, "vel_z": 7, "charge": 13, "temp": 15,
 	"pressure": 16, "porosity": 17, "grain": 18, "co2": 19, "h2o": 20, "h2o_solid": 22, "h2o_liquid": 23,
 	"silicate": 24, "biomass": 25, "silicate_melt": 26, "ghost": 27, "h2o_vapour": 28, "cement": 30,
 	"silicate_susp_water": 31, "silicate_susp_air": 32, "silicate_bed": 33, "rad_absorbed": 37,

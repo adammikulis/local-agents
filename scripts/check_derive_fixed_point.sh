@@ -81,6 +81,7 @@ func _run() -> void:
 	_owned.append(nbr)
 	bufs["nbr"] = nbr
 	bufs["gravity"] = _f32(cc * 3)
+	bufs["g_rest"] = _f32(cc * 3)
 	bufs["pos"] = _f32(cc * 3)
 	bufs["cell_vol"] = _f32(cc, CELL * CELL * CELL)
 

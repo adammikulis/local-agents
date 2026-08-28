@@ -11,7 +11,7 @@ var _set: RID = RID()
 func _setup(bufs: Dictionary, _cc: int) -> void:
 	_pipe = _kernel(KERNEL_PATH)
 	var missing: PackedStringArray = PackedStringArray()
-	for name: String in ["pressure", "rho_bulk", "gravity", "vert_up"]:
+	for name: String in ["pressure", "rho_bulk", "g_rest", "vert_up"]:
 		if not _single(bufs, name).is_valid():
 			missing.append(name)
 	if not missing.is_empty():
@@ -22,7 +22,7 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 		[0, _single(bufs, "pressure")],
 		[2, _single(bufs, "solid")],
 		[1, _single(bufs, "rho_bulk")],
-		[3, _single(bufs, "gravity")],
+		[3, _single(bufs, "g_rest")],
 		[4, _single(bufs, "vert_up")]])
 
 

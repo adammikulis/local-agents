@@ -81,6 +81,7 @@ func _run(cond: Dictionary, recs: Array = []) -> Dictionary:
 	for c in cc:
 		grav[c * 3 + 1] = -1.0
 	bufs["gravity"] = _f32(grav, owned)
+	bufs["g_rest"] = _f32(grav, owned)
 	var nbr_bytes: PackedByteArray = _grid.neighbours.to_byte_array()
 	var nbr: RID = _rd.storage_buffer_create(nbr_bytes.size(), nbr_bytes)
 	owned.append(nbr)

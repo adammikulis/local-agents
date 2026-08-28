@@ -24,6 +24,7 @@ layout(set = 0, binding = 17, std430) restrict buffer Grain { float grain[]; };
 // Cell centre, flat cell*3, model units. The centrifugal term needs the radius vector.
 layout(set = 0, binding = 18, std430) restrict readonly buffer Pos { float pos[]; };
 layout(set = 0, binding = 49, std430) restrict readonly buffer Grav { float g_field[]; };  // m/s^2, cell*3
+layout(set = 0, binding = 39, std430) restrict writeonly buffer GravRest { float g_rest[]; };
 // The body impulse this step deposits per cell (weight + rotating frame), kg/(m^2 s): the ledger's book.
 layout(set = 0, binding = 50, std430) restrict writeonly buffer BodyFX { float bodyf_x[]; };
 layout(set = 0, binding = 51, std430) restrict writeonly buffer BodyFY { float bodyf_y[]; };
@@ -109,7 +110,7 @@ const float SOLID_IN = 0.6;    // LAPhysical.RHEOLOGICAL_LOCKUP_CRYSTAL_FRAC
 const float SOLID_OUT = 0.4;   // LAPhysical.RHEOLOGICAL_MOBILE_CRYSTAL_FRAC
 
 // One row of `props` per channel, built from LASubstances by StateDerivePass. A channel amount is mol/m^3.
-const int PROP_STRIDE = 11;        // StateDerivePass.PROP_STRIDE
+const int PROP_STRIDE = 12;        // StateDerivePass.PROP_STRIDE
 // The (T, p) solve's budget: under-relaxed, so a pair on a latent plateau converges onto it.
 const int LA_STATE_STEPS = 64;
 const float LA_STATE_TOL = 1.0e-6;
@@ -124,7 +125,8 @@ const int PROP_ALPHA = 6;          // 1/K volumetric expansivity
 const int PROP_BULK = 7;           // Pa bulk modulus; 0 = declared incompressible
 const int PROP_TREF = 8;           // C the reference density is quoted at
 const int PROP_LITHIC = 9;         // 1 = a rock or metal phase; the solid flag reads their summed volume
-const int PROP_RAD_GROUP = 10;     // 1-based index into params.rad_w_kg_*; 0 = no U/Th/K
+const int PROP_RAD_GROUP = 10;
+const int PROP_CONDENSED = 11;     // fills volume of its own and resists being squeezed
 
 float rad_w_kg(int group) {
 	if (group == 1) { return params.rad_w_kg_1; }
@@ -216,6 +218,13 @@ void main() {
 	float r_len = length(r_vec);
 	float w_len = length(omega);
 	alt[g] = (params.sea_radius_m > 0.0) ? r_len - params.sea_radius_m : uintBitsToFloat(0x7FC00000u);
+	// WHAT MATTER AT REST IN THIS FRAME IS PULLED BY: gravitation and the spin's centrifugal term. Read
+	// as geometry, before any matter is, so every balance stands against the one field.
+	vec3 g_eff = vec3(g_field[g * 3u], g_field[g * 3u + 1u], g_field[g * 3u + 2u])
+		- cross(omega, cross(omega, r_vec));
+	g_rest[g * 3u] = g_eff.x;
+	g_rest[g * 3u + 1u] = g_eff.y;
+	g_rest[g * 3u + 2u] = g_eff.z;
 	lat[g] = (w_len > 0.0 && r_len > 0.0)
 		? degrees(asin(clamp(dot(r_vec / r_len, omega / w_len), -1.0, 1.0)))
 		: uintBitsToFloat(0x7FC00000u);
@@ -285,7 +294,7 @@ void main() {
 		}
 		// v0(T) is linear in T, so its mass sum splits into three T-independent pieces gathered here
 		// and combined once the solve has a temperature. h2o is kept apart: its vapour share is gas.
-		if (props[base + PROP_FULL] > 0.0 && props[base + PROP_MOL_PER_KG] <= 0.0) {
+		if (props[base + PROP_CONDENSED] > 0.0 && props[base + PROP_FULL] > 0.0) {
 			float al = props[base + PROP_ALPHA];
 			float tr = props[base + PROP_TREF];
 			float kk = props[base + PROP_BULK];
@@ -494,9 +503,9 @@ void main() {
 	}
 	// BODY FORCES per volume: weight rho*g and the rotating-frame pair, computed and booked here;
 	// transport deposits them a substep at a time beside the pressure gradient they stand against.
-	vec3 acc = vec3(g_field[g * 3u], g_field[g * 3u + 1u], g_field[g * 3u + 2u]);
+	vec3 acc = g_eff;
 	if (w_len > 0.0) {
-		acc += -2.0 * cross(omega, v) - cross(omega, cross(omega, r_vec));
+		acc += -2.0 * cross(omega, v);
 	}
 	vec3 dp = acc * rho * params.dt_s;
 	bodyf_x[g] = dp.x;

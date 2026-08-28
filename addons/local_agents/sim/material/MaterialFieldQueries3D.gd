@@ -33,11 +33,6 @@ func row_f(key: String) -> float:
 	return float(r[key]) if r.has(key) else NAN
 
 
-## Whether the row was reduced at all. row_f returns NAN both for a row nobody measured and for one the
-## field diverged in, and those are different facts.
-func has_row(key: String) -> bool:
-	return reduced().has(key)
-
 
 ## A reduced count, or -1. A count is never negative, so a caller cannot read the absence as an answer.
 func row_n(key: String) -> int:

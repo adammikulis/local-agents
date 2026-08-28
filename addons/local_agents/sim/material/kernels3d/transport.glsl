@@ -386,10 +386,11 @@ float face_p(uint c, uint d) {
 		max(rho_bulk[c], 0.0), max(pressure[c], 0.0));
 }
 
-// The layer this cell presents at face d. The gas takes the cell's own p, one state with its rho.
+// The layer this cell presents at face d. The gas takes the cell's own p and the density that p and its
+// temperature state, never a bulk sum less a bulk sum.
 vec2 face_layer(uint c, uint d) {
 	return la_stack_layer(face_z(c, d), params.cell_m, condensed_frac(c), cond_kg_m3(c),
-		max(rho_bulk[c], 0.0), max(pressure[c], 0.0), max(k_cond[c], 0.0), AIR_GAMMA);
+		air_rho(c), max(pressure[c], 0.0), max(k_cond[c], 0.0), AIR_GAMMA);
 }
 
 // Signal speed of the layer at face d, m/s: sqrt(K/rho) of what touches it, never a mixture mean.

@@ -24,7 +24,9 @@ the world the seed hands over.
 substrate states for it, and `scripts/check_rung_acoustic.sh` says the same on its own arm.
 
 `bash scripts/check_atmosphere_at_rest.sh` is rung 3's other gate: its sealed column moves, and its
-vented control reads the same as the sealed one, so the gate reports it has no control.
+vented control reads the same as the sealed one — the column's top cell holds no matter, so opening its
+face onto space takes nothing away. That reading changes when item 1 gives the column a top with air in
+it.
 `docs/PHYSICS_TODO.md` E carries the wind as its own item, and E is downstream of item 1. Until it reads a physical speed no run's numbers
 mean anything. `rho_max_open` is the reading that shows it: an open cell may not be denser than the densest
 substance the table declares, and that is this item's acceptance test.

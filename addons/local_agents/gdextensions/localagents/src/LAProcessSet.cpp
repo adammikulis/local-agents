@@ -30,7 +30,8 @@ const char *BOUNDARY_GD = "res://addons/local_agents/sim/material/reduce/Boundar
 // and the gates that prove it. Booked channels are derived, never named twice.
 const char *const NONE_[] = { nullptr };
 
-const char *const STATE_GATES[] = { "check_rung_state.sh", "check_derive_fixed_point.sh", nullptr };
+const char *const STATE_GATES[] = { "check_rung_state.sh", "check_derive_fixed_point.sh",
+	"check_condensed_moduli.sh", nullptr };
 const char *const STATE_PASSES[] = { "StateDerivePass.gd", nullptr };
 
 const char *const GRAVITY_GATES[] = { "check_gravity_solve.sh", "check_hydrosphere_mass.sh", nullptr };

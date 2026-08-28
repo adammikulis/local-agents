@@ -122,6 +122,7 @@ func _build(owned: Array[RID]) -> Dictionary:
 			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi"]:
 		bufs[name] = _f32(_filled(cc, 0.0), owned)
 	bufs["gravity"] = _f32(_filled(cc * 3, 0.0), owned)
+	bufs["g_rest"] = _f32(_filled(cc * 3, 0.0), owned)
 	bufs["nbr"] = _i32(grid.neighbours, owned)
 	var ghost_tbl: PackedInt32Array = PackedInt32Array()
 	ghost_tbl.resize(cc * LAVoxelGrid.SLOTS)
@@ -168,6 +169,7 @@ func _seam() -> void:
 			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi"]:
 		bufs[name] = _f32(_filled(cc, 0.0), owned)
 	bufs["gravity"] = _f32(_filled(cc * 3, 0.0), owned)
+	bufs["g_rest"] = _f32(_filled(cc * 3, 0.0), owned)
 	bufs["nbr"] = _i32(grid.neighbours, owned)
 	var ghost_tbl: PackedInt32Array = PackedInt32Array()
 	ghost_tbl.resize(cc * LAVoxelGrid.SLOTS)

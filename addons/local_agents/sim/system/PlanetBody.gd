@@ -69,10 +69,6 @@ func angular_velocity_rad_s() -> float:
 	return m.angular_velocity_rad_s(LABodySeeds.spin_l_of(_seed_key))
 
 
-## Coriolis parameter is f = two_omega() * sin(latitude).
-func two_omega_rad_s() -> float:
-	return 2.0 * angular_velocity_rad_s()
-
 
 func center() -> Vector3:
 	return global_position

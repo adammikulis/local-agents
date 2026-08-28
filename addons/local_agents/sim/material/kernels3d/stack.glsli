@@ -31,15 +31,14 @@ float la_stack_p(float z, float edge, float g, float f_cond, float m_cond, float
 }
 
 // The layer at depth `z`: density in x, bulk modulus in y. Gas above (1 - f_cond) * edge, else condensed.
-vec2 la_stack_layer(float z, float edge, float f_cond, float m_cond, float m_total, float p_mean,
+vec2 la_stack_layer(float z, float edge, float f_cond, float m_cond, float rho_gas, float p_mean,
 		float k_cond, float gamma) {
 	float fc = clamp(f_cond, 0.0, 1.0);
 	float z_gas = (1.0 - fc) * edge;
 	if (clamp(z, 0.0, edge) > z_gas) {
 		return vec2(fc > 0.0 ? m_cond / fc : 0.0, max(k_cond, 0.0));
 	}
-	float m_gas = max(m_total - m_cond, 0.0);
-	return vec2(fc < 1.0 ? m_gas / (1.0 - fc) : 0.0, gamma * max(p_mean, 0.0));
+	return vec2(max(rho_gas, 0.0), gamma * max(p_mean, 0.0));
 }
 
 #endif

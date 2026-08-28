@@ -134,6 +134,7 @@ func _init() -> void:
 	for i in _cc:
 		grav[i * 3] = -5.0
 	_bufs["gravity"] = _f32(grav, owned)
+	_bufs["g_rest"] = _f32(grav, owned)
 	_bufs["nbr"] = _i32(grid.neighbours, owned)
 	var ghost_tbl: PackedInt32Array = PackedInt32Array()
 	ghost_tbl.resize(_cc * LAVoxelGrid.SLOTS)
