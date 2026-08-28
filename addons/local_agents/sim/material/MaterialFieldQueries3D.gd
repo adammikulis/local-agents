@@ -4,7 +4,6 @@ extends RefCounted
 ## LAMaterialFieldQueries3D: the READ-ONLY query accessors of the dense 3D MaterialField3D, factored
 
 const MOLTEN_MIN: float = 0.0001 * LAPhysical.ROCK_DENSITY_KG_M3 / LAPhysical.MOLAR_MASS_CASIO3_KG_MOL  # gauge floor, mol/m^3
-const FIRE_PRESENT: float = 0.02       # gauge floor: fraction of a cell's usable O2 burned this step
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
 var _reduce = null                                       # the field's own ReducePass, found once
@@ -400,7 +399,7 @@ func is_burning(node) -> bool:
 	if node == null or not _mirror_live("fire") or _f._fire.size() != _f._cell_count:
 		return false
 	var c: int = _f.world_to_cell(node.global_position)
-	return c >= 0 and _f._fire[c] > FIRE_PRESENT
+	return c >= 0 and _f._fire[c] > 0.0
 
 
 # --- LAVA-TUBE / HOLLOW signature -------------------------------------------

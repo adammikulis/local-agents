@@ -123,6 +123,6 @@
 
 // MaterialFieldRegolith3D.gd, reactions/ReactionThermo.gd
 #define REGOLITH_CELLS 4
-const float EXP_LIMIT = 60.0;
+const float EXP_LIMIT = 44.3614195558365;
 
 #endif

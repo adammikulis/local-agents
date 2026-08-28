@@ -283,9 +283,10 @@ const EMISSIVITY_WATER: float = 0.96
 const DRY_WOOD_DENSITY_KG_M3: float = 500.0
 const DRY_WOOD_SPECIFIC_HEAT_J_KGK: float = 1500.0
 
-## Cellulose pyrolysis activation energy, J/mol; 200-250 kJ/mol by thermogravimetry
-## (Antal & Varhegyi 1995).
-const CELLULOSE_PYROLYSIS_EA_J_MOL: float = 2.30e5
+## Cellulose pyrolysis, first-order Arrhenius pair from one fit of ten Avicel TG runs
+## (Antal, Varhegyi & Jakab 1998, Ind. Eng. Chem. Res. 37:1267): E = 237 kJ/mol, log10 A/s^-1 = 18.0.
+const CELLULOSE_PYROLYSIS_EA_J_MOL: float = 2.37e5
+const CELLULOSE_PYROLYSIS_A_PER_S: float = 1.0e18   # Antal, Varhegyi & Jakab 1998
 const CELLULOSE_PYROLYSIS_EA_OVER_R_K: float = CELLULOSE_PYROLYSIS_EA_J_MOL / GAS_CONSTANT_J_MOL_K
 
 const ALBEDO_VEGETATION: float = 0.12
@@ -545,3 +546,6 @@ const TOPOGRAPHY_SHORT_HURST: float = 0.5
 const TOPOGRAPHY_SELF_AFFINE_CROSSOVER_M: float = 1.0e5
 ## The continent-ocean dichotomy is a degree-2 pattern (Wieczorek 2007).
 const TOPOGRAPHY_DOMINANT_HARMONIC_DEGREE: int = 2
+
+## Temperature at which a solid first glows visibly, C (Draper 1847: 798 K).
+const DRAPER_POINT_C: float = 525.0

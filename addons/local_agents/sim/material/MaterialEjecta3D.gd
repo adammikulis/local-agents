@@ -5,10 +5,6 @@ extends Node3D
 ## mass arcs under the N-body field, and it lands as sediment plus its own kinetic energy as heat.
 
 const PARCELS_PER_EJECT: int = 6
-# Ballistic launch speed from the release energy: clamp(sqrt(2*energy/mass)*GAIN).
-const SPEED_GAIN: float = 1.0
-const SPEED_MIN: float = 6.0
-const SPEED_MAX: float = 30.0
 # Sideways spread of the spray around the launch direction (radians of cone half-angle).
 const CONE: float = 0.5
 # Ceiling on simultaneous in-flight parcels, and the MultiMesh allocation. Fixed: it bounds the work, so it
@@ -97,7 +93,7 @@ func eject(world_pos: Vector3, mass: float, energy: float, dir_bias: Vector3 = V
 		return
 	var per_mass: float = mass / float(PARCELS_PER_EJECT)
 	# A parcel deposited without flying still carries the energy it was thrown with.
-	var base_speed: float = clampf(sqrt(2.0 * energy / mass) * SPEED_GAIN, SPEED_MIN, SPEED_MAX)
+	var base_speed: float = sqrt(2.0 * energy / mass)
 	var src: int = _f.world_to_cell(world_pos)
 	var radial: Vector3 = world_pos - _center
 	if radial.length_squared() < 1.0e-6:

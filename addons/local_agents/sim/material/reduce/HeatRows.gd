@@ -18,8 +18,7 @@ static func rows() -> Array:
 		# 60 °C: the one temperature "a hot open cell" means here. Read back through row("hot_cells").
 		{"key": "hot_cells", "source": "temp", "op": Rec.Op.COUNT_GE, "mask": Rec.Mask.OPEN, "threshold": 60.0},
 		{"key": "fire_peak", "source": "fire", "op": Rec.Op.MAX, "mask": Rec.Mask.ALL},
-		{"key": "fire_cells", "source": "fire", "op": Rec.Op.COUNT_GT, "mask": Rec.Mask.ALL,
-			"threshold": LAMaterialFieldQueries3D.FIRE_PRESENT},
+		{"key": "fire_cells", "source": "fire", "op": Rec.Op.COUNT_GT, "mask": Rec.Mask.ALL, "threshold": 0.0},
 		# J/m^3 per step, so volume-weighted these are joules per step. Mask-free: the outflow pass emits
 		# from solid cells too, so an OPEN mask would drop the ground's emission.
 		{"key": "rad_absorbed", "source": "rad_absorbed", "op": Rec.Op.SUM, "mask": Rec.Mask.ALL,

@@ -86,8 +86,7 @@ Dictionary LAFieldCellMass3D::masses_at(Object *p_field, int p_c, double p_cell_
 		out[sub] = double(out.get(sub, 0.0)) + kg;
 		total_kg += kg;
 	}
-	const double floor_rho = double(la_gd_const(TRANSPORT_PASS_GD, "EMPTY_RHO_KG_M3"));
-	if (p_cell_m3 > 0.0 && total_kg / p_cell_m3 < floor_rho) {
+	if (!(total_kg > 0.0)) {
 		return Dictionary();
 	}
 	return out;

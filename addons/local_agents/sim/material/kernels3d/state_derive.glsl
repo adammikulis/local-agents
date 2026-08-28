@@ -82,6 +82,7 @@ layout(set = 0, binding = 43, std430) restrict writeonly buffer Alt { float alt[
 // How many of this cell's channel amounts, its enthalpy and its momentum are NaN or infinite.
 // Reduced by the `nonfinite_cells` row.
 layout(set = 0, binding = 44, std430) restrict writeonly buffer NonFinite { float nonfinite[]; };
+layout(set = 0, binding = 92, std430) restrict writeonly buffer MomOrphan { float mom_orphan[]; };
 
 // The enthalpy each mixture entry holds, J/m^3, and the sensible entry's capacity, J/m^3/K.
 layout(set = 0, binding = 45, std430) restrict writeonly buffer HH2O { float h_h2o[]; };
@@ -105,10 +106,8 @@ layout(push_constant, std430) uniform Params {
 	float fresh_grain_m;    // grain diameter given to newly-closed rock — LAPhysical.GRAIN_D_LOWLAND_M
 	float lith_rate_per_pa; // LAPhysical.LITHIFICATION_RATE_PER_PA, per step per Pa of excess
 	float lith_pressure_pa; // LAPhysical.LITHIFICATION_PRESSURE_PA
-	float org_min_pool_mol; // moles of dead organic carbon below which a cell's C:H:O is fp32 noise
 	float fresh_h_per_c;    // LASubstances.fresh_litter_per_carbon("H")
 	float fresh_o_per_c;    // LASubstances.fresh_litter_per_carbon("O")
-	float rho_floor;        // TransportPass.EMPTY_RHO_KG_M3: below this bulk density a cell is EMPTY
 	float rad_w_kg_1;       // W/kg of radiogenic trace mix 1 at this epoch (PROP_RAD_GROUP indexes)
 	float rad_w_kg_2;
 	float rad_w_kg_3;
@@ -268,7 +267,7 @@ void main() {
 
 		// The dead pool's molar ratios, from the same channels the reduce rows sum.
 		float org_pool = max(detritus[g], 0.0) + max(fuel[g], 0.0);
-		if (org_pool * vol > params.org_min_pool_mol) {
+		if (org_pool > 0.0) {
 			float hc = max(org_h[g], 0.0) / org_pool;
 			float oc = max(org_o[g], 0.0) / org_pool;
 			org_hc[g] = hc;
@@ -360,8 +359,11 @@ void main() {
 	ke_j_m3[g] = 0.0;
 	float f_melt = 0.0;
 	vec3 v = vec3(0.0);
-	// Below the donation floor the cell is EMPTY: its stocks stay, its DERIVED bulk state does not.
-	if (rho < params.rho_floor) {
+	// No matter: the cell is EMPTY, and its DERIVED bulk state is none. Momentum with no mass to carry it
+	// is an orphan the momentum_orphan_cells row counts; it is never zeroed here.
+	if (rho <= 0.0) {
+		vec3 pm = vec3(mom_x[g], mom_y[g], mom_z[g]);
+		mom_orphan[g] = dot(pm, pm) > 0.0 ? 1.0 : 0.0;
 		temp[g] = -LA_KELVIN_OFFSET;   // no matter, so no temperature
 		if (solid[g] == 0.0) {
 			pressure[g] = 0.0;
@@ -389,6 +391,7 @@ void main() {
 		}
 		return;   // no mass, so the frame terms deliver no momentum either
 	}
+	mom_orphan[g] = 0.0;
 	// v = p/rho, momentum density over mass density. Dividing by the density rather than multiplying by
 	// vol/total keeps the intermediate inside float range on a grid whose cells are kilometres wide.
 	v = vec3(mom_x[g], mom_y[g], mom_z[g]) / rho;

@@ -9,14 +9,6 @@ var _f = null                                            # back-reference to the
 
 var queue: LAMaterialFieldHeatQueue3D = QueueScript.new()
 
-# EVAPORATION SOURCING (add_vapor). A storm lifts water that is THERE: the liquid in its footprint and the
-# water table under it. These bound how hard one injection may pull, so a cell is thinned rather than punched
-# empty — a storm sitting on the sea must not open a hole in it.
-const EVAP_KEEP_LIQUID: float = 0.1 * LAMaterialField3D.MAX_MASS  # film a storm leaves behind, mol/m^3
-const EVAP_TAKE_FRAC: float = 0.5        # fraction of a source cell's AVAILABLE contents one injection may lift
-const SOIL_SEARCH_SHELLS: int = LAMaterialFieldRegolith3D.REGOLITH_CELLS   # the permeable band is the aquifer
-
-
 # CRATER TELEMETRY: cells the most recent excavation opened, re-read live at report time.
 const CRATER_WATCH_MAX: int = 256
 var _crater_watch: PackedInt32Array = PackedInt32Array()
@@ -47,7 +39,7 @@ func _device_ready() -> bool:
 	return _f != null and _f._gpu != null and _f._gpu.has_method("move_field_sparse")
 
 
-# --- Local field injection (add_heat_energy / add_vapor) -----------------------------------------
+# --- Local field injection (add_heat_energy) -----------------------------------------
 
 func add_heat_energy(world_pos: Vector3, joules: float, radius: float = 0.0) -> float:
 	if joules == 0.0 or _f._h.size() != _f._cell_count:
@@ -87,85 +79,6 @@ func _apply_h(cells: PackedInt32Array, dh: float) -> void:
 	queue.queue_h(cells, deltas)
 	if dh > 0.0 and _f._gpu != null:
 		_f._gpu.request_channel("fire")
-
-func add_vapor(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
-	if amount <= 0.0 or _f._h2o.size() != _f._cell_count:
-		return
-	if not _device_ready():
-		return
-	var cells: PackedInt32Array = _cells_within(world_pos, radius)
-	if cells.size() == 0:
-		return
-	# DEMAND is unchanged from the minting version (`amount` per open cell in the bubble), so `h2o_inject_demand`
-	var open_n: int = 0
-	for c in cells:
-		if _f._solid[c] == 0:
-			open_n += 1
-	if open_n == 0:
-		return
-	var want: float = amount * float(open_n)
-	queue.note_demand(want)
-
-	var have_soil: bool = _f._regolith.size() == _f._cell_count
-	var wet_cells: PackedInt32Array = PackedInt32Array()
-	var wet_take: PackedFloat32Array = PackedFloat32Array()
-	var wet_dst: PackedInt32Array = PackedInt32Array()
-	var wet_offer: float = 0.0
-	var soil_cells: PackedInt32Array = PackedInt32Array()
-	var soil_take: PackedFloat32Array = PackedFloat32Array()
-	var soil_dst: PackedInt32Array = PackedInt32Array()
-	var soil_offer: float = 0.0
-	# The storm lifts from the free liquid surface under each cell of its footprint: march DOWN the local
-	# vertical to the ground, and the last wet open cell on the way is the surface it evaporates from.
-	var seen: Dictionary = {}
-	for c in cells:
-		var ground: int = LAFieldGeometry.ground(_f, c, _f._grid.max_span())
-		if ground < 0 or seen.has(ground):
-			continue
-		seen[ground] = true
-		# The exposed liquid surface, and the air cell directly above it, which is where lifted moisture goes.
-		var top_water: int = -1
-		var at: int = ground
-		while at >= 0 and _f._solid[at] == 0:
-			if _f._queries.liquid_at(at) > EVAP_KEEP_LIQUID:
-				top_water = at
-			at = LAFieldGeometry.above(_f, at)
-		var air: int = LAFieldGeometry.above(_f, top_water) if top_water >= 0 else ground
-		if air >= 0 and _f._solid[air] != 0:
-			air = -1
-		if top_water >= 0:
-			var avail: float = (_f._queries.liquid_at(top_water) - EVAP_KEEP_LIQUID) * EVAP_TAKE_FRAC
-			if avail > 0.0:
-				wet_cells.append(top_water)
-				wet_take.append(avail)
-				wet_dst.append(air if air >= 0 else top_water)
-				wet_offer += avail
-		elif have_soil and air >= 0:
-			# The water table: the permeable cells immediately under the ground.
-			var sc: int = LAFieldGeometry.below(_f, ground)
-			for _d in range(SOIL_SEARCH_SHELLS):
-				if sc < 0 or _f._regolith[sc] == 0:
-					break
-				var av: float = _f._queries.liquid_at(sc) * EVAP_TAKE_FRAC
-				if av > 0.0:
-					soil_cells.append(sc)
-					soil_take.append(av)
-					soil_dst.append(air)
-					soil_offer += av
-					break
-				sc = LAFieldGeometry.below(_f, sc)
-	# Scale both pools down together when the footprint holds more than the storm wants, so a wet storm takes
-	# exactly its demand spread across its sources instead of stripping every one of them.
-	var offer: float = wet_offer + soil_offer
-	if offer > want and offer > 0.0:
-		var k: float = want / offer
-		wet_take = _scaled(wet_take, k)
-		soil_take = _scaled(soil_take, k)
-	# ONE channel: the lift is a MOVE of h2o from the surface into the air above it. Which phase it is in at
-	# either end is what the enthalpy ladder says, not what this call names.
-	queue.transfer("h2o", wet_cells, wet_take, "h2o", wet_dst)
-	queue.transfer("h2o", soil_cells, soil_take, "h2o", soil_dst)
-
 
 # --- Organic matter: the seam between the field's carbon channels and the actors ----------------------------
 const ORGANIC_TAKE_FRAC: float = 0.5
@@ -306,7 +219,7 @@ func add_water_pooled(center: Vector3, amount: float, radius: float) -> void:
 		for c in cells:
 			if _f._solid[c] != 0 or _f._queries.vapour_at(c) <= 0.0:
 				continue
-			var av: float = _f._queries.vapour_at(c) * EVAP_TAKE_FRAC
+			var av: float = _f._queries.vapour_at(c)
 			if av <= 0.0:
 				continue
 			src_cells.append(c)

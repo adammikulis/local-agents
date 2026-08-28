@@ -17,20 +17,6 @@ is measured, and no item about a higher rung is examined until the rungs below i
 
 ---
 
-## 1. THE #1 GOAL: EVERY CONSTANT STANDING WHERE PHYSICS HAS A RELATION IS DELETED
-
-`rg -ci 'chosen|fitted|clamp|floor|per.step' docs/MODEL_PARAMETERS.md` counts the rows recorded as chosen,
-fitted, a clamp, a floor or a per-step rate; `docs/MODEL_PARAMETERS_CEILING` holds that count and
-`scripts/check_model_parameters_ceiling.sh` refuses a rise. Each row leaves the registry in one of two ways
-only: the constant becomes a law of the field it is a function of (the move that closed the day's defects:
-a per-cell scale height became the barometric law in the solved potential; four relief amplitudes became
-the measured hypsographic curve; a uniform-mixture face became the stratified stack), or it becomes a
-measured value with its citation in `LASubstances`/`LAPhysical`. Never a rename.
-
-ONE lane, all rows, one pass: no run and no gate between rows — a number read off a substrate that still
-carries the other rows is meaningless — then `LA_NO_GPU=1 scripts/agent_harness.sh lint` once, the
-ladder once, and `scripts/integrate.sh`. Lower the ceiling to the count that remains.
-
 ## 2. THE WIND BLOWS PAST ITS OWN SOUND SPEED (rung 3, the first red rung)
 
 `bash scripts/check_rung_acoustic.sh` reads a cell moving faster than its own sound speed; the peak stops

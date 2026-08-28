@@ -15,8 +15,7 @@ question, which nothing could previously ask: should this be a number at all, an
 Every row names what would have to exist for the number to stop being needed. A row that never acquires
 that field is a value nobody intends to fix.
 
-**MAX_DECLARED: 277**   <!-- the grid's slot and face tags went with it; SimWorld's ten terrain lengths were
-inline literals scaled by a Node3D transform and are now named metre constants the registry can see. -->
+**MAX_DECLARED: 254**
 
 The gate fails if the table grows past that ceiling. To add a number, derive it, bind it, or raise the
 ceiling in the same commit and argue for it in the message. When the count drops, lower the ceiling to bank
@@ -80,7 +79,7 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/gdextensions/localagents/include/LAAbsorptionBands.hpp` | `CDF_COUNT` | 1024 | sample count of the Planck cumulative table the GPU reads instead of summing the series | a GPU that can afford the series inline |
 | `addons/local_agents/gdextensions/localagents/include/LAAbsorptionBands.hpp` | `CDF_XMAX` | 50.0 | upper limit of x = c2*nu/T in that table; above it the fraction of blackbody power is below 1e-9 | a body cold enough that x = 50 falls inside its emission, i.e. below about 30 K |
 | `addons/local_agents/game/render/VegetationRenderer.gd` | `_CHUNK` | 256 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/game/render/VegetationRenderer.gd` | `_INITIAL_CAP` | 512 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
+| `addons/local_agents/game/render/VegetationRenderer.gd` | `_INITIAL_CAP` | 512 | presentation or diagnostic buffer length, not physics | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/sim/SimWorld.gd` | `SLOW_BUILD_CELLS` | 250000 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/SimWorld.gd` | `MODELLED_ATMOSPHERE_HEIGHT_M` | 1.0e5 | modelling extent: how much air the box holds | a body that declares its own atmosphere mass |
 | `addons/local_agents/sim/terrain/PlanetShape.gd` | `FINEST_WAVELENGTH_M` | 4.0e2 | shortest relief wavelength the seeded body carries; a resolution of the declared shape, not a rate | 0.5 grows the terrain by simulating geology forward |
@@ -92,26 +91,17 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/terrain/PlanetShape.gd` | `CAVE_STRENGTH` | 40.0 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
 | `addons/local_agents/sim/terrain/PlanetShape.gd` | `CAVE_DEPTH_FADE_M` | 4.7e3 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
 | `addons/local_agents/sim/SimClock.gd` | `DAYS_PER_SEASON` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_OUTPUT_SDF` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_ADD` | 5 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_SUBTRACT` | 6 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_MULTIPLY` | 7 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_ABS` | 11 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_MIN` | 16 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_MAX` | 17 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_SDF_SPHERE` | 32 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_FAST_NOISE_3D` | 40 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/SimReportSources.gd` | `METAB_FIT_MIN_N` | 3 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/streamer/StreamerDirector.gd` | `WINDOW_MAX` | 4 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
+| `addons/local_agents/streamer/StreamerDirector.gd` | `WINDOW_MAX` | 4 | presentation or diagnostic buffer length, not physics | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/streamer/StreamerDirector.gd` | `RESET_EVERY` | 12 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/streamer/StreamerDirector.gd` | `SAMPLE_INTERVAL` | 0.5 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/streamer/StreamerDirector.gd` | `INTENSITY_THRESHOLD` | 6.0 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
+| `addons/local_agents/streamer/StreamerDirector.gd` | `INTENSITY_THRESHOLD` | 6.0 | presentation or diagnostic buffer length, not physics | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/streamer/StreamerDirector.gd` | `INTENSITY_DECAY` | 0.8 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/streamer/StreamerDirector.gd` | `MIN_COOLDOWN` | 6.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/streamer/StreamerDirector.gd` | `IDLE_FILLER` | 45.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/streamer/StreamerDirector.gd` | `URGENT_BAR` | 6.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/streamer/StreamerDirector.gd` | `URGENT_COOLDOWN` | 2.5 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/streamer/StreamerDirector.gd` | `URGENT_MAX` | 6 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
+| `addons/local_agents/streamer/StreamerDirector.gd` | `URGENT_MAX` | 6 | presentation or diagnostic buffer length, not physics | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/streamer/StreamerDirector.gd` | `ENERGY_TO_INTENSITY` | 0.02 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/streamer/StreamerDirector.gd` | `ENERGY_URGENT_RISE` | 400.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/streamer/StreamerDirector.gd` | `I_DISASTER` | 12.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
@@ -134,8 +124,7 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/streamer/StreamerAvatar.gd` | `GLANCE_PITCH_UP` | -0.20 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/streamer/StreamerAvatar.gd` | `GLANCE_YAW_LEFT` | 0.34 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/streamer/StreamerOverlay.gd` | `CAPTION_HOLD` | 8.0 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/streamer/StreamerOverlay.gd` | `FEED_MAX` | 4 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/actors/HeatGlow.gd` | `GLOW_MIN` | 400.0 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
+| `addons/local_agents/streamer/StreamerOverlay.gd` | `FEED_MAX` | 4 | presentation or diagnostic buffer length, not physics | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/sim/actors/Meteor.gd` | `SPAWN_HEIGHT` | 140.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Meteor.gd` | `START_SPEED` | 70.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Meteor.gd` | `LAUNCH_SPEED` | 150.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
@@ -219,17 +208,13 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/ecology/EcologySpawner.gd` | `LAND_MARGIN` | 2.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/ecology/EcologySpawner.gd` | `LAND_TRIES` | 32 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/events/LAEventTracker.gd` | `SAMPLE_INTERVAL` | 1.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/events/LAEventTracker.gd` | `RECENT_MAX` | 32 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/material/MaterialFieldInject3D.gd` | `EVAP_TAKE_FRAC` | 0.5 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
-| `addons/local_agents/sim/material/MaterialFieldInject3D.gd` | `CRATER_WATCH_MAX` | 256 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
+| `addons/local_agents/sim/events/LAEventTracker.gd` | `RECENT_MAX` | 32 | presentation or diagnostic buffer length, not physics | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/sim/material/MaterialFieldInject3D.gd` | `CRATER_WATCH_MAX` | 256 | a telemetry list's length, not a physical quantity | not owed: a diagnostic may size its own buffer |
 | `addons/local_agents/sim/material/MaterialFieldInject3D.gd` | `ORGANIC_TAKE_FRAC` | 0.5 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/MaterialFieldCache3D.gd` | `SPOT_CELLS` | 256 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `FIRE_PRESENT` | 0.02 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialFieldClimateSwing3D.gd` | `STATIONS_PER_BAND` | 8 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldClimateSwing3D.gd` | `LONG_DAYS` | 8 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldClimateSwing3D.gd` | `SITE_RETRY_FRAMES` | 60 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MineralStamp3D.gd` | `GROW_THRESHOLD` | 0.55 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/material/MineralStamp3D.gd` | `SHRINK_THRESHOLD` | 0.45 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MineralStamp3D.gd` | `SCAN_EVERY` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MineralStamp3D.gd` | `ACTIVE_WINDOW` | 32 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MineralStamp3D.gd` | `STAMP_BUDGET` | 96 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -242,7 +227,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `VAPOUR_TRANSFER_COEFF` | 1.2e-3 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `SOIL_SURFACE_RESISTANCE_S_M` | 1000.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/GeoRecords.gd` | `DISSOLUTION_K_PER_VF` | 2.0e-5 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd` | `ORG_MIN_POOL_MOL` | 1.0 | the mole floor under which an organic C:H:O ratio is fp32 noise | deleted when the ratio buffers carry their own uncertainty |
 | `addons/local_agents/sim/material/PhysicalConstants.gd` | `LITHIFICATION_RATE_PER_PA` | 1.0e-9 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `TEMP` | 0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `H2O` | 1 | slot id, not a measured quantity | — |
@@ -266,10 +250,10 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `SILICA` | 25 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `N2` | 26 | channel-slot TAG, not a quantity: it names the dinitrogen buffer the kernel binds | the slot block becomes a GDScript `enum` mirrored into the kernel, which is what this gate asks of every tag here |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `DISCHARGE` | 27 | channel-slot TAG, not a quantity: it names the lightning discharge stamp | same as `N2` above |
-| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `RM_CONST_FRAC` | 0 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
+| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `RM_CONST_FRAC` | 0 | rate-model id, not a measured quantity | — |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `RM_BILINEAR` | 1 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `RM_EXCESS_OVER_THRESHOLD` | 2 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `RM_DEFICIT_BELOW_THRESHOLD` | 4 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
+| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `RM_EXCESS_OVER_THRESHOLD` | 2 | rate-model id, not a measured quantity | — |
+| `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `RM_DEFICIT_BELOW_THRESHOLD` | 4 | rate-model id, not a measured quantity | — |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `RM_OPTIMUM_BAND` | 5 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `RM_ARRHENIUS` | 6 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `GATE_NEAR_GROUND` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -284,11 +268,9 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/reactions/BioRecords.gd` | `SOIL_ORGANIC_CARBON_PG_C` | 1500.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/BioRecords.gd` | `SOIL_MICROBIAL_C_KG_PER_M2` | 0.128 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/CombustionRecords.gd` | `PYROLYSIS_REF_TEMP_K` | 600.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/reactions/CombustionRecords.gd` | `PYROLYSIS_K_PER_S` | 2.5e-3 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/reactions/ReactionBalance.gd` | `TOL` | 1.0e-6 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldInjectQueue3D.gd` | `DRAIN_ALL` | 1.0e30 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldAtmos3D.gd` | `CLOUD_WATER_CRIT_KG_KG` | 0.5e-3 | Kessler (1969) q_crit | deleted when condensation is a reaction record and the detector reads the record |
-| `addons/local_agents/sim/material/sphere_passes/TransportPass.gd` | `EMPTY_RHO_KG_M3` | 0.0001 * LAPhysical.AIR_DENSITY_KG_M3 | kg/m^3 below which a cell is empty: the one floor, guarding `v = p/rho` in state_derive.glsl and the donor test in transport.glsl. A ten-thousandth of a cell of air; air is measured, the fraction is chosen | deleted when emptiness follows from the cell's own substances' molar volumes |
 | `addons/local_agents/sim/material/MaterialFieldRegolith3D.gd` | `REGOLITH_CELLS` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/game/render/WaterSurfaceMesh.gd` | `SEA_BIAS` | 0.4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `PROFILE_BINS` | 16 | a diagnostic's resolution, not a physical quantity | Stage 2 substrate rewrite |
@@ -302,23 +284,19 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MaterialFieldBiota3D.gd` | `BITE_TAKE_FRAC` | 0.35 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/MaterialFieldBiota3D.gd` | `HEAT_RADIUS` | 0.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialEjecta3D.gd` | `PARCELS_PER_EJECT` | 6 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialEjecta3D.gd` | `SPEED_GAIN` | 1.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialEjecta3D.gd` | `SPEED_MIN` | 6.0 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
-| `addons/local_agents/sim/material/MaterialEjecta3D.gd` | `SPEED_MAX` | 30.0 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialEjecta3D.gd` | `CONE` | 0.5 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialEjecta3D.gd` | `MAX_LIFETIME` | 12.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialEjecta3D.gd` | `LAND_HEAT_R` | 8.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/game/render/WaterParticles.gd` | `MAX_PARTICLES` | 12000 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/game/render/WaterParticles.gd` | `LIFETIME` | 7.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/game/render/WaterParticles.gd` | `CAP_ANGLE` | 1.4 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialShock3D.gd` | `SHOCK_ACTIVE` | 0.05 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/material/MaterialShock3D.gd` | `SEED_NEIGHBOUR_FRACTION` | 0.5 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldConservation3D.gd` | `REFERENCE_STEPS` | 600 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `CAP_ANGLE` | 0.8 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `FAR_ALT` | 130.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `REBUILD_PERIOD` | 0.22 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `RECENTER_DOT` | 0.999 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `RIPPLE_MAX` | 16 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
+| `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `RIPPLE_MAX` | 16 | presentation or diagnostic buffer length, not physics | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `RIPPLE_SPEED` | 9.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `RIPPLE_DECAY` | 0.7 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `WIND_SCALE` | 6.0 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -338,9 +316,8 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/terrain/VoxelTerrainService.gd` | `GEN_RAY_COARSE` | 32.0 | first sweep of the same search, metres. Brackets the crossing over the whole relief band before the metre and centimetre passes refine it; a DISCRETISATION | an analytic surface intersection, which needs no sweep at all |
 | `addons/local_agents/sim/terrain/VoxelTerrainService.gd` | `GEN_RAY_STRIDE` | 1.0 | march step for the SDF surface search, metres. A DISCRETISATION, not a property of the ground | an analytic surface intersection, at which point there is no step to choose |
 | `addons/local_agents/sim/terrain/VoxelTerrainService.gd` | `GEN_RAY_REFINE` | 0.05 | bisection tolerance for the same search, metres. Sets how precisely the surface is located, nothing physical | as above |
-| `addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd` | `SIM_SECONDS_PER_STEP` | 43.2 | simulated seconds one field step advances. A DECISION about how fast the world runs, taken so slow geology is reachable; it is not a stability limit and nothing checks that it is one | a timestep chosen per step from the CFL condition the transport laws imply |
-| `addons/local_agents/sim/material/reactions/ReactionThermo.gd` | `EXP_LIMIT` | 60.0 | argument clamp on exp() so a float32 cannot overflow to inf. Pure arithmetic protection with no physical meaning | nothing; it is a property of the number format, not of the model |
+| `addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd` | `SIM_SECONDS_PER_STEP` | 43.2 | the coarsest temporal level, a DECISION about the clock quantum; every cell's own dt is picked from its CFL by LATemporalLevels below it | nothing: the CFL choice its deletion condition asked for already lives in the levels |
 | `addons/local_agents/sim/material/reactions/BioRecords.gd` | `ICE_FREE_LAND_AREA_M2` | 1.30e14 | EARTH's ice-free land area, used to scale a global biological flux down to a per-area rate. Measured for Earth, but this planet is not Earth and its own land area is emergent | measure the planet's own ice-free land from the field and scale by that |
 | `addons/local_agents/sim/material/reactions/BioRecords.gd` | `PG_TO_KG` | 1.0e12 | exact unit conversion, petagrams to kilograms. A definition, not a parameter | nothing; it is exact by definition of the SI prefix |
 | `addons/local_agents/sim/material/reactions/BioRecords.gd` | `MICROBIAL_CUE` | 0.3 | microbial carbon-use efficiency: the share of consumed carbon that becomes biomass rather than CO2. A measured aggregate over communities that differ, applied as one number to every decomposer | a CUE that follows from the decomposer's own energetics and the substrate quality it is eating |
-| `addons/local_agents/sim/material/sphere_passes/ActiveCells.gd` | `QUIET_SUBSTEPS` | 2 | substeps a cell may go without a crossing before it stops donating. NOT a tuning dial and not fitted: a cell that RECEIVES on one substep must still be able to donate on the next, and the counter ages once per substep before the rows run, so 2 is the smallest value that does not strand matter where it landed | a wake that carries the arrival itself rather than a counter, at which point there is no window to size |
+| `addons/local_agents/sim/material/sphere_passes/ActiveCells.gd` | `QUIET_SUBSTEPS` | 2 | substeps a crossing is remembered: the one it landed on and the next, because the counter ages before the rows run; structural, not a dial | a wake that carries the arrival itself rather than a counter, at which point there is no window to size |
