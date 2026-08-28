@@ -88,7 +88,7 @@ func _build() -> Dictionary:
 	var grid: LAVoxelGrid = LAVoxelGrid.new()
 	grid.build(NX, 1, 1, CELL, Vector3(-0.5 * float(NX) * CELL, -0.5 * CELL, -0.5 * CELL))
 	var cc: int = grid.cell_count
-	var bufs: Dictionary = {"__cc": cc}
+	var bufs: Dictionary = {"__cc": cc, "__faces": grid.neighbours.size(), "__origin": grid.origin}
 	for name in LAChannels.channels():
 		bufs[String(name)] = _f32(_filled(cc, 0.0))
 	for name in LAChannels.derived_buffers():
@@ -153,6 +153,9 @@ func _attach(bufs: Dictionary) -> RefCounted:
 	var cc: int = int(bufs["__cc"])
 	var p: RefCounted = (load(PASS_PATH) as GDScript).new()
 	p.ghost_count = 0
+	p.face_count = int(bufs["__faces"])
+	p.grid_cell_size = CELL
+	p.grid_origin = bufs["__origin"]
 	var want: Dictionary = p._buffers(cc)
 	for key in want:
 		var spec: Variant = want[key]

@@ -16,14 +16,11 @@ static func key(opts: Dictionary, grid: LAVoxelGrid) -> String:
 			GENERATOR_SRC)
 
 
-## The cached mask, or an empty array on a miss or a failed spot-check.
-static func load_mask(k: String, cell_count: int, field) -> PackedByteArray:
-	var data: PackedByteArray = LAFieldStateCache.load_mask(k, cell_count)
-	if data.size() != cell_count:
-		return PackedByteArray()
-	if not _spot_check(data, cell_count, field):
-		push_warning("LAMaterialFieldCache3D: spot-check FAILED — cache discarded, resampling.")
-		return PackedByteArray()
+## The cached rock fraction, or an empty array on a miss or a failed spot-check of its mask.
+static func load_fraction(k: String, cell_count: int, field) -> PackedFloat32Array:
+	var data: PackedFloat32Array = LAFieldStateCache.load_blob(k).get("rock_fraction", PackedFloat32Array())
+	if data.size() != cell_count or not _spot_check(LAPlanetComposition.solid_of(data), cell_count, field):
+		return PackedFloat32Array()
 	return data
 
 

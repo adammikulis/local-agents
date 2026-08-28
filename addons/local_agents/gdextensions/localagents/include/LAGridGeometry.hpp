@@ -34,19 +34,28 @@ public:
 	// The same, refined where resolution is owed: a leaf splits while its edge exceeds p_target_edge_m
 	// and its cube reaches within p_below_m / p_above_m of the terrain surface. The box edge stays
 	// coarsest. 2:1 balanced.
+	// p_focus_min/max with p_focus_edge_m > 0 name a box refined to that edge whatever the band says.
 	static Dictionary build_graded(const Vector3i &p_dims, const Vector3 &p_origin, double p_cell_size,
 			const Vector3 &p_centre, Object *p_terrain, double p_below_m, double p_above_m,
-			double p_target_edge_m);
+			double p_target_edge_m, const Vector3 &p_focus_min, const Vector3 &p_focus_max,
+			double p_focus_edge_m);
 	// build_graded at p_target_edge_m, coarsening the target by two until the leaf count fits p_budget;
 	// a grid that never fits stays uniform. Adds target_edge_m to the result.
 	static Dictionary build_to_budget(const Vector3i &p_dims, const Vector3 &p_origin, double p_cell_size,
 			const Vector3 &p_centre, Object *p_terrain, double p_below_m, double p_above_m,
-			double p_target_edge_m, int p_budget);
+			double p_target_edge_m, int p_budget, const Vector3 &p_focus_min, const Vector3 &p_focus_max,
+			double p_focus_edge_m);
 	// Edge a cell in the air column should have, m: the scale height R_air T / g of a body of p_mass_kg
 	// and p_radius_m, over the cells it is cut into.
 	static double target_edge_m(double p_mass_kg, double p_radius_m, double p_t_c, double p_cells_per_h);
 	// The number docs/CELL_BUDGET declares; -1 when it declares none.
 	static int cell_budget();
+	// THE FIELD'S GRID: build_to_budget under docs/CELL_BUDGET with the capture box (p_focus_spec, a slice
+	// spec or empty) resolved to its own edge, cached under the terrain, the box, the extension and the
+	// spec. Returns the geometry to adopt.
+	static Dictionary refine_field_grid(Object *p_grid, Object *p_terrain, const Vector3 &p_centre,
+			double p_body_radius, double p_below_m, double p_above_m, double p_target_edge_m,
+			const String &p_focus_spec, const String &p_cache_key);
 	// Reciprocity, the 2:1 volume ratio and the tiling of every coarse face by the four fine ones.
 	static Dictionary validate(Object *p_grid);
 	// Centre of every cell in world coordinates, over interior plus ghost tail.

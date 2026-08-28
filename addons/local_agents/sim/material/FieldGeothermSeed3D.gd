@@ -50,7 +50,7 @@ static func _profile_k(r_body: float, t_surface_c: float) -> PackedFloat32Array:
 		return PackedFloat32Array()
 	var alpha_m: float = float(rock.get("expansion_per_k", 0.0))
 	var alpha_c: float = float(metal.get("expansion_per_k", 0.0))
-	var r_core: float = r_body * float(LAPlanetComposition.core_radius_frac(t_surface_c, LAPhysical.STANDARD_PRESSURE_PA))
+	var r_core: float = float(LAPlanetComposition.core_radius_m(r_body, t_surface_c))
 	# Radiogenic power of the rock at the run's epoch, W/m^3, for the conductive layer's own heating.
 	var a_w_m3: float = float(LARadiogenicDecay.heat_w_kg_of(rock.get("traces", {}), LARadiogenicDecay.epoch_years())) * rho_m
 	var g_const: float = LAPhysical.GRAVITATIONAL_CONSTANT

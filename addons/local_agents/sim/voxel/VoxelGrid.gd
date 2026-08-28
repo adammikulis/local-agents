@@ -56,9 +56,10 @@ static func opposite_slot(d: int) -> int:
 	return d ^ 1
 
 
-## Base cells per axis for a box holding a sphere of `radius` at `p_cell_size`.
+## Base cells per axis for a box holding a sphere of `radius` at `p_cell_size`, plus one cell of margin
+## each side: the box edge stays coarsest, so nothing the sphere holds may sit in an edge cell.
 static func dims_for(radius: float, p_cell_size: float) -> Vector3i:
-	var n: int = maxi(int(ceil(2.0 * radius / maxf(p_cell_size, 1.0e-6))), 1)
+	var n: int = maxi(int(ceil(2.0 * radius / maxf(p_cell_size, 1.0e-6))), 1) + 2
 	return Vector3i(n, n, n)
 
 

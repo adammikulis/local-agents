@@ -12,7 +12,7 @@ la_examined "$(basename "$0")" || exit $?
 # The grid quantises a sphere into cubes, so the matter that lands is not exactly the matter asked for.
 # This is the blockiness of the seeded shape and NOTHING ELSE; it tightens as the grid refines, and it is
 # wide enough to be honest while still failing an order of magnitude by three powers of ten.
-MASS_TOL="${LA_BODY_MASS_TOL:-0.10}"
+MASS_TOL="${LA_BODY_MASS_TOL:-0.02}"
 # Derived-from-derived: g and the day are arithmetic over the two measurements, so they agree tightly.
 DERIVED_TOL="${LA_BODY_DERIVED_TOL:-0.01}"
 FRAMES="${LA_BODY_FRAMES:-6}"
