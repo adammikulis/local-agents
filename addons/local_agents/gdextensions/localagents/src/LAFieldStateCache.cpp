@@ -110,6 +110,23 @@ Dictionary LAFieldStateCache::load_state(const String &p_key, int p_cell_count) 
 	return channels.is_empty() ? empty : data;
 }
 
+Dictionary LAFieldStateCache::load_blob(const String &p_key) {
+	Dictionary empty;
+	if (p_key.is_empty()) {
+		return empty;
+	}
+	Ref<FileAccess> f = FileAccess::open(entry_path(STATE_DIR, p_key), FileAccess::READ);
+	if (f.is_null()) {
+		return empty;
+	}
+	const Variant raw = f->get_var();
+	return raw.get_type() == Variant::DICTIONARY ? Dictionary(raw) : empty;
+}
+
+void LAFieldStateCache::save_blob(const String &p_key, const Dictionary &p_data) {
+	save_state(p_key, p_data);
+}
+
 void LAFieldStateCache::save_state(const String &p_key, const Dictionary &p_data) {
 	if (p_key.is_empty() || p_data.is_empty()) {
 		return;
@@ -125,6 +142,8 @@ void LAFieldStateCache::_bind_methods() {
 	ClassDB::bind_static_method("LAFieldStateCache",
 			D_METHOD("mask_key", "opts", "nx", "ny", "nz", "cell", "origin", "sources"),
 			&LAFieldStateCache::mask_key);
+	ClassDB::bind_static_method("LAFieldStateCache", D_METHOD("load_blob", "key"), &LAFieldStateCache::load_blob);
+	ClassDB::bind_static_method("LAFieldStateCache", D_METHOD("save_blob", "key", "data"), &LAFieldStateCache::save_blob);
 	ClassDB::bind_static_method("LAFieldStateCache", D_METHOD("load_mask", "key", "cell_count"),
 			&LAFieldStateCache::load_mask);
 	ClassDB::bind_static_method("LAFieldStateCache", D_METHOD("save_mask", "key", "mask"),

@@ -3,6 +3,7 @@
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 #include "LAPhysicalRead.hpp"
+#include "LATerrainQuery.hpp"
 #include <godot_cpp/variant/utility_functions.hpp>
 
 #include <algorithm>
@@ -361,29 +362,79 @@ Dictionary LAGridGeometry::build(const Vector3i &p_dims, const PackedByteArray &
 	return emit(lat);
 }
 
-Dictionary LAGridGeometry::build_graded(const Vector3i &p_dims, const Vector3 &p_origin,
-		double p_cell_size, const Vector3 &p_centre, Object *p_terrain, double p_below_m,
-		double p_above_m, double p_target_edge_m) {
-	Lattice lat = uniform(p_dims);
-	const bool can = p_terrain && p_terrain->has_method("surface_radius") && p_cell_size > 0.0
-			&& p_target_edge_m > 0.0;
-	if (can) {
-		// ONE terrain sample per base cell, at its centre; the relief the terrain spans pads the band so
-		// a leaf whose own direction stands on a mountain or a trench is still counted.
-		const int base_count = int(lat.leaves.size());
-		std::vector<double> rs_base(base_count, NAN);
-		double relief = 0.0;
-		if (p_terrain->has_method("max_surface_radius") && p_terrain->has_method("planet_radius")) {
-			relief = std::abs(double(p_terrain->call("max_surface_radius")) - double(p_terrain->call("planet_radius")));
+namespace {
+
+// One terrain sample per base cell at its centre, and the relief the terrain spans: the band test's inputs.
+struct SurfaceSamples {
+	std::vector<double> rs;
+	double relief = 0.0;
+};
+
+SurfaceSamples sample_surface(const Vector3i &p_dims, const Vector3 &p_origin, double p_cell_size,
+		const Vector3 &p_centre, Object *p_terrain) {
+	SurfaceSamples out;
+	const int nx = MAX(p_dims.x, 1), ny = MAX(p_dims.y, 1), nz = MAX(p_dims.z, 1);
+	const int base_count = nx * ny * nz;
+	out.rs.assign(base_count, NAN);
+	if (!p_terrain || !p_terrain->has_method("surface_radius")) {
+		return out;
+	}
+	if (p_terrain->has_method("max_surface_radius") && p_terrain->has_method("planet_radius")) {
+		out.relief = std::abs(double(p_terrain->call("max_surface_radius")) - double(p_terrain->call("planet_radius")));
+	}
+	std::vector<Vector3> dir(base_count);
+	for (int b = 0; b < base_count; b++) {
+		const Vector3 bo(float(b % nx) + 0.5f, float((b / nx) % ny) + 0.5f, float(b / (nx * ny)) + 0.5f);
+		const Vector3 rel = p_origin + bo * float(p_cell_size) - p_centre;
+		const double r = double(rel.length());
+		dir[b] = r > 0.0 ? rel / float(r) : Vector3(0, 1, 0);
+	}
+	// Bisection along every direction at once between the terrain's lowest and highest surface: the
+	// generator's signed distance, batched, instead of a ray march per direction.
+	if (p_terrain->has_method("min_surface_radius") && p_terrain->has_method("max_surface_radius")) {
+		const double r_lo0 = double(p_terrain->call("min_surface_radius"));
+		const double r_hi0 = double(p_terrain->call("max_surface_radius"));
+		std::vector<double> lo(base_count, r_lo0), hi(base_count, r_hi0);
+		PackedVector3Array pts;
+		pts.resize(base_count);
+		double span = r_hi0 - r_lo0;
+		while (span > 1.0) {
+			for (int b = 0; b < base_count; b++) {
+				pts.set(b, p_centre + dir[b] * float(0.5 * (lo[b] + hi[b])));
+			}
+			const PackedFloat32Array d = la_terrain_sdf(p_terrain, pts);
+			if (d.size() != base_count) {
+				break;
+			}
+			for (int b = 0; b < base_count; b++) {
+				const double mid = 0.5 * (lo[b] + hi[b]);
+				if (d[b] < 0.0f) {
+					lo[b] = mid;
+				} else {
+					hi[b] = mid;
+				}
+			}
+			span *= 0.5;
 		}
 		for (int b = 0; b < base_count; b++) {
-			const Vector3 bo(float(b % lat.nx) + 0.5f, float((b / lat.nx) % lat.ny) + 0.5f, float(b / (lat.nx * lat.ny)) + 0.5f);
-			const Vector3 rel = p_origin + bo * float(p_cell_size) - p_centre;
-			const double r = double(rel.length());
-			if (r > 0.0) {
-				rs_base[b] = double(p_terrain->call("surface_radius", rel / float(r)));
-			}
+			out.rs[b] = 0.5 * (lo[b] + hi[b]);
 		}
+		return out;
+	}
+	for (int b = 0; b < base_count; b++) {
+		out.rs[b] = double(p_terrain->call("surface_radius", dir[b]));
+	}
+	return out;
+}
+
+Dictionary build_graded_sampled(const Vector3i &p_dims, const Vector3 &p_origin, double p_cell_size,
+		const Vector3 &p_centre, const SurfaceSamples &p_s, double p_below_m, double p_above_m,
+		double p_target_edge_m) {
+	Lattice lat = uniform(p_dims);
+	const bool can = p_cell_size > 0.0 && p_target_edge_m > 0.0 && int(p_s.rs.size()) == int(lat.leaves.size());
+	if (can) {
+		const std::vector<double> &rs_base = p_s.rs;
+		const double relief = p_s.relief;
 		refine_lattice(lat, [&](const Leaf &l) {
 			if (lat.edge_base(l.base)) {
 				return false;   // THE BOX EDGE STAYS COARSEST: an exterior and a torus are 1:1 on a face
@@ -413,6 +464,16 @@ Dictionary LAGridGeometry::build_graded(const Vector3i &p_dims, const Vector3 &p
 	return emit(lat);
 }
 
+} // namespace
+
+Dictionary LAGridGeometry::build_graded(const Vector3i &p_dims, const Vector3 &p_origin,
+		double p_cell_size, const Vector3 &p_centre, Object *p_terrain, double p_below_m,
+		double p_above_m, double p_target_edge_m) {
+	return build_graded_sampled(p_dims, p_origin, p_cell_size, p_centre,
+			sample_surface(p_dims, p_origin, p_cell_size, p_centre, p_terrain), p_below_m, p_above_m,
+			p_target_edge_m);
+}
+
 Dictionary LAGridGeometry::build_to_budget(const Vector3i &p_dims, const Vector3 &p_origin,
 		double p_cell_size, const Vector3 &p_centre, Object *p_terrain, double p_below_m,
 		double p_above_m, double p_target_edge_m, int p_budget) {
@@ -420,10 +481,11 @@ Dictionary LAGridGeometry::build_to_budget(const Vector3i &p_dims, const Vector3
 	// grid that would not fit is never built.
 	Dictionary best = build(p_dims, PackedByteArray());
 	best["target_edge_m"] = p_cell_size;
+	const SurfaceSamples samples = sample_surface(p_dims, p_origin, p_cell_size, p_centre, p_terrain);
 	double target = 0.5 * p_cell_size;
 	while (p_target_edge_m > 0.0 && p_budget > 0 && target > 0.0) {
-		Dictionary next = build_graded(p_dims, p_origin, p_cell_size, p_centre, p_terrain, p_below_m,
-				p_above_m, target);
+		Dictionary next = build_graded_sampled(p_dims, p_origin, p_cell_size, p_centre, samples,
+				p_below_m, p_above_m, target);
 		if (int(next.get("cell_count", 0)) > p_budget) {
 			break;
 		}

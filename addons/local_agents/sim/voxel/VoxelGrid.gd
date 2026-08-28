@@ -90,10 +90,6 @@ func cell_world_pos(c: int) -> Vector3:
 	return centres[c]
 
 
-func cell_world_pos_all() -> PackedVector3Array:
-	return centres
-
-
 ## The leaf containing a world point, or -1 outside the box.
 func cell_at(p: Vector3) -> int:
 	return LAGridGeometry.cell_at(self, p)
@@ -137,19 +133,11 @@ func build(p_nx: int, p_ny: int, p_nz: int, p_cell_size: float, p_origin: Vector
 
 
 func refine(mask: PackedByteArray) -> void:
-	_adopt_geometry(LAGridGeometry.build(Vector3i(nx, ny, nz), mask))
+	adopt_geometry(LAGridGeometry.build(Vector3i(nx, ny, nz), mask))
 
 
-## Refine to `target_edge_m` in the surface band, 2:1 balanced, under `budget` cells; the edge reached.
-func refine_graded(centre: Vector3, terrain: Object, below_m: float, above_m: float,
-		target_edge_m: float, budget: int = 0) -> float:
-	var g: Dictionary = LAGridGeometry.build_to_budget(Vector3i(nx, ny, nz), origin, cell_size, centre,
-		terrain, below_m, above_m, target_edge_m, budget if budget > 0 else 2147483647)
-	_adopt_geometry(g)
-	return float(g.get("target_edge_m", cell_size))
-
-
-func _adopt_geometry(g: Dictionary) -> void:
+## Take a geometry LAGridGeometry built (or a cached one) as this grid's own.
+func adopt_geometry(g: Dictionary) -> void:
 	cell_count = int(g["cell_count"])
 	levels = g["levels"]
 	max_level = int(g["max_level"])

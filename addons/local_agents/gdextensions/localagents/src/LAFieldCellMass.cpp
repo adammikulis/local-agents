@@ -164,7 +164,7 @@ Dictionary LAFieldCellMass3D::seed_enthalpy(Object *p_field, Object *p_grid,
 		ch.gas = String(row.get("phase", "")) == "gas";
 		chans.push_back(ch);
 	}
-	const PackedVector3Array centres = p_grid->call("cell_world_pos_all");
+	const PackedVector3Array centres = p_grid->get("centres");
 	const PackedFloat32Array vol = p_grid->call("cell_volumes");
 	const Vector3 centre = p_field->call("centre");
 	const double kelvin = la_physical("KELVIN_OFFSET");
