@@ -465,7 +465,9 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c, 
 		const double z_bot = MAX(h[c] - 0.5 * edge, surf[c]);
 		const double z_top = h[c] + 0.5 * edge;
 		// THE ATMOSPHERE STANDS ON THE SEA SURFACE OR ON WHAT RISES OUT OF IT. A column whose own surface
-		// is under the datum is a drowned pocket the vertical walk stepped into, not a column of air.
+		// is under the datum is a pocket the vertical walk stepped into, not a column of air: the walk
+		// steps on the grid's axes and can pass the body's shell on a diagonal, and exp of how far under
+		// the datum that puts it is what a cell was being seeded with.
 		if (!(z_top > z_bot) || surf[c] < datum) {
 			continue;
 		}
