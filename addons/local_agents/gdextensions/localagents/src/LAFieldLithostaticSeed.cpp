@@ -405,7 +405,7 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c, 
 	// DOWN it. A rotating body's plumb line is not its radius.
 	std::vector<double> h(cc, 0.0), scale(cc, 0.0);
 	std::vector<double> cond(cc, 0.0);
-	std::vector<int> below(cc, -1), above(cc, -1);
+	std::vector<int> below(cc, -1);
 	for (int c = 0; c < cc; c++) {
 		const Vector3 g(p_gravity[c * 3], p_gravity[c * 3 + 1], p_gravity[c * 3 + 2]);
 		const double gm = double(g.length());
@@ -414,9 +414,7 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c, 
 		}
 		const Vector3 up = -g / gm;
 		h[c] = double((Vector3(grid->call("cell_world_pos", c)) - centre).dot(up));
-		const int us = slot_toward(up);
-		above[c] = nbr[c * 6 + us];
-		below[c] = nbr[c * 6 + (us ^ 1)];
+		below[c] = nbr[c * 6 + (slot_toward(up) ^ 1)];
 		scale[c] = m->scale_height_at(p_temp_c, gm);
 		cond[c] = solid[c] != 0 ? 1.0
 				: MIN(MAX(double(MAX(h2o[c], 0.0f)) - n_sat, 0.0) / full_h2o
@@ -437,14 +435,34 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c, 
 			surf[c] = surf[below[c]];
 		}
 	}
-	// AIR IS WHAT IS OPEN TO THE SKY. High to low, so a cell reads the one over it: an open cell under
-	// open cells all the way out of the box holds atmosphere, and a void sealed under rock holds none --
-	// it is a cavity, not a column, and the barometric law has nothing to say about it.
+	// AIR IS WHAT THE OUTSIDE REACHES, which is CONNECTIVITY and not a direction: flooded through open
+	// faces from every open cell the box edge touches. A void the flood never reaches is sealed under
+	// rock -- a cavity, not a column, and the barometric law has nothing to say about it.
 	std::vector<char> sky(cc, 0);
-	for (size_t i = up_order.size(); i-- > 0;) {
-		const int c = up_order[i];
-		const int a = above[c];
-		sky[c] = (solid[c] == 0 && (a < 0 || a >= cc || sky[a] != 0)) ? 1 : 0;
+	std::vector<int> front;
+	for (int c = 0; c < cc; c++) {
+		if (solid[c] != 0) {
+			continue;
+		}
+		for (int d = 0; d < 6; d++) {
+			if (nbr[c * 6 + d] < 0) {
+				sky[c] = 1;
+				front.push_back(c);
+				break;
+			}
+		}
+	}
+	while (!front.empty()) {
+		const int c = front.back();
+		front.pop_back();
+		for (int d = 0; d < 6; d++) {
+			const int n = nbr[c * 6 + d];
+			if (n < 0 || n >= cc || solid[n] != 0 || sky[n] != 0) {
+				continue;
+			}
+			sky[n] = 1;
+			front.push_back(n);
+		}
 	}
 	PackedFloat32Array f = unit_factor(cc);
 	f.fill(-1.0f);
@@ -464,10 +482,10 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c, 
 		// cell, so a half-buried cell holds the air over its rock and not the rock's worth of it.
 		const double z_bot = MAX(h[c] - 0.5 * edge, surf[c]);
 		const double z_top = h[c] + 0.5 * edge;
-		// THE ATMOSPHERE STANDS ON THE SEA SURFACE OR ON WHAT RISES OUT OF IT. A column whose own surface
-		// is under the datum is a pocket the vertical walk stepped into, not a column of air: the walk
-		// steps on the grid's axes and can pass the body's shell on a diagonal, and exp of how far under
-		// the datum that puts it is what a cell was being seeded with.
+		// A COLUMN WHOSE SURFACE IS UNDER THE DATUM IS NOT UNDER THE SKY IT IS FLOODED FROM. The flood
+		// reaches deep open ground through the box's own outside, and the barometric height of such a
+		// cell is its distance along THAT path, not the rock it happens to sit over: measured the second
+		// way it states tens of atmospheres and takes the rest of the atmosphere with it.
 		if (!(z_top > z_bot) || surf[c] < datum) {
 			continue;
 		}

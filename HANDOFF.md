@@ -18,11 +18,16 @@ on the file it named. If you know the cause you are close enough to fix it, so f
 
 `bash scripts/check_process_ladder.sh` stops at `hydrostatic`: `bash scripts/check_hydrostatic_seed.sh`
 counts a handful of open vertical pairs whose pressure falls going down. They are the columns
-`LAFieldLithostaticSeed::shape_atmosphere` refuses because their surface sits under the sea-level datum,
-which its sky walk admits by stepping past the body's shell on a grid diagonal. Dropping that refusal
-reads zero inversions and blows the wind to eight figures instead.
+`LAFieldLithostaticSeed::shape_atmosphere` refuses because their surface sits under the sea-level datum.
+Deleting that refusal reads zero inversions and seeds tens of atmospheres into open ground kilometres
+under the datum, which the sky flood reaches through the box's own outside; the wind then reads eight
+figures. Reproduce either way by flipping the `surf[c] < datum` test.
 
-Above it, `bash scripts/check_rung_acoustic.sh` reads a cell moving faster than its own sound speed.
+Above it, `bash scripts/check_rung_acoustic.sh` reads a cell moving faster than its own sound speed. The
+peak cell after one step is clear dry air over land at sea-level pressure and 15 C, holding no water and
+no mineral, and the pressure gradient there returns about half the weight the same cell states.
+**Reproduce:** `LA_PASS_PROBE=speed LA_PASS_PROBE_STEPS=1 scripts/sim_run.sh --rung 3 --frames 1 --keep`
+and read the TransportPass peak against `rho_bulk` times g times the step.
 
 `bash scripts/check_wind_subsonic.sh` reads the same world's peak wind past the sound speed the
 substrate states for it.
