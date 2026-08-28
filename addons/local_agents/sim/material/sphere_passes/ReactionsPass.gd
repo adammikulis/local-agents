@@ -109,7 +109,7 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	])
 
 
-func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:
+func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:
 	if not _dispatchable() or _n_records <= 0 or not _set.is_valid():
 		return
 	# The solar kernel and the reaction engine must see the IDENTICAL sun, magnitude included: it carries
@@ -126,7 +126,5 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: in
 	pc.encode_float(20, sun_dir.y)
 	pc.encode_float(24, sun_dir.z)
 	pc.encode_u32(28, 0)   # pad2
-	rd.compute_list_bind_compute_pipeline(cl, _pipe)
-	rd.compute_list_bind_uniform_set(cl, _set, 0)
-	rd.compute_list_set_push_constant(cl, pc, pc.size())
-	rd.compute_list_dispatch(cl, groups, 1, 1)
+	_driver.run(cl, _pipe, [_set], [pc], PackedInt32Array([groups]), [RID()],
+		PackedInt32Array([0]), false)

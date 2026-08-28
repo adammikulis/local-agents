@@ -25,6 +25,12 @@ static func available() -> bool:
 	return true
 
 var _rd: RenderingDevice = null
+## The native driver: it sequences the passes, issues every compute list and does the drain's readback.
+var _driver: LAFieldDriver = null
+## One buffer every channel this drain reads is copied into on the device, so the CPU waits once.
+var _staging: RID = RID()
+var _staging_slots: int = 0
+var _bnd_rids: Array = []
 var _audit_mirror: bool = OS.has_environment("LA_INJECT_AUDIT")
 var _field = null
 var _grid: RefCounted = null
@@ -77,6 +83,8 @@ func setup(field) -> void:
 	if _rd == null:
 		push_error("LAMaterialSphereGPU3D: no RenderingDevice")
 		return
+	_driver = LAFieldDriver.new()
+	_driver.set_device(_rd)
 	_groups = int(ceil(float(_cc) / 64.0))
 	var tc: int = _cc + _ng
 
@@ -149,6 +157,10 @@ func setup(field) -> void:
 	for key in _bufs:
 		if String(key).begins_with("bnd_"):
 			_bnd_keys.append(String(key))
+			_bnd_rids.append(_bufs[key])
+	# Every name a drain can ask for is a channel or a derived buffer, so this many slots cannot overflow.
+	_staging_slots = channels().size() + LAChannels.derived_buffers().size()
+	_staging = _rd.storage_buffer_create(_staging_slots * _cc * 4)
 
 
 ## Allocate one pass's declared buffers. A name already in `_bufs` is a collision, not an overwrite: the
@@ -239,23 +251,12 @@ func step() -> void:
 	_ctx["step_index"] = _step_index
 	_ctx["dt_s"] = LAMaterialFieldSphereStep3D.real_seconds_per_step()
 	_pre_step()
-	for key in _bnd_keys:
-		_rd.buffer_clear(_bufs[key], 0, _cc * 4)
-	if _step_probe.is_valid():
-		_step_checkpointed()
-		return
-	_rd.capture_timestamp("field_start")   # marker 0 — the interval to pass 0's own marker is pass 0's GPU time
-	for i in _passes.size():
-		var cl: int = _rd.compute_list_begin()
-		_passes[i].dispatch(_rd, cl, _ctx, _cc, _groups)
-		# EVERY PASS READS WHAT THE PREVIOUS ONE WROTE. Passes barrier internally between their own
-		# sub-dispatches but nothing ordered them against EACH OTHER, so in one submit they overlapped and
-		_rd.compute_list_add_barrier(cl)
-		_rd.compute_list_end()
-		_rd.capture_timestamp(_pass_names[i])
-	_rd.submit()                        # deferred sync — drained at the next begin_frame (GPU overlaps CPU frame work)
+	_driver.clear_buffers(_bnd_rids, _cc * 4)
+	# Deferred sync — drained at the next begin_frame, so the GPU overlaps the CPU frame work.
+	_driver.step(_passes, _pass_names, _ctx, _cc, _groups, _step_probe)
 	_pending = true
 	_step_index += 1
+
 
 ## A pass that must READ the device before the step records takes its own submit here. The step's first
 ## act is a sync, so nothing is in flight and the reading is of the state this step starts in.
@@ -268,24 +269,6 @@ func _pre_step() -> void:
 ## Signature: `probe.call(pass_index: int, pass_name: String)`, pass_index -1 = before any pass ran.
 func set_step_probe(cb: Callable) -> void:
 	_step_probe = cb
-
-
-func _step_checkpointed() -> void:
-	_step_probe.call(-1, "start")
-	for i in _passes.size():
-		var cl: int = _rd.compute_list_begin()
-		_passes[i].dispatch(_rd, cl, _ctx, _cc, _groups)
-		_rd.compute_list_end()
-		_rd.submit()
-		_rd.sync()
-		_step_probe.call(i, _pass_names[i])
-	# Leave an in-flight submit so _drain_pending's contract is unchanged (it syncs, then reads this frame's
-	# channels into _cached). An empty compute list is a legal no-op submit.
-	var tail: int = _rd.compute_list_begin()
-	_rd.compute_list_end()
-	_rd.submit()
-	_pending = true
-	_step_index += 1
 
 
 ## Raw device readback of one buffer. Diagnostic only (the between-pass probe). No sync is done here — the
@@ -322,15 +305,23 @@ func _drain_pending() -> void:
 	var read_slow: bool = _slow_gate >= SLOW_READBACK_EVERY
 	if read_slow:
 		_slow_gate = 0
-	_cached = _read_channels(read_slow)
+	var want: PackedStringArray = _channel_names(read_slow)
+	var asked: PackedStringArray = want.duplicate()
+	for pname in _probe_want:
+		if _bufs.has(pname) and not asked.has(pname):
+			asked.append(pname)
+	var got: Dictionary = _gather(asked)
+	_cached = {}
+	for k in want:
+		if got.has(k):
+			_cached[k] = got[k]
 	# Read-only instrument sample, taken HERE because the device was just synced (see request_probe). It is
 	# written to its own dictionary, never to `_cached`, so no simulation consumer's view changes.
 	# A sample belongs to the drain that produced it: wiped here every drain, never by a reader.
 	_probe = {}
 	for pname in _probe_want:
-		if not _bufs.has(pname):
-			continue
-		_probe[pname] = _read_cells(pname)
+		if got.has(pname):
+			_probe[pname] = got[pname]
 	_probe_want = PackedStringArray()
 	# Direct sub-timings (noise-immune, unlike fps): how long the GPU sync stall vs the channel copy/convert
 	# actually cost this drain. The readback (buffer_get_data + to_float32_array over ~17 full-grid channels) is
@@ -413,36 +404,46 @@ func _gpu_gauge_key(pass_index: int) -> String:
 	return n.to_snake_case()
 
 
-## The interior cells of a per-cell buffer: CPU mirrors never see the ghost tail.
-func _read_cells(name: String) -> PackedFloat32Array:
-	return _rd.buffer_get_data(_bufs[name], 0, _cc * 4).to_float32_array()
+## THE DRAIN'S ONE ROUND TRIP: the device copies every named channel's interior cells into one buffer
+## and the CPU reads that buffer once. A readback per channel pays the same device wait over again for
+## every one of them, and that wait, not the bytes, is what a drain costs.
+func _gather(names: PackedStringArray) -> Dictionary:
+	if names.is_empty():
+		return {}
+	if names.size() > _staging_slots:
+		push_error("LAMaterialSphereGPU3D: %d channels asked for and room for %d, so this drain read "
+			% [names.size(), _staging_slots] + "nothing. Every reading it would have carried is ABSENT.")
+		return {}
+	var srcs: Array = []
+	for name in names:
+		srcs.append(_bufs[String(name)])
+	return _driver.gather_read(_staging, srcs, names, _cc)
 
 
-func _read_channels(read_slow: bool) -> Dictionary:
-	var out: Dictionary = {}
-	for k in ["h_j_m3", "h2o", "o2"]:
-		out[k] = _read_cells(k)
+## The channels THIS drain reads. A name absent from it is absent from `end_frame`, never zero.
+func _channel_names(read_slow: bool) -> PackedStringArray:
+	var out: PackedStringArray = PackedStringArray(["h_j_m3", "h2o", "o2"])
 	# Derived: recomputed by StateDerivePass this step rather than carried.
 	for k in LAChannels.derived_buffers():
-		if _bufs.has(k):
-			out[k] = _read_cells(k)
+		if _bufs.has(k) and not out.has(k):
+			out.append(k)
 	# Emergent WIND velocity (SINGLE, in-place) — wind3_at/wind_at expose a real force field that EVERY creature
 	# samples per frame (LACreatureFieldForces), so it stays always-hot. CHARGE (breakdown→bolt firing) also has
 	# a per-frame consumer with NO CPU-side trigger event to hook a request_channel() call to, so it stays hot too.
 	for k in ["vel_x", "vel_y", "vel_z", "charge"]:
-		if _bufs.has(k):
-			out[k] = _read_cells(k)
+		if _bufs.has(k) and not out.has(k):
+			out.append(k)
 	for k in situational_channels():
-		if not _bufs.has(k) or int(_channel_hold.get(k, -1)) < _drain_count:
+		if not _bufs.has(k) or int(_channel_hold.get(k, -1)) < _drain_count or out.has(k):
 			continue
-		out[k] = _read_cells(k)
+		out.append(k)
 	# SLOW — ledger/baker channels on the coarse cadence, from the table that declares which those ARE.
 	if read_slow:
 		for k in slow_channels():
-			if not _bufs.has(k):
-				continue
-			out[k] = _read_cells(k)
+			if _bufs.has(k) and not out.has(k):
+				out.append(k)
 	return out
+
 
 func request_channel(name: String) -> void:
 	_channel_hold[name] = _drain_count + CHANNEL_HOLD_DRAINS
@@ -674,6 +675,10 @@ func dispose() -> void:
 		if b.is_valid():
 			_rd.free_rid(b)
 	_bufs = {}
+	if _staging.is_valid():
+		_rd.free_rid(_staging)
+	_staging = RID()
+	_driver = null
 	_rd.free()
 	_rd = null
 
