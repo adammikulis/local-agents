@@ -20,11 +20,13 @@ if [ -z "$LOG" ] || [ ! -f "$LOG" ]; then
 	echo "                    Run it through scripts/agent_harness.sh lint, which opens one." >&2
 	exit 2
 fi
-N="$(grep -c . "$LOG" | tr -d ' ')"
-if [ "${N:-0}" -le 0 ]; then
-	echo "check_launch_count: the log holds no launch, so lib_godot.sh is not writing it." >&2
+# An EMPTY log is a count of zero, which is the best a lint can do: every arm came out of a cache. The
+# writer is what must be proved live, not the number.
+if ! grep -q 'LA_LAUNCH_LOG' "$ROOT/scripts/lib_godot.sh"; then
+	echo "check_launch_count: lib_godot.sh no longer writes LA_LAUNCH_LOG, so no count is truthful." >&2
 	exit 2
 fi
+N="$(grep -c . "$LOG" | tr -d ' ')"
 
 echo "LAUNCH_COUNT={\"launches\":$N,\"ceiling\":$CEIL}"
 if [ "$N" -gt "$CEIL" ]; then

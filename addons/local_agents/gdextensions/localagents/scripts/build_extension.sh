@@ -1,15 +1,22 @@
 #!/usr/bin/env bash
+# godot-cpp and llama.cpp are built ONCE per (dependency commit, compiler, cmake, platform, flags) into
+# ${LA_DEPS_CACHE:-$HOME/.cache/local-agents/extdeps}/<key>, outside every worktree and gitignored by
+# living outside the tree. A worktree whose key matches links the cached artifacts and compiles only the
+# extension's own sources. --clean-deps discards the entry for the current key.
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 EXT_DIR=$(cd "${SCRIPT_DIR}/.." && pwd)
 BUILD_DIR="${EXT_DIR}/build"
 BIN_DIR="${EXT_DIR}/bin"
+THIRDPARTY_DIR="${EXT_DIR}/thirdparty"
+DEPS_CACHE_ROOT="${LA_DEPS_CACHE:-${HOME}/.cache/local-agents/extdeps}"
 PLATFORM=""
 GENERATOR=""
 TOOLCHAIN_FILE=""
 CMAKE_ARGS=()
 CLEAN_BUILD="false"
+CLEAN_DEPS="false"
 
 usage() {
     cat <<USAGE
@@ -23,6 +30,7 @@ Options:
   --toolchain <file>                CMake toolchain file for cross-compilation.
   --cmake-arg <arg>                 Extra argument passed to CMake configure step.
   --clean                           Remove the build directory before configure.
+  --clean-deps                      Remove this key's dependency cache entry, forcing a refill.
   -h, --help                        Show this help.
 USAGE
 }
@@ -55,7 +63,7 @@ warn() {
 collect_from_build_bin() {
     local pattern="$1"
     shopt -s nullglob
-    for src in "${BUILD_DIR}/bin"/${pattern}; do
+    for src in "${DEPS_BIN}"/${pattern}; do
         [[ -f "$src" ]] || continue
         cp -f "$src" "${BIN_DIR}/$(basename "$src")"
     done
@@ -64,7 +72,7 @@ collect_from_build_bin() {
 
 # The sources this bin was built from; lib_godot.sh refuses to launch a bin whose hash differs.
 write_source_hash() {
-    (cd "${EXT_DIR}" && cat CMakeLists.txt $(ls src/* include/* | sort) | md5 -q) > "${BIN_DIR}/SOURCE_HASH"
+    (cd "${EXT_DIR}" && cat CMakeLists.txt cmake/deps/CMakeLists.txt $(ls src/* include/* | sort) | md5 -q) > "${BIN_DIR}/SOURCE_HASH"
 }
 
 patch_macos_install_names() {
@@ -181,7 +189,7 @@ stage_tools() {
         tools=(llama-cli.exe llama-server.exe)
     fi
     for tool in "${tools[@]}"; do
-        local tool_path="${BUILD_DIR}/bin/${tool}"
+        local tool_path="${DEPS_BIN}/${tool}"
         [[ -f "${tool_path}" ]] || continue
         cp -f "${tool_path}" "${BIN_DIR}/${tool}"
         chmod +x "${BIN_DIR}/${tool}" 2>/dev/null || true
@@ -259,6 +267,10 @@ while [[ $# -gt 0 ]]; do
             CLEAN_BUILD="true"
             shift
             ;;
+        --clean-deps)
+            CLEAN_DEPS="true"
+            shift
+            ;;
         -h|--help)
             usage
             exit 0
@@ -288,7 +300,70 @@ fi
 
 mkdir -p "${BUILD_DIR}" "${BIN_DIR}"
 
-configure_cmd=(cmake -S "${EXT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release)
+LAUNCHER_ARGS=()
+if command_exists ccache; then
+    LAUNCHER_ARGS=(-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache)
+fi
+
+# CONTENT, NEVER MTIME: the dependency commits actually checked out, the recipe that builds them, and the
+# toolchain that compiles them. Anything that changes the artifacts changes this.
+deps_key() {
+    {
+        git -C "${THIRDPARTY_DIR}/godot-cpp" rev-parse HEAD 2>/dev/null || echo "no-godot-cpp"
+        git -C "${THIRDPARTY_DIR}/llama.cpp" rev-parse HEAD 2>/dev/null || echo "no-llama-cpp"
+        cat "${EXT_DIR}/cmake/deps/CMakeLists.txt"
+        printf '%s\n' "${TARGET_PLATFORM}" "$(uname -m)" "Release" "${LAUNCHER_ARGS[*]:-}"
+        "${CXX:-c++}" --version 2>/dev/null | head -1
+        cmake --version | head -1
+    } | md5 -q
+}
+
+DEPS_KEY="$(deps_key)"
+DEPS_DIR="${DEPS_CACHE_ROOT}/${DEPS_KEY}"
+DEPS_BUILD="${DEPS_DIR}/build"
+DEPS_BIN="${DEPS_BUILD}/bin"
+if [[ "$CLEAN_DEPS" == "true" ]]; then
+    rm -rf "${DEPS_DIR}"
+fi
+
+# Two lanes may reach an empty entry together. The loser waits for the winner's READY rather than
+# configuring a second cmake into the same tree.
+mkdir -p "${DEPS_CACHE_ROOT}"
+LOCK="${DEPS_DIR}.lock"
+waited=0
+while [[ ! -f "${DEPS_DIR}/READY" ]]; do
+    if mkdir "${LOCK}" 2>/dev/null; then
+        echo $$ > "${LOCK}/pid"
+        trap 'rm -rf "${LOCK}"' EXIT
+        echo "[deps] filling ${DEPS_DIR} (key ${DEPS_KEY})"
+        mkdir -p "${DEPS_BUILD}"
+        cmake -S "${EXT_DIR}/cmake/deps" -B "${DEPS_BUILD}" -DCMAKE_BUILD_TYPE=Release \
+            -DGODOT_CPP_DIR="${THIRDPARTY_DIR}/godot-cpp" -DLLAMA_CPP_DIR="${THIRDPARTY_DIR}/llama.cpp" \
+            ${LAUNCHER_ARGS[@]+"${LAUNCHER_ARGS[@]}"}
+        cmake --build "${DEPS_BUILD}" --target la_deps --config Release \
+            --parallel "$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
+        [[ -f "${DEPS_BUILD}/la_deps.cmake" ]] || { echo "Error: the dependency build produced no la_deps.cmake." >&2; exit 1; }
+        touch "${DEPS_DIR}/READY"
+        rm -rf "${LOCK}"
+        trap - EXIT
+        break
+    fi
+    owner="$(cat "${LOCK}/pid" 2>/dev/null || echo "")"
+    if [[ -n "$owner" ]] && ! kill -0 "$owner" 2>/dev/null; then
+        echo "[deps] clearing a lock left by dead pid ${owner}" >&2
+        rm -rf "${LOCK}"
+        continue
+    fi
+    if (( waited >= 1800 )); then
+        echo "Error: waited ${waited}s for another build to fill ${DEPS_DIR}." >&2
+        exit 1
+    fi
+    sleep 5
+    waited=$(( waited + 5 ))
+done
+
+configure_cmd=(cmake -S "${EXT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release
+    -DLOCAL_AGENTS_DEPS_BUILD="${DEPS_BUILD}" ${LAUNCHER_ARGS[@]+"${LAUNCHER_ARGS[@]}"})
 if [[ -n "$GENERATOR" ]]; then
     configure_cmd+=(-G "${GENERATOR}")
 fi
@@ -303,6 +378,9 @@ fi
 JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
 cmake --build "${BUILD_DIR}" --target localagents --config Release --parallel "${JOBS}"
 cmake --install "${BUILD_DIR}" --prefix "${EXT_DIR}"
+
+# Editor diagnostics read the repo-root .clangd, which points at this database.
+ln -sf "${BUILD_DIR}/compile_commands.json" "${EXT_DIR}/compile_commands.json" 2>/dev/null || true
 
 package_artifacts "${TARGET_PLATFORM}"
 

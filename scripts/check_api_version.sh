@@ -11,7 +11,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 require_tool rg
 
 EXT="$ROOT/addons/local_agents/gdextensions/localagents"
-CM="$EXT/CMakeLists.txt"
+CM="$EXT/cmake/deps/CMakeLists.txt"
 FETCH="$EXT/scripts/fetch_dependencies.sh"
 for f in "$CM" "$FETCH"; do
 	[ -f "$f" ] || { echo "check_api_version: MISSING $f" >&2; exit 2; }

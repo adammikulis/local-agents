@@ -6,29 +6,29 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 option(LOCAL_AGENTS_BUILD_SHARED "Build shared library" ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-set(GODOT_CPP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/godot-cpp" CACHE PATH "Path to godot-cpp")
-set(LLAMA_CPP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/llama.cpp" CACHE PATH "Path to llama.cpp sources")
+set(LLAMA_CPP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/llama.cpp" CACHE PATH "Path to llama.cpp headers")
+set(LOCAL_AGENTS_DEPS_BUILD "" CACHE PATH "Prebuilt godot-cpp/llama.cpp cache tree from cmake/deps")
 
-# Enable llama.cpp common utilities so we can reuse chat/template helpers.
-set(LLAMA_BUILD_COMMON ON CACHE BOOL "llama: build common utils" ON)
-set(LLAMA_BUILD_TOOLS ON CACHE BOOL "llama: build tools (llama-cli, etc.)" ON)
-set(LLAMA_BUILD_SERVER ON CACHE BOOL "llama: build server example" ON)
-set(LLAMA_CURL ON CACHE BOOL "llama: enable curl support" ON)
-
-if (NOT EXISTS "${GODOT_CPP_DIR}/CMakeLists.txt")
-    message(FATAL_ERROR "godot-cpp not found. Run scripts/fetch_dependencies.py")
+if (NOT EXISTS "${LOCAL_AGENTS_DEPS_BUILD}/la_deps.cmake")
+    message(FATAL_ERROR
+        "No prebuilt dependency tree at '${LOCAL_AGENTS_DEPS_BUILD}'. "
+        "Configure through scripts/build_extension.sh, which fills the cache and passes it in.")
 endif()
+include("${LOCAL_AGENTS_DEPS_BUILD}/la_deps.cmake")
 
-if (NOT EXISTS "${LLAMA_CPP_DIR}/CMakeLists.txt")
-    message(FATAL_ERROR "llama.cpp not found. Run scripts/fetch_dependencies.py")
-endif()
-
-# The engine API the bindings target. scripts/check_api_version.sh holds it to the engine on PATH and to
-# an extension_api the pinned godot-cpp actually ships.
-set(GODOTCPP_API_VERSION "4.7" CACHE STRING "Godot API version; must be one the pinned godot-cpp carries")
-add_subdirectory(${GODOT_CPP_DIR} "${CMAKE_BINARY_DIR}/godot-cpp" EXCLUDE_FROM_ALL)
-add_subdirectory(${LLAMA_CPP_DIR} "${CMAKE_BINARY_DIR}/llama.cpp" EXCLUDE_FROM_ALL)
+foreach(dep IN ITEMS godot_cpp llama llama_common mtmd ggml ggml_base ggml_cpu ggml_blas ggml_metal)
+    if (LA_DEP_${dep})
+        string(REPLACE "_" "-" tgt "${dep}")
+        add_library(${tgt} UNKNOWN IMPORTED)
+        set_target_properties(${tgt} PROPERTIES IMPORTED_LOCATION "${LA_DEP_${dep}}")
+    endif()
+endforeach()
+set_target_properties(godot-cpp PROPERTIES
+    INTERFACE_INCLUDE_DIRECTORIES "${LA_GODOT_CPP_INCLUDES}"
+    INTERFACE_COMPILE_DEFINITIONS "${LA_GODOT_CPP_DEFS}"
+    INTERFACE_COMPILE_OPTIONS "${LA_GODOT_CPP_OPTIONS}")
 
 # NOTE: the homegrown ecosystem/settlement simulation + native voxel-edit/dispatch
 # sources were removed with that stack. Only the LLM/agent/graph runtime remains.
@@ -56,11 +56,10 @@ set(SQLITE_SRC
 
 set(INCLUDE_DIRS
     include
-    ${GODOT_CPP_DIR}/include
-    ${GODOT_CPP_DIR}/gen/include
     ${LLAMA_CPP_DIR}
     ${LLAMA_CPP_DIR}/include
     ${LLAMA_CPP_DIR}/common
+    ${LA_LLAMA_COMMON_INCLUDES}
     ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/sqlite
 )
 
@@ -69,13 +68,11 @@ add_library(localagents SHARED ${SRC} ${SQLITE_SRC})
 target_include_directories(localagents PRIVATE ${INCLUDE_DIRS})
 
 target_link_libraries(localagents PRIVATE godot-cpp llama llama-common)
-
-if (TARGET llama-cli)
-    add_dependencies(localagents llama-cli)
-endif()
-if (TARGET llama-server)
-    add_dependencies(localagents llama-server)
-endif()
+foreach(tgt IN ITEMS ggml ggml-base)
+    if (TARGET ${tgt})
+        target_link_libraries(localagents PRIVATE ${tgt})
+    endif()
+endforeach()
 
 find_package(CURL REQUIRED)
 if (CURL_FOUND)

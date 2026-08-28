@@ -65,25 +65,9 @@ command -v godot >/dev/null 2>&1 || { echo "sim_run: godot is not on PATH. NO RU
 command -v python3 >/dev/null 2>&1 || { echo "sim_run: python3 is not on PATH (needed to read the report)." >&2; exit 2; }
 
 # RE-IMPORT FIRST, ALWAYS. A .glsl edited since its last import leaves the compiled .res stale, and the run
-# would load the OLD kernel and print a normal-looking report built on it. The wrapper refuses to launch a
-# stale tree (exit 3), so this turns that refusal into a non-event instead of a thing to remember.
-# Only import when a .glsl is newer than its compiled .res — a full import costs ~2.3s and most runs need none.
-# An edited INCLUDE recompiles nothing on its own, so a .glsli newer than a sibling kernel's .res is a
-# changed kernel too — the importer follows include dependencies once it runs.
-NEED_IMPORT=0
-while IFS= read -r g; do
-  base="$(basename "$g")"
-  newest_res="$(ls -t "$PROJ/.godot/imported/${base}-"*.res 2>/dev/null | head -1)"
-  if [ -z "$newest_res" ] || [ "$g" -nt "$newest_res" ]; then NEED_IMPORT=1; break; fi
-  for inc in "$(dirname "$g")"/*.glsli; do
-    [ -f "$inc" ] || continue
-    if [ "$inc" -nt "$newest_res" ]; then NEED_IMPORT=1; break 2; fi
-  done
-done < <(find "$PROJ/addons" -name '*.glsl' 2>/dev/null)
-if [ "$NEED_IMPORT" -eq 1 ]; then
-  echo "sim_run: a kernel changed — importing." >&2
-  "$(dirname "${BASH_SOURCE[0]}")/godot_import.sh" "$PROJ"
-fi
+# would load the OLD kernel and print a normal-looking report built on it. godot_import.sh answers whether
+# anything actually changed and costs a hash when nothing has.
+"$SCRIPT_DIR/godot_import.sh" "$PROJ"
 
 # NO PRESENTATION BY DEFAULT. A measurement run has no use for the HUD, the audio director, the ocean
 # plane, the water particles, the vegetation renderer, the biome and sea-ice shaders, the drainage overlay
