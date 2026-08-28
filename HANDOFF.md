@@ -21,8 +21,10 @@ is measured, and no item about a higher rung is examined until the rungs below i
 
 ## 1. RUNG 3 DOES NOT COMPLETE ON THE GRADED PLANET (the first red rung; the slab's gate is green both arms)
 
-`scripts/sim_run.sh --rung 3 --frames 8` exits 4; the run logs `FluxPass: the h2o record's own cells
-carry a signal speed at or past light, so no timestep integrates them`.
+`scripts/sim_run.sh --rung 3 --frames 2` exits 4: after one frame the run logs `FluxPass: the h2o
+record's own cells carry a signal speed at or past light`, and the same run's first frame ends with
+open cells under the surface at the ladder's top temperature and at no pressure, gas amounts below
+zero and velocities past any signal. The first frame alone completes; `--frames 1` reports.
 
 ## 2. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the books above it
 

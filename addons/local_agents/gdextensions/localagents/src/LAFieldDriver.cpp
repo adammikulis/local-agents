@@ -397,6 +397,11 @@ int64_t LAFieldDriver::run_transport(int64_t p_cl, const PackedInt32Array &p_pea
 			_run_slot(cl, last, p_pc_rows, SLOT_MOMENTUM, lk, k, n);
 			for (int i = 0; i < group.size(); ++i) {
 				_run_row(cl, group[i], p_pc_rows, lk, k, n);
+				// THE COARSEST SUBSTEP WALKS EVERY CELL: one record of it is the most a submit may hold,
+				// because the device's fence wait is finite and a whole-grid substep outran it.
+				if (lk == 0) {
+					cl = _flush(cl);
+				}
 			}
 			_restate(cl, g, lk);
 			_recorded += group.size() + 5;
