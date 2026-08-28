@@ -22,6 +22,7 @@ var _dim_z: int = 0
 var _cell_count: int = 0
 
 var _solid: PackedByteArray = PackedByteArray()          # 1 = rock (holds no fluid), 0 = void (air/water)
+var _rock_fraction: PackedFloat32Array = PackedFloat32Array()   # share of the cell's volume inside the terrain
 # One h2o channel, every phase; mol/m^3 of the cell. Phase is derived per cell.
 var _h2o: PackedFloat32Array = PackedFloat32Array()
 var _h2o_solid: PackedFloat32Array = PackedFloat32Array()    # share of _h2o that is ice
@@ -208,7 +209,7 @@ var _gravity = null                                      # LAMaterialFieldGravit
 ## A slice, a sandbox and a whole planet differ in their arguments, never in their code.
 func setup_box(origin: Vector3, dims: Vector3i, cell_size: float, terrain = null,
 		body_centre: Vector3 = Vector3.ZERO, refine_below_m: float = 0.0,
-		refine_above_m: float = 0.0, target_edge_m: float = 0.0) -> void:
+		refine_above_m: float = 0.0, target_edge_m: float = 0.0, body_radius: float = 0.0) -> void:
 	if terrain != null:
 		_terrain = terrain
 		if terrain.has_method("generator_options"):
@@ -218,7 +219,7 @@ func setup_box(origin: Vector3, dims: Vector3i, cell_size: float, terrain = null
 	# WHERE THE GRID IS FINE: the shell around the terrain surface, to the scale height's edge, under budget.
 	if target_edge_m > 0.0 and (refine_below_m > 0.0 or refine_above_m > 0.0):
 		LAFieldGridBudget.refine_to_budget(grid, body_centre, terrain, refine_below_m,
-			refine_above_m, target_edge_m)
+			refine_above_m, target_edge_m, body_radius)
 	_adopt(grid)
 
 ## ONE lifecycle.
@@ -367,21 +368,16 @@ func activate() -> void:
 	_ready_sim = true
 
 
-## Solid mask: sample the terrain SDF per cell (world pos from the grid). One-time at activation.
+## Rock fraction per cell from the terrain's signed distance; the solid flag is the half-full cell.
 func sample_solidity() -> void:
 	if _terrain == null or not _terrain.has_method("is_solid") or _grid == null:
 		return
-	var k: String = ""
-	if not _terrain_opts.is_empty():
-		k = FieldCacheScript.key(_terrain_opts, _grid)
-		var cached: PackedByteArray = FieldCacheScript.load_mask(k, _cell_count, self)
-		if cached.size() == _cell_count:
-			_solid = cached
-			_seed_silicate()
-			return
-	_solid = LAPlanetComposition.solid_mask(_grid, _terrain)
-	if k != "":
-		LAFieldStateCache.save_mask(k, _solid)
+	var k: String = "" if _terrain_opts.is_empty() else FieldCacheScript.key(_terrain_opts, _grid)
+	_rock_fraction = FieldCacheScript.load_fraction(k, _cell_count, self)
+	if _rock_fraction.size() != _cell_count:
+		_rock_fraction = LAPlanetComposition.rock_fraction(_grid, _terrain, centre())
+		LAFieldStateCache.save_blob(k, {"rock_fraction": _rock_fraction})
+	_solid = LAPlanetComposition.solid_of(_rock_fraction)
 	_seed_silicate()
 
 ## Mineral amounts mirror the sampled mask, so the gravity solve has mass to read before the first step.

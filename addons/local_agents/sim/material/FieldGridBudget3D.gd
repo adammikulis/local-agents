@@ -10,13 +10,12 @@ static func target_edge_m(body_key: String, radius_m: float, t_c: float) -> floa
 		CELLS_PER_SCALE_HEIGHT)
 
 
+## Refine `grid` to `target_m` in the surface band under docs/CELL_BUDGET, and any slab this world will
+## record to that slab's edge; the extension caches the geometry under everything it depends on.
 static func refine_to_budget(grid: LAVoxelGrid, centre: Vector3, terrain: Object, below_m: float,
-		above_m: float, target_m: float) -> void:
-	var cap: int = LAGridGeometry.cell_budget()
-	if cap <= 0:
-		push_error("LAFieldGridBudget: docs/CELL_BUDGET declares no budget, so the grid stays coarse.")
-		return
-	var reached: float = grid.refine_graded(centre, terrain, below_m, above_m, target_m, cap)
-	LASimReport.gauge("grid_cells", float(grid.cell_count))
-	LASimReport.gauge("grid_max_level", float(grid.max_level))
-	LASimReport.gauge("grid_target_edge_m", reached)
+		above_m: float, target_m: float, body_radius: float) -> void:
+	var g: Dictionary = LAGridGeometry.refine_field_grid(grid, terrain, centre, body_radius, below_m, above_m,
+		target_m, LAFieldBoundaryCapture3D.configured(LAFieldBoundaryCapture3D.CAPTURE_BOX_SETTING,
+			LAFieldBoundaryCapture3D.ENV_CAPTURE_BOX), "")
+	if not g.is_empty():
+		grid.adopt_geometry(g)

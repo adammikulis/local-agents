@@ -224,13 +224,20 @@ double LABodySeeds::spin_l_of(const String &p_key) {
 }
 
 double LABodySeeds::seed_radius_m(const String &p_key) {
+	// One bisection per body per run: the mass and the composition it is solved against do not change.
+	static Dictionary memo;
+	if (memo.has(p_key)) {
+		return double(memo[p_key]);
+	}
 	const double m = double(of(p_key).get("mass_kg", 0.0));
 	if (m <= 0.0) {
 		return -1.0;
 	}
 	const double t_c = double(la_gd_const(FIELD_GD, "INITIAL_TEMP"));
 	const double r = LAPlanetComposition::radius_for_mass(m, t_c);
-	return (std::isfinite(r) && r > 0.0) ? r : -1.0;
+	const double out = (std::isfinite(r) && r > 0.0) ? r : -1.0;
+	memo[p_key] = out;
+	return out;
 }
 
 void LABodySeeds::_bind_methods() {
@@ -295,7 +302,7 @@ void LABodyMeasure::measure(Object *p_field, const Vector3 &p_spin_axis) {
 	double i_acc = 0.0;
 	double moles = 0.0;
 	double gas_kg = 0.0;
-	const PackedVector3Array la_cw = grid->call("cell_world_pos_all");
+	const PackedVector3Array la_cw = grid->get("centres");
 	const PackedFloat32Array la_cv = grid->call("cell_volumes");
 	for (int c = 0; c < cc; c++) {
 		const double vol = double(la_cv[c]);

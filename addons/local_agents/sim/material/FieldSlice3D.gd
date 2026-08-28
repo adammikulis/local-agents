@@ -84,6 +84,15 @@ func _resolve_offset(body) -> bool:
 	return true
 
 
+## The box in world space, the surface axis resolved against `radius`.
+func world_aabb(centre: Vector3, radius: float) -> AABB:
+	var off: Vector3 = offset
+	if surface_axis >= 0:
+		off[surface_axis] = radius
+	var size: Vector3 = Vector3(dims) * cell_size
+	return AABB(centre + off - 0.5 * size, size)
+
+
 ## Lay the field over the slice box against the real terrain, and configure its face boundary.
 func apply(field, body, terrain) -> bool:
 	if error != "":
@@ -107,7 +116,7 @@ func apply(field, body, terrain) -> bool:
 	# cell is coarser than that shell. A slice whose own edge already resolves it stays uniform.
 	field.setup_box(centre - half, dims, cell_size, terrain, body.center(), LocalAgentSimWorld.MODELLED_ATMOSPHERE_HEIGHT_M,
 		LocalAgentSimWorld.MODELLED_ATMOSPHERE_HEIGHT_M,
-		LAFieldGridBudget.target_edge_m("planet", float(body.radius()), LAMaterialField3D.INITIAL_TEMP))
+		LAFieldGridBudget.target_edge_m("planet", float(body.radius()), LAMaterialField3D.INITIAL_TEMP), float(body.radius()))
 	_configure_boundary(field)
 	return error == ""
 

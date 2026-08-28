@@ -88,7 +88,7 @@ func _build() -> Dictionary:
 	var grid: LAVoxelGrid = LAVoxelGrid.new()
 	grid.build(NX, 1, 1, CELL, Vector3(-0.5 * float(NX) * CELL, -0.5 * CELL, -0.5 * CELL))
 	var cc: int = grid.cell_count
-	var bufs: Dictionary = {"__cc": cc}
+	var bufs: Dictionary = {"__cc": cc, "__faces": grid.neighbours.size(), "__origin": grid.origin}
 	for name in LAChannels.channels():
 		bufs[String(name)] = _f32(_filled(cc, 0.0))
 	for name in LAChannels.derived_buffers():
@@ -97,6 +97,9 @@ func _build() -> Dictionary:
 			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi", "grav_ref", "k_cond", "mom_orphan"]:
 		bufs[name] = _f32(_filled(cc, 0.0))
 	bufs["gravity"] = _f32(_filled(cc * 3, 0.0))
+	bufs["slot_off"] = _i32(grid.slot_off)
+	bufs["face_partner"] = _i32(grid.partners)
+	bufs["cell_edge"] = _f32(grid.cell_edges())
 	# Everything the derive owns, temporal levels and active lists included, from its own declaration.
 	var sd: RefCounted = (load("res://addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd") as GDScript).new()
 	sd.ghost_count = 0
@@ -150,6 +153,9 @@ func _attach(bufs: Dictionary) -> RefCounted:
 	var cc: int = int(bufs["__cc"])
 	var p: RefCounted = (load(PASS_PATH) as GDScript).new()
 	p.ghost_count = 0
+	p.face_count = int(bufs["__faces"])
+	p.grid_cell_size = CELL
+	p.grid_origin = bufs["__origin"]
 	var want: Dictionary = p._buffers(cc)
 	for key in want:
 		var spec: Variant = want[key]
@@ -175,7 +181,7 @@ func _init() -> void:
 	var bufs: Dictionary = _build()
 	var cc: int = int(bufs["__cc"])
 	var p: RefCounted = _attach(bufs)
-	var ctx: Dictionary = {"cell_size": CELL, "sun_dir": Vector3.ZERO, "dt_s": DT}
+	var ctx: Dictionary = {"cell_size": CELL, "cell_size_min": CELL, "sun_dir": Vector3.ZERO, "dt_s": DT}
 	var groups: int = int(ceil(float(cc) / 64.0))
 	# POSITIVE CONTROL: without two levels the box never straddles a seam and the hash below is a hash
 	# of a world one clock stepped, which is not what this gate is for.

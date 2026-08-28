@@ -60,7 +60,7 @@ Dictionary LAGravitySolve::solve(Object *p_grid, const PackedFloat32Array &p_den
 	}
 	// The monopole reference in double, phi the DEVIATION from it: sum_f w (dphi_nb - dphi_c) = src - sum_f w (ref_nb - ref_c) on
 	// the interior, dphi = 0 on the ring. L phi = -sum_f w (phi_nb - phi_c) is SPD there.
-	const PackedVector3Array cw = p_grid->call("cell_world_pos_all");
+	const PackedVector3Array cw = p_grid->get("centres");
 	const double total = double(p_moments[0]);
 	const Vector3 com(p_moments[1], p_moments[2], p_moments[3]);
 	std::vector<double> ref(cc, 0.0);

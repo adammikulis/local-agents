@@ -227,14 +227,12 @@ PackedFloat32Array LAFieldLithostaticSeed::compress(Object *p_field,
 	std::vector<Mirror> mats = channel_mirrors(p_field, "unit", "mol_m3");
 	const size_t nm = mats.size();
 	std::vector<double> mm(nm, 0.0), v0(nm, 0.0), v0k(nm, 0.0), rho0(nm, 0.0), psat(nm, 0.0);
-	std::vector<bool> is_gas(nm, false), is_lithic(nm, false);
+	std::vector<bool> is_gas(nm, false);
 	for (size_t i = 0; i < nm; i++) {
 		const Dictionary row = rows.get(mats[i].name, Dictionary());
 		const Dictionary sub = table.get(mats[i].substance, Dictionary());
 		mm[i] = double(sub.get("molar_mass", 0.0));
 		is_gas[i] = String(row.get("phase", "")) == "gas";
-		is_lithic[i] = bool(row.get("lithic", false)) && !mats[i].substance.is_empty()
-				&& table.has(mats[i].substance);
 		if (is_gas[i]) {
 			continue;
 		}
@@ -289,7 +287,7 @@ PackedFloat32Array LAFieldLithostaticSeed::compress(Object *p_field,
 	}
 
 	// Height along the local vertical and the slot pointing up it: rock's column marches these.
-	const PackedVector3Array la_cw = grid->call("cell_world_pos_all");
+	const PackedVector3Array la_cw = grid->get("centres");
 	std::vector<double> h(cc, 0.0);
 	std::vector<int> up_slot(cc, -1);
 	for (int c = 0; c < cc; c++) {
@@ -345,29 +343,8 @@ PackedFloat32Array LAFieldLithostaticSeed::compress(Object *p_field,
 		}
 		p_at[c] = top + 0.5 * column_load(c);
 	}
-	// WRITE IT BACK. AN OPEN CELL'S MATTER IS THE COMPOSITION'S, and state_derive.glsl states its pressure
-	// from that matter; a seed that scaled amounts to hit a pressure would be inventing an atmosphere.
-	// Rock FILLS its cell, so its lithic phases take the substance table's own compression at the column
-	// pressure standing over them.
-	for (size_t i = 0; i < nm; i++) {
-		float *w = mats[i].arr.ptrw();
-		bool touched = false;
-		for (int c = 0; c < cc; c++) {
-			double f = 1.0;
-			if (solid[c] != 0 && is_lithic[i] && rho0[i] > 0.0 && p_at[c] > 0.0) {
-				const double r = LASubstances::density(mats[i].substance, t_c, p_at[c]) / rho0[i];
-				f = (std::isfinite(r) && r > 0.0) ? r : 1.0;
-			}
-			if (f == 1.0 || w[c] <= 0.0f) {
-				continue;
-			}
-			w[c] = float(double(w[c]) * f);
-			touched = true;
-		}
-		if (touched) {
-			p_field->set("_" + mats[i].name, mats[i].arr);
-		}
-	}
+	// THE MATTER IS THE COMPOSITION'S: the radial profile it was laid down from is the hydrostatic
+	// solution of the same EOS, so the march states the pressure and moves no mass.
 	// The pressure the balance states, so the first state derive is taken at it rather than at zero.
 	out.resize(cc);
 	float *w = out.ptrw();
