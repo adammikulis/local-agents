@@ -19,6 +19,7 @@ const UI_CLICK: String = "ui_click"
 ## the sting. The tracker already samples at 1 Hz with detector rearm/cooldown; this is a cheap backstop.
 const STING_COOLDOWN_S: float = 1.5
 
+var _world: Node = null                 # LAVoxelWorld — carries the music mood this controller drives
 var _audio: Node = null                 # LAAudioDirector (pulled off the world)
 var _events: Node = null                # LAEventTracker (pulled off the world)
 var _last_sting_time: Dictionary = {}   # type -> last wall-clock seconds a sting played
@@ -32,6 +33,7 @@ func setup(world: Node) -> void:
 	if world == null:
 		push_warning("VoxelAudioController: no world, so audio wiring is inert.")
 		return
+	_world = world
 	_audio = world.get("_audio")
 	_events = world.get("_events")
 	if _audio == null:
@@ -159,6 +161,10 @@ func _on_phenomenon_event(event) -> void:
 	var locus: Variant = null
 	if event.position is Vector3 and (event.position as Vector3) != Vector3.ZERO:
 		locus = event.position
+	# The music's destruction mood, from what the world was OBSERVED to do rather than pushed by whatever
+	# spawned it. Intensity ~6 is the detection threshold, ~24 a disaster.
+	if _world != null and _world.has_method("set_destruction"):
+		_world.set_destruction(clampf((float(event.intensity) - 6.0) / 18.0, 0.0, 1.0))
 	var played: bool = bool(_audio.play_sfx(key, locus, vol_db))
 	print("AUDIO_STING={type:%s, sfx:%s, intensity:%.1f, played:%s}" % [kind, key, float(event.intensity), str(played)])
 

@@ -7,7 +7,7 @@
 # subsystem's draws with it. Two runs of `sim_run.sh --seed 4242` returned different worlds.
 #
 # WHAT IT CHECKS, over the simulation-affecting roots only:
-#   1. No call to the engine's global RNG (randf/randi/randf_range/randi_range/randfn/randomize).
+#   1. No call to the engine's global RNG: randf/randi and also shuffle/pick_random/rand_from_seed/seed.
 #   2. Any RandomNumberGenerator built here is given an explicit seed in the same file. A bare
 #      RandomNumberGenerator.new() is seeded from the OS and is the same defect wearing an object.
 #
@@ -22,10 +22,10 @@ command -v require_tool >/dev/null 2>&1 && require_tool rg
 SCAN_ROOTS=(
   "$ROOT/addons/local_agents/sim"
   "$ROOT/addons/local_agents/creatures"
-  "$ROOT/addons/local_agents/game/world"
+  "$ROOT/addons/local_agents/game"
 )
 # Presentation, or the seeded source itself.
-EXEMPT_RE='/addons/local_agents/tests/|/creatures/sim/SimRng.gd$|/game/world/VoxelAudioController.gd$'
+EXEMPT_RE='/addons/local_agents/tests/|/creatures/sim/SimRng.gd$|/game/world/VoxelAudioController.gd$|/game/ui/|/game/menu/|/game/render/|/game/VoxelCameraRig.gd$'
 
 for d in "${SCAN_ROOTS[@]}"; do
   [ -d "$d" ] || { echo "check_sim_determinism: MISSING scan root $d." >&2; exit 2; }
@@ -41,9 +41,11 @@ COUNT=$(printf '%s\n' "$FILES" | wc -l | tr -d ' ')
 fail=0
 
 # 1. The engine's global RNG. `[^A-Za-z0-9_.]` before the name keeps rng.randf() / _rng.randi_range() out.
+#    Array.shuffle()/pick_random() are the opposite shape — always dotted, always the global generator.
 bare=$(printf '%s\n' "$FILES" | tr '\n' '\0' \
-       | xargs -0 grep -nE '(^|[^A-Za-z0-9_.])(randf|randi|randf_range|randi_range|randfn|randomize)[[:space:]]*\(' \
-       2>/dev/null | grep -vE '^[^:]*:[0-9]+:[[:space:]]*#' || true)
+       | xargs -0 grep -nE '(^|[^A-Za-z0-9_.])(randf|randi|randf_range|randi_range|randfn|randomize|rand_from_seed|seed)[[:space:]]*\(|\.(shuffle|pick_random)[[:space:]]*\(' \
+       2>/dev/null | grep -vE '^[^:]*:[0-9]+:[[:space:]]*#' \
+                   | grep -vE '(^|[^A-Za-z0-9_.])func[[:space:]]+seed[[:space:]]*\(' || true)
 if [ -n "$bare" ]; then
   echo "check_sim_determinism: GLOBAL RNG IN A SIMULATION PATH. Draw from LASimRng instead —" >&2
   echo "  LASimRng.for_domain(\"life\") for ecology/creatures, LASimRng.for_domain(\"planet\") for" >&2

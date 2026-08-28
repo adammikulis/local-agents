@@ -94,6 +94,8 @@ func _wire_loop() -> void:
 	_loop.stepped.connect(_on_step)
 	_loop.stepped.connect(Callable(_ecology, "on_sim_step"))
 	_loop.stepped.connect(Callable(_material.step_driver(), "step").unbind(1))
+	if _events != null:
+		_loop.stepped.connect(Callable(_events, "on_sim_step"))
 
 
 func _on_seeding(_tick: int) -> void:
@@ -173,7 +175,7 @@ func _build_system() -> void:
 
 func _build_geology_and_life() -> void:
 	# The camera + audio are rendering, injected by those layers when they exist.
-	_impacts.setup(self, _terrain, _ecology, _actors_root, null)
+	_impacts.setup(_terrain, _ecology, _actors_root, null)
 
 	_markers.setup(_material)
 	if _material.has_method("set_lightning_visual"):

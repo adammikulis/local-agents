@@ -64,9 +64,8 @@ not deleted: it becomes the gate that a 2:1 neighbour's volume ratio is exactly 
 goes through `cellvol.glsli`'s existing `vol_ratio(donor, receiver)`.
 
 **The well-balanced scheme is required work, not a hope, and it decides whether the atmosphere is real.**
-`scripts/check_atmosphere_at_rest.sh` is its gate and it is RED: the sealed column's own reading is
-reproducible only when the run draws no ambient event, and a cell's pressure leaves the value it was
-seeded with. Reproduce: `bash scripts/check_atmosphere_at_rest.sh`.
+`scripts/check_atmosphere_at_rest.sh` is its gate and it is RED: a cell's pressure leaves the value it
+was seeded with. Reproduce: `bash scripts/check_atmosphere_at_rest.sh`.
 
 ## 2. The open-boundary books do not close at run level
 

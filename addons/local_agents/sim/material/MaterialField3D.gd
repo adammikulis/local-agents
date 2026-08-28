@@ -679,8 +679,8 @@ func shock_at(world_pos: Vector3) -> float:
 func shock_gradient(world_pos: Vector3) -> Vector3:
 	if _gpu != null: _gpu.request_channel("shock")
 	return _shock_mod.shock_gradient(world_pos) if _shock_mod != null else Vector3.ZERO
-func shock_cell_count() -> int:
-	return _shock_mod.shock_cell_count() if _shock_mod != null else 0
+func shock_cell_count():
+	return _shock_mod.shock_cell_count() if _shock_mod != null else null
 
 
 

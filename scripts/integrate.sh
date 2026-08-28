@@ -135,6 +135,7 @@ if [ "$LINT_RC" -ne 0 ]; then
 	UNRUN_CEIL="$(rg -N -o '^[0-9]+$' "$LANE_WT/docs/UNRUNNABLE_GATES_CEILING" 2>/dev/null | head -1)"
 	if [ -z "$SUMMARY" ] || [ -z "$UNRUN_CEIL" ] || [ "${VIOL:-1}" -ne 0 ] || [ "${CANNOT:-1}" -gt "$UNRUN_CEIL" ]; then
 		echo "integrate: LINT FAILED. $DEV is untouched." >&2
+		printf '%s\n' "$LINT_OUT" | rg -N -e '^LINT_FAIL:|^LINT_UNRUNNABLE:|^LAUNCH_COUNT=' | sed 's/^/           /' >&2
 		[ -n "$SUMMARY" ] && echo "           $CANNOT could not run (ceiling $UNRUN_CEIL), $VIOL violation(s)." >&2
 		echo "           Reproduce with: cd $LANE_WT && scripts/agent_harness.sh lint" >&2
 		exit 1
