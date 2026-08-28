@@ -17,16 +17,15 @@ is measured, and no item about a higher rung is examined until the rungs below i
 
 ---
 
-## 2. THE WIND BLOWS PAST ITS OWN SOUND SPEED (rung 3, the first red rung)
+## 2. THE H2O ROW HAS CELLS NO TIMESTEP INTEGRATES (rung 3, the first red rung)
 
-`bash scripts/check_rung_acoustic.sh` reads a cell moving faster than its own sound speed; the peak stops
-climbing and holds, far past the ~70 m/s of a real jet stream, on a world nothing drives but pressure and
-gravity. **Reproduce:** `for n in 4 8 16; do scripts/sim_run.sh --rung 3 --frames $n --report wind_speed_max; done`
-and `bash scripts/check_wind_subsonic.sh`. `bash scripts/check_atmosphere_at_rest.sh` is the rung's other
-gate: its sealed column moves and its vented control reads differently.
-
-The energy book weighs specific enthalpy where the first law wants internal energy, and no row publishes
-the pV between them (`docs/PHYSICS_TODO.md` E carries it with its reproducer).
+`scripts/sim_run.sh --rung 3 --frames 2` exits 4: `TransportPass: the h2o row's own cells carry a signal
+speed at or past light, so no timestep integrates them`, on a world nothing drives but pressure and
+gravity, which cancel at balance. The emptiness floor that once zeroed the velocity of a near-empty cell
+is deleted (`scripts/check_no_empty_floor.sh`); `momentum_orphan_cells` counts momentum sitting on zero
+mass (`scripts/check_momentum_orphans.sh`), and a cell with a little mass and a lot of momentum is the
+same defect one cell over. `bash scripts/check_atmosphere_at_rest.sh` is the rung's other gate: its
+sealed column moves and its vented control reads differently.
 
 ## 3. LINT FOLLOWS THE LADDER
 

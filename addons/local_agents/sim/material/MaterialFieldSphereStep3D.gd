@@ -160,11 +160,11 @@ func step() -> void:
 		return
 	# Refresh the body rotation FIRST: everything below that converts a position or a direction reads it.
 	_f.sync_body_frame()
-	if LAProcessSet.has_record("pass", GRAVITY_PASS):
-		_f._gravity.solve_step(_f._gpu._step_index)   # the potential of the mass that moved, converged
 	var t0: int = Time.get_ticks_usec()
 	var t_begin: int = t0
 	_f._gpu.begin_frame(_f._h, _f._h2o)      # drains prev step (sync+readback) + uploads
+	if LAProcessSet.has_record("pass", GRAVITY_PASS):
+		_f._gravity.solve_step(_f._gpu._step_index)   # the potential of the mass that moved, converged; the device is idle here
 	LASimReport.gauge("field_begin_ms", float(Time.get_ticks_usec() - t_begin) / 1000.0)
 	# Per-cell solar terminator + marine cooling need the world-space sun direction and the sea shell radius.
 	if _f._sun_light != null and _f._gpu.has_method("set_sun_flux") \

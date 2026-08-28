@@ -212,8 +212,6 @@ func _push(mode: int, colour: int, cc: int, cell_m: float) -> PackedByteArray:
 func _drain(rd: RenderingDevice) -> Dictionary:
 	if not _read_due or not _moments.is_valid():
 		return _last
-	if false:
-		return {}
 	_read_due = false
 	var m: PackedFloat32Array = rd.buffer_get_data(_moments).to_float32_array()
 	if m.size() < MOMENT_SLOTS:
@@ -223,12 +221,13 @@ func _drain(rd: RenderingDevice) -> Dictionary:
 	_mirror = rd.buffer_get_data(_gravity).to_float32_array()
 	_up = rd.buffer_get_data(_up_rid).to_int32_array()
 	_down = rd.buffer_get_data(_down_rid).to_int32_array()
-	return {
+	_last = {
 		"gravity_total_mass_kg": m[0],
 		"gravity_mean_g": m[4],
 		"gravity_residual_rel": m[5],
 		"gravity_gauss_rel": m[6],
 		"gravity_solves": float(_solves)}
+	return _last
 
 
 ## Solved acceleration, flat cell*3, m/s^2. Empty until the first drain after the first solve.
