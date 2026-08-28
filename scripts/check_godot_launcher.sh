@@ -62,6 +62,19 @@ if [ -f "$HOOK" ] && rg -q 'agent_harness\.sh" lint' "$HOOK"; then
 	}
 fi
 
+# A LANE MAY NOT KILL ANOTHER LANE'S RUN. Every lane's sim is the same binary, so pkill/killall by
+# program name reaches runs this tree does not own, and removing the lock hands one GPU to two runs.
+kills="$(rg -n --no-heading -g '*.sh' -g '!check_godot_launcher.sh' \
+	-e '(^|[^-[:alnum:]_])(pkill|killall)[[:space:]]' -e 'rm[[:space:]].*la_sim_gpu\.lock' "$ROOT/scripts" 2>/dev/null \
+	| grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' || true)"
+if [ -n "$kills" ]; then
+	printf '%s\n' "$kills" >&2
+	echo "" >&2
+	echo "FAIL  the line(s) above kill by program name or unlink the GPU lock. Both reach runs this tree" >&2
+	echo "      does not own. Kill the PID you launched, and let the lock's holder release it." >&2
+	launcher_fail=1
+fi
+
 # NOTHING MAY ACTIVATE AN APP BACK: a stale "front app" re-activated after a run is a second theft.
 if rg -q -g '!check_godot_launcher.sh' 'tell application .* to activate' "$ROOT/scripts"; then
 	echo "FAIL  a script under scripts/ activates an application; delete it." >&2

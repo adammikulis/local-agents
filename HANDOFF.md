@@ -65,10 +65,6 @@ goes through `cellvol.glsli`'s existing `vol_ratio(donor, receiver)`.
 reproducible only when the run draws no ambient event, and a cell's pressure leaves the value it was
 seeded with. Reproduce: `bash scripts/check_atmosphere_at_rest.sh`.
 
-`check_alt_bands.sh` already fails on this: every populated altitude band reads the same minimum
-temperature, because the bands hold one isothermal population and mostly the cube's corners. It goes
-green when the atmosphere has vertical structure, so treat it as this item's acceptance test.
-
 ## 2. The open-boundary books do not close at run level
 
 `scripts/sim_run.sh --frames 20 --slice-capture C` then
@@ -83,14 +79,6 @@ no step's crossings are dropped and nothing is extrapolated over a window.
 
 With every wall shut, `scripts/agent_harness.sh sim --frames 20` ends with `h2o_total` below its sealed
 baseline while the element and mineral books close. Same symptom on the pre-conversion tree.
-
-## 3. Three GPU gates are red and none is triaged
-
-`check_slice_exterior.sh` reports `the exterior under the box is not under more pressure than the
-exterior over it` and `SLICE_EXTERIOR_CAPTURE={"faces":6,"named":0}`. `check_alt_bands.sh` and
-`check_boundary_momentum_book.sh` are red for the reasons items 1 and 0 carry.
-
-Reproduce: `bash scripts/check_slice_exterior.sh`.
 
 ## 4. Reduce the rest on the device
 
@@ -115,10 +103,12 @@ GDScript keeps bindings. `gdextensions/localagents/` already builds; a class is 
 - **Do not move `PhysicalConstants.gd`.** godot-cpp binds only INTEGER class constants, so its floats
   have no native form a GDScript `const` can fold; native code reads it through
   `include/LAPhysicalRead.hpp`.
-- The seed-time serial work still in GDScript: `MaterialFieldHydrosphere3D`'s priority flood,
-  `MaterialFieldSolidCache3D`'s SDF spot check and file hashing, `MaterialFieldRegolith3D.compute`'s
-  burial march, `FieldEnthalpySeed3D`'s per-cell mixture walk and its dynamic `f.get("_" + name)` lookup.
-- The driver: `MaterialSphereGPU3D.gd` and `MaterialField3D.gd`. Last, after the pass seam settles.
+- The seed-time serial work still in GDScript: `MaterialFieldSolidCache3D`'s SDF spot check and file
+  hashing, `MaterialFieldRegolith3D.compute`'s burial march, and `LAFieldEnthalpySeed.seed`'s per-cell
+  loop, which now calls native for the masses and keeps the mixture arithmetic here.
+- The driver: `MaterialSphereGPU3D.gd`, `MaterialField3D.gd` and `TransportPass.gd`. `TransportPass`'s
+  dispatch loop and `ReducePass._drain`'s readback are what the field costs now — read
+  `field_readback_ms`. Last, after the pass seam settles.
 
 ## 8. A --ui run with fauna never reports, and the opening view frames open ocean
 
@@ -126,9 +116,9 @@ GDScript keeps bindings. `gdextensions/localagents/` already builds; a class is 
 --sandbox --ui --run-frames=20` never prints a report and logs no error. The same arm with
 `--planet-only --no-fauna` reports in about twenty seconds.
 
-`scripts/check_ground_drawn.sh` passes and its picture is open sea: the eye stands 95 m over the water
-on a bearing the spawn controller framed, while `LAVoxelTerrainService.land_direction()` reports 59 of
-128 bearings carry land above the sea shell.
+`scripts/check_ground_drawn.sh` passes and its picture is open sea: the spawn controller frames a
+bearing with no land on it, while `LAVoxelTerrainService.land_direction()` has bearings that carry land
+above the sea shell.
 
 
 ## 7. Build the binding registry
@@ -158,13 +148,17 @@ codes are listed at the top of `scripts/run_sim_offscreen.sh`.
 `godot --headless --editor`: two concurrent scans segfault.
 
 ONE run at a time — the GPU lock is machine-wide, and concurrent runs fail each other with
-`timeout waiting for fence`. Finish the whole change set, then commit once: the pre-commit hook runs the
-full lint, so a commit per step is a lint per step. A run past `docs/RUN_TIMEOUT_CEILING` needs an explicit
-`LA_RUN_TIMEOUT` and is a declared soak.
+`timeout waiting for fence`. Finish the whole change set, then commit once: the pre-commit hook runs
+`LA_NO_GPU=1 lint`, so a commit per step is a lint per step. A run past `docs/RUN_TIMEOUT_CEILING` needs
+an explicit `LA_RUN_TIMEOUT` and is a declared soak.
 
-Make every worktree with `scripts/new_worktree.sh`, which symlinks the compiled `bin/`, imports the `.glsl`
-kernels and editor-scans. Without the import the GPU field is dead and the report still looks fine.
-Each worktree gets its OWN `bin/`: one shared copy cannot serve two trees whose native `class_name`s
-differ, and the other tree stops parsing with "hides a native class".
+A lane runs `LA_NO_GPU=1 scripts/agent_harness.sh lint` plus its own gates; the full lint is
+`scripts/integrate.sh`'s. Never `pkill` by program name and never remove `la_sim_gpu.lock` by hand: both
+reach runs this tree does not own.
+
+Make every worktree with `scripts/new_worktree.sh`, which copies the primary's compiled `bin/`, links its
+fetched `thirdparty/`, imports the `.glsl` kernels and editor-scans. Without the import the GPU field is
+dead and the report still looks fine. Each worktree gets its OWN `bin/`: one shared copy cannot serve two
+trees whose native `class_name`s differ, and the other tree stops parsing with "hides a native class".
 
 A gate that passes with the feature disabled is not a gate. Mutation-test every gate you write, both ways.
