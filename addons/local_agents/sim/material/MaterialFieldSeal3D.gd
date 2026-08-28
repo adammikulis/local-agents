@@ -75,7 +75,8 @@ func poll(legs: Dictionary) -> bool:
 	if _phase != Phase.SEALED:
 		_phase = Phase.SEALED
 		_seal_step = SampleScript.field_step(_f)
-		_origin = "seeded"
+		if _origin == "unsealed":
+			_origin = "seeded"
 	_latch_baselines()
 	return true
 
@@ -88,6 +89,14 @@ func _latch_baselines() -> void:
 	if rep != null:
 		rep._heavy_frame = -1_000_000
 		rep._heavy_block()
+
+
+## A bake carried the seal in. The world was handed this matter once, by the run that baked it, so its
+## declarations travel with the state rather than being forgotten on the way back in.
+func restore(created: Dictionary) -> void:
+	_created = created.duplicate(true)
+	_origin = "restored"
+
 
 
 func note_seed(totals: Dictionary) -> void:

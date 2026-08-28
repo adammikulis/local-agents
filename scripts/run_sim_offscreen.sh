@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_import.sh"
 # Launch a WINDOWED (GPU) run without interrupting the user: the window is positioned off-screen and
 # keyboard focus is handed back to whatever app was frontmost, so a verification run never steals
 # attention. Override the position with LA_WIN_POS="x,y". Pass the normal godot args, e.g.:
@@ -51,37 +52,11 @@ WIN_POS="${LA_WIN_POS:-$DEFAULT_WIN_POS}"
 RENDER_DRIVER="${LA_RENDER_DRIVER:-metal}"
 
 # --- STALE-SHADER GUARD ------------------------------------------------------
-# A .glsl whose COMPILED resource under .godot/imported/ is older than the source means Godot loads the OLD
-# kernel and says nothing. The run completes, prints a full normal-looking SIM_REPORT, and every number in it
-# is fiction.
-#
-# scripts/new_worktree.sh imports a FRESH worktree, but nothing re-imports a LONG-LIVED checkout after a
-# merge lands someone else's kernel edit, so a primary checkout rots silently from that moment on and a
-# whole subsystem can be absent from a run that reports normally.
-#
-# FAIL, DO NOT AUTO-FIX: a measurement wrapper that quietly mutates the import cache is exactly the hidden
-# side effect this project bans on authoritative paths. Name what is stale and how to fix it.
-# LA_SKIP_SHADER_CHECK=1 bypasses, for a tree that is meant to be unimported.
-
-# Godot writes the source hash it compiled from into a .md5 beside each resource. That is the FACT; an mtime
-# is a proxy, and a checkout or an identical rewrite moves it without changing the content — `--import` then
-# has nothing to do, so the warning cannot be cleared and the only way out is the blanket bypass. Returning
-# false (no record, no md5 tool) leaves the mtime verdict standing: a missing tool never relaxes the gate.
-_shader_hash_matches() {
-  src_f="$1"
-  rec_f="$2"
-  [ -f "$rec_f" ] || return 1
-  want_h="$(sed -n 's/^source_md5="\(.*\)"$/\1/p' "$rec_f" | head -1)"
-  [ -n "$want_h" ] || return 1
-  if command -v md5sum >/dev/null 2>&1; then
-    have_h="$(md5sum "$src_f" | cut -d' ' -f1)"
-  elif command -v md5 >/dev/null 2>&1; then
-    have_h="$(md5 -q "$src_f")"
-  else
-    return 1
-  fi
-  [ "$want_h" = "$have_h" ]
-}
+# A kernel whose compiled resource was built from other source loads OLD and says nothing: the run
+# completes and every number in its SIM_REPORT is fiction. lib_import.sh answers what is stale.
+# FAIL, DO NOT AUTO-FIX: a measurement wrapper that quietly mutates the import cache is the hidden side
+# effect this project bans on authoritative paths. LA_SKIP_SHADER_CHECK=1 bypasses, for a tree meant to
+# be unimported.
 
 if [ "${LA_SKIP_SHADER_CHECK:-0}" != "1" ]; then
   proj="."
@@ -93,45 +68,11 @@ if [ "${LA_SKIP_SHADER_CHECK:-0}" != "1" ]; then
   if [ -d "$proj/.godot/imported" ]; then
     stale_list=""
     stale_n=0
-    while IFS= read -r src; do
-      base="$(basename "$src")"
-      newest="$(ls -t "$proj"/.godot/imported/"$base"-*.res 2>/dev/null | head -1)"
-      # CONTENT, NOT MTIME. Godot reimports by comparing the source md5 against the `source_md5` recorded
-      # beside the artifact, so that comparison is authoritative and _shader_hash_matches owns it. An mtime
-      # test disagrees with it after any git operation that rewrites the working tree, and a gate that
-      # cries wolf gets bypassed.
-      if [ -z "$newest" ]; then
-        stale=1                                   # no resource at all: load() returns null, pass is dead
-      elif _shader_hash_matches "$src" "${newest%.res}.md5"; then
-        stale=0
-      elif [ "$src" -nt "$newest" ]; then
-        stale=1                                   # no record or no md5 tool: the mtime verdict stands
-      else
-        stale=0
-      fi
-      # The md5 covers the .glsl SOURCE only, so an edited include recompiles nothing and every kernel
-      # including it runs stale with a normal-looking report. No hash is recorded for includes; a sibling
-      # .glsli newer than the artifact is the only signal, and a false alarm costs one --import.
-      if [ "$stale" -eq 0 ] && [ -n "$newest" ]; then
-        for inc in "$(dirname "$src")"/*.glsli; do
-          [ -f "$inc" ] || continue
-          if [ "$inc" -nt "$newest" ]; then
-            stale=1
-            break
-          fi
-        done
-      fi
-      if [ "$stale" -eq 1 ]; then
-        stale_n=$((stale_n + 1))
-        if [ "$stale_n" -le 8 ]; then stale_list="$stale_list
+    while IFS= read -r base; do
+      stale_n=$((stale_n + 1))
+      if [ "$stale_n" -le 8 ]; then stale_list="$stale_list
     $base"; fi
-      fi
-    # SCOPE MATTERS OR THE GUARD CRIES WOLF AND GETS BYPASSED. `.claude/worktrees/` holds whole sibling
-    # CHECKOUTS (675 .glsl in this tree against 82 real ones), and `thirdparty/` vendors llama.cpp's and
-    # whisper.cpp's Vulkan shaders, which no sim pass loads. What is left is the 34 kernels the field runs.
-    done < <(find "$proj" -name '*.glsl' \
-      -not -path '*/.godot/*' -not -path '*/.claude/*' -not -path '*/.git/*' \
-      -not -path '*/thirdparty/*' 2>/dev/null)
+    done < <(la_stale_kernels "$proj")
     if [ "$stale_n" -gt 0 ]; then
       {
         echo "STALE_SHADERS={\"count\":$stale_n,\"path\":\"$proj\"}"
