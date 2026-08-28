@@ -1,13 +1,17 @@
+#include <godot_cpp/variant/utility_functions.hpp>
 #include "LAPlanetTables.hpp"
 
+#include <godot_cpp/variant/utility_functions.hpp>
 #include "LAScriptCall.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <vector>
 
 #include "LAPhysicalRead.hpp"
 #include "LATerrainLattice.hpp"
 #include "LASubstances.hpp"
+#include "LABodySystem.hpp"
 
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/script.hpp>
@@ -18,6 +22,7 @@
 #include <godot_cpp/variant/packed_float32_array.hpp>
 #include <godot_cpp/variant/vector3.hpp>
 
+#include <algorithm>
 #include <cmath>
 
 using namespace godot;
@@ -376,9 +381,19 @@ double LAPlanetComposition::core_radius_frac(double p_t_c, double p_p_pa) {
 // is wherever the inner `f_core` of the mass ends up, not a radius anybody declared.
 constexpr double kPi = 3.14159265358979323846;
 
-static double mass_at_radius(double p_radius_m, double p_t_c) {
+// The relaxed radial structure of a body of radius R: pressure per shell and the core's shell count.
+struct RadialProfile {
+	int n = 0;
+	int i_core = 0;
+	double dr = 0.0;
+	std::vector<double> p_at;
+	double mass = 0.0;
+};
+
+static RadialProfile radial_profile(double p_radius_m, double p_t_c) {
+	RadialProfile out;
 	if (!(p_radius_m > 0.0)) {
-		return 0.0;
+		return out;
 	}
 	const int N = 192;
 	const double g_const = la_physical("GRAVITATIONAL_CONSTANT");
@@ -389,7 +404,7 @@ static double mass_at_radius(double p_radius_m, double p_t_c) {
 	const double rho_shell0 = LAPlanetComposition::shell_density(p_t_c, p_std);
 	const double rho_core0 = LASubstances::density("metal", p_t_c, p_std);
 	if (rho_shell0 <= 0.0 || rho_core0 <= 0.0) {
-		return 0.0;
+		return out;
 	}
 	int i_core = int(double(N) * LAPlanetComposition::core_radius_frac(p_t_c, p_std));
 	for (int i = 0; i < N; ++i) {
@@ -405,7 +420,7 @@ static double mass_at_radius(double p_radius_m, double p_t_c) {
 		}
 		const double total = acc;
 		if (!(total > 0.0)) {
-			return 0.0;
+			return out;
 		}
 		// The core boundary is a MASS fraction, so it moves as the profile compresses.
 		i_core = 0;
@@ -434,7 +449,22 @@ static double mass_at_radius(double p_radius_m, double p_t_c) {
 		const double r_hi = r_lo + dr;
 		total += rho[i] * (4.0 / 3.0) * kPi * (r_hi * r_hi * r_hi - r_lo * r_lo * r_lo);
 	}
-	return total;
+	out.n = N;
+	out.i_core = i_core;
+	out.dr = dr;
+	out.p_at = p_at;
+	out.mass = total;
+	return out;
+}
+
+static double mass_at_radius(double p_radius_m, double p_t_c) {
+	return radial_profile(p_radius_m, p_t_c).mass;
+}
+
+// The core boundary of the relaxed body of radius R, metres.
+double LAPlanetComposition::core_radius_m(double p_radius_m, double p_t_c) {
+	const RadialProfile prof = radial_profile(p_radius_m, p_t_c);
+	return prof.n > 0 ? double(prof.i_core) * prof.dr : 0.0;
 }
 
 // THE RADIUS IS AN OUTPUT. A body is given a mass and a composition; how big it is follows from how far
@@ -472,19 +502,24 @@ void LAPlanetComposition::seed(Object *p_field, double p_t_c) {
 	if (w.is_empty() || grid == nullptr) {
 		return;
 	}
-	const double p_std = la_physical("STANDARD_PRESSURE_PA");
+	const double r_body = LABodySeeds::seed_radius_m(String(p_field->get("_body_key")));
+	const RadialProfile prof = radial_profile(r_body, p_t_c);
+	ERR_FAIL_COND_MSG(prof.n <= 0, "LAPlanetComposition: the body has no radial profile to seed from.");
 	const Array keys = w.keys();
-	double v_shell = 0.0;
-	for (int i = 0; i < keys.size(); i++) {
-		v_shell += double(w[keys[i]]) / substance_density(String(keys[i]), p_t_c, p_std);
+	// Mole density of each mineral per shell, kg/m^3 at that shell's pressure: volumes add.
+	std::vector<std::vector<double>> amounts(prof.n, std::vector<double>(keys.size(), 0.0));
+	std::vector<double> metal_at(prof.n, 0.0);
+	for (int j = 0; j < prof.n; j++) {
+		double v_shell = 0.0;
+		for (int i = 0; i < keys.size(); i++) {
+			v_shell += double(w[keys[i]]) / substance_density(String(keys[i]), p_t_c, prof.p_at[j]);
+		}
+		for (int i = 0; i < keys.size(); i++) {
+			const double rho = substance_density(String(keys[i]), p_t_c, prof.p_at[j]);
+			amounts[j][i] = (double(w[keys[i]]) / rho) / v_shell * rho / substance_molar_mass(String(keys[i]));
+		}
+		metal_at[j] = substance_density("metal", p_t_c, prof.p_at[j]) / substance_molar_mass("metal");
 	}
-	Dictionary amounts;
-	for (int i = 0; i < keys.size(); i++) {
-		const double rho = substance_density(String(keys[i]), p_t_c, p_std);
-		const double vf = (double(w[keys[i]]) / rho) / v_shell;
-		amounts[keys[i]] = vf * rho / substance_molar_mass(String(keys[i]));
-	}
-	const double metal_full = substance_density("metal", p_t_c, p_std) / substance_molar_mass("metal");
 	Array cargs;
 	cargs.push_back(p_field);
 	const Vector3 centre = Vector3(la_call_gd(
@@ -495,22 +530,17 @@ void LAPlanetComposition::seed(Object *p_field, double p_t_c) {
 	PackedFloat32Array metal = PackedFloat32Array(p_field->get("_metal"));
 	const PackedStringArray ch = shell_channels();
 	std::vector<PackedFloat32Array> shell(ch.size());
-	std::vector<float> fill(ch.size(), 0.0f);
+	std::vector<int> col(ch.size(), -1);
 	for (int i = 0; i < ch.size(); i++) {
 		shell[i] = PackedFloat32Array(p_field->get("_" + ch[i]));
 		if (shell[i].size() != cc) {
 			shell[i].resize(cc);
 		}
-		fill[i] = float(double(amounts[ch[i]]));
+		col[i] = keys.find(ch[i]);
 	}
 	const PackedVector3Array la_cw = grid->get("centres");
-	double r_max = 0.0;
-	for (int c = 0; c < cc; c++) {
-		if (solid[c] != 0) {
-			r_max = MAX(r_max, (la_cw[c] - centre).length());
-		}
-	}
-	const double r_core = r_max * core_radius_frac(p_t_c, p_std);
+	const PackedFloat32Array frac = PackedFloat32Array(p_field->get("_rock_fraction"));
+	const PackedFloat32Array edge = grid->call("cell_edges");
 	if (cement.size() != cc) {
 		cement.resize(cc);
 	}
@@ -523,18 +553,42 @@ void LAPlanetComposition::seed(Object *p_field, double p_t_c) {
 	for (int i = 0; i < ch.size(); i++) {
 		sw[i] = shell[i].ptrw();
 	}
+	// A cell holds the rock volume the terrain's signed distance puts in it: whole below the relief,
+	// a fraction where the surface crosses it. Seeded rock is consolidated whatever its share. The
+	// profile is averaged over SUB^3 points of the cell, so a core boundary or a density gradient inside
+	// one cell lands as the volume it occupies.
+	const int SUB = 4;
+	const double w_sub = 1.0 / double(SUB * SUB * SUB);
+	std::vector<double> acc(ch.size(), 0.0);
 	for (int c = 0; c < cc; c++) {
-		const bool is_solid = solid[c] != 0;
-		cw[c] = is_solid ? 1.0f : 0.0f;
-		if (!is_solid) {
+		const float f = frac.size() == cc ? frac[c] : (solid[c] != 0 ? 1.0f : 0.0f);
+		cw[c] = f > 0.0f ? 1.0f : 0.0f;
+		if (f <= 0.0f) {
 			continue;
 		}
-		if ((la_cw[c] - centre).length() < r_core) {
-			mw[c] = float(metal_full);
-			continue;
+		const double e = c < edge.size() ? double(edge[c]) : 0.0;
+		const double se = e / double(SUB);
+		double m_acc = 0.0;
+		std::fill(acc.begin(), acc.end(), 0.0);
+		for (int a = 0; a < SUB; a++) {
+			for (int b = 0; b < SUB; b++) {
+				for (int d = 0; d < SUB; d++) {
+					const Vector3 p = la_cw[c] + Vector3(float((a + 0.5) * se - 0.5 * e), float((b + 0.5) * se - 0.5 * e),
+							float((d + 0.5) * se - 0.5 * e));
+					const int j = std::min(prof.n - 1, int((p - centre).length() / prof.dr));
+					if (j < prof.i_core) {
+						m_acc += metal_at[j];
+						continue;
+					}
+					for (int i = 0; i < ch.size(); i++) {
+						acc[i] += col[i] >= 0 ? amounts[j][col[i]] : 0.0;
+					}
+				}
+			}
 		}
+		mw[c] = float(m_acc * w_sub * f);
 		for (int i = 0; i < ch.size(); i++) {
-			sw[i][c] = fill[i];
+			sw[i][c] = float(acc[i] * w_sub * f);
 		}
 	}
 	p_field->set("_cement", cement);
@@ -544,9 +598,9 @@ void LAPlanetComposition::seed(Object *p_field, double p_t_c) {
 	}
 }
 
-// THE SOLID MASK, one walk: 1 where the terrain's signed distance is inside the rock.
-PackedByteArray LAPlanetComposition::solid_mask(Object *p_grid, Object *p_terrain, const Vector3 &p_centre) {
-	PackedByteArray out;
+// THE ROCK FRACTION, one walk: the share of each cell's volume inside the terrain's signed distance.
+PackedFloat32Array LAPlanetComposition::rock_fraction(Object *p_grid, Object *p_terrain, const Vector3 &p_centre) {
+	PackedFloat32Array out;
 	if (!p_grid || !p_terrain) {
 		return out;
 	}
@@ -561,38 +615,67 @@ PackedByteArray LAPlanetComposition::solid_mask(Object *p_grid, Object *p_terrai
 	}
 	const PackedFloat32Array edge = p_grid->call("cell_edges");
 	out.resize(cc);
-	uint8_t *w = out.ptrw();
+	float *w = out.ptrw();
 	std::vector<int> ask;
 	for (int c = 0; c < cc; c++) {
 		const double r = double((cw[c] - p_centre).length());
 		const double pad = c < edge.size() ? 0.5 * std::sqrt(3.0) * double(edge[c]) : 0.0;
 		if (lo > 0.0 && hi > 0.0 && r + pad < lo) {
-			w[c] = 1;
+			w[c] = 1.0f;
 		} else if (lo > 0.0 && hi > 0.0 && r - pad > hi) {
-			w[c] = 0;
+			w[c] = 0.0f;
 		} else {
-			w[c] = 0;
+			w[c] = 0.0f;
 			ask.push_back(c);
 		}
 	}
-	// The band reads the terrain's lattice: half the finest cell edge per lattice step, one generated
-	// block at a time, interpolated at each cell centre.
-	if (!ask.empty()) {
-		const Vector3 origin = p_grid->get("origin");
-		const int nx = int(p_grid->get("nx"));
-		const double base = double(p_grid->get("cell_size"));
-		const LATerrainLattice &lat = LATerrainLattice::build(p_terrain, origin, base * nx, LATerrainLattice::lod_for(base * nx), 32, p_centre, lo, hi);
-		for (int c : ask) {
-			w[c] = lat.valid() ? (lat.sample(cw[c]) < 0.0 ? 1 : 0)
-					: (bool(p_terrain->call("is_solid", cw[c])) ? 1 : 0);
+	// The band reads the terrain's lattice at SUB points per axis inside the cell; each sub-cube's share
+	// is the planar cut its signed distance makes through it.
+	if (ask.empty()) {
+		return out;
+	}
+	const Vector3 origin = p_grid->get("origin");
+	const int nx = int(p_grid->get("nx"));
+	const double base = double(p_grid->get("cell_size"));
+	const LATerrainLattice &lat = LATerrainLattice::build(p_terrain, origin, base * nx, LATerrainLattice::lod_for(base * nx), 32, p_centre, lo, hi);
+	if (!lat.valid()) {
+		UtilityFunctions::push_error("LAPlanetComposition: the terrain lattice did not build; no rock is seeded in the relief band.");
+		return out;
+	}
+	const int SUB = 3;
+	for (int c : ask) {
+		const double e = c < edge.size() ? double(edge[c]) : base;
+		const double se = e / double(SUB);
+		double acc = 0.0;
+		for (int i = 0; i < SUB; i++) {
+			for (int j = 0; j < SUB; j++) {
+				for (int k = 0; k < SUB; k++) {
+					const Vector3 p = cw[c] + Vector3(float((i + 0.5) * se - 0.5 * e), float((j + 0.5) * se - 0.5 * e),
+							float((k + 0.5) * se - 0.5 * e));
+					acc += CLAMP(0.5 - lat.sample(p) / se, 0.0, 1.0);
+				}
+			}
 		}
+		w[c] = float(acc / double(SUB * SUB * SUB));
+	}
+	return out;
+}
+
+// 1 where the rock fills at least half the cell.
+PackedByteArray LAPlanetComposition::solid_of(const PackedFloat32Array &p_fraction) {
+	PackedByteArray out;
+	out.resize(p_fraction.size());
+	uint8_t *w = out.ptrw();
+	for (int c = 0; c < p_fraction.size(); c++) {
+		w[c] = p_fraction[c] >= 0.5f ? 1 : 0;
 	}
 	return out;
 }
 
 void LAPlanetComposition::_bind_methods() {
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("shell_channels"), &shell_channels);
-	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("solid_mask", "grid", "terrain", "centre"), &solid_mask);
+	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("rock_fraction", "grid", "terrain", "centre"), &rock_fraction);
+	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("solid_of", "fraction"), &solid_of);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("mg_number"), &mg_number);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("an_fraction"), &an_fraction);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("apatite_f_fraction"), &apatite_f_fraction);
@@ -605,6 +688,7 @@ void LAPlanetComposition::_bind_methods() {
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("shell_density", "t_c", "p_pa"), &shell_density);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("core_radius_frac", "t_c", "p_pa"), &core_radius_frac);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("radius_for_mass", "mass_kg", "t_c"), &radius_for_mass);
+	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("core_radius_m", "radius_m", "t_c"), &core_radius_m);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("seed", "field", "t_c"), &seed);
 }
 

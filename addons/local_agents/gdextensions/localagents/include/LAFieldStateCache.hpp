@@ -18,8 +18,6 @@ public:
 	// The mask's address: the terrain generator's own inputs, the box, and the sources that decide the SDF.
 	static String mask_key(const Dictionary &p_opts, int p_nx, int p_ny, int p_nz, double p_cell,
 			const Vector3 &p_origin, const PackedStringArray &p_sources);
-	static PackedByteArray load_mask(const String &p_key, int p_cell_count);
-	static void save_mask(const String &p_key, const PackedByteArray &p_mask);
 
 	// The sealed field's address: the tree key the harness measured, plus the box this field stands in.
 	// An empty tree key returns an empty key, and an empty key is never a hit: a state nothing can
