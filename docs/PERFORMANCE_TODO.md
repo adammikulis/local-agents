@@ -104,13 +104,11 @@ smaller problem, and exact. It composes with the V-cycle rather than competing w
 previous step's density kept, which is one buffer.
 
 
-## 2g. The readback is the measured cost, and it reads duplicates
+## 2g. The drain reads derived buffers nobody consumes
 
-`_read_channels` issues a `buffer_get_data` + `to_float32_array` for three hot channels, ALL of
-`derived_buffers()` unconditionally, then `vel_x`/`vel_y`/`vel_z`/`charge` AGAIN — three of those are
-literal re-reads of buffers fetched two lines earlier. Several derived buffers have no per-frame CPU
-consumer at all. The `request_channel`/`CHANNEL_HOLD_DRAINS` gate already exists for situational channels;
-the derived set has no such gate. Removing the duplicate reads is unconditionally exact.
+The drain names ALL of `derived_buffers()` every step. Several of them have no per-frame CPU consumer at
+all. The `request_channel`/`CHANNEL_HOLD_DRAINS` gate already exists for situational channels; the
+derived set has no such gate.
 
 **Measure any of 2b–2f against `field_readback_ms` / `field_dispatch_ms` before believing it helped.**
 

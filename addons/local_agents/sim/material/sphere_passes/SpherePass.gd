@@ -3,6 +3,8 @@ extends RefCounted
 ## Base for every field pass: device handle, kernel compilation, uniform sets, and RID ownership.
 
 var _rd: RenderingDevice = null
+## The native driver: every compute list a pass records is issued through it.
+var _driver: LAFieldDriver = null
 
 var _owned_sets: Array[RID] = []
 var _owned_pipes: Array[RID] = []
@@ -22,6 +24,8 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		push_error("%s: null RenderingDevice" % _label())
 		return
 	_rd = rd
+	_driver = LAFieldDriver.new()
+	_driver.set_device(rd)
 	_setup(bufs, cc)
 
 
@@ -53,6 +57,7 @@ func dispose(rd: RenderingDevice) -> void:
 	_owned_pipes.clear()
 	_owned_shaders.clear()
 	_owned_buffers.clear()
+	_driver = null
 	_rd = null
 
 

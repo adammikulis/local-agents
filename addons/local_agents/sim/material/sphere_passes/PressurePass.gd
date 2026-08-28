@@ -26,14 +26,11 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 		[4, _single(bufs, "vert_up")]])
 
 
-func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:
+func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:
 	if not _dispatchable() or not _set.is_valid():
 		return
-	rd.compute_list_bind_compute_pipeline(cl, _pipe)
-	rd.compute_list_bind_uniform_set(cl, _set, 0)
-	var pc: PackedByteArray = _push(ctx, cc)
-	rd.compute_list_set_push_constant(cl, pc, pc.size())
-	rd.compute_list_dispatch(cl, groups, 1, 1)
+	_driver.run(cl, _pipe, [_set], [_push(ctx, cc)], PackedInt32Array([groups]), [RID()],
+		PackedInt32Array([0]), false)
 
 
 func _push(ctx: Dictionary, cc: int) -> PackedByteArray:

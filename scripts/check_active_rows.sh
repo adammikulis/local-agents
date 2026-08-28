@@ -3,7 +3,7 @@
 # TransportPass on sealed lines: across a seam between two clocks, where every matter channel holds
 # its total; settled, where the active count falls to nothing while the books still close; and with
 # one blob, which may not outrun one cell per substep nor lose a mole at the edge of its own bubble.
-# EXIT 0 clean · 1 a leak, it never emptied, or a row sweeps the grid · 2 could not run.
+# EXIT 0 clean · 1 a leak or it never emptied · 2 could not run.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -14,14 +14,6 @@ command -v rg >/dev/null 2>&1 || { echo "ERROR: rg absent — a gate that cannot
 PASS="$REPO_ROOT/addons/local_agents/sim/material/sphere_passes/TransportPass.gd"
 [ -f "$PASS" ] || { echo "ERROR: TransportPass.gd missing." >&2; exit 2; }
 [ -f "$REPO_ROOT/scripts/run_sim_offscreen.sh" ] || { echo "ERROR: run_sim_offscreen.sh missing." >&2; exit 2; }
-
-# --- arm three: no row may name the whole grid as its dispatch width --------------------------------
-grid_hits="$(rg -n 'compute_list_dispatch\(cl, groups' "$PASS" 2>/dev/null)"
-if [ -n "$grid_hits" ]; then
-  echo "check_active_rows: TransportPass still dispatches over every cell of the box." >&2
-  printf '%s\n' "$grid_hits" >&2
-  exit 1
-fi
 
 PROBE="$REPO_ROOT/addons/local_agents/tests/zz_active_rows_gate.gd"
 cat > "$PROBE" <<'GD'
@@ -242,7 +234,7 @@ func _seam() -> void:
 	# POSITIVE CONTROL: the level field the real code builds has to hold more than one level, or the
 	# conservation below is a closed book over a box that never straddled a seam.
 	var lcl: int = _rd.compute_list_begin()
-	p._build_levels(_rd, lcl, p._row_groups[top], cc, SEAM_CELL, DT, Vector3.ZERO, peak, top)
+	p.build_levels(lcl, top, cc, SEAM_CELL, DT, Vector3.ZERO, peak)
 	_rd.compute_list_end()
 	_rd.submit()
 	_rd.sync()

@@ -17,6 +17,8 @@ var _step: int = -1                     # field step the last dispatch reduced
 var _latch_step: Dictionary = {}        # ref buffer -> field step that reference was taken at
 var _failed_announced: bool = false
 var _last: Dictionary = {}              # the last drain, for the query modules that read rows directly
+var _folds: PackedInt32Array = PackedInt32Array()   # per row: how its workgroup partials combine
+var _keys: PackedStringArray = PackedStringArray()  # per row: the key its reading publishes under
 
 
 ## One partial per workgroup per row, plus one reference buffer per `ref` the rows name.
@@ -74,6 +76,8 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 			[10, vert_up],
 			[11, vert_down]]))
 		_rows.append(row)
+		_folds.append(_fold_mode(int(row["op"])))
+		_keys.append(String(row["key"]))
 
 
 func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, _groups_in: int) -> void:
@@ -89,22 +93,27 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, _groups_in
 
 
 ## Every row. `latch_ok` false leaves every reference where it is.
-func _run(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, latch_ok: bool) -> void:
+func _run(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, latch_ok: bool) -> void:
 	var cell_m: float = _ctx_cell_size(ctx)
-	rd.compute_list_bind_compute_pipeline(cl, _pipe)
+	var usets: Array = []
+	var pcs: Array = []
+	var wgs: PackedInt32Array = PackedInt32Array()
+	var args: Array = []
+	var offs: PackedInt32Array = PackedInt32Array()
 	for r in _rows.size():
 		var row: Dictionary = _rows[r]
 		var ref: String = String(row.get("ref", ""))
 		var latch: bool = int(row["op"]) == LAReduceRecords.Op.LATCH
 		if latch and (_latch_step.has(ref) or not latch_ok):
 			continue      # a reference is the state the world was built with, taken once per row
-		rd.compute_list_bind_uniform_set(cl, _sets[r], 0)
-		var pc: PackedByteArray = _pc(cc, row, r * _groups, cell_m)
-		rd.compute_list_set_push_constant(cl, pc, pc.size())
-		rd.compute_list_dispatch(cl, _groups, 1, 1)
-		rd.compute_list_add_barrier(cl)
+		usets.append(_sets[r])
+		pcs.append(_pc(cc, row, r * _groups, cell_m))
+		wgs.append(_groups)
+		args.append(RID())
+		offs.append(0)
 		if latch:
 			_latch_step[ref] = _step
+	_driver.run(cl, _pipe, usets, pcs, wgs, args, offs, true)
 
 
 ## A reduce taken BETWEEN passes: this pass runs last, so a row cannot say WHICH pass moved a total.
@@ -117,7 +126,7 @@ func checkpoint(rd: RenderingDevice, ctx: Dictionary, cc: int) -> Dictionary:
 	rd.compute_list_end()
 	rd.submit()
 	rd.sync()
-	return _fold_rows(rd)
+	return _fold_rows()
 
 
 ## The last drained rows. Reading does not clear it: several instruments read the same reduction.
@@ -125,52 +134,32 @@ func latest() -> Dictionary:
 	return _last
 
 
-func _drain(rd: RenderingDevice) -> Dictionary:
-	_last = _fold_rows(rd)
+func _drain(_rd: RenderingDevice) -> Dictionary:
+	_last = _fold_rows()
 	return _last
 
 
-## One readback of the partials buffer; each row's groups folded in float64, in slot order.
-func _fold_rows(rd: RenderingDevice) -> Dictionary:
-	var out: Dictionary = {}
-	if _rows.is_empty() or not _partials.is_valid():
-		return out
-	var raw: PackedFloat32Array = rd.buffer_get_data(_partials).to_float32_array()
-	for r in _rows.size():
-		var row: Dictionary = _rows[r]
-		var op: int = int(row["op"])
-		if op == LAReduceRecords.Op.LATCH:
-			continue
-		var base: int = r * _groups
-		if base + _groups > raw.size():
-			continue
-		var acc: float = _fold(raw, base, op)
-		# A MIN/MAX lane that kept no cell returns its INFINITE identity, and no cell anywhere means no
-		# measurement. An infinity at the other end is a reading: the field went non-finite. A summing
-		# lane's identity is zero, and a total of zero is a reading like any other.
-		if is_inf(_identity(op)) and acc == _identity(op):
-			continue
-		out[String(row["key"])] = acc
+## ONE readback of the partials buffer, folded on the device side of the boundary: a row's groups
+## combined in float64, in slot order. A MIN/MAX lane that kept no cell is ABSENT, never zero.
+func _fold_rows() -> Dictionary:
+	if _rows.is_empty() or not _partials.is_valid() or _driver == null:
+		return {}
+	var out: Dictionary = _driver.fold_reduce(_partials, _folds, _keys, _groups)
 	out["reduce_step"] = float(_step)
 	for key in _latch_step:
 		out[String(key) + "_step"] = float(_latch_step[key])
 	return out
 
 
-## reduce.glsl's la_identity, so a lane that kept no cell is told apart from one that read an infinity.
-func _identity(op: int) -> float:
-	if op == LAReduceRecords.Op.MIN: return INF
-	return -INF if op == LAReduceRecords.Op.MAX or op == LAReduceRecords.Op.MAX_REL_DIFF else 0.0
-
-
-## The workgroup partials of one row, combined the way that row's op combines cells.
-func _fold(raw: PackedFloat32Array, base: int, op: int) -> float:
-	var mn: bool = op == LAReduceRecords.Op.MIN
-	var mx: bool = _identity(op) == -INF
-	var acc: float = _identity(op)
-	for g in _groups:
-		acc = minf(acc, raw[base + g]) if mn else (maxf(acc, raw[base + g]) if mx else acc + raw[base + g])
-	return acc
+## reduce.glsl's la_identity, as the shape the driver folds it with.
+func _fold_mode(op: int) -> int:
+	if op == LAReduceRecords.Op.LATCH:
+		return LAFieldDriver.FOLD_SKIP
+	if op == LAReduceRecords.Op.MIN:
+		return LAFieldDriver.FOLD_MIN
+	if op == LAReduceRecords.Op.MAX or op == LAReduceRecords.Op.MAX_REL_DIFF:
+		return LAFieldDriver.FOLD_MAX
+	return LAFieldDriver.FOLD_SUM
 
 
 # Params { uint cell_count, op, mask, base; float threshold, weight; uint has_aux, has_gate;

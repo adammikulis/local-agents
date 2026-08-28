@@ -98,7 +98,7 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 	_set = _uset(_pipe, entries)
 
 
-func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:
+func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:
 	if not _dispatchable() or not _set.is_valid():
 		return
 	# The body's spin vector, rad/s: direction from its seeded angular momentum, rate from its measured
@@ -131,10 +131,8 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: in
 			w_kg = LARadiogenicDecay.heat_w_kg_of({"U": mix[0], "Th": mix[1], "K": mix[2]}, epoch)
 		pc.encode_float(60 + i * 4, w_kg)
 	pc.encode_float(76, float(ctx.get("sea_radius", 0.0)))
-	rd.compute_list_bind_compute_pipeline(cl, _pipe)
-	rd.compute_list_bind_uniform_set(cl, _set, 0)
-	rd.compute_list_set_push_constant(cl, pc, pc.size())
-	rd.compute_list_dispatch(cl, groups, 1, 1)
+	_driver.run(cl, _pipe, [_set], [pc], PackedInt32Array([groups]), [RID()],
+		PackedInt32Array([0]), false)
 
 
 ## One row per channel, from the substance table. No value is declared here; the mass column is the one
