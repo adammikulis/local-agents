@@ -263,7 +263,7 @@ func _cells_within(world_pos: Vector3, radius: float) -> PackedInt32Array:
 	while frontier.size() > 0 and out.size() < max_cells:
 		var next: PackedInt32Array = PackedInt32Array()
 		for c in frontier:
-			for f in range(grid.face_begin(c), grid.face_end(c)):
+			for f in range(grid.slot_begin(c, 0), grid.slot_begin(c, LAVoxelGrid.SLOTS)):
 				var nb: int = grid.neighbours[f]
 				if nb < 0 or seen.has(nb):
 					continue
@@ -407,7 +407,7 @@ func _nearest_water(from: int, rings: int) -> int:
 	for _ring in range(rings):
 		var next: PackedInt32Array = PackedInt32Array()
 		for c in frontier:
-			for f in range(grid.face_begin(c), grid.face_end(c)):
+			for f in range(grid.slot_begin(c, 0), grid.slot_begin(c, LAVoxelGrid.SLOTS)):
 				var nb: int = grid.neighbours[f]
 				if nb < 0 or nb >= _f._cell_count or seen.has(nb):
 					continue

@@ -171,7 +171,7 @@ static func gradient_at(field, c: int, value_at: Callable) -> Vector3:
 	var pos_c: Vector3 = field.cell_world_pos_linear(c)
 	var grid: LAVoxelGrid = field._grid
 	var grad: Vector3 = Vector3.ZERO
-	for f in range(grid.face_begin(c), grid.face_end(c)):
+	for f in range(grid.slot_begin(c, 0), grid.slot_begin(c, LAVoxelGrid.SLOTS)):
 		var nb: int = grid.neighbours[f]
 		if nb < 0 or field._solid[nb] != 0:
 			continue

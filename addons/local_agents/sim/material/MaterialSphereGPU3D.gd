@@ -222,7 +222,7 @@ func begin_frame(h: PackedFloat32Array, water: PackedFloat32Array) -> void:
 		_solid_dirty = false
 	_ctx["dt"] = LAMaterialFieldSphereStep3D.real_seconds_per_step()   # simulated seconds, not the cadence
 	_ctx["cell_size"] = _grid.cell_size
-	_ctx["cell_size_min"] = _grid.min_cell_size()
+	_ctx["cell_size_min"] = _grid.cell_size * pow(0.5, float(_grid.max_level))
 	# The SOLVED gravity, for the handful of scalar laws a pass evaluates once. A per-cell law reads the
 	# g field itself; nothing anywhere reads a gravity constant, because there is not one.
 	_ctx["g_m_s2"] = _field._gravity.mean_g() if _field._gravity != null else 0.0
@@ -350,7 +350,7 @@ func _drain_pending() -> void:
 func derive_seeded() -> void:
 	if _rd == null or _grid == null: return
 	_ctx["cell_size"] = _grid.cell_size
-	_ctx["cell_size_min"] = _grid.min_cell_size()
+	_ctx["cell_size_min"] = _grid.cell_size * pow(0.5, float(_grid.max_level))
 	for i in _passes.size():
 		if not (_pass_names[i] in ["StateDerivePass", "ReducePass"]): continue
 		var cl: int = _rd.compute_list_begin()

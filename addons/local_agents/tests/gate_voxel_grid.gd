@@ -35,12 +35,12 @@ func _init() -> void:
 	if r.cell_count != 132: fail += 1
 	if absf(float(v["volume_ratio"]) - 8.0) > 1.0e-6: fail += 1
 	var coarse: int = r.leaf_at(1, 2, 2)
-	if r.slot_end(coarse, LAVoxelGrid.S_POS_X) - r.slot_begin(coarse, LAVoxelGrid.S_POS_X) != 4:
+	if r.slot_begin(coarse, LAVoxelGrid.S_POS_X + 1) - r.slot_begin(coarse, LAVoxelGrid.S_POS_X) != 4:
 		fail += 1
 	var fine: int = r.neighbours[r.slot_begin(coarse, LAVoxelGrid.S_POS_X)]
 	if r.level_of(fine) != 1: fail += 1
 	if absf(r.cell_volume(coarse) / r.cell_volume(fine) - 8.0) > 1.0e-6: fail += 1
-	if r.slot_end(fine, LAVoxelGrid.S_NEG_X) - r.slot_begin(fine, LAVoxelGrid.S_NEG_X) != 1: fail += 1
+	if r.slot_begin(fine, LAVoxelGrid.S_NEG_X + 1) - r.slot_begin(fine, LAVoxelGrid.S_NEG_X) != 1: fail += 1
 	if r.neighbours[r.slot_begin(fine, LAVoxelGrid.S_NEG_X)] != coarse: fail += 1
 	for o in 8:
 		var child: int = r.leaf_at(2, 2, 2) + o

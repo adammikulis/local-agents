@@ -82,12 +82,6 @@ func level_of(c: int) -> int:
 	return int(levels[c]) if c >= 0 and c < levels.size() else 0
 
 
-## Edge of the FINEST cell the grid actually holds, metres — not the finest MAX_LEVEL would allow.
-## Every bound that is a property of the smallest cell reads this, so a uniform box states its own edge.
-func min_cell_size() -> float:
-	return cell_size * pow(0.5, float(max_level))
-
-
 ## Edge of cell `c`, metres.
 func cell_edge(c: int) -> float:
 	return cell_size * pow(0.5, float(level_of(c)))
@@ -149,22 +143,10 @@ func max_span() -> int:
 	return maxi(maxi(nx, ny), nz) << MAX_LEVEL
 
 
-## First and last-plus-one face of cell `c`.
-func face_begin(c: int) -> int:
-	return slot_off[c * 7]
-
-
-func face_end(c: int) -> int:
-	return slot_off[c * 7 + 6]
-
-
-## First and last-plus-one face of cell `c` on slot `d`. Four where a coarse cell meets fine ones.
+## First face of cell `c` on slot `d`; `d` == SLOTS ends the cell. Four faces on a slot where a coarse
+## cell meets fine ones, and the whole cell's range is slot 0 to SLOTS.
 func slot_begin(c: int, d: int) -> int:
 	return slot_off[c * 7 + d]
-
-
-func slot_end(c: int, d: int) -> int:
-	return slot_off[c * 7 + d + 1]
 
 
 ## Centre-to-centre distance across face `f` owned by cell `c`, m; a box edge has half a cell beyond it.
@@ -196,9 +178,7 @@ func refine(mask: PackedByteArray) -> void:
 	var g: Dictionary = LAGridGeometry.build(Vector3i(nx, ny, nz), mask)
 	cell_count = int(g["cell_count"])
 	levels = g["levels"]
-	max_level = 0
-	for c in levels.size():
-		max_level = maxi(max_level, int(levels[c]))
+	max_level = int(g["max_level"])
 	cell_base = g["cell_base"]
 	cell_oct = g["cell_oct"]
 	base_head = g["base_head"]
@@ -231,7 +211,7 @@ func attach_ghost(gh: int, c: int, d: int) -> void:
 	var back: int = slot_begin(gh, opposite_slot(d))
 	neighbours[back] = c
 	partners[back] = slot_begin(c, d)
-	for f in range(slot_begin(c, d), slot_end(c, d)):
+	for f in range(slot_begin(c, d), slot_begin(c, d + 1)):
 		partners[f] = back
 
 

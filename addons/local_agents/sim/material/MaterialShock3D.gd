@@ -28,7 +28,7 @@ func emit_shock(world_pos: Vector3, magnitude: float) -> void:
 	if _f._grid != null:
 		var grid: LAVoxelGrid = _f._grid
 		var spill: float = magnitude * SEED_NEIGHBOUR_FRACTION
-		for f in range(grid.face_begin(c), grid.face_end(c)):
+		for f in range(grid.slot_begin(c, 0), grid.slot_begin(c, LAVoxelGrid.SLOTS)):
 			var nb: int = grid.neighbours[f]
 			if nb >= 0 and _f._solid[nb] == 0:
 				_f._shock[nb] = _f._shock[nb] + spill

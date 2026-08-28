@@ -16,21 +16,18 @@ static func inversions(f) -> Dictionary:
 	var r: Dictionary = f._queries.reduced() if f != null and f._queries != null else {}
 	var bad: int = 0
 	var audited: int = 0
-	var empty: int = 0
+	var pairs: int = 0
 	for cls: String in CLASSES:
 		var inv: String = "pressure_inv_" + cls
-		var aud: String = "pressure_aud_" + cls
-		var all: String = "pressure_pairs_" + cls
-		if not r.has(inv) or not r.has(aud) or not r.has(all):
+		if not r.has(inv) or not r.has("pressure_aud_" + cls) or not r.has("pressure_pairs_" + cls):
 			return out
 		out[inv] = int(round(float(r[inv])))
 		bad += int(out[inv])
-		var kept: int = int(round(float(r[aud])))
-		audited += kept
-		empty += maxi(int(round(float(r[all]))) - kept, 0)
+		audited += int(round(float(r["pressure_aud_" + cls])))
+		pairs += int(round(float(r["pressure_pairs_" + cls])))
 	out["pressure_inversions"] = bad
 	out["pressure_audited"] = audited
-	out["pressure_empty"] = empty
+	out["pressure_empty"] = maxi(pairs - audited, 0)
 	if bad > 0:
 		print("PRESSURE_BROKEN=", JSON.stringify(out))
 	return out

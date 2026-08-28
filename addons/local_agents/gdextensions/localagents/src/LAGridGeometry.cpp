@@ -218,7 +218,12 @@ Dictionary LAGridGeometry::build(const Vector3i &p_dims, const PackedByteArray &
 			}
 		}
 	}
+	int top = 0;
+	for (int c = 0; c < n; c++) {
+		top = MAX(top, int(levels[c]));
+	}
 	out["cell_count"] = n;
+	out["max_level"] = top;
 	out["levels"] = levels;
 	out["cell_base"] = cell_base;
 	out["cell_oct"] = cell_oct;

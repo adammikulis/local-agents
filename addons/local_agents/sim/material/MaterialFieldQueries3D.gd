@@ -501,7 +501,7 @@ func lava_shell_diag() -> Dictionary:
 		if _f._solid[c] != 0 or lv < body or _f._silicate_melt[c] <= 0.0:
 			continue
 		var exposed: int = 0
-		for f in range(grid.face_begin(c), grid.face_end(c)):
+		for f in range(grid.slot_begin(c, 0), grid.slot_begin(c, LAVoxelGrid.SLOTS)):
 			var nb: int = grid.neighbours[f]
 			if nb < 0:
 				exposed += 1
