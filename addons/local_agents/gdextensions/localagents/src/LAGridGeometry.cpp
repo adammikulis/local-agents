@@ -3,7 +3,6 @@
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 #include "LAPhysicalRead.hpp"
-#include "LATerrainQuery.hpp"
 #include <godot_cpp/variant/utility_functions.hpp>
 
 #include <algorithm>
@@ -391,36 +390,6 @@ SurfaceSamples sample_surface(const Vector3i &p_dims, const Vector3 &p_origin, d
 	}
 	// Bisection along every direction at once between the terrain's lowest and highest surface: the
 	// generator's signed distance, batched, instead of a ray march per direction.
-	if (p_terrain->has_method("min_surface_radius") && p_terrain->has_method("max_surface_radius")) {
-		const double r_lo0 = double(p_terrain->call("min_surface_radius"));
-		const double r_hi0 = double(p_terrain->call("max_surface_radius"));
-		std::vector<double> lo(base_count, r_lo0), hi(base_count, r_hi0);
-		PackedVector3Array pts;
-		pts.resize(base_count);
-		double span = r_hi0 - r_lo0;
-		while (span > 1.0) {
-			for (int b = 0; b < base_count; b++) {
-				pts.set(b, p_centre + dir[b] * float(0.5 * (lo[b] + hi[b])));
-			}
-			const PackedFloat32Array d = la_terrain_sdf(p_terrain, pts);
-			if (d.size() != base_count) {
-				break;
-			}
-			for (int b = 0; b < base_count; b++) {
-				const double mid = 0.5 * (lo[b] + hi[b]);
-				if (d[b] < 0.0f) {
-					lo[b] = mid;
-				} else {
-					hi[b] = mid;
-				}
-			}
-			span *= 0.5;
-		}
-		for (int b = 0; b < base_count; b++) {
-			out.rs[b] = 0.5 * (lo[b] + hi[b]);
-		}
-		return out;
-	}
 	for (int b = 0; b < base_count; b++) {
 		out.rs[b] = double(p_terrain->call("surface_radius", dir[b]));
 	}

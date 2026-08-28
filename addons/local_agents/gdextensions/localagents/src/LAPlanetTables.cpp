@@ -6,7 +6,6 @@
 #include <vector>
 
 #include "LAPhysicalRead.hpp"
-#include "LATerrainQuery.hpp"
 #include "LASubstances.hpp"
 
 #include <godot_cpp/classes/resource_loader.hpp>
@@ -575,17 +574,9 @@ PackedByteArray LAPlanetComposition::solid_mask(Object *p_grid, Object *p_terrai
 			ask.push_back(c);
 		}
 	}
-	// The band: the generator's signed distance at each cell centre, no ray march.
-	if (!ask.empty()) {
-		PackedVector3Array pts;
-		pts.resize(int(ask.size()));
-		for (size_t i = 0; i < ask.size(); i++) {
-			pts.set(int(i), cw[ask[i]]);
-		}
-		const PackedFloat32Array d = la_terrain_sdf(p_terrain, pts);
-		for (size_t i = 0; i < ask.size() && int(i) < d.size(); i++) {
-			w[ask[i]] = d[int(i)] < 0.0f ? 1 : 0;
-		}
+	// Only the band asks the terrain.
+	for (int c : ask) {
+		w[c] = bool(p_terrain->call("is_solid", cw[c])) ? 1 : 0;
 	}
 	return out;
 }

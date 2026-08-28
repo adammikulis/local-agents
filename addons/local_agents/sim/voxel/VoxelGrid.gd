@@ -45,8 +45,9 @@ var partners: PackedInt32Array = PackedInt32Array()
 
 ## Ghost rows appended past cell_count by a boundary provider; 0 = every wall shut.
 var ghost_rows: int = 0
-## The finest level any cell is at; 0 on a uniform box.
+## The finest level any cell is at; 0 on a uniform box, and the edge the refinement reached, m.
 var max_level: int = 0
+var target_edge_m: float = 0.0
 
 
 ## The slot at which the neighbour at slot `d` points back here. Axis-aligned, so it is the bit flip.
@@ -141,6 +142,7 @@ func adopt_geometry(g: Dictionary) -> void:
 	cell_count = int(g["cell_count"])
 	levels = g["levels"]
 	max_level = int(g["max_level"])
+	target_edge_m = float(g.get("target_edge_m", cell_size))
 	cell_base = g["cell_base"]
 	cell_local = g["cell_local"]
 	cell_morton = g["cell_morton"]

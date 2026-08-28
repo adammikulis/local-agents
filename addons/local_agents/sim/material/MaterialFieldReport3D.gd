@@ -145,6 +145,7 @@ func report() -> Dictionary:
 	var molten: Dictionary = q.molten_counts()
 	var fire: Dictionary = q.fire_stats()
 	var r: Dictionary = {
+		"grid_cells": _f._grid.cell_count, "grid_max_level": _f._grid.max_level, "grid_target_edge_m": _f._grid.target_edge_m,
 		"wet_cells": _f.wet_cell_count(), "heat_peak": _f.peak_heat(), "heat_cells": _f.hot_cell_count(),
 		"cloud_cells": _f.cloud_cell_count(), "cloud_cover": _f.avg_cloud_cover(),
 		"fog_cover": _f.avg_fog_cover(), "vapour_total": _f.vapour_total(),
