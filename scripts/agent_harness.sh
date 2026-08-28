@@ -297,6 +297,7 @@ if [[ "$cmd" == "lint" ]]; then
     gate check_model_parameters
   gate check_cited_authority
     gate check_kernel_paths
+    gate check_kernel_includes
     gate check_no_stored_derived
     gate check_no_privileged_axis
     gate check_pressure_split

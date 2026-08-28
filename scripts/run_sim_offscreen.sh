@@ -52,8 +52,8 @@ WIN_POS="${LA_WIN_POS:-$DEFAULT_WIN_POS}"
 RENDER_DRIVER="${LA_RENDER_DRIVER:-metal}"
 
 # --- STALE-SHADER GUARD ------------------------------------------------------
-# A kernel whose compiled resource was built from other source loads OLD and says nothing: the run
-# completes and every number in its SIM_REPORT is fiction. lib_import.sh answers what is stale.
+# A kernel whose compiled resource was built from other source, kernel or #include, loads OLD and says
+# nothing: the run completes and every SIM_REPORT number is fiction. lib_import.sh answers, by content.
 # FAIL, DO NOT AUTO-FIX: a measurement wrapper that quietly mutates the import cache is the hidden side
 # effect this project bans on authoritative paths. LA_SKIP_SHADER_CHECK=1 bypasses, for a tree meant to
 # be unimported.
@@ -77,11 +77,12 @@ if [ "${LA_SKIP_SHADER_CHECK:-0}" != "1" ]; then
       {
         echo "STALE_SHADERS={\"count\":$stale_n,\"path\":\"$proj\"}"
         echo ""
-        echo "REFUSING TO RUN: $stale_n compute kernel(s) are newer than their compiled resource, so Godot"
-        echo "  would load the OLD kernel and print a normal-looking SIM_REPORT built on it. Stale:$stale_list"
+        echo "REFUSING TO RUN: $stale_n compute kernel(s) do not match the source they were compiled from,"
+        echo "  kernel or #include, so Godot would load the OLD kernel and print a normal-looking SIM_REPORT"
+        echo "  built on it. Stale:$stale_list"
         if [ "$stale_n" -gt 8 ]; then echo "    ... and $((stale_n - 8)) more"; fi
         echo ""
-        echo "  Fix:  godot --headless --path $proj --import"
+        echo "  Fix:  scripts/godot_import.sh $proj"
         echo "  Then re-run. Bypass with LA_SKIP_SHADER_CHECK=1 only if you MEAN to run an unimported tree."
       } >&2
       exit 3
