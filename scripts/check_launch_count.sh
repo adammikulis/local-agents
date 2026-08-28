@@ -26,9 +26,11 @@ if ! grep -q 'LA_LAUNCH_LOG' "$ROOT/scripts/lib_godot.sh"; then
 	echo "check_launch_count: lib_godot.sh no longer writes LA_LAUNCH_LOG, so no count is truthful." >&2
 	exit 2
 fi
-N="$(grep -c . "$LOG" | tr -d ' ')"
+# An import is cache state, not a gate's arm: reported, never counted against the roster.
+I="$(grep -c -- '--import' "$LOG" | tr -d ' ')"
+N="$(grep -v -- '--import' "$LOG" | grep -c . | tr -d ' ')"
 
-echo "LAUNCH_COUNT={\"launches\":$N,\"ceiling\":$CEIL}"
+echo "LAUNCH_COUNT={\"launches\":$N,\"imports\":$I,\"ceiling\":$CEIL}"
 if [ "$N" -gt "$CEIL" ]; then
 	echo "check_launch_count: this lint launched the engine $N time(s), past the ceiling of $CEIL." >&2
 	echo "                    Read the shared capture (scripts/lint_capture.sh, LA_LINT_CAPTURE) rather" >&2
