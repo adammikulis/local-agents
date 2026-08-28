@@ -862,17 +862,19 @@ void main() {
 		for (uint d = 0u; d < N_SLOTS; ++d) {
 			int inb = nbr[abase + d];
 			if (inb < 0) { inb = ghost[abase + d]; }
+			vec3 nrm = face_normal(d);
+			float ua = dot(vel_at(gidx), nrm);
+			// A FACE ONTO NOTHING IS A FREE SURFACE: vacuum presents no pressure, so the outgoing
+			// characteristic alone sets the face velocity and the matter expands into it.
+			if (inb == GHOST_SPACE
+					|| (inb >= 0 && solid[inb] == 0.0 && no_matter(uint(inb)))) {
+				div_u += ua + face_p(gidx, d) / za;
+				continue;
+			}
 			if (inb < 0 || solid[inb] != 0.0) {
 				continue;
 			}
 			uint nb = uint(inb);
-			vec3 nrm = face_normal(d);
-			float ua = dot(vel_at(gidx), nrm);
-			// A FACE ONTO NOTHING IS A FREE SURFACE: it carries the matter side's own pressure.
-			if (no_matter(nb)) {
-				div_u += ua;
-				continue;
-			}
 			float zb = impedance(nb);
 			float zs = za + zb;
 			if (zs <= 0.0) {
@@ -1078,10 +1080,11 @@ void main() {
 				}
 				float sflux = 0.0;
 				if (params.law == LAW_PGF) {
-					// Pressure's momentum flux. A wall meets the cell's own reconstructed face pressure;
-					// an open face the linearized Riemann p*, whose velocity-jump term dissipates.
-					float p_face = face_p(gidx, d);
-					if (!wall && !no_matter(gidx) && !no_matter(nb)) {
+					// Pressure's momentum flux. A wall meets the cell's own reconstructed face pressure,
+					// a face onto vacuum meets none, an open face the linearized Riemann p*.
+					bool onto_void = inb == GHOST_SPACE || (!wall && no_matter(nb));
+					float p_face = onto_void ? 0.0 : face_p(gidx, d);
+					if (!wall && !onto_void && !no_matter(gidx)) {
 						float za = impedance(gidx);
 						float zb = impedance(nb);
 						float ua = dot(vel_at(gidx), nrm);
@@ -1150,7 +1153,7 @@ void main() {
 				float za = impedance(gidx);
 				float zb = impedance(nb);
 				float vn = no_matter(nb)
-					? ua
+					? (za > 0.0 ? ua + face_p(gidx, d) / za : ua)
 					: ua + (zb * (ub - ua) + (face_p(gidx, d) - face_p(nb, d ^ 1u))) / (za + zb);
 				vn += dot(transport_velocity(gidx) - vel_at(gidx), nrm_a);
 				if (vn > 0.0) {

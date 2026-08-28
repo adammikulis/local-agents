@@ -16,22 +16,23 @@ on the file it named. If you know the cause you are close enough to fix it, so f
 
 ## 0. THE WIND BLOWS PAST ITS OWN SOUND SPEED, AND THE DEFAULT BOX IS NOT EXEMPT
 
-`scripts/sim_run.sh --slice --frames 5` refuses to transport the h2o, silicate, fungus and shock rows:
-their own cells carry a signal speed at or past light, so no timestep integrates them and the harness
-withholds every number.
+`bash scripts/check_process_ladder.sh` climbs to `hydrostatic` and stops at `acoustic`: that rung's own
+arm, `scripts/agent_harness.sh sim --rung=3 --frames 8`, refuses to transport the h2o row because its
+cells carry a signal speed at or past light, so no timestep integrates them and the harness withholds
+every number.
 
-`scripts/check_rung_acoustic.sh` is the acceptance test, and it names the smallest world that shows it:
-`scripts/agent_harness.sh sim --rung=3 --frames 8` holds state, gravity, the hydrostatic pressure and the
-acoustic group and nothing else, and the wind is already past the substrate's own sound speed there. The
-rungs under it are green, so nothing below the acoustic group is party to it.
+`scripts/sim_run.sh --slice --rung 3 --frames 5` completes instead, and reads non-finite cells and
+pressure falling going down in open cells.
+
+`scripts/check_rung_acoustic.sh` and `scripts/check_atmosphere_at_rest.sh` are the acceptance tests. The
+rest gate's sealed column moves, and its vented control does not finish inside
+`docs/RUN_TIMEOUT_CEILING`, so the gate reports it has no control.
 `docs/PHYSICS_TODO.md` E carries the wind as its own item, and E is downstream of item 1. Until it reads a physical speed no run's numbers
 mean anything. `rho_max_open` is the reading that shows it: an open cell may not be denser than the densest
 substance the table declares, and that is this item's acceptance test.
 
-The slice reaches non-finite state and publishes no `momentum_book_bnd`, so
-`check_boundary_momentum_book.sh`'s replay arm fails on its absence. Reproduce:
-`scripts/sim_run.sh --frames 20 --slice-capture C`, then
-`scripts/sim_run.sh --slice --slice-state C --frames 20 --report rho_max_open,celerity_max`.
+`bash scripts/check_boundary_momentum_book.sh` fails on the same refusal: its capture arm runs the
+acoustic rung, which is where the momentum rows it weighs live.
 An offset component of `surface` puts a box on the body without naming a radius.
 
 ## 1. BUILD THE GRADED GRID. IT IS THE TRUNK AND ITEM 0 WAITS ON IT

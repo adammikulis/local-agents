@@ -17,7 +17,7 @@ FRAMES="${LA_REST_FRAMES:-12}"
 
 # One column run at the given face spec. Prints the three readings, space separated, or nothing.
 column() {
-	LA_BOUNDARY_FACES="$1" "$ROOT/scripts/sim_run.sh" --path "$ROOT" --slice \
+	LA_BOUNDARY_FACES="$1" "$ROOT/scripts/sim_run.sh" --path "$ROOT" --slice --rung 3 \
 		--slice-box "0,surface,0,1,${CELLS},1,${CELL}" --frames "$FRAMES" \
 		--report wind_speed_max,celerity_max,pressure_rest_rel,transport_levels 2>&1
 }
