@@ -90,7 +90,7 @@ $rest
 EOF
 echo "ATMOSPHERE_AT_REST={\"finite\":$REST_FIN,\"mach\":$REST_MACH,\"pressure_rest_rel\":$REST_PREL,\"levels\":$REST_LV}"
 
-vent="$(measure "shut,shut,shut,space,shut,shut")" || {
+vent="$(measure "space,shut,shut,shut,shut,shut")" || {
 	echo "check_atmosphere_at_rest: the vented control published no readings, so the gate has no control." >&2
 	exit 2
 }
@@ -102,8 +102,8 @@ echo "ATMOSPHERE_VENTED={\"finite\":$VENT_FIN,\"mach\":$VENT_MACH,\"pressure_res
 # THE CONTROL FIRST: a gate whose disabled arm also passes is holding nothing.
 if at_rest "$VENT_FIN" "$VENT_MACH" "$VENT_PREL" "$VENT_LV"; then
 	echo >&2
-	echo "check_atmosphere_at_rest: the column with its top face OPEN TO SPACE also stayed at rest." >&2
-	echo "One cell's wall push is gone there, so it must move. This gate cannot fail and asserts nothing." >&2
+	echo "check_atmosphere_at_rest: the column with its SIDE OPEN TO SPACE also stayed at rest. Every" >&2
+	echo "cell holding matter touches that face, so it must move. This gate cannot fail." >&2
 	exit 2
 fi
 

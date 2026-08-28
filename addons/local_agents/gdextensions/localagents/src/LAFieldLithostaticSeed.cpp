@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <numeric>
 #include <vector>
 
@@ -380,37 +381,71 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c, 
 				"so the atmosphere has no scale height and would fill the box to its top at one density.");
 		return;
 	}
-	const Vector3 centre = field_centre(p_field);
 	const double edge = double(grid->get("cell_size"));
+	const PackedInt32Array nbr = grid->get("neighbours");
+	const PackedFloat32Array h2o = p_field->get("_h2o");
+	const PackedFloat32Array sil = p_field->get("_silicate");
+	const double full_h2o = LASubstances::full_mol_m3("h2o");
+	const double full_sil = LASubstances::full_mol_m3("silicate");
+	if (nbr.size() != cc * 6 || h2o.size() != cc || sil.size() != cc
+			|| !(full_h2o > 0.0) || !(full_sil > 0.0) || !(edge > 0.0)) {
+		UtilityFunctions::push_error("LAFieldLithostaticSeed.shape_atmosphere: no neighbour table or no "
+				"condensed amounts, so no column knows where its own surface is.");
+		return;
+	}
+	const Vector3 centre = field_centre(p_field);
+	// Height along the LOCAL VERTICAL, the axis the column is stacked along, and the slot that steps
+	// DOWN it. A rotating body's plumb line is not its radius.
+	std::vector<double> h(cc, 0.0), scale(cc, 0.0);
+	std::vector<double> cond(cc, 0.0);
+	std::vector<int> below(cc, -1);
+	for (int c = 0; c < cc; c++) {
+		const Vector3 g(p_gravity[c * 3], p_gravity[c * 3 + 1], p_gravity[c * 3 + 2]);
+		const double gm = double(g.length());
+		if (!(gm > 0.0)) {
+			continue;
+		}
+		const Vector3 up = -g / gm;
+		h[c] = double((Vector3(grid->call("cell_world_pos", c)) - centre).dot(up));
+		below[c] = nbr[c * 6 + (slot_toward(up) ^ 1)];
+		scale[c] = m->scale_height_at(p_temp_c, gm);
+		cond[c] = solid[c] != 0 ? 1.0
+				: MIN(double(MAX(h2o[c], 0.0f)) / full_h2o + double(MAX(sil[c], 0.0f)) / full_sil, 1.0);
+	}
+	// THE LOCAL SURFACE, low to high so a cell reads the column under it: the top of the condensed matter
+	// standing in this cell, or the surface the cell below it stands at. Over ocean that is the water the
+	// hydrosphere seed laid, over land the rock, and it is the same interface stack.glsli reconstructs at.
+	std::vector<int> up_order(cc);
+	std::iota(up_order.begin(), up_order.end(), 0);
+	std::sort(up_order.begin(), up_order.end(), [&h](int a2, int b2) { return h[a2] < h[b2]; });
+	const double nowhere = -std::numeric_limits<double>::infinity();
+	std::vector<double> surf(cc, nowhere);
+	for (int c : up_order) {
+		if (cond[c] > 0.0) {
+			surf[c] = h[c] - 0.5 * edge + cond[c] * edge;
+		} else if (below[c] >= 0 && below[c] < cc) {
+			surf[c] = surf[below[c]];
+		}
+	}
 	PackedFloat32Array f = unit_factor(cc);
 	f.fill(-1.0f);
 	for (int c = 0; c < cc; c++) {
-		if (solid[c] != 0) {
+		if (solid[c] != 0 || !std::isfinite(scale[c]) || scale[c] <= 0.0 || !std::isfinite(surf[c])) {
 			continue;
 		}
-		const Vector3 g(p_gravity[c * 3], p_gravity[c * 3 + 1], p_gravity[c * 3 + 2]);
-		const double scale_h = m->scale_height_at(p_temp_c, double(g.length()));
-		if (!std::isfinite(scale_h) || scale_h <= 0.0 || !(edge > 0.0)) {
-			continue;
-		}
-		const Vector3 pos = grid->call("cell_world_pos", c);
-		// Height along the LOCAL VERTICAL, which is the axis the column is stacked along and the one the
-		// pressure audit walks; a rotating body's plumb line is not its radius.
-		const Vector3 up = -g / g.length();
-		const double mid = double((pos - centre).dot(up)) - m->get_surface_r_m();
-		// THE CELL'S OWN SHARE OF THE COLUMN, which is the MEAN of exp(-z/H) over the height it spans,
-		// not the density at its centre. state_derive.glsl states a cell's pressure off the amounts it
-		// holds and kernels3d/stack.glsli reads that pressure as the cell's mean, so the mean density is
-		// what makes the two agree. A cell many scale heights tall holds nearly the whole column and the
-		// one above it e^(-L/H) of that.
-		// A cell under the surface is not in the atmospheric column: it holds what the composition put
-		// there, and the profile neither takes from it nor gives to it.
-		if (mid < 0.0) {
+		// THE CELL'S OWN SHARE OF THE COLUMN OVER ITS OWN SURFACE, which is the MEAN of exp(-z/H) over
+		// the height it spans, not the density at its centre. state_derive.glsl states a cell's pressure
+		// off the amounts it holds and kernels3d/stack.glsli reads that pressure as the gas layer's own
+		// mean, so the mean density is what makes the two agree, and measuring the height from the
+		// column's own surface is what makes a vertical pair of them consistent. A cell under the water
+		// or in the rock holds what the composition put there and the profile leaves it alone.
+		const double mid = h[c] - surf[c];
+		if (mid < -0.5 * edge) {
 			continue;
 		}
 		const double z0 = MAX(mid - 0.5 * edge, 0.0);
-		f[c] = float((scale_h / edge)
-				* (std::exp(-z0 / scale_h) - std::exp(-(z0 + edge) / scale_h)));
+		f[c] = float((scale[c] / edge)
+				* (std::exp(-z0 / scale[c]) - std::exp(-(z0 + edge) / scale[c])));
 	}
 	redistribute_gases(p_field, f);
 }

@@ -16,17 +16,14 @@ on the file it named. If you know the cause you are close enough to fix it, so f
 
 ## 0. THE WIND BLOWS PAST ITS OWN SOUND SPEED, AND THE DEFAULT BOX IS NOT EXEMPT
 
-`bash scripts/check_process_ladder.sh` climbs to `gravity` and stops at `hydrostatic`:
-`bash scripts/check_hydrostatic_seed.sh` counts open vertical pairs whose pressure falls going down, in
-the world the seed hands over.
+`bash scripts/check_process_ladder.sh` climbs to `hydrostatic` and stops at `acoustic`, on that rung's
+own gate: `bash scripts/check_rung_acoustic.sh` reads a cell moving faster than its own sound speed.
 
 `bash scripts/check_wind_subsonic.sh` reads the same world's peak wind past the sound speed the
-substrate states for it, and `scripts/check_rung_acoustic.sh` says the same on its own arm.
+substrate states for it.
 
-`bash scripts/check_atmosphere_at_rest.sh` is rung 3's other gate: its sealed column moves, and its
-vented control reads the same as the sealed one — the column's top cell holds no matter, so opening its
-face onto space takes nothing away. That reading changes when item 1 gives the column a top with air in
-it.
+`bash scripts/check_atmosphere_at_rest.sh` is rung 3's other gate: its sealed column moves. Its vented
+control opens the column's side and reads past it, so the gate has a control.
 `docs/PHYSICS_TODO.md` E carries the wind as its own item, and E is downstream of item 1. Until it reads a physical speed no run's numbers
 mean anything. `rho_max_open` is the reading that shows it: an open cell may not be denser than the densest
 substance the table declares, and that is this item's acceptance test.
