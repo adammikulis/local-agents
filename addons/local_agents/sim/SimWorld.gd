@@ -255,13 +255,11 @@ func spawn_life() -> void:
 		_scatter_flat(counts)
 
 
-# SPHERE spawns wait for the top-of-planet patch to mesh + collide (like the game's spawn controller); FLAT
-# ground is always ready, so it spawns at once. A few settle ticks avoid spawning into a half-meshed surface.
+# SPHERE spawns wait for the body to be built (like the game's spawn controller); FLAT ground is always
+# ready, so it spawns at once. A few settle ticks then let the first frames of the world go by.
 func _try_spawn_life() -> void:
 	if world_type == WorldType.SPHERE:
-		if _body == null:
-			return
-		if not _body.is_ready_at(_body.center() + Vector3.UP * (_body.radius() + 30.0)):
+		if _body == null or _body.radius() <= 0.0:
 			return
 		_ready_ticks += 1
 		if _ready_ticks <= 6:
