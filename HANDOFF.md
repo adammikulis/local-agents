@@ -37,35 +37,26 @@ An offset component of `surface` puts a box on the body without naming a radius.
 A slice's one basin cell is seeded brim full and reads back superheated. Reproduce:
 `LA_PASS_PROBE=h2o scripts/sim_run.sh --slice --rung 3 --frames 1`.
 
-## 1. BUILD THE GRADED GRID. IT IS THE TRUNK AND ITEM 0 WAITS ON IT
+## 1. THE GRADED GRID IS BUILT AND THE LADDER STOPS ON THE SEED IT HANDS OVER
 
-At every resolution the project offers, no open cell centre lies within a scale height of the surface, so
-the seeded atmosphere is one shell with vacuum above it: no lapse rate, no vertical structure, and the
-open cells the pressure audit compares are mostly the cube's corners. Item 0 cannot be read either way
-until this lands.
+`bash scripts/check_hydrostatic_seed.sh` reads open-cell pressure inversions on the refined planet box
+and zero on the same box with the refinement mask empty. Every inverting pair the seed's own column walk
+names is a level-1 pair far above the surface. **Reproduce:** `bash scripts/agent_harness.sh ladder`,
+which stops at rung 2, and `scripts/agent_harness.sh sim --rung=2 --frames 4`, whose `PRESSURE_BROKEN`
+line carries the count.
 
-**The grid is Cartesian with axis-aligned refinement. That is settled, with the reasoning, in
-`docs/PHYSICS_TODO.md` — do not re-open it.** What is left is to build it:
+`bash scripts/check_atmosphere_at_rest.sh` exits 2: its column run logs
+`LAFieldHydrosphereSeed: the body's water has nowhere to stand — the flood marked 0 basin floor(s)`.
+**Reproduce:** that command; `LA_REST_CELLS` and `LA_REST_CELL_M` name the column it runs.
 
-- `LAVoxelGrid` gains per-cell geometry: refinement level, edge length, per-face area and centre distance.
-  `cell_volumes()` stops filling one repeated value.
-- `neighbours` generalises from six fixed slots to a per-cell face list, so a coarse cell can face four
-  fine ones; `opposite_slot(d) = d ^ 1` becomes a stored partner slot and `check_neighbour_slots.sh`
-  gates the new single definition.
-- On the device, `params.cell_m` is replaced by per-cell and per-face buffers beside the `cell_vol` SSBO
-  that `kernels3d/cellvol.glsli` already reads. `transport.glsl`, `transport_radiate.glsli`,
-  `gravity_poisson.glsl`, `pressure.glsl`, `reduce.glsl` and `march.glsli` carry every site.
-- Refinement is seeded from distance to the terrain SDF, which `MaterialFieldSolidCache3D` already
-  samples. The vacuum corners and the quiet interior stay coarsest, which is what makes it affordable.
-- The slice box becomes a refinement region rather than a second construction path.
+`bash scripts/check_radiative_row.sh` exits 2: its rig arm passes and the seeded-world arm publishes no
+`rad_emitted`, `rad_absorbed`, `rad_sb_rel_max` or `sw_reflected`. **Reproduce:** that command.
 
-**`check_voxel_grid.sh` asserts `volume_ratio == 1.0`** — a gate holding the grid uniform. It is INVERTED,
-not deleted: it becomes the gate that a 2:1 neighbour's volume ratio is exactly 8 and that every transfer
-goes through `cellvol.glsli`'s existing `vol_ratio(donor, receiver)`.
+`scripts/check_boundary_books.sh` and `scripts/check_boundary_momentum_book.sh` exit 2: their slice runs
+log `TransportPass: the h2o row's own cells carry a signal speed at or past light`. **Reproduce:** either
+command.
 
-**The well-balanced scheme is required work, not a hope, and it decides whether the atmosphere is real.**
-`scripts/check_atmosphere_at_rest.sh` is its gate and it is RED: a cell's pressure leaves the value it
-was seeded with. Reproduce: `bash scripts/check_atmosphere_at_rest.sh`.
+`scripts/check_wind_subsonic.sh` and `scripts/check_rung_acoustic.sh` are item 0's, unchanged.
 
 ## 2. The open-boundary books do not close at run level
 

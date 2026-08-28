@@ -172,7 +172,7 @@ func build(p_nx: int, p_ny: int, p_nz: int, p_cell_size: float, p_origin: Vector
 	nz = maxi(p_nz, 1)
 	cell_size = maxf(p_cell_size, 1.0e-6)
 	origin = p_origin
-	_split(PackedByteArray())
+	refine(PackedByteArray())
 
 
 ## Build a box centred on `centre` that contains a sphere of `radius`, at `p_cell_size` resolution.
@@ -185,10 +185,6 @@ func build_centred(centre: Vector3, radius: float, p_cell_size: float) -> void:
 ## Split the base cells `mask` marks into eight, and rebuild the face list. The mask is the whole
 ## statement of where the grid is fine, so refining twice with the same mask is one grid.
 func refine(mask: PackedByteArray) -> void:
-	_split(mask)
-
-
-func _split(mask: PackedByteArray) -> void:
 	var g: Dictionary = LAGridGeometry.build(Vector3i(nx, ny, nz), mask)
 	cell_count = int(g["cell_count"])
 	levels = g["levels"]
