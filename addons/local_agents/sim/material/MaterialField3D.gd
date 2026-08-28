@@ -212,20 +212,17 @@ var _gravity = null                                      # LAMaterialFieldGravit
 ## A slice, a sandbox and a whole planet differ in their arguments, never in their code.
 func setup_box(origin: Vector3, dims: Vector3i, cell_size: float, terrain = null,
 		body_centre: Vector3 = Vector3.ZERO, refine_below_m: float = 0.0,
-		refine_above_m: float = 0.0, refine_region: AABB = AABB()) -> void:
+		refine_above_m: float = 0.0) -> void:
 	if terrain != null:
 		_terrain = terrain
 		if terrain.has_method("generator_options"):
 			_terrain_opts = terrain.generator_options()   # the solid-mask cache's key
 	var grid: LAVoxelGrid = LAVoxelGrid.new()
 	grid.build(dims.x, dims.y, dims.z, maxf(cell_size, 1.0e-6), origin)
-	# WHERE THE GRID IS FINE: a shell around the terrain surface, plus a declared box.
-	var regions: Array[AABB] = []
-	if refine_region.size != Vector3.ZERO:
-		regions.append(refine_region)
-	if refine_below_m > 0.0 or refine_above_m > 0.0 or not regions.is_empty():
+	# WHERE THE GRID IS FINE: the shell around the terrain surface, wherever a cell is coarser than it.
+	if refine_below_m > 0.0 or refine_above_m > 0.0:
 		grid.refine(LAGridGeometry.refine_mask(grid, body_centre, terrain,
-			refine_below_m, refine_above_m, regions))
+			refine_below_m, refine_above_m))
 	_adopt(grid)
 
 ## ONE lifecycle.

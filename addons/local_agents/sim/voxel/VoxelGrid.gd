@@ -47,6 +47,8 @@ var partners: PackedInt32Array = PackedInt32Array()
 
 ## Ghost rows appended past cell_count by a boundary provider; 0 = every wall shut.
 var ghost_rows: int = 0
+## The finest level any cell is at; 0 on a uniform box.
+var max_level: int = 0
 
 
 ## The slot at which the neighbour at slot `d` points back here. Axis-aligned, so it is the bit flip.
@@ -78,6 +80,12 @@ func in_bounds(x: int, y: int, z: int) -> bool:
 ## Refinement level of cell `c`; 0 is the coarsest.
 func level_of(c: int) -> int:
 	return int(levels[c]) if c >= 0 and c < levels.size() else 0
+
+
+## Edge of the FINEST cell the grid actually holds, metres — not the finest MAX_LEVEL would allow.
+## Every bound that is a property of the smallest cell reads this, so a uniform box states its own edge.
+func min_cell_size() -> float:
+	return cell_size * pow(0.5, float(max_level))
 
 
 ## Edge of cell `c`, metres.
@@ -188,6 +196,9 @@ func refine(mask: PackedByteArray) -> void:
 	var g: Dictionary = LAGridGeometry.build(Vector3i(nx, ny, nz), mask)
 	cell_count = int(g["cell_count"])
 	levels = g["levels"]
+	max_level = 0
+	for c in levels.size():
+		max_level = maxi(max_level, int(levels[c]))
 	cell_base = g["cell_base"]
 	cell_oct = g["cell_oct"]
 	base_head = g["base_head"]

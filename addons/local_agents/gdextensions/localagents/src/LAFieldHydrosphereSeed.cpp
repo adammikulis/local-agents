@@ -163,10 +163,11 @@ void LAFieldHydrosphereSeed::seed(Object *p_field) {
 		floors.push_back(c);
 		deep.push_back(level[c] - height[c]);
 	}
-	if (floors.empty() || !(pore > 0.0)) {
-		UtilityFunctions::push_error(String("LAFieldHydrosphereSeed: the body's water has nowhere to "
-				"stand — the flood marked ") + String::num_int64(int(floors.size()))
-				+ " basin floor(s) and the regolith walk " + String::num(pore) + " m^3 of pore space.");
+	// NO PORE SPACE IS A BROKEN REGOLITH WALK: every box on this body has rock in it, and rock has
+	// porosity, so a walk that finds none found nothing rather than a body without groundwater.
+	if (!(pore > 0.0)) {
+		UtilityFunctions::push_error("LAFieldHydrosphereSeed: the regolith walk found no pore space, so "
+				"the body's groundwater has nowhere to stand.");
 		return;
 	}
 
@@ -178,6 +179,21 @@ void LAFieldHydrosphereSeed::seed(Object *p_field) {
 	}
 	const double sat = MIN(ground_kg / (kg_m3 * pore), 1.0);
 	const double want = (water_kg - ground_kg) / kg_m3;
+	float *w = h2o.ptrw();
+	// THE PORE WATER STANDS WHEREVER THERE IS ROCK, basin or no basin.
+	for (int c = 0; c < cc; c++) {
+		if (regolith[c] != 0) {
+			w[c] = float(sat * double(porosity[c]) * full_mol);
+		}
+	}
+	// A BOX WITH NO BASIN IS A BOX ON LAND, not a broken seed: a column standing above the sea holds
+	// none of the body's surface water, and the rest of the body holds all of it.
+	if (floors.empty()) {
+		UtilityFunctions::push_warning("LAFieldHydrosphereSeed: this box holds no basin floor, so all of "
+				"the body's surface water stands outside it.");
+		p_field->set("_h2o", h2o);
+		return;
+	}
 	std::vector<double> floor_edge, floor_vol;
 	double floor_room = 0.0;
 	for (size_t i = 0; i < floors.size(); i++) {
@@ -209,13 +225,6 @@ void LAFieldHydrosphereSeed::seed(Object *p_field) {
 		}
 	}
 	const double thick = 0.5 * (lo + hi);
-
-	float *w = h2o.ptrw();
-	for (int c = 0; c < cc; c++) {
-		if (regolith[c] != 0) {
-			w[c] = float(sat * double(porosity[c]) * full_mol);
-		}
-	}
 	for (size_t i = 0; i < floors.size(); i++) {
 		w[floors[i]] = float(MIN(thick * deep[i] / edge[floors[i]], 1.0) * full_mol);
 	}

@@ -23,10 +23,10 @@ public:
 	// Edge in metres and volume in m^3 per cell, over interior plus ghost tail.
 	static PackedFloat32Array edges(Object *p_grid);
 	static PackedFloat32Array volumes(Object *p_grid);
-	// 1 per base cell the grid refines: within `below`/`above` of the terrain surface, or inside one of
-	// `regions` (an Array of AABB). The box edge is never marked.
+	// 1 per base cell the grid refines: within `below`/`above` of the terrain surface, and only where a
+	// cell is coarser than the air column `above_m` names. The box edge is never marked.
 	static PackedByteArray refine_mask(Object *p_grid, const Vector3 &p_centre, Object *p_terrain,
-			double p_below_m, double p_above_m, const Array &p_regions);
+			double p_below_m, double p_above_m);
 	// The leaves and the face list of a base lattice of p_dims cells with the base cells p_mask marks
 	// split into eight: cell_count, levels, cell_base, cell_oct, base_head, base_split, slot_off,
 	// neighbours, partners.

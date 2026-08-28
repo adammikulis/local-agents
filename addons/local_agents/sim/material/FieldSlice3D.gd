@@ -102,10 +102,11 @@ func apply(field, body, terrain) -> bool:
 		field._terrain_opts = terrain.generator_options()
 	var centre: Vector3 = Vector3(body.center()) + offset
 	var half: Vector3 = 0.5 * Vector3(dims) * cell_size
-	# THE SLICE BOX IS A REFINEMENT REGION, not a second construction path: its interior resolves at
-	# half the declared edge, and the rim that carries the prescribed exterior stays coarsest.
-	field.setup_box(centre - half, dims, cell_size, terrain, body.center(), 0.0, 0.0,
-		AABB(centre - half, 2.0 * half))
+	# THE SLICE IS A REGION OF THE ONE CONSTRUCTION PATH, not a second one, and it is handed the SAME
+	# refinement rule the whole body gets: a shell around the terrain surface, refined only where a
+	# cell is coarser than that shell. A slice whose own edge already resolves it stays uniform.
+	field.setup_box(centre - half, dims, cell_size, terrain, body.center(), cell_size,
+		LocalAgentSimWorld.MODELLED_ATMOSPHERE_HEIGHT_M)
 	_configure_boundary(field)
 	return error == ""
 

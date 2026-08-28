@@ -32,6 +32,7 @@ set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_rung.sh"
 GODOT="${GODOT:-godot}"
 command -v "$GODOT" >/dev/null 2>&1 || { echo "ERROR: godot not on PATH — a gate that cannot run FAILS." >&2; exit 2; }
 KERNEL="$REPO_ROOT/addons/local_agents/sim/material/kernels3d/transport.glsl"
@@ -352,10 +353,16 @@ fi
 # ARM TWO — the field the SIM seeds, not one this script built.
 # ---------------------------------------------------------------------------------------------------
 SIM_FRAMES="${LA_RADIATIVE_FRAMES:-20}"
+# LAProcessSet::RADIATION — the rung whose reduce list declares rad_emitted, rad_absorbed,
+# sw_reflected and rad_sb_rel_max.
+RADIATION_RUNG=7
 # float32 rounding between the send stamp and the gather's independent recomputation; not a fit.
 SB_REL_TOL="0.001"
-sim_out="$(la_report rad_emitted,rad_absorbed,solid_cells,rad_sb_rel_max,sw_reflected \
-  --path "$REPO_ROOT" --frames "$SIM_FRAMES" 2>&1)"
+# THE RUNG THAT OWNS THESE ROWS, never the shared lint capture: that arm is the demo world's rung
+# (docs/PLAYABLE_RUNG), and a world below RADIATION contains no radiation row to read. A reading absent
+# because the world was asked the wrong question is not a reading about radiation.
+sim_out="$(la_rung_report "$RADIATION_RUNG" "$SIM_FRAMES" \
+  rad_emitted,rad_absorbed,solid_cells,rad_sb_rel_max,sw_reflected)"
 sim_rc=$?
 printf '%s\n' "$sim_out" | grep -E '^(rad_emitted|rad_absorbed|solid_cells|rad_sb_rel_max|sw_reflected)' || true
 # A reduce row arrives as a gauge, so the value is behind a 'cur' key; a plain scalar has none.

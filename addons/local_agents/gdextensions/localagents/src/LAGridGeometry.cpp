@@ -1,7 +1,6 @@
 #include "LAGridGeometry.hpp"
 
 #include <godot_cpp/core/class_db.hpp>
-#include <godot_cpp/variant/aabb.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/variant/vector3i.hpp>
@@ -51,7 +50,7 @@ PackedFloat32Array LAGridGeometry::volumes(Object *p_grid) {
 }
 
 PackedByteArray LAGridGeometry::refine_mask(Object *p_grid, const Vector3 &p_centre, Object *p_terrain,
-		double p_below_m, double p_above_m, const Array &p_regions) {
+		double p_below_m, double p_above_m) {
 	PackedByteArray out;
 	if (!p_grid) {
 		return out;
@@ -68,8 +67,15 @@ PackedByteArray LAGridGeometry::refine_mask(Object *p_grid, const Vector3 &p_cen
 	out.resize(base_count);
 	// A cell counts when its own CUBE reaches the band, not just its centre.
 	const double pad = 0.5 * std::sqrt(3.0) * edge;
-	const bool surface = (p_below_m + p_above_m) > 0.0 && p_terrain
+	// RESOLUTION FOLLOWS POSITION, AND STOPS WHERE IT IS ALREADY THERE. `above_m` is the air column the
+	// refinement is FOR; a cell no coarser than that column already resolves what stands in it, and
+	// splitting it buys nothing and costs eight cells. This keeps a small box uniform and a
+	// planet-sized one graded, off one rule and no special case.
+	const bool surface = p_above_m > 0.0 && edge > p_above_m && p_terrain
 			&& p_terrain->has_method("surface_radius");
+	if (!surface) {
+		return out;
+	}
 	uint8_t *w = out.ptrw();
 	for (int b = 0; b < base_count; b++) {
 		w[b] = 0;
@@ -83,17 +89,11 @@ PackedByteArray LAGridGeometry::refine_mask(Object *p_grid, const Vector3 &p_cen
 		const Vector3 p = origin + (Vector3(float(x), float(y), float(z)) + Vector3(0.5, 0.5, 0.5))
 				* float(edge);
 		bool hit = false;
-		for (int i = 0; i < p_regions.size() && !hit; i++) {
-			const AABB region = p_regions[i];
-			hit = region.grow(float(pad)).has_point(p);
-		}
-		if (!hit && surface) {
-			const Vector3 rel = p - p_centre;
-			const double r = double(rel.length());
-			if (r > 0.0) {
-				const double rs = double(p_terrain->call("surface_radius", rel / float(r)));
-				hit = r >= rs - p_below_m - pad && r <= rs + p_above_m + pad;
-			}
+		const Vector3 rel = p - p_centre;
+		const double r = double(rel.length());
+		if (r > 0.0) {
+			const double rs = double(p_terrain->call("surface_radius", rel / float(r)));
+			hit = r >= rs - p_below_m - pad && r <= rs + p_above_m + pad;
 		}
 		w[b] = hit ? 1 : 0;
 	}
@@ -372,7 +372,7 @@ void LAGridGeometry::_bind_methods() {
 	ClassDB::bind_static_method("LAGridGeometry", D_METHOD("edges", "grid"), &LAGridGeometry::edges);
 	ClassDB::bind_static_method("LAGridGeometry", D_METHOD("volumes", "grid"), &LAGridGeometry::volumes);
 	ClassDB::bind_static_method("LAGridGeometry",
-			D_METHOD("refine_mask", "grid", "centre", "terrain", "below_m", "above_m", "regions"),
+			D_METHOD("refine_mask", "grid", "centre", "terrain", "below_m", "above_m"),
 			&LAGridGeometry::refine_mask);
 	ClassDB::bind_static_method("LAGridGeometry", D_METHOD("build", "dims", "mask"),
 			&LAGridGeometry::build);
