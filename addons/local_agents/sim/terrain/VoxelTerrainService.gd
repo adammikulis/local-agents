@@ -10,7 +10,6 @@ const MAX_LOD: int = 23                   # godot_voxel's cap: VoxelLodTerrain r
 var _terrain: VoxelLodTerrain = null
 var _generator: VoxelGeneratorGraph = null   # the planet's SDF, queryable before anything is meshed
 var _viewer: VoxelViewer = null
-var _query_tool: VoxelTool = null          # cached SDF sampler for is_solid / sdf_at (the 3D-field rock test)
 var _gen_opts: Dictionary = {}             # the dict build_planet handed LASpherePlanetGenerator.build()
 var _center: Vector3 = Vector3.ZERO
 var _planet_radius: float = 0.0
@@ -166,18 +165,19 @@ func _edit_sphere(world_pos: Vector3, radius: float, mode: int) -> void:
 	vt.do_sphere(_terrain.to_local(world_pos), radius)
 
 
-## Signed distance to the rock surface at a world point: negative INSIDE rock, positive in air/void.
-## 999 when the terrain is unavailable. Reads edited data (post-carve), so caves read as void.
+## Signed distance to the rock surface at a world point: negative INSIDE rock, positive in air or void,
+## from the body's own shape rather than from what a viewer has streamed. 999 when there is no terrain.
 func sdf_at(pos: Vector3) -> float:
-	if _query_tool == null and _terrain != null:
-		_query_tool = _terrain.get_voxel_tool()
-		if _query_tool != null:
-			_query_tool.set_channel(VoxelBuffer.CHANNEL_SDF)
-	if _query_tool == null:
+	if _terrain == null:
 		return 999.0
-	# VoxelTool samples in the terrain's LOCAL/voxel space; convert the world query so is_solid is correct
-	# when the body is rotated (a spinning planet). No-op at identity (island / unrotated planet).
-	return _query_tool.get_voxel_f_interpolated(_terrain.to_local(pos))
+	var d: Vector3 = pos - _center
+	var r: float = d.length()
+	if r <= _planet_radius - _relief_ceiling:
+		return r - (_planet_radius - _relief_ceiling)
+	if r >= max_surface_radius():
+		return r - max_surface_radius()
+	var sr: float = surface_radius(d)
+	return 999.0 if is_nan(sr) else r - sr
 
 
 func is_solid(pos: Vector3) -> bool:

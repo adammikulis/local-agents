@@ -436,6 +436,9 @@ func bind(terrain, camera: Camera3D, body: Node3D, star: Node3D, material: Node,
 	# Wire the planet body so the camera's GEOSYNC mode can read its rotating frame (keeps VoxelWorld untouched).
 	if _camera != null and _camera.has_method("set_geosync_body"):
 		_camera.set_geosync_body(_body)
+	# The view bar is built before this, so its altitude readout gets its refs here.
+	if _view_controls != null and _view_controls.has_method("bind_view"):
+		_view_controls.bind_view(_camera, _body)
 	_refresh_view_controls()
 
 
