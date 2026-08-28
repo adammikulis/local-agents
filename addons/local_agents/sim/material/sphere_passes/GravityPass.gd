@@ -16,7 +16,7 @@ const PART_STRIDE: int = 10
 ## gravity_poisson.glsl `moments`: 0 mass · 1..3 centre of mass · 4 mean |g| · 5 residual · 6 Gauss ratio.
 const MOMENT_SLOTS: int = 7
 const GROUP: int = 64
-const PC_BYTES: int = 44
+const PC_BYTES: int = 36
 
 const MODE_FLAGS: int = 0
 const MODE_DENSITY: int = 1
@@ -30,6 +30,7 @@ const MODE_MONOPOLE: int = 8
 const MODE_VERT_UP: int = 9
 const MODE_VERT_DOWN: int = 10
 const MODE_APPLY: int = 11
+const MODE_VERT_DOWN_KEY: int = 12
 
 const PHI: String = "grav_phi"
 const PHI_NEXT: String = "grav_phi_next"
@@ -152,6 +153,7 @@ func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: i
 	plan.append([MODE_GRADIENT, 0, groups])
 	plan.append([MODE_VERT_UP, 0, groups])
 	plan.append([MODE_VERT_DOWN, 0, groups])
+	plan.append([MODE_VERT_DOWN_KEY, 0, groups])
 	plan.append([MODE_RESIDUAL, 0, groups])
 	plan.append([MODE_FIELD_STATS, 0, 1])
 	_issue(cl, plan, cc)
@@ -170,7 +172,7 @@ func dispatch_monopole(_rd: RenderingDevice, cl: int, cc: int, groups: int) -> v
 		return
 	# The one vertical relation reads the gravity the monopole just wrote.
 	_issue(cl, [[MODE_MONOPOLE, 0, groups], [MODE_VERT_UP, 0, groups], [MODE_VERT_DOWN, 0, groups],
-		[MODE_FIELD_STATS, 0, 1]], cc)
+		[MODE_VERT_DOWN_KEY, 0, groups], [MODE_FIELD_STATS, 0, 1]], cc)
 	_solves += 1
 	_read_due = true
 

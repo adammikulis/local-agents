@@ -41,6 +41,11 @@ const uint MODE_MONOPOLE = 8u;
 const uint MODE_VERT_UP = 9u;
 const uint MODE_VERT_DOWN = 10u;
 const uint MODE_APPLY = 11u;
+const uint MODE_VERT_DOWN_KEY = 12u;
+
+// Cells the packed vertical key can hold, and the offset steps stacked above them.
+const uint VERT_INDEX_LIMIT = 2097152u;
+const uint VERT_KEY_STEPS = 1024u;
 
 const uint FLAG_BOUNDARY = 1u;
 
@@ -357,21 +362,70 @@ void mode_field_stats() {
 	}
 }
 
-// The neighbour one step against gravity, snapped to the axis the local vertical lies nearest.
-void mode_vert_up(uint gidx) {
-	vec3 g = vec3(g_field[gidx * 3u], g_field[gidx * 3u + 1u], g_field[gidx * 3u + 2u]);
+// The cell the plumb line through `gidx` runs into along `dir`, snapped to the axis that direction lies
+// nearest. Where that slot meets four finer cells, the one LEAST OFF the line is the one over (or under)
+// this cell; any other of the four stands over different ground, which on a body this size is a different
+// surface and a different air column.
+int plumb_step(uint c, vec3 dir) {
+	int d = la_slot_toward(dir);
+	if (d < 0) {
+		return -1;
+	}
+	int best = -1;
+	float off = 0.0;
+	vec3 here = pos_at(c);
+	for (uint f = la_slot_lo(c, uint(d)); f < la_slot_hi(c, uint(d)); ++f) {
+		int nb = nbr[f];
+		if (nb < 0) {
+			continue;
+		}
+		vec3 r = pos_at(uint(nb)) - here;
+		float lat = length(r - dir * dot(r, dir));
+		if (best < 0 || lat < off) {
+			best = nb;
+			off = lat;
+		}
+	}
+	return best;
+}
+
+vec3 la_up_at(uint c, out bool ok) {
+	vec3 g = vec3(g_field[c * 3u], g_field[c * 3u + 1u], g_field[c * 3u + 2u]);
 	float mag = length(g);
-	vert_up[gidx] = (mag > 0.0) ? la_step(gidx, -g / mag) : -1;
+	ok = mag > 0.0;
+	return ok ? -g / mag : vec3(0.0);
+}
+
+void mode_vert_up(uint gidx) {
+	bool ok = false;
+	vec3 up = la_up_at(gidx, ok);
+	vert_up[gidx] = ok ? plumb_step(gidx, up) : -1;
 	vert_down[gidx] = 0xFFFFFFFFu;
 }
 
-// Invert it by scatter: the lowest-indexed cell naming `u` as its up becomes `u`'s below, so a march up
-// and back down returns to where it started. atomicMin makes the choice deterministic.
+// INVERT THE TABLE ABOVE, so the audit walks the column the pressure march built. Four fine cells can
+// name one coarse cell as their up, and the one under it is the one least off its plumb line: the key
+// is that offset over the cell's own edge, with the index below it to break a tie deterministically.
 void mode_vert_down(uint gidx) {
 	int u = vert_up[gidx];
-	if (u >= 0) {
-		atomicMin(vert_down[uint(u)], gidx);
+	if (u < 0 || gidx >= VERT_INDEX_LIMIT) {
+		return;
 	}
+	bool ok = false;
+	vec3 up = la_up_at(uint(u), ok);
+	float lat = 0.0;
+	if (ok) {
+		vec3 r = pos_at(gidx) - pos_at(uint(u));
+		lat = length(r - up * dot(r, up)) / max(cell_edge[uint(u)], 1.0e-30);
+	}
+	uint q = uint(clamp(lat, 0.0, 1.0) * float(VERT_KEY_STEPS - 1u));
+	atomicMin(vert_down[uint(u)], (q * VERT_INDEX_LIMIT) + gidx);
+}
+
+// Strip the offset key, leaving the cell index the audit and every `below` read want.
+void mode_vert_down_key(uint gidx) {
+	uint v = vert_down[gidx];
+	vert_down[gidx] = v == 0xFFFFFFFFu ? v : (v % VERT_INDEX_LIMIT);
 }
 
 void main() {
@@ -383,6 +437,9 @@ void main() {
 			return;
 		case MODE_VERT_DOWN:
 			if (live) { mode_vert_down(gidx); }
+			return;
+		case MODE_VERT_DOWN_KEY:
+			if (live) { mode_vert_down_key(gidx); }
 			return;
 		case MODE_FLAGS:
 			if (live) { mode_flags(gidx); }
