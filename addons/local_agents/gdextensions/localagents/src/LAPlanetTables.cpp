@@ -1,3 +1,4 @@
+#include "LAGridGeometry.hpp"
 #include <godot_cpp/variant/utility_functions.hpp>
 #include "LAPlanetTables.hpp"
 
@@ -387,6 +388,7 @@ struct RadialProfile {
 	int i_core = 0;
 	double dr = 0.0;
 	std::vector<double> p_at;
+	std::vector<double> m_in;
 	double mass = 0.0;
 };
 
@@ -450,6 +452,7 @@ static RadialProfile radial_profile(double p_radius_m, double p_t_c) {
 		total += rho[i] * (4.0 / 3.0) * kPi * (r_hi * r_hi * r_hi - r_lo * r_lo * r_lo);
 	}
 	out.n = N;
+	out.m_in = m_in;
 	out.i_core = i_core;
 	out.dr = dr;
 	out.p_at = p_at;
@@ -459,6 +462,66 @@ static RadialProfile radial_profile(double p_radius_m, double p_t_c) {
 
 static double mass_at_radius(double p_radius_m, double p_t_c) {
 	return radial_profile(p_radius_m, p_t_c).mass;
+}
+
+// THE BODY'S OWN FIELD at every cell of a grid, from the relaxed radial profile: g = G m(<r)/r^2 and
+// its potential, zero at infinity, integrated inward from the surface. "g" is cell*3 float32,
+// "phi" double per cell, "ref" its float32 copy and "dev" the zero deviation.
+Dictionary LAPlanetComposition::body_field(Object *p_grid, const Vector3 &p_centre, double p_radius_m, double p_t_c) {
+	Dictionary out;
+	const RadialProfile prof = radial_profile(p_radius_m, p_t_c);
+	if (!p_grid || prof.n <= 0) {
+		return out;
+	}
+	const double g_si = la_physical("GRAVITATIONAL_CONSTANT");
+	const int N = prof.n;
+	const double dr = prof.dr;
+	// Potential at every shell boundary r_k = k dr, inward from -GM/R.
+	std::vector<double> phi_k(N + 1, 0.0);
+	phi_k[N] = -g_si * prof.mass / p_radius_m;
+	for (int k = N - 1; k >= 0; k--) {
+		const double r_mid = (double(k) + 0.5) * dr;
+		const double m_mid = k > 0 ? 0.5 * (prof.m_in[k - 1] + prof.m_in[k]) : 0.5 * prof.m_in[0];
+		phi_k[k] = phi_k[k + 1] - g_si * m_mid / (r_mid * r_mid) * dr;
+	}
+	const PackedFloat64Array cw = LAGridGeometry::centres_f64(p_grid);
+	const int cc = cw.size() / 3;
+	PackedFloat32Array g, ref, dev;
+	PackedFloat64Array phi;
+	g.resize(cc * 3);
+	phi.resize(cc);
+	ref.resize(cc);
+	dev.resize(cc);
+	dev.fill(0.0f);
+	float *gw = g.ptrw();
+	float *rw = ref.ptrw();
+	double *pw = phi.ptrw();
+	for (int c = 0; c < cc; c++) {
+		const double dx = cw[c * 3] - double(p_centre.x), dy = cw[c * 3 + 1] - double(p_centre.y), dz = cw[c * 3 + 2] - double(p_centre.z);
+		const double r = std::sqrt(dx * dx + dy * dy + dz * dz);
+		double m = prof.mass, ph = 0.0;
+		if (r >= p_radius_m) {
+			ph = -g_si * prof.mass / r;
+		} else {
+			const double x = r / dr;
+			const int k = std::min(int(x), N - 1);
+			const double f = x - double(k);
+			const double m_lo = k > 0 ? prof.m_in[k - 1] : 0.0;
+			m = m_lo + (prof.m_in[k] - m_lo) * f;
+			ph = phi_k[k] + (phi_k[k + 1] - phi_k[k]) * f;
+		}
+		const double mag = r > 0.0 ? g_si * m / (r * r) : 0.0;
+		gw[c * 3] = float(r > 0.0 ? -mag * dx / r : 0.0);
+		gw[c * 3 + 1] = float(r > 0.0 ? -mag * dy / r : 0.0);
+		gw[c * 3 + 2] = float(r > 0.0 ? -mag * dz / r : 0.0);
+		pw[c] = ph;
+		rw[c] = float(ph);
+	}
+	out["g"] = g;
+	out["phi"] = phi;
+	out["ref"] = ref;
+	out["dev"] = dev;
+	return out;
 }
 
 // The core boundary of the relaxed body of radius R, metres.
@@ -689,6 +752,7 @@ void LAPlanetComposition::_bind_methods() {
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("core_radius_frac", "t_c", "p_pa"), &core_radius_frac);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("radius_for_mass", "mass_kg", "t_c"), &radius_for_mass);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("core_radius_m", "radius_m", "t_c"), &core_radius_m);
+	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("body_field", "grid", "centre", "radius_m", "t_c"), &body_field);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("seed", "field", "t_c"), &seed);
 }
 

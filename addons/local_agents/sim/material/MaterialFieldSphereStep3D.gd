@@ -83,15 +83,15 @@ func seed_tick() -> bool:
 	_f._gpu.derive_seeded()   # publishes g_rest as geometry: gravitation and this frame's own spin
 	var g_solved: PackedFloat32Array = LAFieldLithostaticSeed.vertical(_f, _f._gpu.read_raw("g_rest"))
 	# The barometric profile is a function of the SOLVED POTENTIAL, so the solve's own phi goes with it.
-	LAFieldLithostaticSeed.shape_atmosphere(_f, LAMaterialField3D.INITIAL_TEMP, _f._body_measure,
-		g_solved, _f._gravity.phi_abs())
+	if LAProcessSet.has_record("pass", GRAVITY_PASS):
+		LAFieldLithostaticSeed.shape_atmosphere(_f, LAMaterialField3D.INITIAL_TEMP, _f._body_measure,
+			g_solved, _f._gravity.phi_abs())
 	var p_marched: PackedFloat32Array = LAFieldLithostaticSeed.compress(_f, g_solved)
 	LAFieldEnthalpySeed.seed(_f, LAFieldGeothermSeed.profile(_f, LAMaterialField3D.INITIAL_TEMP), p_marched)
 	# WEIGH THE BODY once the march has compressed the rock it stands on.
 	_f._body_measure.measure(_f, LABodySeeds.spin_axis_of(_f._body_key))
 	if _f._gpu != null:                                # hand the device what those walks produced
-		_f._gpu._seed_regolith()                       # permeability mask + grain size
-		_f._gpu._seed("porosity", _f._porosity)        # Athy pore fraction
+		_f._gpu._seed_regolith()                       # permeability mask, grain size, Athy porosity
 		# The march's own pressure, so the first state derive reads the world at it rather than at zero,
 		# where every condensed phase would be asked to boil.
 		_f._gpu._seed("pressure", p_marched)

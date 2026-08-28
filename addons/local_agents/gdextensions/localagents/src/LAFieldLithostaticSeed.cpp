@@ -373,7 +373,7 @@ void LAFieldLithostaticSeed::clear_gas_in_rock(Object *p_field) {
 }
 
 void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c, Object *p_measure,
-		const PackedFloat32Array &p_gravity, const PackedFloat32Array &p_phi) {
+		const PackedFloat32Array &p_gravity, const PackedFloat64Array &p_phi) {
 	if (!p_field || !p_measure) {
 		return;
 	}

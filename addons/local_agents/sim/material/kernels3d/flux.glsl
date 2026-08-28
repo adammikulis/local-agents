@@ -211,10 +211,10 @@ float row_depth(uint c) {
 	return params.max_fill > 0.0 ? (row_amount(c) / params.max_fill) * cell_edge[c] : 0.0;
 }
 
-// Height of the row's free surface above the datum, m: the geopotential read as an altitude, plus
-// what stands on it. One gravity for the pair, so both sides read the same surface.
-float surface_h(uint c, float g_pair) {
-	return g_pair > 0.0 ? la_phi(c) / g_pair + row_depth(c) : row_depth(c);
+// Drop of the row's free surface from c to n across face d, m: the geopotential read as an altitude
+// with what stands on it. One gravity for the pair, so both sides read the same surface.
+float surface_drop(uint c, uint n, uint d, float g_pair) {
+	return (g_pair > 0.0 ? -la_dphi(c, n, d) / g_pair : 0.0) + row_depth(c) - row_depth(n);
 }
 
 // THE DRIFT VELOCITY of this row's phase through the mixture across the face, m/s, positive out of
@@ -232,20 +232,19 @@ float drift_at(uint c, uint n, uint d, float dist) {
 			return 0.0;
 		}
 		// Piezometric head, m: elevation plus the pore pressure the fluid stands under.
-		float hc = (la_phi(c) + max(pressure[c], 0.0) / params.fluid_rho) / gm;
-		float hn = (la_phi(n) + max(pressure[n], 0.0) / params.fluid_rho) / gm;
-		return k * (hc - hn) / dist;
+		float dh = (-la_dphi(c, n, d) + (max(pressure[c], 0.0) - max(pressure[n], 0.0)) / params.fluid_rho) / gm;
+		return k * dh / dist;
 	}
 	if (params.law == LAW_SHALLOW) {
 		// Inviscid gravity adjustment: du/dt = -g d(h+z)/dx. A granular pile holds a slope up to its
 		// angle of repose, so only the excess over it drives anything.
-		float slope = (surface_h(c, gm) - surface_h(n, gm)) / dist;
+		float slope = surface_drop(c, n, d, gm) / dist;
 		float excess = max(abs(slope) - params.repose_tan, 0.0) * sign(slope);
 		return gm * la_dt * excess;
 	}
 	if (params.law == LAW_FILM) {
 		// Nusselt falling film: u = rho g h^2 sin(theta) / (3 mu), mu climbing as the melt crystallises.
-		float slope = (surface_h(c, gm) - surface_h(n, gm)) / dist;
+		float slope = surface_drop(c, n, d, gm) / dist;
 		float hh = 0.5 * (row_depth(c) + row_depth(n));
 		float mu = max(melt_viscosity(lo), 1.0e-12);
 		return params.density * gm * hh * hh * slope / (3.0 * mu);
@@ -486,7 +485,7 @@ void row_apply(uint c) {
 			// it motion instead. Only the receiving side books it, and only from an interior donor.
 			if (params.mode == MODE_POTENTIAL && cross < 0.0 && inb >= 0
 					&& uint(inb) < params.cell_count) {
-				d_h += (-cross) * kg_mol * (la_phi(uint(inb)) - la_phi(c));
+				d_h += (-cross) * kg_mol * la_dphi(c, uint(inb), la_face_slot(c, f));
 			}
 		}
 		// Exterior crossings book inflow-positive; a wrap partner is interior motion and books nothing.

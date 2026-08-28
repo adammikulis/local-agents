@@ -5,6 +5,8 @@
 #include "LAMixtureEnthalpy.hpp"
 #include "LAPhysicalRead.hpp"
 
+#include <godot_cpp/classes/rendering_device.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <vector>
@@ -63,6 +65,37 @@ Array walk(Object *p_field, const String &p_key, const String &p_value, bool p_n
 // Kilograms of each substance in one cell, keyed by LASubstances id: mol/m^3 times molar mass times the
 // cell's own volume. Gas is matter with heat capacity like any other and is counted with the rest. EMPTY
 // for a cell under the bulk-density floor state_derive.glsl empties on: it holds no bulk state at all.
+void LAFieldCellMass3D::upload_regolith(RenderingDevice *p_rd, const Dictionary &p_bufs, Object *p_field) {
+	if (!p_rd || !p_field) {
+		return;
+	}
+	const int cc = int(p_field->get("_cell_count"));
+	const PackedByteArray m = p_field->get("_regolith");
+	if (m.size() != cc || !p_bufs.has("regolith")) {
+		return;
+	}
+	PackedFloat32Array f;
+	f.resize(cc);
+	float *w = f.ptrw();
+	bool any = false;
+	for (int i = 0; i < cc; i++) {
+		w[i] = m[i] != 0 ? 1.0f : 0.0f;
+		any = any || m[i] != 0;
+	}
+	PackedByteArray b = f.to_byte_array();
+	p_rd->buffer_update(RID(p_bufs["regolith"]), 0, b.size(), b);
+	const PackedFloat32Array g = p_field->get("_grain");
+	if (g.size() == cc && p_bufs.has("grain")) {
+		const PackedByteArray gb = g.to_byte_array();
+		p_rd->buffer_update(RID(p_bufs["grain"]), 0, gb.size(), gb);
+	}
+	const PackedFloat32Array por = p_field->get("_porosity");
+	if (any && por.size() == cc && p_bufs.has("porosity")) {
+		const PackedByteArray pb = por.to_byte_array();
+		p_rd->buffer_update(RID(p_bufs["porosity"]), 0, pb.size(), pb);
+	}
+}
+
 Dictionary LAFieldCellMass3D::masses_at(Object *p_field, int p_c, double p_cell_m3) {
 	Dictionary out;
 	if (!p_field || p_c < 0) {
@@ -250,6 +283,8 @@ double LAFieldCellMass3D::kg_m3_at(const Array &p_mirrors, int p_c) {
 }
 
 void LAFieldCellMass3D::_bind_methods() {
+	ClassDB::bind_static_method("LAFieldCellMass3D",
+			D_METHOD("upload_regolith", "rd", "bufs", "field"), &LAFieldCellMass3D::upload_regolith);
 	ClassDB::bind_static_method("LAFieldCellMass3D",
 			D_METHOD("masses_at", "field", "cell", "cell_m3"), &LAFieldCellMass3D::masses_at);
 	ClassDB::bind_static_method("LAFieldCellMass3D",

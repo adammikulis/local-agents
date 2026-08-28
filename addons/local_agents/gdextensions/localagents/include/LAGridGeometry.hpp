@@ -60,6 +60,7 @@ public:
 	static Dictionary validate(Object *p_grid);
 	// Centre of every cell in world coordinates, over interior plus ghost tail.
 	static PackedVector3Array centres(Object *p_grid);
+	static PackedFloat64Array centres_f64(Object *p_grid);
 	// The leaf across the box on slot d's axis: the torus partner of c. Box-edge cells are unrefined.
 	static int wrap_partner(Object *p_grid, int p_c, int p_d);
 	// Centre-to-centre distance across face p_f of cell p_c, m; a box edge has half a cell beyond it.

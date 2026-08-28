@@ -29,8 +29,9 @@ public:
 	static Dictionary solve_device(RenderingDevice *p_rd, Object *p_grid, const RID &p_density,
 			const RID &p_phi, const RID &p_flags, const RID &p_moments, double p_g_si, double p_tol_rel,
 			int p_max_iter);
-	// Element-wise a + b: the full potential from the device's deviation and reference.
-	static PackedFloat32Array sum(const PackedFloat32Array &p_a, const PackedFloat32Array &p_b);
+	// The full potential per cell in double: deviation plus the reference the solve stated it against.
+	static PackedFloat64Array phi_abs(Object *p_grid, const PackedFloat32Array &p_dev,
+			const PackedFloat32Array &p_moments, double p_g_si);
 
 protected:
 	static void _bind_methods();

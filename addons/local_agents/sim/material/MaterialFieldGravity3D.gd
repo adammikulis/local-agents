@@ -41,14 +41,21 @@ func solve() -> void:
 			+ "lake flood, the surface seed — is reading a direction the solve has not yet produced.") % rel)
 
 
-## The full potential per cell, J/kg: the deviation the device holds plus the monopole reference.
-func phi_abs() -> PackedFloat32Array:
-	return LAGravitySolve.sum(_f._gpu.read_raw("grav_phi"), _f._gpu.read_raw("grav_ref"))
+## The full potential per cell in double, J/kg: a slab's is the body's own field; a planet's is the
+## device's deviation plus the reference the solve stated it against.
+func phi_abs() -> PackedFloat64Array:
+	if not _phi_slab.is_empty():
+		return _phi_slab
+	return LAGravitySolve.phi_abs(_f._grid, _f._gpu.read_raw("grav_phi"), _f._gpu.read_raw("grav_moments"),
+		LAPhysical.GRAVITATIONAL_CONSTANT)
+
+
+var _phi_slab: PackedFloat64Array = PackedFloat64Array()
 
 
 ## SLICE: a partial slab cannot solve Poisson — its own mass is not the field's source. The DECLARED
-## body's monopole is dispatched once instead (gravity_poisson.glsl MODE_MONOPOLE), M derived from the
-## declared radius and the declared rock density. Nothing is sampled from the slice's own partial mass.
+## body's own field, g = G m(<r)/r^2 from the radial profile it was seeded from, is uploaded once.
+## LA_APPROX: slice_monopole_gravity
 func _solve_slice() -> void:
 	_bind()
 	if _pass == null or _f._gpu == null or _f._gpu._rd == null:
@@ -58,16 +65,17 @@ func _solve_slice() -> void:
 		push_error("SLICE_NO_BODY: slice mode has no declared body, so gravity has no mass to point at. "
 			+ "Declare the body (set_body) before the seed.")
 		return
-	var r_body: float = float(body.radius())
-	var rho: float = float(LASubstances.table()["silicate"].get("density", 0.0))
-	if r_body <= 0.0 or rho <= 0.0:
-		push_error("SLICE_NO_BODY: the declared body states radius %f and LASubstances states rock density %f; the monopole needs both." % [r_body, rho])
+	var bf: Dictionary = LAPlanetComposition.body_field(_f._grid, _f.centre(), float(body.radius()),
+		LAMaterialField3D.INITIAL_TEMP)
+	if bf.is_empty():
 		return
-	var m_kg: float = (4.0 / 3.0) * PI * r_body * r_body * r_body * rho
-	_pass.set_monopole(_f.centre(), r_body, m_kg)
+	_phi_slab = bf["phi"]
+	_f._gpu._seed("gravity", bf["g"])
+	_f._gpu._seed("grav_ref", bf["ref"])
+	_f._gpu._seed("grav_phi", bf["dev"])
 	var rd: RenderingDevice = _f._gpu._rd
 	var cl: int = rd.compute_list_begin()
-	_pass.dispatch_monopole(rd, cl, _f._gpu._cc, _f._gpu._groups)
+	_pass.dispatch_slab(rd, cl, _f._gpu._cc, _f._gpu._groups)
 	rd.compute_list_end()
 	rd.submit()
 	rd.sync()

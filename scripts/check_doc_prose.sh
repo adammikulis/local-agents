@@ -67,8 +67,8 @@ if true; then
 		echo "A list nobody reads to the bottom of is where stale instructions live. Delete what landed." >&2
 		exit 1
 	fi
-	map_hits="$(rg -n --no-heading \
-		-e '\b20[0-9]{2}\b' \
+	map_hits="$(rg -n --no-heading --pcre2 \
+		-e '(?<![0-9,.])\b20[0-9]{2}\b(?![0-9,.])' \
 		-e '~~' \
 		-e '(?i)^#+.*\b(settled|found by|dead or lying|struck|what is left|state|history|done)\b' \
 		-e '(?i)\b(do not re-derive|claims struck|was FALSE|stale|outlived it)\b' \

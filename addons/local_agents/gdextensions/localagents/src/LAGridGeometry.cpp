@@ -687,6 +687,36 @@ PackedVector3Array LAGridGeometry::centres(Object *p_grid) {
 	return out;
 }
 
+// Cell centres in double from the index geometry: a position at a body's radius has no float32 noise
+// between neighbours.
+PackedFloat64Array LAGridGeometry::centres_f64(Object *p_grid) {
+	PackedFloat64Array out;
+	if (!p_grid) {
+		return out;
+	}
+	const int nx = int(p_grid->get("nx"));
+	const int ny = int(p_grid->get("ny"));
+	const double edge = double(p_grid->get("cell_size"));
+	const Vector3 origin = p_grid->get("origin");
+	const PackedInt32Array cell_base = p_grid->get("cell_base");
+	const PackedInt32Array cell_local = p_grid->get("cell_local");
+	const PackedByteArray levels = p_grid->get("levels");
+	const int n = total_cells(p_grid);
+	out.resize(n * 3);
+	double *w = out.ptrw();
+	for (int c = 0; c < n; c++) {
+		const int b = c < cell_base.size() ? cell_base[c] : 0;
+		const double bo[3] = { double(b % nx), double((b / nx) % ny), double(b / (nx * ny)) };
+		const int lv = c < levels.size() ? int(levels[c]) : 0;
+		const double sc = std::pow(0.5, double(lv));
+		for (int a = 0; a < 3; a++) {
+			const double lo = c * 3 + 2 < cell_local.size() ? (double(cell_local[c * 3 + a]) + 0.5) * sc : 0.5;
+			w[c * 3 + a] = double(origin[a]) + (bo[a] + lo) * edge;
+		}
+	}
+	return out;
+}
+
 Dictionary LAGridGeometry::validate(Object *p_grid) {
 	Dictionary out;
 	if (!p_grid) {
@@ -826,6 +856,7 @@ void LAGridGeometry::_bind_methods() {
 			&LAGridGeometry::validate);
 	ClassDB::bind_static_method("LAGridGeometry",
 			D_METHOD("weighted", "arr", "vol", "solid", "mask_open"), &LAGridGeometry::weighted);
+	ClassDB::bind_static_method("LAGridGeometry", D_METHOD("centres_f64", "grid"), &LAGridGeometry::centres_f64);
 	ClassDB::bind_static_method("LAGridGeometry", D_METHOD("centres", "grid"),
 			&LAGridGeometry::centres);
 	ClassDB::bind_static_method("LAGridGeometry", D_METHOD("ghost_rows", "grid", "n"),
