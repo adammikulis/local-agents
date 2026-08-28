@@ -71,6 +71,7 @@ layout(set = 0, binding = 31, std430) restrict buffer Discharge { float discharg
 // The column electrostatic field (V/m) and breakdown flag transport's EFIELD row publishes.
 layout(set = 0, binding = 38, std430) restrict readonly buffer ColE { float col_e[]; };
 layout(set = 0, binding = 39, std430) restrict readonly buffer StrikeBuf { float strike[]; };
+layout(set = 0, binding = 41, std430) restrict readonly buffer GrainBuf { float grain[]; };   // m, the cell's grain diameter
 // The hydrogen and oxygen bound in the DEAD organic pool whose carbon is detritus + fuel. Same moles per
 // channel unit as the carbon, so org_h/org_c is the molar H:C and org_o/org_c the molar O:C.
 layout(set = 0, binding = 32, std430) restrict buffer OrgH { float org_h[]; };
@@ -85,6 +86,8 @@ layout(set = 0, binding = 33, std430) restrict buffer OrgO { float org_o[]; };
 const float WATER_FREEZE_C = 0.0;        // LAPhysical.WATER_FREEZE_C — GATE_FREEZING's boundary
 const float KELVIN_0 = 273.15;           // LAPhysical.KELVIN_OFFSET
 const float RHO_WATER = 997.0;           // LAPhysical.WATER_DENSITY_KG_M3
+const float RHO_SILICATE = 2900.0;       // LASubstances.silicate.density
+const float M_SILICATE = 0.1161612;      // LASubstances.silicate.molar_mass
 const float M_H2O = 0.018015;            // LAPhysical.MOLAR_MASS_WATER_KG_MOL
 const float R_GAS = 8.314462618;         // LAPhysical.GAS_CONSTANT_J_MOL_K
 const float P_STD = 101325.0;            // LAPhysical.STANDARD_PRESSURE_PA
@@ -267,6 +270,18 @@ float bedrock_below(uint i) {
 	return silicate[uint(d)] * vol_ratio(uint(d), i);
 }
 
+// Geometric surface of the bedrock cell beneath, 6 phi / d for grains of diameter d, scaled into this
+// cell's volume and wetted by this cell's liquid fill share: m^2 of reacting rock per m^3 of this cell.
+float bedrock_surface_wet(uint i) {
+	int d = la_below(i);
+	if (d < 0 || solid[d] == 0.0 || grain[d] <= 0.0) {
+		return 0.0;
+	}
+	float phi = silicate[uint(d)] * M_SILICATE / RHO_SILICATE;
+	float wet = clamp(h2o_liq(i) * M_H2O / RHO_WATER, 0.0, 1.0);
+	return 6.0 * phi / grain[d] * vol_ratio(uint(d), i) * wet;
+}
+
 void bedrock_below_add(uint i, float v) {
 	int d = la_below(i);
 	if (d < 0 || solid[d] == 0.0) {
@@ -302,6 +317,7 @@ float read_ch(int slot, uint i) {
 	if (slot == ORG_O)     return org_o[i];
 	if (slot == ORG_C)     return detritus[i] + fuel[i];
 	if (slot == H2O_LIQUID) return h2o_liq(i);
+	if (slot == ROCK_SURFACE_WET) return bedrock_surface_wet(i);
 	return 0.0;
 }
 

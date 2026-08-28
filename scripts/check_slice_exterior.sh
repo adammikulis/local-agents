@@ -15,6 +15,7 @@ CAPSRC="$REPO_ROOT/addons/local_agents/sim/material/FieldBoundaryCapture3D.gd"
 [ -f "$CAPSRC" ] || { echo "ERROR: FieldBoundaryCapture3D.gd missing." >&2; exit 2; }
 [ -f "$REPO_ROOT/scripts/sim_run.sh" ] || { echo "ERROR: sim_run.sh missing." >&2; exit 2; }
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
+la_examined "$(basename "$0")" || exit $?
 
 # --- arm one: which global cells each face resolves to -----------------------------------------------
 PROBE_REL="addons/local_agents/tests/gate_slice_exterior_geom.gd"

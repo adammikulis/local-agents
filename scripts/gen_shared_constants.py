@@ -5,6 +5,7 @@
 """
 import argparse
 import ast
+import math
 import os
 import re
 import sys
@@ -67,12 +68,17 @@ def _eval(node, known):
     if isinstance(node, ast.BinOp):
         left, right = _eval(node.left, known), _eval(node.right, known)
         for kind, fn in ((ast.Add, lambda: left + right), (ast.Sub, lambda: left - right),
-                         (ast.Mult, lambda: left * right), (ast.LShift, lambda: left << right),
+                         (ast.Mult, lambda: left * right), (ast.Div, lambda: left / right), (ast.LShift, lambda: left << right),
                          (ast.BitOr, lambda: left | right)):
             if isinstance(node.op, kind):
                 return fn()
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
         return -_eval(node.operand, known)
+    # GDScript's own math builtins, so a derived constant may carry a log or a root.
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and len(node.args) == 1:
+        fn = {"log": math.log, "exp": math.exp, "sqrt": math.sqrt}.get(node.func.id)
+        if fn is not None:
+            return fn(_eval(node.args[0], known))
     raise Missing("expression is not a constant arithmetic form")
 
 

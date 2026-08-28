@@ -28,10 +28,6 @@ enum Arg { GROUPS_X = 0, GROUPS_Y = 1, GROUPS_Z = 2, LIST_COUNT = 3, OFFSET = 4,
 const GRAIN_ROW: Dictionary = {"channel": "silicate", "substance": "silicate",
 	"mode": LATransportRecords.POTENTIAL}
 
-## kg/m^3 below which a cell is empty: it donates nothing and holds no bulk velocity. The one emptiness
-## floor, read by transport.glsl and state_derive.glsl. Declared in docs/MODEL_PARAMETERS.md.
-const EMPTY_RHO_KG_M3: float = 0.0001 * LAPhysical.AIR_DENSITY_KG_M3
-
 var _pipe: RID = RID()
 
 ## Dispatches one submit may hold. The device waits on a fence to read a buffer back, and a submit
@@ -40,10 +36,10 @@ const FLUSH_EVERY: int = 4096
 
 ## Byte offsets of the level, substep index and substep count in the Params block below: the three the
 ## driver rewrites per substep.
-const PC_LEVEL: int = 100
-const PC_K: int = 104
-const PC_N: int = 108
-const PC_DISPATCH: int = 120
+const PC_LEVEL: int = 96
+const PC_K: int = 100
+const PC_N: int = 104
+const PC_DISPATCH: int = 116
 
 ## Rows that advance together on one time axis; a solitary row is its own group.
 var _row_groups: Array = []
@@ -512,7 +508,7 @@ func _pc(row: Dictionary, cc: int, pass_id: int, dt_s: float,
 	if String(row["channel"]) == "h_j_m3":
 		flags |= LATransportRecords.Flag.ENTHALPY
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(124)
+	pc.resize(120)
 	pc.encode_u32(0, cc)
 	pc.encode_u32(4, pass_id)
 	pc.encode_u32(8, int(row["mode"]))
@@ -522,37 +518,36 @@ func _pc(row: Dictionary, cc: int, pass_id: int, dt_s: float,
 	pc.encode_float(24, dt_s)
 	pc.encode_float(28, float(row.get("repose_tan", 0.0)))
 	var max_fill: float = LATransportRecords.max_fill(substance) if substance != "" else INF
-	pc.encode_float(32, EMPTY_RHO_KG_M3)
-	pc.encode_float(36, float(entry.get("density", 0.0)))
+	pc.encode_float(32, float(entry.get("density", 0.0)))
 	# Enthalpy, momentum and a shock front are not matter occupying volume, so no cell is ever full of them.
-	pc.encode_float(40, max_fill)
-	pc.encode_float(44, fluid.x)
-	pc.encode_float(48, fluid.y)
+	pc.encode_float(36, max_fill)
+	pc.encode_float(40, fluid.x)
+	pc.encode_float(44, fluid.y)
 	# Seed diameter for cells whose own grain field is unset; the cell's value wins wherever it has one.
-	pc.encode_float(52, LAPhysical.GRAIN_D_UPLAND_M)
-	pc.encode_float(56, sun.x)
-	pc.encode_float(60, sun.y)
-	pc.encode_float(64, sun.z)
+	pc.encode_float(48, LAPhysical.GRAIN_D_UPLAND_M)
+	pc.encode_float(52, sun.x)
+	pc.encode_float(56, sun.y)
+	pc.encode_float(60, sun.z)
 	var water: Vector2 = LATransportRecords.fluid_properties(LATransportRecords.Fluid.WATER)
 	var air: Vector2 = LATransportRecords.fluid_properties(LATransportRecords.Fluid.AIR)
-	pc.encode_float(68, water.x)
-	pc.encode_float(72, water.y)
-	pc.encode_float(76, air.x)
-	pc.encode_float(80, air.y)
+	pc.encode_float(64, water.x)
+	pc.encode_float(68, water.y)
+	pc.encode_float(72, air.x)
+	pc.encode_float(76, air.y)
 	# J/m^3/K one mol/m^3 of the substance contributes to the sensible entry (molar mass times specific
 	# heat); 0 for a substance on a phase ladder, whose entry is the channel itself.
-	pc.encode_float(84, float(entry.get("molar_mass", 0.0)) * LAMatterChannels.specific_heat(substance))
-	pc.encode_u32(88, cc + ghost_count)
-	pc.encode_u32(92, int(row.get("axis", 0)))
+	pc.encode_float(80, float(entry.get("molar_mass", 0.0)) * LAMatterChannels.specific_heat(substance))
+	pc.encode_u32(84, cc + ghost_count)
+	pc.encode_u32(88, int(row.get("axis", 0)))
 	# XUV irradiance AT THIS BODY, already distance-corrected by the star that emitted it; the zenith
 	# cosine is what still scales it in-kernel.
-	pc.encode_float(96, _xuv_w_m2)
+	pc.encode_float(92, _xuv_w_m2)
 	pc.encode_u32(PC_LEVEL, level)
 	pc.encode_u32(PC_K, substep_k)
 	pc.encode_u32(PC_N, substep_n)
-	pc.encode_u32(112, act_group)
+	pc.encode_u32(108, act_group)
 	# A row carrying silicate also wakes the prologue that derives where that mineral sits.
-	pc.encode_u32(116, group_count() - 1 if String(row["channel"]) == "silicate" else NO_GROUP)
+	pc.encode_u32(112, group_count() - 1 if String(row["channel"]) == "silicate" else NO_GROUP)
 	return pc
 
 

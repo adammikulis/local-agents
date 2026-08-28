@@ -8,6 +8,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh"
 . "$ROOT/scripts/lib_capture.sh"
+la_examined "$(basename "$0")" || exit $?
 require_tool rg
 require_tool md5
 GODOT="${GODOT:-godot}"
@@ -87,22 +88,31 @@ func _build() -> Dictionary:
 	var grid: LAVoxelGrid = LAVoxelGrid.new()
 	grid.build(NX, 1, 1, CELL, Vector3(-0.5 * float(NX) * CELL, -0.5 * CELL, -0.5 * CELL))
 	var cc: int = grid.cell_count
-	var bufs: Dictionary = {"__cc": cc, "__faces": grid.neighbours.size()}
+	var bufs: Dictionary = {"__cc": cc}
 	for name in LAChannels.channels():
 		bufs[String(name)] = _f32(_filled(cc, 0.0))
 	for name in LAChannels.derived_buffers():
 		bufs[String(name)] = _f32(_filled(cc, 0.0))
 	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "celerity", "speed", "rad_w_m3",
-			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi", "k_cond"]:
+			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi", "k_cond", "mom_orphan"]:
 		bufs[name] = _f32(_filled(cc, 0.0))
 	bufs["gravity"] = _f32(_filled(cc * 3, 0.0))
-	bufs["g_rest"] = _f32(_filled(cc * 3, 0.0))
+	# Everything the derive owns, temporal levels and active lists included, from its own declaration.
+	var sd: RefCounted = (load("res://addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd") as GDScript).new()
+	sd.ghost_count = 0
+	var derived: Dictionary = sd._buffers(cc)
+	for key in derived:
+		var spec: Variant = derived[key]
+		var n: int = int(spec["n"]) if spec is Dictionary else int(spec)
+		var indirect: bool = spec is Dictionary and bool(spec.get("indirect", false))
+		var zeros: PackedByteArray = _filled(n, 0.0).to_byte_array()
+		var r: RID = _rd.storage_buffer_create(zeros.size(), zeros,
+			RenderingDevice.STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT if indirect else 0)
+		_owned.append(r)
+		bufs[String(key)] = r
 	bufs["nbr"] = _i32(grid.neighbours)
-	bufs["slot_off"] = _i32(grid.slot_off)
-	bufs["face_partner"] = _i32(grid.partners)
-	bufs["cell_edge"] = _f32(grid.cell_edges())
 	var ghost_tbl: PackedInt32Array = PackedInt32Array()
-	ghost_tbl.resize(grid.neighbours.size())
+	ghost_tbl.resize(cc * LAVoxelGrid.SLOTS)
 	ghost_tbl.fill(-1)
 	bufs["ghost"] = _i32(ghost_tbl)
 
@@ -140,10 +150,7 @@ func _attach(bufs: Dictionary) -> RefCounted:
 	var cc: int = int(bufs["__cc"])
 	var p: RefCounted = (load(PASS_PATH) as GDScript).new()
 	p.ghost_count = 0
-	p.face_count = int(bufs["__faces"])
 	var want: Dictionary = p._buffers(cc)
-	# The temporal levels a world gets from StateDerivePass; this rig runs the transport pass alone.
-	want.merge(LATemporalLevels.buffers(cc, p.group_count()))
 	for key in want:
 		var spec: Variant = want[key]
 		var n: int = int(spec["n"]) if spec is Dictionary else int(spec)
@@ -168,7 +175,7 @@ func _init() -> void:
 	var bufs: Dictionary = _build()
 	var cc: int = int(bufs["__cc"])
 	var p: RefCounted = _attach(bufs)
-	var ctx: Dictionary = {"cell_size": CELL, "cell_size_min": CELL, "sun_dir": Vector3.ZERO, "dt_s": DT}
+	var ctx: Dictionary = {"cell_size": CELL, "sun_dir": Vector3.ZERO, "dt_s": DT}
 	var groups: int = int(ceil(float(cc) / 64.0))
 	# POSITIVE CONTROL: without two levels the box never straddles a seam and the hash below is a hash
 	# of a world one clock stepped, which is not what this gate is for.

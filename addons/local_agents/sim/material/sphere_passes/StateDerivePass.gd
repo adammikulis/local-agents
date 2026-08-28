@@ -18,10 +18,7 @@ const BOUND: Dictionary = {
 	"h2o_vapour": 36, "silicate_melt": 37, "org_fresh": 38, "cell_edge": 94, "speed": 41, "lat": 42,
 	"alt": 43, "nonfinite": 44, "h_h2o": 45, "h_silicate": 46, "h_sensible": 47, "cap_sensible": 48,
 	"gravity": 49, "bodyf_x": 50, "bodyf_y": 51, "bodyf_z": 52, "k_cond": 53, "rad_w_m3": 65,
-	"g_rest": 39, "level_idx": 81}
-
-## One mole of organic carbon per cell — the pool below which a cell's C:H:O ratio is fp32 noise.
-const ORG_MIN_POOL_MOL: float = 1.0
+	"g_rest": 39, "level_idx": 81, "mom_orphan": 92}
 
 ## props row layout — state_derive.glsl PROP_*.
 const PROP_STRIDE: int = 12
@@ -59,7 +56,7 @@ func _buffers(cc: int) -> Dictionary:
 	# The temporal levels come with the derive rather than with transport: the restate walks the same
 	# sorted list, and this pass runs at rungs below the one that moves anything.
 	return LATemporalLevels.buffers(cc + ghost_count, TransportPassScript.group_count()).merged({"speed": cc,
-		"lat": cc, "alt": cc, "nonfinite": cc,
+		"lat": cc, "alt": cc, "nonfinite": cc, "mom_orphan": cc,
 		"h_h2o": {"n": cc, "ghosts": true}, "h_silicate": {"n": cc, "ghosts": true},
 		"h_sensible": {"n": cc, "ghosts": true}, "cap_sensible": {"n": cc, "ghosts": true},
 		"org_hc": cc, "org_oc": cc, "org_fresh": cc,
@@ -110,7 +107,7 @@ func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: i
 	var w: Vector3 = ctx.get("spin", Vector3.ZERO) * float(ctx.get("spin_rate_rad_s", 0.0))
 	var centre: Vector3 = ctx.get("centre", Vector3.ZERO)
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(96)
+	pc.resize(88)
 	pc.encode_u32(0, cc)
 	pc.encode_float(4, LAMaterialFieldSphereStep3D.real_seconds_per_step())
 	pc.encode_float(8, w.x)
@@ -122,10 +119,8 @@ func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: i
 	pc.encode_float(32, LAPhysical.GRAIN_D_LOWLAND_M)
 	pc.encode_float(36, LAPhysical.LITHIFICATION_RATE_PER_PA)
 	pc.encode_float(40, LAPhysical.LITHIFICATION_PRESSURE_PA)
-	pc.encode_float(44, ORG_MIN_POOL_MOL)
-	pc.encode_float(48, _fresh_h_per_c)
-	pc.encode_float(52, _fresh_o_per_c)
-	pc.encode_float(56, TransportPassScript.EMPTY_RHO_KG_M3)
+	pc.encode_float(44, _fresh_h_per_c)
+	pc.encode_float(48, _fresh_o_per_c)
 	# W/kg of each distinct radiogenic trace mix at the run's epoch: the store is finite, so the rate falls.
 	var epoch: float = LARadiogenicDecay.epoch_years()
 	for i in RAD_GROUPS:
@@ -133,11 +128,11 @@ func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: i
 		if i < _rad_mixes.size():
 			var mix: Array = _rad_mixes[i]
 			w_kg = LARadiogenicDecay.heat_w_kg_of({"U": mix[0], "Th": mix[1], "K": mix[2]}, epoch)
-		pc.encode_float(60 + i * 4, w_kg)
-	pc.encode_float(76, float(ctx.get("sea_radius", 0.0)))
+		pc.encode_float(52 + i * 4, w_kg)
+	pc.encode_float(68, float(ctx.get("sea_radius", 0.0)))
 	# NO SOLVER, NO POTENTIAL: a world with no gravity pass has a zero potential field, and the weight it
 	# would be read at is never guessed. GravityPass publishes which of its two sources wrote it.
-	pc.encode_float(80, float(ctx.get("gravity_self", 0.0)))
+	pc.encode_float(72, float(ctx.get("gravity_self", 0.0)))
 	_driver.run(cl, _pipe, [_set], [pc], PackedInt32Array([groups]), [RID()],
 		PackedInt32Array([0]), false)
 	# THE SAME SOLVE, HANDED TO THE SUBSTEP LOOP. One owner of the equation of state: transport dispatches

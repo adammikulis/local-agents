@@ -36,6 +36,7 @@ source "$SCRIPT_DIR/lib_require.sh"
 # shellcheck source=lib_godot.sh
 source "$SCRIPT_DIR/lib_godot.sh"
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
+la_examined "$(basename "$0")" || exit $?
 require_tool awk   # every comparison below is an awk numeric compare; without it the gate is vacuous
 require_tool godot # the substance half of the authority is dumped out of the BUILT table
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

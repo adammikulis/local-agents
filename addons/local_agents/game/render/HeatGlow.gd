@@ -2,7 +2,7 @@ class_name LAHeatGlow
 extends RefCounted
 
 
-const GLOW_MIN: float = 400.0             # °C — dull red starts here
+const GLOW_MIN: float = 525.0             # LAPhysical.DRAPER_POINT_C
 
 
 static func emission(temp: float) -> Color:

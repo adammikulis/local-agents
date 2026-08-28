@@ -7,6 +7,7 @@
 set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
+la_examined "$(basename "$0")" || exit $?
 
 # The grid quantises a sphere into cubes, so the matter that lands is not exactly the matter asked for.
 # This is the blockiness of the seeded shape and NOTHING ELSE; it tightens as the grid refines, and it is

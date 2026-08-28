@@ -3,8 +3,6 @@ extends RefCounted
 
 ## The shock / seismic-sound channel of LAMaterialField3D.
 
-# Amplitude above which a cell reads as actively shaking.
-const SHOCK_ACTIVE: float = 0.05
 # Fraction of a seed's magnitude given to each of the 6 neighbours.
 const SEED_NEIGHBOUR_FRACTION: float = 0.5
 
@@ -54,6 +52,6 @@ func shock_gradient(world_pos: Vector3) -> Vector3:
 		func(i: int) -> float: return _f._shock[i])
 
 
-## Open cells over SHOCK_ACTIVE, reduced on the device. null when the row was never reduced.
+## Open cells carrying any shock, reduced on the device. null when the row was never reduced.
 func shock_cell_count():
 	return _f._queries.row_v("shock_cells", true) if _f != null and _f._queries != null else null

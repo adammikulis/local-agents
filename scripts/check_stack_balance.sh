@@ -10,6 +10,7 @@ ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh"
 require_tool rg
 . "$SCRIPT_DIR/lib_capture.sh"
+la_examined "$(basename "$0")" || exit $?
 
 # AND THE DEPTH IS AN ALTITUDE. Projecting the step onto a frozen gravity vector reads a step ACROSS a
 # radial field as a plunge into it, and hands two neighbours face pressures that differ by orders.

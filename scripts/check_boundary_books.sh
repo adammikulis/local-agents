@@ -14,6 +14,7 @@ KERNEL="$REPO_ROOT/addons/local_agents/sim/material/kernels3d/transport.glsl"
 [ -f "$KERNEL" ] || { echo "ERROR: transport.glsl missing." >&2; exit 2; }
 [ -f "$REPO_ROOT/scripts/sim_run.sh" ] || { echo "ERROR: sim_run.sh missing." >&2; exit 2; }
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
+la_examined "$(basename "$0")" || exit $?
 
 # --- the capture: a short GLOBAL run records the slice box's exterior --------------------------------
 # BSD mktemp only accepts XXXXXX at the END of the template, so the .json arrives by rename.

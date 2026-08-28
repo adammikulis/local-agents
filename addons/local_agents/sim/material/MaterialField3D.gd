@@ -525,12 +525,6 @@ func wind3_at(x: float, y: float, z: float) -> Vector3:
 func add_heat_energy(world_pos: Vector3, joules: float, radius: float = 0.0) -> float:
 	return _inject.add_heat_energy(world_pos, joules, radius) if _inject != null else 0.0
 
-## Inject airborne water vapour at a world point within `radius`.
-func add_vapor(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
-	if _inject != null:
-		_inject.add_vapor(world_pos, amount, radius)
-
-
 ## Launch ejected matter (mass + heat) from a world point.
 func eject(world_pos: Vector3, mass: float, energy: float, dir_bias: Vector3 = Vector3.ZERO) -> void:
 	if _ejecta != null:

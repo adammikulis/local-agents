@@ -82,6 +82,7 @@ layout(set = 0, binding = 43, std430) restrict writeonly buffer Alt { float alt[
 // How many of this cell's channel amounts, its enthalpy and its momentum are NaN or infinite.
 // Reduced by the `nonfinite_cells` row.
 layout(set = 0, binding = 44, std430) restrict writeonly buffer NonFinite { float nonfinite[]; };
+layout(set = 0, binding = 92, std430) restrict writeonly buffer MomOrphan { float mom_orphan[]; };
 
 // The enthalpy each mixture entry holds, J/m^3, and the sensible entry's capacity, J/m^3/K.
 layout(set = 0, binding = 45, std430) restrict writeonly buffer HH2O { float h_h2o[]; };
@@ -105,10 +106,8 @@ layout(push_constant, std430) uniform Params {
 	float fresh_grain_m;    // grain diameter given to newly-closed rock — LAPhysical.GRAIN_D_LOWLAND_M
 	float lith_rate_per_pa; // LAPhysical.LITHIFICATION_RATE_PER_PA, per step per Pa of excess
 	float lith_pressure_pa; // LAPhysical.LITHIFICATION_PRESSURE_PA
-	float org_min_pool_mol; // moles of dead organic carbon below which a cell's C:H:O is fp32 noise
 	float fresh_h_per_c;    // LASubstances.fresh_litter_per_carbon("H")
 	float fresh_o_per_c;    // LASubstances.fresh_litter_per_carbon("O")
-	float rho_floor;        // TransportPass.EMPTY_RHO_KG_M3: below this bulk density a cell is EMPTY
 	float rad_w_kg_1;       // W/kg of radiogenic trace mix 1 at this epoch (PROP_RAD_GROUP indexes)
 	float rad_w_kg_2;
 	float rad_w_kg_3;
@@ -121,6 +120,10 @@ layout(push_constant, std430) uniform Params {
 } params;
 
 const float SOLID_IN = 0.6;    // LAPhysical.RHEOLOGICAL_LOCKUP_CRYSTAL_FRAC
+const float ICE_ALPHA = 1.6e-4;        // LAPhysical.ICE_VOLUME_EXPANSION_PER_K
+const float ICE_T_REF_C = 0.0;         // LAPhysical.WATER_FREEZE_C
+const float WATER_COMPRESS = 4.525e-10;     // LAPhysical.WATER_ISOTHERMAL_COMPRESSIBILITY_PER_PA
+const float ICE_BULK = 8.4e9;          // LAPhysical.ICE_BULK_MODULUS_PA
 const float SOLID_OUT = 0.4;   // LAPhysical.RHEOLOGICAL_MOBILE_CRYSTAL_FRAC
 
 // One row of `props` per channel, built from LASubstances by StateDerivePass. A channel amount is mol/m^3.
@@ -268,7 +271,7 @@ void main() {
 
 		// The dead pool's molar ratios, from the same channels the reduce rows sum.
 		float org_pool = max(detritus[g], 0.0) + max(fuel[g], 0.0);
-		if (org_pool * vol > params.org_min_pool_mol) {
+		if (org_pool > 0.0) {
 			float hc = max(org_h[g], 0.0) / org_pool;
 			float oc = max(org_o[g], 0.0) / org_pool;
 			org_hc[g] = hc;
@@ -290,11 +293,9 @@ void main() {
 	float v_used = 0.0;
 	float v_lithic = 0.0;    // volume fraction of rock and metal phases: what the solid flag reads
 	float rad_w = 0.0;       // radiogenic power of the cell's matter, W/m^3
-	// EOS sums: b* the unstressed condensed volume, c* its compressibility, h* the same for h2o alone.
+	// EOS sums: b* the unstressed condensed volume of everything but h2o, c* its compressibility.
 	float b0 = 0.0; float b1 = 0.0; float b2 = 0.0;
 	float c0 = 0.0; float c1 = 0.0; float c2 = 0.0;
-	float hb0 = 0.0; float hb1 = 0.0; float hb2 = 0.0;
-	float hc0 = 0.0; float hc1 = 0.0; float hc2 = 0.0;
 	float mol_h2o = 0.0;
 
 	for (int i = 0; i < LA_CHANNEL_SLOTS; ++i) {
@@ -327,23 +328,18 @@ void main() {
 			// The channel's unstressed condensed volume: its volume fraction of the cell, times the cell.
 			float w0 = vf * vol;
 			float w1 = w0 * al;
+			// h2o's volume is taken off its own phase split below, from Kell's liquid and the ice's density.
 			bool is_water = entry == E_H2O;
 			mol_h2o = is_water ? mol_h2o + f * vol : mol_h2o;
 			b0 += is_water ? 0.0 : w0;
 			b1 += is_water ? 0.0 : w1;
 			b2 += is_water ? 0.0 : w1 * tr;
-			hb0 += is_water ? w0 : 0.0;
-			hb1 += is_water ? w1 : 0.0;
-			hb2 += is_water ? w1 * tr : 0.0;
-			if (kk > 0.0) {
+			if (kk > 0.0 && !is_water) {
 				float q0 = w0 / kk;
 				float q1 = w1 / kk;
-				c0 += is_water ? 0.0 : q0;
-				c1 += is_water ? 0.0 : q1;
-				c2 += is_water ? 0.0 : q1 * tr;
-				hc0 += is_water ? q0 : 0.0;
-				hc1 += is_water ? q1 : 0.0;
-				hc2 += is_water ? q1 * tr : 0.0;
+				c0 += q0;
+				c1 += q1;
+				c2 += q1 * tr;
 			}
 		}
 	}
@@ -360,8 +356,11 @@ void main() {
 	ke_j_m3[g] = 0.0;
 	float f_melt = 0.0;
 	vec3 v = vec3(0.0);
-	// Below the donation floor the cell is EMPTY: its stocks stay, its DERIVED bulk state does not.
-	if (rho < params.rho_floor) {
+	// No matter: the cell is EMPTY, and its DERIVED bulk state is none. Momentum with no mass to carry it
+	// is an orphan the momentum_orphan_cells row counts; it is never zeroed here.
+	if (rho <= 0.0) {
+		vec3 pm = vec3(mom_x[g], mom_y[g], mom_z[g]);
+		mom_orphan[g] = dot(pm, pm) > 0.0 ? 1.0 : 0.0;
 		temp[g] = -LA_KELVIN_OFFSET;   // no matter, so no temperature
 		if (solid[g] == 0.0) {
 			pressure[g] = 0.0;
@@ -389,6 +388,7 @@ void main() {
 		}
 		return;   // no mass, so the frame terms deliver no momentum either
 	}
+	mom_orphan[g] = 0.0;
 	// v = p/rho, momentum density over mass density. Dividing by the density rather than multiplying by
 	// vol/total keeps the intermediate inside float range on a grid whose cells are kilometres wide.
 	v = vec3(mom_x[g], mom_y[g], mom_z[g]) / rho;
@@ -463,10 +463,18 @@ void main() {
 			f_liquid = condensed * molten;
 		}
 
-		// The vapour share joins the gas term and what is left of the water is condensed.
-		float f_cond = max(1.0 - f_vapour, 0.0);
-		b_vol = (b0 + t_c * b1 - b2) + f_cond * (hb0 + t_c * hb1 - hb2);
-		c_comp = (c0 + t_c * c1 - c2) + f_cond * (hc0 + t_c * hc1 - hc2);
+		// The vapour share joins the gas term; the condensed water fills the liquid's volume off Kell's
+		// curve and the ice its own, each squeezed on its own bulk modulus.
+		float vw = 0.0;
+		float cw = 0.0;
+		if (m_h2o > 0.0) {
+			float v_liq = la_water_liquid_v_m3_kg(t_c);
+			float v_ice = (1.0 + ICE_ALPHA * (t_c - ICE_T_REF_C)) / subs[E_H2O].rho_sol;
+			vw = m_h2o * (f_liquid * v_liq + f_solid * v_ice);
+			cw = m_h2o * (f_liquid * v_liq * WATER_COMPRESS + f_solid * v_ice / ICE_BULK);
+		}
+		b_vol = (b0 + t_c * b1 - b2) + vw;
+		c_comp = (c0 + t_c * c1 - c2) + cw;
 		float n_gas = n_gas_mol + f_vapour * mol_h2o;
 		float tk = max(t_c + LA_KELVIN_OFFSET, 1.0);
 		// Rock's pressure is PressurePass's: its T is read at that column and nothing here iterates.

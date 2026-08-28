@@ -12,111 +12,63 @@ it is fixed. An assertion about a cause rots in silence, reads as progress, and 
 on the file it named. If you know the cause you are close enough to fix it, so fix it.
 `scripts/check_doc_prose.sh` fails the build on a tracker that names one.
 
+**THE LIST IS ORDERED BY WHAT IS UPSTREAM OF WHAT: item 1 is what every item below it is measured against.** Re-order it at every landing.
+
+**WORK THE LADDER IN ORDER.** `scripts/agent_harness.sh ladder` names the first red rung; nothing above it
+is measured, and no item about a higher rung is examined until the rungs below it are green.
+
 ---
 
-## 0. THE WIND BLOWS PAST ITS OWN SOUND SPEED, AND THE DEFAULT BOX IS NOT EXEMPT
+## 1. THE GRADED GRID — built, on tag `wip/graded-grid`, not landed. UPSTREAM OF EVERY ITEM BELOW.
 
-`bash scripts/check_rung_acoustic.sh` reads a cell moving faster than its own sound speed. The
-peak stops climbing and holds, and it holds far past the ~70 m/s of a real jet stream, on a world nothing
-drives but pressure and gravity, which cancel at balance. **Reproduce:**
-`for n in 4 8 16; do scripts/sim_run.sh --rung 3 --frames $n --report wind_speed_max; done`.
+The demo grid is 24 cells of 550 km, so one cell holds ocean, rock and the whole atmosphere
+(`docs/PHYSICS_TODO.md` D): nothing above rung 2 can be stated on it, let alone measured. Land the grid
+first: `scripts/new_worktree.sh feature/graded-grid wip/graded-grid`, merge the dev branch, fix what the
+merge and the ladder show, then `scripts/integrate.sh feature/graded-grid`. Two slice gates,
+`check_boundary_books.sh` and `check_boundary_momentum_book.sh`, exit 2 on the transport substep budget
+for the slice.
 
-`bash scripts/check_wind_subsonic.sh` reads that same peak against the sound speed the substrate states
-for it.
+## 2. OPEN CELLS ONE EDGE APART READ PRESSURES ATMOSPHERES APART (rung 3, the first red rung; after item 1)
 
-`bash scripts/check_atmosphere_at_rest.sh` is rung 3's other gate: its sealed column moves. Its vented
-control opens the column's side and reads past it, so the gate has a control.
-`docs/PHYSICS_TODO.md` E carries the wind as its own item, and E is downstream of item 1. Until it reads a physical speed no run's numbers
-mean anything. `rho_max_open` is the reading that shows it: an open cell may not be denser than the densest
-substance the table declares, and that is this item's acceptance test.
+`scripts/sim_run.sh --rung 3 --frames 2` exits 4: `the h2o row's own cells carry a signal speed at or
+past light`, on a world nothing drives but pressure and gravity. After the first step, open cells one
+edge apart read 787 kPa beside 1.6 kPa and 596 C beside 15 C. The demo grid is 24 cells of 550 km, so
+one cell holds ocean, rock and the whole atmosphere (`docs/PHYSICS_TODO.md` D); item 1 is the grid that
+resolves it. `bash scripts/check_atmosphere_at_rest.sh` is the
+rung's other gate.
 
-`bash scripts/check_boundary_momentum_book.sh` publishes `momentum_book_bnd` on any run holding momentum
-rows; its twenty-frame capture arm runs long enough for the wind to refuse the transport.
-An offset component of `surface` puts a box on the body without naming a radius.
+## 3. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the books above it
 
-A slice's one basin cell is seeded brim full and reads back superheated. Reproduce:
-`LA_PASS_PROBE=h2o scripts/sim_run.sh --slice --rung 3 --frames 1`.
+- The open-boundary books at run level: `scripts/sim_run.sh --frames 20 --slice-capture C` then
+  `LA_RUN_TIMEOUT=900 scripts/sim_run.sh --slice --slice-state C --frames 650` fires
+  CONSERVATION_VIOLATION on h2o, nitrogen, mineral, element_C and element_O.
+- The h2o book on a shut box: with every wall shut, `scripts/agent_harness.sh sim --rung=8 --frames 20`
+  ends with `h2o_total` below its sealed baseline while the element and mineral books close.
 
-## 1. THE FIELD GOES NON-FINITE AT THE TOP RUNG, AND NOT REPRODUCIBLY
-
-`bash scripts/agent_harness.sh lint` fails `check_finite_channels.sh` on a null `energy_stock`, or
-`check_stack_balance.sh`, or neither, on the same tree. The capture's own world reports non-finite cells
-on the runs that fail and none on the runs that pass. **Reproduce:** run `bash scripts/lint_capture.sh`
-five times and read nonfinite_cells and energy_stock out of each capture report it writes; or
-`scripts/sim_run.sh --path . --frames 20 --seed 4242 --rung 8 --from-seal --report
-nonfinite_cells,energy_stock`, which reports non-finite cells with a uniform grid too.
-
-The drain and the capture are not the race: `LAMaterialSphereGPU3D._drain_pending` syncs before
-`LAFieldDriver.gather_read`'s copies, and `scripts/lint_capture.sh` renames `report.raw` only after
-`sim_run.sh` has exited.
-
-## 1a. TWO SLICE GATES CANNOT RUN
-
-`bash scripts/check_boundary_books.sh` and `bash scripts/check_boundary_momentum_book.sh` exit 2: their
-slice arms log `TransportPass: the h2o row's own cells carry a signal speed at or past light`, which is
-the substep budget `docs/UNRUNNABLE_GATES_CEILING` names. **Reproduce:** either command.
-
-## 2. The open-boundary books do not close at run level
-
-`scripts/sim_run.sh --frames 20 --slice-capture C` then
-`LA_RUN_TIMEOUT=900 scripts/sim_run.sh --slice --slice-state C --frames 650` fires
-CONSERVATION_VIOLATION on h2o, nitrogen, mineral, element_C and element_O.
-
-Two things already hold, so the leak is in neither: `check_boundary_books.sh` holds the kernel's
-per-dispatch booking closed on that same capture, and the ledger folds the drain on every field step, so
-no step's crossings are dropped and nothing is extrapolated over a window.
-
-## 6. The h2o book does not close on a shut box
-
-With every wall shut, `scripts/agent_harness.sh sim --frames 20` ends with `h2o_total` below its sealed
-baseline while the element and mineral books close. Same symptom on the pre-conversion tree.
-
-## 4. Reduce the rest on the device
-
-`ReduceRecords` + `reduce.glsl` + `ReducePass` is the machine; the ledger fold and the report sweeps
-already use it. Left:
-
-- `FieldPassAttribution3D._sums` walks the channels it downloads at a checkpoint. ReducePass runs last, so
-  it cannot answer "which pass moved it": that wants a reduce dispatch per checkpoint, not a row.
-- Three shapes refused a row and say why: `sea_surface_stats` (a median needs a declared range nothing
-  supplies), `lava_shell_diag` (five outputs over two gates), `rock_radial_profile` (a binned reduction
-  plus a gravity march in one walk).
-
-The ops are BUILT — `Mask.GROUND`/`Mask.AIR`, `Op.COUNT_LT`, `enum Nbr` (below, above, six-face gradient)
-and the derived `speed`/`lat`/`alt` channels — so a sweep converts without adding machinery, and every
-latitude and altitude band is an ordinary row on the existing `gate_lo`/`gate_hi`.
-
-## 5. Move what the device cannot take into the GDExtension
-
-GDScript keeps bindings. `gdextensions/localagents/` already builds; a class is a `.cpp`/`.hpp` pair, one
-`SRC` line and one `register_class`.
-
-- **Do not move `PhysicalConstants.gd`.** godot-cpp binds only INTEGER class constants, so its floats
-  have no native form a GDScript `const` can fold; native code reads it through
-  `include/LAPhysicalRead.hpp`.
-- The seed-time serial work still in GDScript: `MaterialFieldSolidCache3D`'s SDF spot check and file
-  hashing, `MaterialFieldRegolith3D.compute`'s burial march, and `LAFieldEnthalpySeed.seed`'s per-cell
-  loop, which now calls native for the masses and keeps the mixture arithmetic here.
-
-## 8. A --ui run with fauna never reports, and the opening view frames open ocean
+## 4. A --ui run with fauna never reports, and the terrain does not reach the eye inside a run
 
 `LA_RUN_TIMEOUT=110 scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn --
---sandbox --ui --run-frames=20` never prints a report and logs no error. The same arm with
-`--planet-only --no-fauna` reports in about twenty seconds.
+--sandbox --ui --run-frames=20` never prints a report and logs no error; the same arm with
+`--planet-only --no-fauna` reports. `scripts/agent_harness.sh ground` exits 2: the terrain under the
+camera is never built inside the run's frames, at any rung.
 
-`scripts/check_ground_drawn.sh` passes and its picture is open sea: the spawn controller frames a
-bearing with no land on it, while `LAVoxelTerrainService.land_direction()` has bearings that carry land
-above the sea shell.
+## 5. Reduce the rest on the device
 
+`FieldPassAttribution3D._sums` walks the channels it downloads at a checkpoint; a reduce dispatch per
+checkpoint replaces it. Three shapes refused a row and say why: `sea_surface_stats`, `lava_shell_diag`,
+`rock_radial_profile`.
+
+## 6. Move what the device cannot take into the GDExtension
+
+Still GDScript on the seed path: `MaterialFieldSolidCache3D`'s SDF spot check and file hashing,
+`MaterialFieldRegolith3D.compute`'s burial march, `LAFieldEnthalpySeed.seed`'s per-cell mixture loop.
+Do not move `PhysicalConstants.gd`: godot-cpp binds only integer class constants.
 
 ## 7. Build the binding registry
 
-SSBO binding numbers are a bare integer in GLSL and a second bare integer in one of fourteen uniform-set
-builders. `check_binding_collisions.sh` check 4 already holds a pass to indices its kernel declares, so what
-is unheld is narrower: that one index names the same BUFFER on both sides. Build
-`addons/local_agents/sim/material/Bindings.gd` on `Channels.gd`'s shape — a `static func rows()`, never a
-`const Dictionary` built from another script's constants — and one gate absorbing the hand-written binding
-stanzas. Mutation-test it both ways. Delete the claim below with this item.
+SSBO binding numbers are a bare integer in GLSL and a second bare integer in each uniform-set builder.
+Build `addons/local_agents/sim/material/Bindings.gd` on `Channels.gd`'s shape and one gate absorbing the
+hand-written binding stanzas; mutation-test both ways. Delete the claim below with this item.
 
 <!-- claim: nofile addons/local_agents/sim/material/Bindings.gd -->
 

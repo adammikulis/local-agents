@@ -2,13 +2,11 @@ class_name LAReducePressureRows
 extends RefCounted
 
 const Rec: GDScript = preload("res://addons/local_agents/sim/material/ReduceRecords.gd")
-const TransportPassScript: GDScript = preload("res://addons/local_agents/sim/material/sphere_passes/TransportPass.gd")
 
-## Pressure may not fall as you go DOWN, over the cells state_derive.glsl gives bulk state to: the same
-## `rho_bulk >= rho_floor` transport.glsl states in `no_matter()`, at BOTH ends. Rock over an open cell
+## Pressure may not fall as you go DOWN, over the cells that hold matter (rho_bulk > 0), at BOTH ends. Rock over an open cell
 ## is in no class — lithostatic stress and gas pressure differ.
 static func rows() -> Array:
-	var held: Dictionary = {"gate": "rho_bulk", "gate_lo": TransportPassScript.EMPTY_RHO_KG_M3}
+	var held: Dictionary = {"gate": "rho_bulk", "gate_lo": 0.0, "gate_strict_lo": true}
 	var pair: Dictionary = held.merged({"source": "pressure", "nbr": Rec.Nbr.BELOW,
 		"gate_both_ends": true}, true)
 	var out: Array = []
@@ -20,7 +18,7 @@ static func rows() -> Array:
 		out.append(base.merged({"key": "pressure_aud_" + name, "op": Rec.Op.COUNT}, true))
 		# How big, in pascals: a count cannot tell a float-noise sign flip from a real inversion.
 		out.append(base.merged({"key": "pressure_worst_" + name, "op": Rec.Op.MAX}, true))
-		# Every vertical pair of this class. Against `aud` it says how many the floor kept out.
+		# Every vertical pair of this class. Against `aud` it says how many hold no matter.
 		out.append({"key": "pressure_pairs_" + name, "op": Rec.Op.COUNT, "mask": cls[1],
 			"source": "pressure", "nbr": Rec.Nbr.BELOW})
 	# The WORST open cell's relative departure from its seeded pressure, over the same held cells.

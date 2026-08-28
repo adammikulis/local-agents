@@ -2,7 +2,8 @@ class_name LACombustionRecords
 extends "res://addons/local_agents/sim/material/reactions/ReactionDefs.gd"
 
 const PYROLYSIS_REF_TEMP_K: float = 600.0
-const PYROLYSIS_K_PER_S: float = 2.5e-3    # k(T_ref) in air, per second
+## k(T_ref) in air, per second: the cited Arrhenius pair evaluated at the reference temperature.
+const PYROLYSIS_K_PER_S: float = LAPhysical.CELLULOSE_PYROLYSIS_A_PER_S * exp(-LAPhysical.CELLULOSE_PYROLYSIS_EA_OVER_R_K / PYROLYSIS_REF_TEMP_K)
 
 ## Ambient O2, mol/m3 — the concentration PYROLYSIS_K_PER_S is quoted at.
 const O2_AMBIENT_MOL_M3: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.AIR_MOLE_FRAC_O2

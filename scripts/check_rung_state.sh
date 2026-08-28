@@ -74,7 +74,9 @@ func _init() -> void:
 		_fail("the grid holds fewer cells than the sweep has probes.")
 		return
 
-	var amount: float = LASubstances.full_mol_m3(ID)
+	# Half a cell of water under air at p_ref: the ice it freezes into still fits, so the solve's own
+	# pressure stays near p_ref instead of the frost-wedging pressure a brim-full rigid cell would state.
+	var amount: float = 0.5 * LASubstances.full_mol_m3(ID)
 	var molar: float = float(LASubstances.table()[ID]["molar_mass"])
 	var rho: float = amount * molar
 	if rho <= 0.0:
@@ -133,6 +135,13 @@ func _init() -> void:
 	for i2 in PROBES:
 		amounts[i2] = amount
 	_upload(bufs[ID], amounts)
+	var air: PackedFloat32Array = PackedFloat32Array()
+	air.resize(cc)
+	air.fill(0.0)
+	var n2_amount: float = p_ref * 0.5 / (LAPhysical.GAS_CONSTANT_J_MOL_K * (melt + LAPhysical.KELVIN_OFFSET))
+	for i3 in PROBES:
+		air[i3] = n2_amount
+	_upload(bufs["n2"], air)
 	_upload(bufs["h_j_m3"], h_cells)
 	# The solve reads the pressure standing in the cell and writes the EOS one after; the reference below
 	# is taken at the pressure it READ, so both ladders answer the same question.
@@ -152,6 +161,7 @@ func _init() -> void:
 	_rd.sync()
 	var temp: PackedFloat32Array = _rd.buffer_get_data(bufs["temp"]).to_float32_array()
 	var ice: PackedFloat32Array = _rd.buffer_get_data(bufs["h2o_solid"]).to_float32_array()
+	var p_out: PackedFloat32Array = _rd.buffer_get_data(bufs["pressure"]).to_float32_array()
 	var nonfinite: PackedFloat32Array = _rd.buffer_get_data(bufs["nonfinite"]).to_float32_array()
 	p.dispose(_rd)
 
@@ -160,7 +170,8 @@ func _init() -> void:
 	var worst_at: int = -1
 	for c in PROBES:
 		var h_kg: float = float(h_cells[c]) / rho
-		var want: float = float(LASubstances.enthalpy_to_state(ID, h_kg, p_ref)["t_c"])
+		# The table at the pressure the derive itself solved: one state, both sides.
+		var want: float = float(LASubstances.enthalpy_to_state(ID, h_kg, maxf(float(p_out[c]), 0.0))["t_c"])
 		var err: float = absf(float(temp[c]) - want)
 		if err > worst_k:
 			worst_k = err
@@ -219,7 +230,7 @@ if [ "$rc" -ne 0 ]; then
   echo
   echo "The derive is not the substance table. worst_k is the largest gap in kelvin between what"
   echo "state_derive.glsl calls the temperature of a cell and what LASubstances says that enthalpy is at"
-  echo "the pressure the solve was handed; plateau_probes is how many consecutive probes sat at one"
+  echo "the pressure the solve derived; plateau_probes is how many consecutive probes sat at one"
   echo "temperature while the enthalpy rose, which is the latent heat of fusion and must span at least a"
   echo "few of them; plateau_ice_span is how much of the frozen share melted across that plateau, which"
   echo "must be nearly all of it or no boundary was crossed; nonfinite must be zero, and at this rung"

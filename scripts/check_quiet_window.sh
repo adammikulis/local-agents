@@ -6,6 +6,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh"
 require_tool rg
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
+la_examined "$(basename "$0")" || exit $?
 HELPER="$ROOT/addons/local_agents/runtime/QuietWindow.gd"
 [ -f "$HELPER" ] || { echo "check_quiet_window: MISSING $HELPER" >&2; exit 2; }
 

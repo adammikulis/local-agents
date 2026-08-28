@@ -89,6 +89,23 @@ la_cap_front() {
 }
 
 # One headless runner's slice of the batch launch's log.
+# THE LADDER DECIDES WHAT LINT MAY READ. A gate assigned to a rung above the capture's is not examined:
+# it exits 3 with LINT_NOT_EXAMINED, which the harness counts apart from a gate that could not run.
+# $1 the gate script's basename. No capture, or a gate no rung names, examines as before.
+la_examined() {
+	local cap rung mine
+	cap="$(la_cap_dir)" || return 0
+	[ -s "$cap/rung" ] && [ -s "$cap/headless/gate_rungs.log" ] || return 0
+	rung="$(head -1 "$cap/rung" | tr -d '[:space:]')"
+	mine="$(sed -n "s/^GATE_RUNG=$1 //p" "$cap/headless/gate_rungs.log" | head -1)"
+	[ -n "$mine" ] || return 0
+	if [ "$mine" -gt "$rung" ]; then
+		echo "LINT_NOT_EXAMINED: $1 needs rung $mine; the capture is the ladder's rung $rung."
+		return 3
+	fi
+	return 0
+}
+
 la_headless() {
 	local cap
 	cap="$(la_cap_dir)" || return 1

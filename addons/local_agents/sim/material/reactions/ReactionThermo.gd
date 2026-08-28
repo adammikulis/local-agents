@@ -56,5 +56,6 @@ static func reversible(rec: Dictionary, q_slot: int) -> Dictionary:
 	return out
 
 
-## exp() argument bound. The kernel's copy is generated from this constant.
-const EXP_LIMIT: float = 60.0
+## exp() argument bound: half the float32 exponent range, so a product of two bounded terms is finite.
+## The kernel's copy is generated from this constant.
+const EXP_LIMIT: float = 64.0 * log(2.0)

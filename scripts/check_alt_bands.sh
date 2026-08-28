@@ -15,6 +15,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh"
 require_tool rg
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
+la_examined "$(basename "$0")" || exit $?
 
 ROWS="$ROOT/addons/local_agents/sim/material/reduce/HeatRows.gd"
 [ -f "$ROWS" ] || { echo "check_alt_bands: MISSING $ROWS" >&2; exit 2; }

@@ -19,7 +19,8 @@ mkdir -p "$CAP/headless" || { echo "lint_capture: cannot write $CAP." >&2; exit 
 
 FRAMES="${LA_CAPTURE_FRAMES:-20}"
 SEED="${LA_CAPTURE_SEED:-4242}"
-CAP_RUNG="${LA_CAPTURE_RUNG:-8}"
+PLAYABLE="$(rg -N -o '^[0-9]+$' "$ROOT/docs/PLAYABLE_RUNG" 2>/dev/null | head -1)"
+CAP_RUNG="${LA_CAPTURE_RUNG:-${PLAYABLE:-0}}"
 CACHE_ROOT="${LA_CAPTURE_CACHE:-$HOME/.cache/local-agents/capture}"
 KEEP_ENTRIES=4
 

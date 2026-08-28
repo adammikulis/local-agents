@@ -6,6 +6,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 [ "$(uname)" = "Darwin" ] || { echo "check_no_focus_theft: OK (not macOS)"; exit 0; }
 command -v lsappinfo >/dev/null 2>&1 || { echo "check_no_focus_theft: no lsappinfo" >&2; exit 2; }
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
+la_examined "$(basename "$0")" || exit $?
 KEEP_SAMPLES=0
 if la_cap_dir >/dev/null; then
 	SAMPLES="$(la_cap_front)" || exit 2

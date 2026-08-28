@@ -7,9 +7,8 @@ const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/gr
 
 ## Field steps between solves. The solve warm-starts from the previous potential.
 const SOLVE_EVERY: int = 2
-## Sweeps per dispatch. Poisson is elliptic, so the seeding solve relaxes until `residual_rel` falls and
-## the per-step solves track a warm-started field.
-const SWEEPS: int = 128   # LA_APPROX: fixed_sweep_relaxation
+## Red-black sweeps one dispatch relaxes before the residual is read; every solve loops on it.
+const SWEEPS_PER_DISPATCH: int = 128
 
 ## Floats each workgroup writes into the partials buffer — gravity_poisson.glsl PART_STRIDE.
 const PART_STRIDE: int = 10
@@ -55,6 +54,7 @@ var _up: PackedInt32Array = PackedInt32Array()
 var _down: PackedInt32Array = PackedInt32Array()
 var _mean_g: float = 0.0
 var _residual_rel: float = INF          # until a solve has been drained, the field is not answerable
+var _last: Dictionary = {}              # what the last drain published; the step's report reads it
 var _failed_announced: bool = false
 ## SLICE: centre xyz, radius, mass of the declared body. Empty = solve Poisson from the grid's own mass.
 var _mono: PackedFloat32Array = PackedFloat32Array()
@@ -141,8 +141,8 @@ func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: i
 	# The declared-monopole field is static: written once at the seed, never re-solved.
 	if not _mono.is_empty():
 		return
-	var step: int = int(_ctx_num(ctx, "step_index"))
-	if step % SOLVE_EVERY != 0:
+	# Only LAMaterialFieldGravity3D.solve dispatches, and it loops until the residual falls.
+	if not bool(ctx.get("gravity_solve", false)):
 		return
 	var plan: Array = []
 	if not _flagged:
@@ -151,7 +151,7 @@ func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: i
 	plan.append([MODE_DENSITY, 0, groups])
 	plan.append([MODE_MOMENTS, 0, 1])
 	plan.append([MODE_SEED, 0, groups])
-	for _s in SWEEPS:
+	for _s in SWEEPS_PER_DISPATCH:
 		for colour in _colours:
 			plan.append([MODE_RELAX, colour, groups])
 	plan.append([MODE_GRADIENT, 0, groups])
@@ -215,7 +215,7 @@ func _push(mode: int, colour: int, cc: int) -> PackedByteArray:
 ## Read at the drain, and only on the steps a solve ran: g changes nowhere else.
 func _drain(rd: RenderingDevice) -> Dictionary:
 	if not _read_due or not _moments.is_valid():
-		return {}
+		return _last
 	_read_due = false
 	var m: PackedFloat32Array = rd.buffer_get_data(_moments).to_float32_array()
 	if m.size() < MOMENT_SLOTS:
@@ -225,12 +225,13 @@ func _drain(rd: RenderingDevice) -> Dictionary:
 	_mirror = rd.buffer_get_data(_gravity).to_float32_array()
 	_up = rd.buffer_get_data(_up_rid).to_int32_array()
 	_down = rd.buffer_get_data(_down_rid).to_int32_array()
-	return {
+	_last = {
 		"gravity_total_mass_kg": m[0],
 		"gravity_mean_g": m[4],
 		"gravity_residual_rel": m[5],
 		"gravity_gauss_rel": m[6],
 		"gravity_solves": float(_solves)}
+	return _last
 
 
 ## Solved acceleration, flat cell*3, m/s^2. Empty until the first drain after the first solve.

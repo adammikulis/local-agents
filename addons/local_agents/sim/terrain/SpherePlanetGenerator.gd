@@ -2,16 +2,6 @@ class_name LASpherePlanetGenerator
 extends RefCounted
 
 
-const T_OUTPUT_SDF: int = 4
-const T_ADD: int = 5
-const T_SUBTRACT: int = 6
-const T_MULTIPLY: int = 7
-const T_ABS: int = 11
-const T_MIN: int = 16
-const T_MAX: int = 17
-const T_CURVE: int = 25
-const T_SDF_SPHERE: int = 32
-const T_FAST_NOISE_3D: int = 40
 
 # SdfSphere input ports: 0=x 1=y 2=z 3=radius (x/y/z autoconnect to world coords when left unwired).
 
@@ -77,34 +67,34 @@ func build(opts: Dictionary = {}) -> VoxelGeneratorGraph:
 	fn.clear()
 
 	# sphere: length(p) - radius
-	var sphere: int = fn.create_node(T_SDF_SPHERE, Vector2(0, 0), 0)
+	var sphere: int = fn.create_node(VoxelGraphFunction.NODE_SDF_SPHERE, Vector2(0, 0), 0)
 	fn.set_node_default_input(sphere, 3, _radius)
 
-	var cont_noise: int = fn.create_node(T_FAST_NOISE_3D, Vector2(0, 220), 0)
+	var cont_noise: int = fn.create_node(VoxelGraphFunction.NODE_FAST_NOISE_3D, Vector2(0, 220), 0)
 	fn.set_node_param_by_name(cont_noise, "noise", cont)
-	var det_noise: int = fn.create_node(T_FAST_NOISE_3D, Vector2(0, 380), 0)
+	var det_noise: int = fn.create_node(VoxelGraphFunction.NODE_FAST_NOISE_3D, Vector2(0, 380), 0)
 	fn.set_node_param_by_name(det_noise, "noise", detail)
-	var det_mul: int = fn.create_node(T_MULTIPLY, Vector2(200, 380), 0)
+	var det_mul: int = fn.create_node(VoxelGraphFunction.NODE_MULTIPLY, Vector2(200, 380), 0)
 	fn.add_connection(det_noise, 0, det_mul, 0)
 	fn.set_node_default_input(det_mul, 1, det_weight)
-	var cascade: int = fn.create_node(T_ADD, Vector2(400, 300), 0)
+	var cascade: int = fn.create_node(VoxelGraphFunction.NODE_ADD, Vector2(400, 300), 0)
 	fn.add_connection(cont_noise, 0, cascade, 0)
 	fn.add_connection(det_mul, 0, cascade, 1)
 
 	# The cascade's own range mapped onto the curve's domain, so the curve is read at its own quantile.
-	var norm_mul: int = fn.create_node(T_MULTIPLY, Vector2(560, 300), 0)
+	var norm_mul: int = fn.create_node(VoxelGraphFunction.NODE_MULTIPLY, Vector2(560, 300), 0)
 	fn.add_connection(cascade, 0, norm_mul, 0)
 	fn.set_node_default_input(norm_mul, 1, inv_span)
-	var norm: int = fn.create_node(T_ADD, Vector2(700, 300), 0)
+	var norm: int = fn.create_node(VoxelGraphFunction.NODE_ADD, Vector2(700, 300), 0)
 	fn.add_connection(norm_mul, 0, norm, 0)
 	fn.set_node_default_input(norm, 1, -lo * inv_span)
 
 	# elevation, metres above the sea shell
-	var elev: int = fn.create_node(T_CURVE, Vector2(860, 300), 0)
+	var elev: int = fn.create_node(VoxelGraphFunction.NODE_CURVE, Vector2(860, 300), 0)
 	fn.set_node_param_by_name(elev, "curve", curve)
 	fn.add_connection(norm, 0, elev, 0)
 
-	var surface: int = fn.create_node(T_SUBTRACT, Vector2(1020, 140), 0)
+	var surface: int = fn.create_node(VoxelGraphFunction.NODE_SUBTRACT, Vector2(1020, 140), 0)
 	fn.add_connection(sphere, 0, surface, 0)
 	fn.add_connection(elev, 0, surface, 1)
 
@@ -113,52 +103,52 @@ func build(opts: Dictionary = {}) -> VoxelGeneratorGraph:
 		var cave1: ZN_FastNoiseLite = _cascade(cave_size, 3, 0.5, seed_val + 101)
 		var cave2: ZN_FastNoiseLite = _cascade(cave_size, 3, 0.5, seed_val + 211)
 
-		var cn1: int = fn.create_node(T_FAST_NOISE_3D, Vector2(0, 820), 0)
+		var cn1: int = fn.create_node(VoxelGraphFunction.NODE_FAST_NOISE_3D, Vector2(0, 820), 0)
 		fn.set_node_param_by_name(cn1, "noise", cave1)
-		var cn2: int = fn.create_node(T_FAST_NOISE_3D, Vector2(0, 980), 0)
+		var cn2: int = fn.create_node(VoxelGraphFunction.NODE_FAST_NOISE_3D, Vector2(0, 980), 0)
 		fn.set_node_param_by_name(cn2, "noise", cave2)
 
 		# cave_open = cave_threshold - max(|n1|, |n2|)  => >0 only where BOTH noises sit near their zero-set
-		var abs1: int = fn.create_node(T_ABS, Vector2(200, 820), 0)
+		var abs1: int = fn.create_node(VoxelGraphFunction.NODE_ABS, Vector2(200, 820), 0)
 		fn.add_connection(cn1, 0, abs1, 0)
-		var abs2: int = fn.create_node(T_ABS, Vector2(200, 980), 0)
+		var abs2: int = fn.create_node(VoxelGraphFunction.NODE_ABS, Vector2(200, 980), 0)
 		fn.add_connection(cn2, 0, abs2, 0)
-		var amax: int = fn.create_node(T_MAX, Vector2(400, 900), 0)
+		var amax: int = fn.create_node(VoxelGraphFunction.NODE_MAX, Vector2(400, 900), 0)
 		fn.add_connection(abs1, 0, amax, 0)
 		fn.add_connection(abs2, 0, amax, 1)
-		var copen: int = fn.create_node(T_SUBTRACT, Vector2(560, 900), 0)
+		var copen: int = fn.create_node(VoxelGraphFunction.NODE_SUBTRACT, Vector2(560, 900), 0)
 		fn.set_node_default_input(copen, 0, cave_threshold)
 		fn.add_connection(amax, 0, copen, 1)
 
 		# void SDF = cave_open * cave_strength  (positive inside a tunnel, negative in solid rock)
-		var cvoid: int = fn.create_node(T_MULTIPLY, Vector2(720, 900), 0)
+		var cvoid: int = fn.create_node(VoxelGraphFunction.NODE_MULTIPLY, Vector2(720, 900), 0)
 		fn.add_connection(copen, 0, cvoid, 0)
 		fn.set_node_default_input(cvoid, 1, cave_strength)
 
 		# DEPTH GATE: depth = -base_sdf ; gate = min(0, depth - cave_depth_fade)
 		#   => 0 once we are deeper than cave_depth_fade, strongly negative near/above the surface. Adding it to
 		#   the void drives the void negative near the surface, so surface tunnels are suppressed (no holes).
-		var depth: int = fn.create_node(T_MULTIPLY, Vector2(720, 60), 0)
+		var depth: int = fn.create_node(VoxelGraphFunction.NODE_MULTIPLY, Vector2(720, 60), 0)
 		fn.add_connection(surface, 0, depth, 0)
 		fn.set_node_default_input(depth, 1, -1.0)
-		var dminus: int = fn.create_node(T_SUBTRACT, Vector2(900, 60), 0)
+		var dminus: int = fn.create_node(VoxelGraphFunction.NODE_SUBTRACT, Vector2(900, 60), 0)
 		fn.add_connection(depth, 0, dminus, 0)
 		fn.set_node_default_input(dminus, 1, cave_depth_fade)
-		var gate: int = fn.create_node(T_MIN, Vector2(1080, 60), 0)
+		var gate: int = fn.create_node(VoxelGraphFunction.NODE_MIN, Vector2(1080, 60), 0)
 		fn.add_connection(dminus, 0, gate, 0)
 		fn.set_node_default_input(gate, 1, 0.0)
 
 		# gated void = void + gate  ; carve = max(base_sdf, gated void)
-		var gvoid: int = fn.create_node(T_ADD, Vector2(1080, 900), 0)
+		var gvoid: int = fn.create_node(VoxelGraphFunction.NODE_ADD, Vector2(1080, 900), 0)
 		fn.add_connection(cvoid, 0, gvoid, 0)
 		fn.add_connection(gate, 0, gvoid, 1)
-		var carved: int = fn.create_node(T_MAX, Vector2(1260, 500), 0)
+		var carved: int = fn.create_node(VoxelGraphFunction.NODE_MAX, Vector2(1260, 500), 0)
 		fn.add_connection(surface, 0, carved, 0)
 		fn.add_connection(gvoid, 0, carved, 1)
 		final_node = carved
 
 	# output
-	var out: int = fn.create_node(T_OUTPUT_SDF, Vector2(1460, 140), 0)
+	var out: int = fn.create_node(VoxelGraphFunction.NODE_OUTPUT_SDF, Vector2(1460, 140), 0)
 	fn.add_connection(final_node, 0, out, 0)
 
 	var res: Dictionary = gen.compile()
