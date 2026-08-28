@@ -12,7 +12,7 @@ const TransportPassScript: GDScript = preload("res://addons/local_agents/sim/mat
 ## declaration: the absence check and the uniform set ask the same list.
 const BOUND: Dictionary = {
 	"solid": 14, "cement": 15, "regolith": 16, "grain": 17, "pos": 18, "liquid": 19, "org_hc": 20,
-	"h_j_m3": 21, "pressure": 22,
+	"h_j_m3": 21, "pressure": 22, "ke_j_m3": 90,
 	"temp": 23, "mom_x": 25, "mom_y": 26, "mom_z": 27, "vel_x": 28, "vel_y": 29, "vel_z": 30,
 	"org_oc": 31, "rho_bulk": 32, "conductivity": 33, "h2o_solid": 34, "h2o_liquid": 35,
 	"h2o_vapour": 36, "silicate_melt": 37, "org_fresh": 38, "cell_vol": 40, "speed": 41, "lat": 42,
@@ -61,7 +61,7 @@ func _buffers(cc: int) -> Dictionary:
 		"org_hc": cc, "org_oc": cc, "org_fresh": cc,
 		"bodyf_x": cc, "bodyf_y": cc, "bodyf_z": cc,
 		"k_cond": {"n": cc, "ghosts": true}, "g_rest": {"n": cc * 3, "ghosts": true},
-		"rad_w_m3": {"n": cc, "ghosts": true}}
+		"rad_w_m3": {"n": cc, "ghosts": true}, "ke_j_m3": cc}
 
 
 func _setup(bufs: Dictionary, _cc: int) -> void:

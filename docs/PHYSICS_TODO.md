@@ -226,6 +226,12 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
 - [ ] **Five matter rows trip the conservation gate on a clean tree** — h2o, nitrogen, mineral, oxidant and
       element_C — and the energy row reads UNMEASURED rather than conserved. **Reproduce:**
       `scripts/check_conservation.sh`.
+- [ ] **A SEALED BOX'S ENERGY DOES NOT CLOSE OVER ITS TWO STORES.** `energy_kinetic` is the joules of
+      motion the enthalpy state does not hold; it moves while `energy_stock` stands still, so their sum is
+      not a constant. The third store, the potential the body force works against, is F's own item and has
+      no gauge. **Reproduce:** `for n in 4 8; do scripts/sim_run.sh --rung 3 --frames $n --report
+      energy_stock,energy_kinetic; done` and read the pair at one length against the other.
+
 - [ ] **`o2_first` latches at zero**, so the o2 row has no scale to be a fraction of. A baseline of zero is
       not a baseline.
 

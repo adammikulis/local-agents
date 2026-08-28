@@ -31,6 +31,9 @@ layout(set = 0, binding = 51, std430) restrict writeonly buffer BodyFY { float b
 layout(set = 0, binding = 52, std430) restrict writeonly buffer BodyFZ { float bodyf_z[]; };
 // The mixture's sound speed, m/s: Wood's one-pressure compressibility sum over the cell's own matter.
 layout(set = 0, binding = 53, std430) restrict buffer KCond { float k_cond[]; };
+// The energy of MOTION, J/m^3, which the enthalpy state does not hold. A function of state and nothing
+// else, read only by the reduce, so a book can weigh it against the enthalpy it trades with.
+layout(set = 0, binding = 90, std430) restrict writeonly buffer KinBuf { float ke_j_m3[]; };
 // Radiogenic power of this cell's own matter, W/m^3: sum over channels of amount * M * W/kg(mix, epoch).
 // transport.glsl's RADIOGENIC leg deposits it into the enthalpy.
 layout(set = 0, binding = 65, std430) restrict writeonly buffer RadW { float rad_w_m3[]; };
@@ -329,6 +332,7 @@ void main() {
 	conductivity[g] = (v_used > 0.0) ? v_lambda / v_used : 0.0;
 	float rho = total * inv_vol;     // kg/m^3, gas included: gravity pulls on all of it
 	rho_bulk[g] = rho;
+	ke_j_m3[g] = 0.0;
 	float f_melt = 0.0;
 	vec3 v = vec3(0.0);
 	// Below the donation floor the cell is EMPTY: its stocks stay, its DERIVED bulk state does not.
@@ -364,6 +368,7 @@ void main() {
 	vel_y[g] = v.y;
 	vel_z[g] = v.z;
 	speed[g] = length(v);
+	ke_j_m3[g] = 0.5 * rho * dot(v, v);
 
 	SubstanceTh subs[LA_MIX_MAX];
 	subs[E_H2O] = la_h2o();
