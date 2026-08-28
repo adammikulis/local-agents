@@ -92,7 +92,8 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, _groups_in
 				+ "`godot --headless --path . --import` in this worktree.")
 		return
 	_step = int(ctx.get("step_index", -1))
-	_run(rd, cl, ctx, cc, true)
+	# A REFERENCE IS THE STATE THE WORLD WAS BUILT WITH, so a mid-seed derive takes none.
+	_run(rd, cl, ctx, cc, not bool(ctx.get("seeding", false)))
 
 
 ## Every row. `latch_ok` false leaves every reference where it is.

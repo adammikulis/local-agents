@@ -238,7 +238,7 @@ func _publish_energy(out: Dictionary, f: Dictionary, step: int) -> void:
 	out["energy_held"] = float(f["energy_stock"]) - float(f["energy_pv"]) + float(f["energy_kinetic"]) \
 		+ float(f["energy_potential"])
 
-	# WATTS, off the device. transport.glsl's RADIATE row writes what each cell took in and sent out as
+	# WATTS, off the device. flux.glsl's RADIATE row writes what each cell took in and sent out as
 	# J/m^3 for one step; the two reduce rows weight those by cell volume, so the pair arrives in joules
 	# over one step and only the step's own real seconds separate it from watts.
 	var dt_s: float = LAMaterialFieldSphereStep3D.real_seconds_per_step()

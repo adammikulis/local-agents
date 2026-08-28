@@ -1,5 +1,5 @@
 // The radiative marches: band emissivity and albedo off the cell's own absorbers, the solar beam,
-// the longwave line-of-sight gather, and the reflected-shortwave march. transport.glsl includes this
+// the longwave line-of-sight gather, and the reflected-shortwave march. flux.glsl includes this
 // after its buffers and constants; only MODE_RADIATE's passes call in.
 
 #ifndef LA_TRANSPORT_RADIATE_GLSLI

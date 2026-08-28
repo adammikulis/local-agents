@@ -70,16 +70,12 @@
 #define LAW_FILM 2u
 #define LAW_DARCY 3u
 #define LAW_EDDY 4u
-#define LAW_SOUND 5u
-#define LAW_OHMIC 6u
-#define LAW_PGF 7u
-#define LAW_ESCAPE 8u
+#define LAW_OHMIC 5u
+#define LAW_ESCAPE 6u
 
 // TransportRecords.gd Flag enum
-#define TF_SIGNED 1u
 #define TF_SETTLE 2u
 #define TF_EFIELD 4u
-#define TF_DRIVEN 8u
 #define TF_FRACTION 16u
 #define TF_DILUTE 32u
 #define TF_RADIOGENIC 64u

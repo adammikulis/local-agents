@@ -181,7 +181,7 @@ layout(push_constant, std430) uniform Params {
 	uint pad0;      // no kernel-side dt: every rate_k already carries its own timebase
 	uint pad1;      // no global rain gate: rain is a per-cell condition, read per cell
 	float sun_x;    // world-space vector TOWARD the sun; its magnitude is the irradiance in W/m^2, the
-	float sun_y;    // same value transport.glsl's RADIATE row takes, so light and heat are ONE quantity
+	float sun_y;    // same value flux.glsl's RADIATE row takes, so light and heat are ONE quantity
 	float sun_z;
 	uint pad2;
 } params;

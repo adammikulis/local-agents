@@ -122,7 +122,7 @@ def reaction_sections():
 
 
 def transport_modes():
-    """LATransportRecords' mode enum, which transport.glsl must not restate."""
+    """LATransportRecords' mode enum, which flux.glsl must not restate."""
     m = re.search(r"^enum \{ ([A-Z, ]+) \}", read(TRANSPORT_RECORDS), re.M)
     if not m:
         raise Missing("TransportRecords.gd declares no mode enum")

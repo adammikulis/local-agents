@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# MOMENTUM CROSSING AN OPEN BOUNDARY IS BOOKED, judged by the REAL evaluator: TransportPass dispatching
-# transport.glsl over a two-cell rig with CONSTANT and REPLAY faces from the real LAFieldBoundary3D.
+# MOMENTUM CROSSING AN OPEN BOUNDARY IS BOOKED, judged by the REAL evaluator: FluxPass dispatching
+# flux.glsl over a two-cell rig with CONSTANT and REPLAY faces from the real LAFieldBoundary3D.
 # bnd_mom_* books the whole exchange with everything outside the fluid, walls and the REPLAY rim's
 # nudge included — applied and booked once, no heat leg, held by differencing against the relax-off arm.
 # LABoundaryBooks promises no heat leg for a signed channel and still names a matter channel's absent one.
@@ -11,10 +11,10 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 la_examined "$(basename "$0")" || exit $?
 GODOT="${GODOT:-godot}"
 command -v "$GODOT" >/dev/null 2>&1 || { echo "ERROR: godot not on PATH — a gate that cannot run FAILS." >&2; exit 2; }
-KERNEL="$REPO_ROOT/addons/local_agents/sim/material/kernels3d/transport.glsl"
-PASS="$REPO_ROOT/addons/local_agents/sim/material/sphere_passes/TransportPass.gd"
-[ -f "$KERNEL" ] || { echo "ERROR: transport.glsl missing." >&2; exit 2; }
-[ -f "$PASS" ] || { echo "ERROR: TransportPass.gd missing." >&2; exit 2; }
+KERNEL="$REPO_ROOT/addons/local_agents/sim/material/kernels3d/flux.glsl"
+PASS="$REPO_ROOT/addons/local_agents/sim/material/sphere_passes/FluxPass.gd"
+[ -f "$KERNEL" ] || { echo "ERROR: flux.glsl missing." >&2; exit 2; }
+[ -f "$PASS" ] || { echo "ERROR: FluxPass.gd missing." >&2; exit 2; }
 
 PROBE="$REPO_ROOT/addons/local_agents/tests/zz_boundary_momentum_gate.gd"
 cat > "$PROBE" <<'GD'
@@ -23,7 +23,7 @@ extends SceneTree
 # An automated run's window is minimized; macOS clamps an off-view position back on screen.
 const QuietWindow: GDScript = preload("res://addons/local_agents/runtime/QuietWindow.gd")
 
-const PASS_PATH: String = "res://addons/local_agents/sim/material/sphere_passes/TransportPass.gd"
+const PASS_PATH: String = "res://addons/local_agents/sim/material/sphere_passes/FluxPass.gd"
 const CELL: float = 0.5
 const P_IN: float = 101325.0
 const T_C: float = 15.0
@@ -65,7 +65,7 @@ func _i32(vals: PackedInt32Array, owned: Array[RID]) -> RID:
 	return r
 
 
-## One dispatch of the real TransportPass over a 2x1x1 rig at rest at `P_IN`. Face 0 holds `mode` at
+## One dispatch of the real FluxPass over a 2x1x1 rig at rest at `P_IN`. Face 0 holds `mode` at
 ## `p_ghost` Pa of real air (n = p/RT) moving at `vel`; NAN shuts every wall. `relax_on` false strips
 ## the momentum rows' rim flag — the disabled arm the rim assertions difference against.
 func _run(p_ghost: float, mode: int = LAFieldBoundary3D.CONSTANT, vel: Vector3 = Vector3.ZERO,

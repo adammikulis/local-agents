@@ -28,7 +28,7 @@ a dispatch, which is the half that actually shows up (see the measurement note a
 
 ## 1d. BOOK THE FLOWS TO MAKE A TOTAL CHEAP — AND NEVER DELETE THE REDUCTION THAT CHECKS IT
 
-A channel's total is recomputed by a full reduction, while `transport.glsl`'s gather already has `gained`
+A channel's total is recomputed by a full reduction, while `flux.glsl`'s gather already has `gained`
 and `lost` in hand. Accumulating the total from the fluxes is exact and turns a sweep into an add.
 
 **THE TRAP, AND IT IS THE WHOLE REASON THIS ITEM IS DANGEROUS.** `stock - booked` IS the residual, and that
@@ -64,7 +64,7 @@ list again. Build it once per step and all of them become O(surface cells), abou
 ## 2b. The dispatch budget, and where it is spent
 
 `ReducePass` sweeps the whole grid once per `LAProcessSet.reduce_rows()` row, each dispatch followed by
-an unconditional barrier, while `TransportPass` dispatches over its active list. It is the pass that
+an unconditional barrier, while `FluxPass` dispatches over its active list. It is the pass that
 costs the whole box rather than what is moving.
 
 **Fuse ReducePass into one multi-row dispatch.** O(rows × N) becomes O(distinct sources × N): one sweep,
@@ -72,18 +72,11 @@ one barrier, every row's lane accumulated in registers. `partials` already has a
 float64 CPU fold is unchanged, so the result is identical. Only `LATCH` → `SUM_ABS_DIFF` needs a barrier
 kept. Nothing structural blocks it.
 
-**`transport.glsl` pass 1 has no solid early-out.** Pass 0 returns early on `solid != 0`; the gather does
-not, so an active rock cell runs every row to add zero. And every row's pass 0 clears 18
-`send`/`send_h`/`send_q` slots before deciding it has nothing to send. For the nine rows with
-`density == 0` the `_h`/`_q` two thirds of that are provably dead.
-
-
 ## 2d. Work repeated per cell per step that is provably constant
 
-- **`strain_rate(c)`** reads 6 neighbours × 3 velocity components and builds a 3×3 tensor. It is evaluated
-  about twelve times per cell per step — every `LAW_EDDY` row plus four times inside `PASS_GRAIN`. `vel_*`
-  are written once by `StateDerivePass` and not touched again, so caching it in one derived buffer is
-  exactly equivalent, not an approximation.
+- **`strain_rate(c)`** reads 6 neighbours × 3 velocity components and builds a 3×3 tensor. `PASS_FACE`
+  states it once per cell into `nu_t`, but `PASS_GRAIN`'s `suspended_share` still evaluates it four more
+  times per cell. Those four are the same tensor and can read `nu_t` instead.
 - **`root_soil()`** re-walks its 4-cell column once per record naming `SOIL_ROOT` and again inside
   `root_soil_draw`. It is a march, so it is item 1a's shape at a small depth.
 

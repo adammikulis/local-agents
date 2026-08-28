@@ -114,7 +114,7 @@ fi
 echo
 echo "The sealed column moved. Its own weight and its own pressure are all that act on it, and a"
 echo "hydrostatic state cancels them face by face, so the seed is not in the discrete balance the"
-echo "stepper holds — transport.glsl's face_p() reconstruction against the bodyf_* impulse. At balance"
+echo "stepper holds — flux.glsl's face_p() reconstruction against the bodyf_* impulse. At balance"
 echo "the acoustic pass also sees zero divergence, so no cell's pressure leaves the value it was seeded"
 echo "with either."
 exit 1

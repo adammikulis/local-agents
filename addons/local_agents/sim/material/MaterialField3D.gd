@@ -86,8 +86,6 @@ var _vel_x: PackedFloat32Array = PackedFloat32Array()    # wind velocity X per c
 var _vel_y: PackedFloat32Array = PackedFloat32Array()    # wind velocity Y per cell (world +Y)
 var _vel_z: PackedFloat32Array = PackedFloat32Array()    # wind velocity Z per cell (world +Z)
 var _charge: PackedFloat32Array = PackedFloat32Array()   # electrification charge per cell (updraft × supercooled cloud)
-# Seismic / sound SHOCK amplitude per cell — a propagating pressure wave (GPU shock_sphere3d radiates it).
-var _shock: PackedFloat32Array = PackedFloat32Array()
 var _sun_light = null                                    # DirectionalLight3D — solar forcing (top cells)
 
 var _ecology = null                                      # LAEcologyService back-ref (ash regrowth / actor coupling)
@@ -104,12 +102,10 @@ var _stamp = null                                        # LAMineralStamp3D — 
 var _sphere_step = null                                  # LAMaterialFieldSphereStep3D — the per-frame step loop
 var _organic = null                                      # LAMaterialFieldOrganic3D — the dead pool's C:H:O gauge
 # Substrate-foundation primitive modules (the field only delegates; all logic lives in these). Seams the
-# per-actor dissolution agents fill: shock (Earthquake/Meteor), charge→bolt (Thunderstorm), ejecta (bombs/debris).
-var _shock_mod = null                                    # LAMaterialShock3D — shock channel + emit/readback
+# per-actor dissolution agents fill: charge→bolt (Thunderstorm), ejecta (bombs/debris).
 var _charge_mod = null                                   # LAMaterialCharge3D — charge readback + breakdown→bolt
 var _ejecta = null                                       # LAMaterialEjecta3D — momentum/ejecta parcels (Node3D child)
 var _pending_lightning_cb: Callable = Callable()         # lightning visual callback (registered pre-activate)
-const ShockScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialShock3D.gd")
 const ChargeScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialCharge3D.gd")
 const EjectaScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialEjecta3D.gd")
 var _atmos = null                                     # LAMaterialFieldAtmos3D
@@ -289,7 +285,6 @@ func _alloc_channels() -> void:
 	_vel_y = _cells_filled(0.0)
 	_vel_z = _cells_filled(0.0)
 	_charge = _cells_filled(0.0)
-	_shock = _cells_filled(0.0)
 	# Read-only query accessors bind to this field now; the arrays they read exist from here on.
 	_queries = QueriesScript.new()
 	_queries.setup(self)
@@ -361,8 +356,6 @@ func activate() -> void:
 	_stamp = MineralStampScript.new()
 	_stamp.setup(self)
 	# Substrate-foundation primitives (thin delegates; the field only forwards to them).
-	_shock_mod = ShockScript.new()
-	_shock_mod.setup(self)
 	_charge_mod = ChargeScript.new()
 	_charge_mod.setup(self)
 	if _pending_lightning_cb.is_valid():
@@ -659,19 +652,6 @@ func charge_peak() -> float:
 	return 0.0 if is_nan(v) else v
 func bolts_fired() -> int:
 	return _charge_mod.bolts_fired() if _charge_mod != null else 0
-## Inject a shock/sound wave of `magnitude` at a world point.
-func emit_shock(world_pos: Vector3, magnitude: float) -> void:
-	if _shock_mod != null:
-		if _gpu != null: _gpu.request_channel("shock")   # injecting shock → keep its readback hot
-		_shock_mod.emit_shock(world_pos, magnitude)
-func shock_at(world_pos: Vector3) -> float:
-	if _gpu != null: _gpu.request_channel("shock")
-	return _shock_mod.shock_at(world_pos) if _shock_mod != null else 0.0
-func shock_gradient(world_pos: Vector3) -> Vector3:
-	if _gpu != null: _gpu.request_channel("shock")
-	return _shock_mod.shock_gradient(world_pos) if _shock_mod != null else Vector3.ZERO
-func shock_cell_count():
-	return _shock_mod.shock_cell_count() if _shock_mod != null else null
 
 
 

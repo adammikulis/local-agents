@@ -11,26 +11,26 @@ require_tool rg
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
 la_examined "$(basename "$0")" || exit $?
 
-# ARM ONE, ON THE KERNEL. The face scratch is one buffer for every row, so a gather that trusts a
-# neighbour's slot without knowing whose dispatch wrote it reads another row's units as its own: that is
-# how joules of radiated heat arrived in a rock cell as moles of gas. The outflow stamps what it zeroed
-# and the gather reads only its own stamp.
-T="$ROOT/addons/local_agents/sim/material/kernels3d/transport.glsl"
+# ARM ONE, ON THE KERNEL. The face scratch is one buffer for every record, so a pass that reads a
+# NEIGHBOUR's face slot reads whatever record wrote that slot last: that is how joules of radiated heat
+# arrived in a rock cell as moles of gas. A record clears its own faces, writes its own faces, and reads
+# nothing but its own faces back.
+T="$ROOT/addons/local_agents/sim/material/kernels3d/flux.glsl"
 [ -f "$T" ] || { echo "check_gas_in_rock: MISSING ${T#"$ROOT"/}" >&2; exit 2; }
-rg -q -e 'sent_at\[gidx\] = params\.dispatch_id' "$T" || {
-	echo "check_gas_in_rock: transport.glsl's outflow no longer stamps the face slots it zeroed." >&2
+rg -q -e 'x_amt\[f\] = 0\.0;' "$T" || {
+	echo "check_gas_in_rock: flux.glsl's flux half no longer clears the faces it is about to write." >&2
 	exit 1
 }
-rg -q -e 'if \(!ran_outflow\(nb\)\)' "$T" || {
-	echo "check_gas_in_rock: transport.glsl's gather no longer refuses a face its own outflow did not" >&2
-	echo "                   write, so it reads whatever row wrote that slot last." >&2
+if rg -q -e 'la_back_face\(' "$T"; then
+	echo "check_gas_in_rock: flux.glsl reads a partner face again, so a record can take delivery of" >&2
+	echo "                   whatever record wrote that slot last." >&2
 	exit 1
-}
-# The wall belongs to the FACE, so the same test stands on both sides of it: the outflow refuses to send
-# and the gather refuses to receive.
-sides="$(rg -N -c -e 'solid\[gidx\] != 0\.0 && blocks_solid' "$T" || true)"
+fi
+# The wall belongs to the FACE, so the same test stands on both halves of the record: the flux refuses
+# to write and the apply refuses to receive.
+sides="$(rg -N -c -e 'if \(solid\[c\] != 0\.0 && !pores && !heat\)' "$T" || true)"
 [ "${sides:-0}" -ge 2 ] || {
-	echo "check_gas_in_rock: transport.glsl states the solid wall on one side of the face only, so stone" >&2
+	echo "check_gas_in_rock: flux.glsl states the solid wall on one half of the record only, so stone" >&2
 	echo "                   may take delivery of what it would never be sent." >&2
 	exit 1
 }

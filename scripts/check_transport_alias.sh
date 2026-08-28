@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # `restrict` on a transport binding that aliases the row's own channel is a lie the compiler believes.
-# transport.glsl binds the row's channel at binding 0 and named field buffers elsewhere; when a row's
+# flux.glsl binds the row's channel at binding 0 and named field buffers elsewhere; when a row's
 # channel IS one of those, two bindings reach one buffer and `restrict` lets a read hoist over a write.
 # EXIT 0 clean · 1 a restrict-qualified alias · 2 the gate could not run.
 set -uo pipefail
@@ -10,8 +10,8 @@ command -v python3 >/dev/null 2>&1 || { echo "check_transport_alias: python3 abs
 python3 - "$ROOT" <<'PY'
 import os, re, sys
 root = sys.argv[1]
-KERNEL = os.path.join(root, "addons/local_agents/sim/material/kernels3d/transport.glsl")
-PASS = os.path.join(root, "addons/local_agents/sim/material/sphere_passes/TransportPass.gd")
+KERNEL = os.path.join(root, "addons/local_agents/sim/material/kernels3d/flux.glsl")
+PASS = os.path.join(root, "addons/local_agents/sim/material/sphere_passes/FluxPass.gd")
 RECORDS = os.path.join(root, "addons/local_agents/sim/material/TransportRecords.gd")
 for p in (KERNEL, PASS, RECORDS):
     if not os.path.isfile(p):
@@ -39,7 +39,7 @@ src = read(PASS)
 bound = [(b, n) for n, b in re.findall(r'"(\w+)"\s*:\s*(\d+)', src)]
 bound += re.findall(r'\[\s*(\d+)\s*,\s*_single\(bufs,\s*"(\w+)"\)', src)
 if len(bound) < 20:
-    print("check_transport_alias: read %d bindings out of TransportPass — the gate's scope collapsed."
+    print("check_transport_alias: read %d bindings out of FluxPass — the gate's scope collapsed."
           % len(bound), file=sys.stderr)
     sys.exit(2)
 
@@ -48,7 +48,7 @@ restricted = {}
 for m in DECL.finditer(read(KERNEL)):
     restricted[int(m.group(1))] = ("restrict" in m.group(2).split(), m.group(3))
 if not restricted:
-    print("check_transport_alias: transport.glsl declared no bindings.", file=sys.stderr); sys.exit(2)
+    print("check_transport_alias: flux.glsl declared no bindings.", file=sys.stderr); sys.exit(2)
 
 bad = []
 # Binding 0 takes whichever channel the row moves, so it aliases every named channel buffer beside it.
@@ -59,7 +59,7 @@ for b, name in bound:
     if name not in channels:
         continue
     if b not in restricted:
-        print("check_transport_alias: TransportPass binds %d, which transport.glsl never declares."
+        print("check_transport_alias: FluxPass binds %d, which flux.glsl never declares."
               % b, file=sys.stderr)
         sys.exit(2)
     if restricted[b][0]:

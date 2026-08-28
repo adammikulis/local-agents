@@ -6,7 +6,7 @@ extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/state_derive.glsl"
 
-const TransportPassScript: GDScript = preload("res://addons/local_agents/sim/material/sphere_passes/TransportPass.gd")
+const FluxPassScript: GDScript = preload("res://addons/local_agents/sim/material/sphere_passes/FluxPass.gd")
 
 ## Every buffer outside LAMatterChannels this kernel touches, name -> state_derive.glsl binding. ONE
 ## declaration: the absence check and the uniform set ask the same list.
@@ -55,7 +55,7 @@ func _buffers(cc: int) -> Dictionary:
 	# The four entry-heat buffers carry ghost tails: transport's pass 0 reads them for ghost donors.
 	# The temporal levels come with the derive rather than with transport: the restate walks the same
 	# sorted list, and this pass runs at rungs below the one that moves anything.
-	return LATemporalLevels.buffers(cc + ghost_count, TransportPassScript.group_count()).merged({"speed": cc,
+	return LATemporalLevels.buffers(cc + ghost_count, FluxPassScript.group_count()).merged({"speed": cc,
 		"lat": cc, "alt": cc, "nonfinite": cc, "mom_orphan": cc,
 		"h_h2o": {"n": cc, "ghosts": true}, "h_silicate": {"n": cc, "ghosts": true},
 		"h_sensible": {"n": cc, "ghosts": true}, "cap_sensible": {"n": cc, "ghosts": true},

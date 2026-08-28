@@ -166,9 +166,6 @@ func report() -> Dictionary:
 		"enclosed_void5": q.enclosed_void_cells(5),
 		"rock_grows": (_f._stamp.grows if _f._stamp != null else 0), "rock_shrinks": (_f._stamp.shrinks if _f._stamp != null else 0),
 	}
-	var shock_n: Variant = _f.shock_cell_count()
-	if shock_n != null:
-		r["shock_cells"] = shock_n
 	if _f._inject != null:
 		r.merge(_f._inject.queue.report())
 	var temps: Dictionary = _open_temp_stats()

@@ -41,7 +41,7 @@ extends SceneTree
 # An automated run's window is minimized; macOS clamps an off-view position back on screen.
 const QuietWindow: GDScript = preload("res://addons/local_agents/runtime/QuietWindow.gd")
 
-const PASS_PATH: String = "res://addons/local_agents/sim/material/sphere_passes/TransportPass.gd"
+const PASS_PATH: String = "res://addons/local_agents/sim/material/sphere_passes/FluxPass.gd"
 const NX: int = 8
 const CELL: float = 2000.0
 const DT: float = 1.0
@@ -242,7 +242,7 @@ if [ -z "$line" ]; then
 fi
 [ "$rc" -eq 2 ] && { echo "The probe could not run. See above." >&2; exit 2; }
 
-kern="$(cat "$KERNELS"/transport.glsl "$KERNELS"/stack.glsli 2>/dev/null | md5 -q)"
+kern="$(cat "$KERNELS"/flux.glsl "$KERNELS"/stack.glsli 2>/dev/null | md5 -q)"
 state="${line#DRIVER_SEAM=}"
 state="${state%% *}"
 
@@ -258,7 +258,7 @@ fi
 want_kern="$(awk '$1=="kernels"{print $2}' "$FIXTURE")"
 want_state="$(awk '$1=="state"{print $2}' "$FIXTURE")"
 if [ "$kern" != "$want_kern" ]; then
-  echo "ERROR: transport.glsl/stack.glsli changed since the expected state was recorded." >&2
+  echo "ERROR: flux.glsl/stack.glsli changed since the expected state was recorded." >&2
   echo "       Re-record deliberately: scripts/check_driver_native.sh --record" >&2
   exit 2
 fi

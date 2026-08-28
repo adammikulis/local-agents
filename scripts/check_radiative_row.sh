@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# THE RADIATE ROW — checked against the radiation laws, on the device that runs it. transport.glsl's
+# THE RADIATE ROW — checked against the radiation laws, on the device that runs it. flux.glsl's
 # RADIATE row is the planet's only radiative model: it emits from every face of every cell, gathers what
 # the neighbours sent, and writes rad_emitted and rad_absorbed for the ledger. Four closed forms:
 
@@ -35,11 +35,11 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 la_examined "$(basename "$0")" || exit $?
 GODOT="${GODOT:-godot}"
 command -v "$GODOT" >/dev/null 2>&1 || { echo "ERROR: godot not on PATH — a gate that cannot run FAILS." >&2; exit 2; }
-KERNEL="$REPO_ROOT/addons/local_agents/sim/material/kernels3d/transport.glsl"
-PASS="$REPO_ROOT/addons/local_agents/sim/material/sphere_passes/TransportPass.gd"
-[ -f "$KERNEL" ] || { echo "ERROR: transport.glsl missing." >&2; exit 2; }
-[ -f "$PASS" ] || { echo "ERROR: TransportPass.gd missing." >&2; exit 2; }
-grep -q "rad_emitted" "$KERNEL" || { echo "ERROR: transport.glsl writes no rad_emitted — nothing to check." >&2; exit 2; }
+KERNEL="$REPO_ROOT/addons/local_agents/sim/material/kernels3d/flux.glsl"
+PASS="$REPO_ROOT/addons/local_agents/sim/material/sphere_passes/FluxPass.gd"
+[ -f "$KERNEL" ] || { echo "ERROR: flux.glsl missing." >&2; exit 2; }
+[ -f "$PASS" ] || { echo "ERROR: FluxPass.gd missing." >&2; exit 2; }
+grep -q "rad_emitted" "$KERNEL" || { echo "ERROR: flux.glsl writes no rad_emitted — nothing to check." >&2; exit 2; }
 
 PROBE="$REPO_ROOT/addons/local_agents/tests/zz_radiative_gate.gd"
 # The probe lands in the scanned tree, so an early exit must not leave it for other gates to count.
@@ -56,7 +56,7 @@ const CELL: float = 0.5
 const FACE_AREA: float = CELL * CELL
 const CELL_VOL: float = CELL * CELL * CELL
 const ORIGIN: Vector3 = Vector3(-0.5 * N * CELL, -0.5 * N * CELL, -0.5 * N * CELL)
-const PASS_PATH: String = "res://addons/local_agents/sim/material/sphere_passes/TransportPass.gd"
+const PASS_PATH: String = "res://addons/local_agents/sim/material/sphere_passes/FluxPass.gd"
 ## Transport binds the enthalpy decomposition this pass declares, so the harness must allocate it too.
 const DERIVE_PATH: String = "res://addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd"
 
@@ -414,7 +414,7 @@ if ! awk -v r="$sb_rel" -v t="$SB_REL_TOL" 'BEGIN{exit !(r <= t && r >= 0)}'; th
   echo
   echo "In the world the sim seeds, some cell's rad_emitted disagrees with 6*e*sigma*T^4*dt/L by"
   echo "rad_sb_rel_max = $sb_rel (tolerance $SB_REL_TOL). The gather recomputes the law beside the field:"
-  echo "the emission stamp in transport.glsl's pass 0 and the residual in its gather no longer agree."
+  echo "the emission stamp in flux.glsl's pass 0 and the residual in its gather no longer agree."
   exit 1
 fi
 if ! awk -v w="$reflected" 'BEGIN{exit !(w > 0)}'; then

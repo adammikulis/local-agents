@@ -23,7 +23,7 @@ var _cognition_sched = null              # LocalAgentCognitionScheduler (shared 
 var _llm_service = null                  # shared LocalAgentLlmService node; null/offline = teacher-only
 var _veg_renderer = null                 # LAVegetationRenderer — plants/trees render through its batched MultiMesh
 # Extracted single-owner modules this thin hub delegates to (it stays a facade + step-orchestration):
-var _stimulus: LAEcologyStimulus = null  # stimulus/broadcast bus (disturb/seismic/blast/scare/call/wind)
+var _stimulus: LAEcologyStimulus = null  # stimulus/broadcast bus (disturb/blast/scare/call/wind)
 var _spawner: LAEcologySpawner = null    # spawn/population placement (spawn, initial seeding, forests, nests)
 var _breeding: LAEcologyBreeding = null  # reproduction/population dynamics (land + aquatic breeding, lineage)
 var _plants: LAEcologyPlants = null      # vegetation seeding (plant spread + forest succession)
@@ -186,7 +186,7 @@ func setup(_terrain, _actors_root: Node3D) -> void:
 func set_material_field(m) -> void:
 	_material = m
 	if _stimulus != null:
-		_stimulus.set_material_field(m)          # the stimulus bus injects ground disturbance / shock into the field
+		_stimulus.set_material_field(m)          # the stimulus bus injects ground disturbance into the field
 	# The field owns combustion (no separate fire system) and needs to reach back for
 	# topple/reseed/scare when it consumes a burning actor.
 	if _material != null and _material.has_method("set_ecology"):
@@ -211,17 +211,6 @@ func fire_system():
 # Ground disturbance lives in LAEcologyStimulus (the broadcast bus); the impact actor calls it here.
 func disturb_ground(world_pos: Vector3, radius: float, strength: float) -> void:
 	_stimulus.disturb_ground(world_pos, radius, strength)
-
-
-# Shock energy felt at world_pos — the propagated field value (proximity + terrain muffling emerge from
-# the wave). The camera rig queries this and shakes in proportion.
-func seismic_energy_at(world_pos: Vector3) -> float:
-	return _material.shock_at(world_pos) if _material != null and _material.has_method("shock_at") else 0.0
-
-
-# Scene-wide shock intensity (peak) for the energy graph / streamer.
-func total_seismic_energy() -> float:
-	return _material.shock_peak() if _material != null and _material.has_method("shock_peak") else 0.0
 
 
 func cognition_scheduler():

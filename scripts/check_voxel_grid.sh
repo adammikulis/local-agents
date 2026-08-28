@@ -53,20 +53,26 @@ case "$ratio" in
   *) echo "check_voxel_grid: the refined grid reports volume_ratio $ratio, not 8." >&2; exit 1 ;;
 esac
 
-# EVERY TRANSFER GOES THROUGH vol_ratio. transport.glsl's gather is the one place a donor's fill
-# fraction becomes a receiver's, and on a graded grid it may not be a bare copy.
+# A 2:1 SEAM CREATES NO MATTER. One shared area, stated by the FINER of the pair, and each side turns
+# that face's per-area flux into its own per-volume change by dividing by its own volume. The two
+# absolute amounts are then equal whatever the refinement, with no ratio to get the wrong way round.
 K="$REPO_ROOT/addons/local_agents/sim/material/kernels3d"
 grep -q 'float vol_ratio(uint donor, uint receiver)' "$K/cellvol.glsli" || {
   echo "check_voxel_grid: cellvol.glsli no longer declares vol_ratio(donor, receiver)." >&2; exit 1; }
-for expr in 'send\[bf\] \* ratio' 'send_h\[bf\] \* ratio' 'send_q\[bf\] \* ratio' \
-            'float ratio = vol_ratio\(nb, gidx\);'; do
-  grep -qE "$expr" "$K/transport.glsl" || {
-    echo "check_voxel_grid: transport.glsl's gather does not scale an inflow by the pair's volume" >&2
-    echo "  ratio ($expr absent), so matter crossing a 2:1 seam is created or destroyed." >&2
+grep -qE 'float s = nb >= 0 \? min\(e, cell_edge\[uint\(nb\)\]\) : e;' "$K/cellvol.glsli" || {
+  echo "check_voxel_grid: la_face_area no longer takes the FINER cell's edge, so the two sides of a" >&2
+  echo "  2:1 seam disagree about how much area they share." >&2; exit 1; }
+grep -qE 'return la_face_area\(c, nb\) / max\(cell_volume\(c\), 1e-30\);' "$K/cellvol.glsli" || {
+  echo "check_voxel_grid: la_face_div no longer divides the shared area by the cell's OWN volume." >&2
+  exit 1; }
+for expr in 'float div_f = la_face_div\(c, inb\);' '\* la_dt \* div_f'; do
+  grep -qE "$expr" "$K/flux.glsl" || {
+    echo "check_voxel_grid: flux.glsl does not turn a face flux into the cell's own per-volume" >&2
+    echo "  change ($expr absent), so matter crossing a 2:1 seam is created or destroyed." >&2
     exit 1; }
 done
 # And nothing may index per-face scratch by a fixed six-slot stride any more.
-if grep -nE '(send|send_h|send_q|send_mx|send_my|send_mz|nbr|ghost)\[[^]]*N_SLOTS' "$K"/*.glsl "$K"/*.glsli; then
+if grep -nE '(face_u|fp_star|x_amt|x_h|x_q|send|nbr|ghost)\[[^]]*N_SLOTS' "$K"/*.glsl "$K"/*.glsli; then
   echo "check_voxel_grid: a per-face buffer is still indexed by a fixed six-slot stride." >&2
   exit 1
 fi

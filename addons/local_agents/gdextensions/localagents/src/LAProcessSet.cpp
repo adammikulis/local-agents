@@ -60,13 +60,11 @@ const char *const HYDRO_REDUCE[] = { "pressure_*", nullptr };
 const char *const ACOUSTIC_GATES[] = { "check_rung_acoustic.sh", "check_atmosphere_at_rest.sh",
 	"check_stack_balance.sh", "check_momentum_orphans.sh", "check_boundary_momentum_book.sh",
 	nullptr };
-const char *const ACOUSTIC_PASSES[] = { "TransportPass.gd", nullptr };
+const char *const ACOUSTIC_PASSES[] = { "FluxPass.gd", nullptr };
 const char *const ACOUSTIC_TRANSPORT[] = { "h2o_liquid_advect", "h2o_vapour_eddy", "o2_eddy", "co2_eddy",
-	"n2_eddy", "h2_eddy", "co_eddy", "so2_eddy", "h2s_eddy", "ch4_eddy",
-	"mom_x_pgf", "mom_y_pgf", "mom_z_pgf", "mom_x_eddy", "mom_y_eddy", "mom_z_eddy",
-	"shock_sound", nullptr };
+	"n2_eddy", "h2_eddy", "co_eddy", "so2_eddy", "h2s_eddy", "ch4_eddy", "mom_flux", nullptr };
 const char *const ACOUSTIC_REDUCE[] = { "open_mom_*", "momentum_*", "celerity_max", "rho_max_open",
-	"wind_speed_max", "wind_x_sum", "wind_z_sum", "shock_cells", nullptr };
+	"wind_speed_max", "wind_x_sum", "wind_z_sum", nullptr };
 
 const char *const CONDUCTION_GATES[] = { "check_rung_conduction.sh", nullptr };
 const char *const CONDUCTION_TRANSPORT[] = { "heat_conduct", nullptr };
@@ -562,13 +560,27 @@ int LAProcessSet::channel_rung(const String &p_channel) {
 	for (int i = 0; i < LADDER_COUNT; ++i) {
 		for (int j = 0; j < rows.size(); ++j) {
 			const Dictionary row = rows[j];
-			if (String(row["channel"]) == p_channel
+			if (row_books(row).has(p_channel)
 					&& matches(row.get("label", String()), LADDER[i].transport)) {
 				return LADDER[i].rung;
 			}
 		}
 	}
 	return UNSET;
+}
+
+// The channels one record's crossings land in: its own, or the explicit legs it declares.
+PackedStringArray LAProcessSet::row_books(const Dictionary &p_row) {
+	PackedStringArray out;
+	if (p_row.has("books")) {
+		const Array legs = p_row["books"];
+		for (int i = 0; i < legs.size(); ++i) {
+			out.append(legs[i]);
+		}
+		return out;
+	}
+	out.append(p_row.get("channel", String()));
+	return out;
 }
 
 // Channels whose boundary crossings this world books: those a live transport row can carry across.
@@ -581,9 +593,12 @@ PackedStringArray LAProcessSet::booked(int p_rung) {
 	const Array rows = transport_rows(p_rung);
 	PackedStringArray out;
 	for (int i = 0; i < rows.size(); ++i) {
-		const String ch = ((Dictionary)rows[i])["channel"];
-		if (!out.has(ch) && all.has(ch)) {
-			out.append(ch);
+		const PackedStringArray legs = row_books(rows[i]);
+		for (int j = 0; j < legs.size(); ++j) {
+			const String ch = legs[j];
+			if (!out.has(ch) && all.has(ch)) {
+				out.append(ch);
+			}
 		}
 	}
 	g_booked_key() = key;

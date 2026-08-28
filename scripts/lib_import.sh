@@ -36,7 +36,7 @@ la_recorded_md5() {  # la_recorded_md5 <src> <record> -> 0 match Â· 1 MISMATCH Â
 # llama.cpp's and whisper.cpp's Vulkan shaders, which no sim pass loads.
 la_kernel_sources() {  # la_kernel_sources <proj> -> every first-party compute kernel, one path per line
 	find "$1" -name '*.glsl' \
-		-not -path '*/.godot/*' -not -path '*/.claude/*' -not -path '*/.git/*' \
+		-not -path "$1/.godot/*" -not -path "$1/.claude/*" -not -path "$1/.git/*" \
 		-not -path '*/thirdparty/*' 2>/dev/null | sort
 }
 

@@ -25,8 +25,8 @@ public:
 		SLOT_OUTFLOW = 0,
 		SLOT_GATHER = 1,
 		SLOT_SW = 2,
-		SLOT_ACOUSTIC = 3,
-		SLOT_ACOUSTIC_APPLY = 4,
+		SLOT_FACE = 3,
+		SLOT_MOMENTUM = 4,
 		SLOT_ACT_AGE = 5,
 		SLOT_ACT_WAKE = 6,
 		SLOT_ACT_MARK = 7,
@@ -87,7 +87,6 @@ private:
 	PackedInt32Array _row_group;
 	PackedInt32Array _row_radiate;
 	Array _groups;
-	PackedInt32Array _group_acoustic;
 	RID _args;
 	RID _wake_args;
 	RID _grain_set;
@@ -99,9 +98,6 @@ private:
 	int _level_off = 0;
 	int _k_off = 0;
 	int _n_off = 0;
-	int _dispatch_off = 0;
-	// Unique per row per substep, so a gather reads only the faces this dispatch's outflow wrote.
-	uint32_t _dispatch_id = 0;
 	int _recorded = 0;
 
 	PackedByteArray _scratch;
@@ -126,8 +122,9 @@ private:
 			int p_level, int p_bin);
 	void _rebuild_active(int64_t p_cl, const RID &p_uset, const Array &p_table, int p_group,
 			int p_level, bool p_take_wake);
-	void _run_row(int64_t p_cl, int p_row, const Array &p_pc_rows, int p_level, int p_k, int p_n,
-			bool p_acoustic_pair);
+	void _run_row(int64_t p_cl, int p_row, const Array &p_pc_rows, int p_level, int p_k, int p_n);
+	void _run_slot(int64_t p_cl, int p_row, const Array &p_pc_rows, int p_slot, int p_level, int p_k,
+			int p_n);
 	int64_t _flush(int64_t p_cl);
 };
 

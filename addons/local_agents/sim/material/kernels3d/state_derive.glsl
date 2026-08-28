@@ -39,7 +39,7 @@ layout(set = 0, binding = 78, std430) restrict readonly buffer GravPhi { float g
 layout(set = 0, binding = 95, std430) restrict readonly buffer GravRef { float grav_ref[]; };   // J/kg, the monopole reference  // J/kg
 layout(set = 0, binding = 91, std430) restrict writeonly buffer PotBuf { float pe_j_m3[]; };
 // Radiogenic power of this cell's own matter, W/m^3: sum over channels of amount * M * W/kg(mix, epoch).
-// transport.glsl's RADIOGENIC leg deposits it into the enthalpy.
+// flux.glsl's RADIOGENIC leg deposits it into the enthalpy.
 layout(set = 0, binding = 65, std430) restrict writeonly buffer RadW { float rad_w_m3[]; };
 
 // MOMENTUM is the state, kg m/s per m^3. Velocity is what you read off it once you know the mass.
@@ -556,9 +556,10 @@ void main() {
 	if (params.restate != 0u) {
 		return;
 	}
-	// BODY FORCES per volume: weight rho*g and the rotating-frame pair, computed and booked here;
-	// transport deposits them a substep at a time beside the pressure gradient they stand against.
-	vec3 acc = g_eff;
+	// WHAT THE CELL'S OWN PRESSURE STACK DOES NOT ALREADY CARRY, per volume: wherever the stack states
+	// a pressure its six faces integrate to exactly rho*g*V, so only the frame's own terms are left.
+	bool stacked = p_pa > 0.0 && length(g_eff) > 0.0;
+	vec3 acc = stacked ? vec3(0.0) : g_eff;
 	if (w_len > 0.0) {
 		acc += -2.0 * cross(omega, v);
 	}

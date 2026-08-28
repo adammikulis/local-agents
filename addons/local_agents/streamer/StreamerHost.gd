@@ -51,7 +51,7 @@ func setup(world: Node, ecology: Node, material: Node, persona: String, avatar_f
 	if tracker != null and _streamer_director.has_method("on_tracked_event"):
 		tracker.event_emitted.connect(_streamer_director.on_tracked_event)
 
-	# Live scene-energy graph (kinetic + seismic + thermal) shown top-right — the intensity signal the
+	# Live scene-energy graph (kinetic + thermal) shown top-right — the intensity signal the
 	# director reacts to, made visible. The director reads its current total so quips fire on real energy.
 	_energy_graph = EnergyGraphScript.new()
 	_streamer_overlay.add_child(_energy_graph)
