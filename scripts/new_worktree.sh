@@ -50,6 +50,14 @@ if [ -d "$DEPS" ]; then
 else
 	echo "[new_worktree] no fetched thirdparty/ in the primary checkout: this lane cannot configure CMake." >&2
 fi
+# THE COPIED BIN WAS BUILT FROM THE PRIMARY'S SOURCES, and a branch that changes the extension gets one
+# la_extension_current refuses, so neither the import nor the scan below can launch. Build this tree's own.
+. "$(dirname "${BASH_SOURCE[0]}")/lib_godot.sh"
+if ! la_extension_current "$WT" >/dev/null 2>&1; then
+	echo "[new_worktree] extension sources differ from the primary's; building this tree's own bin…" >&2
+	"$WT/addons/local_agents/gdextensions/localagents/scripts/build_extension.sh" >&2 \
+		|| abort "build_extension.sh FAILED: this tree has no bin it can launch." 1
+fi
 echo "[new_worktree] importing shaders (compiles .glsl kernels — required or the GPU field is dead)…" >&2
 "$(dirname "${BASH_SOURCE[0]}")/godot_import.sh" "$WT" \
 	|| abort "--import FAILED: without it load() returns null, the GPU field is silently dead and every SIM_REPORT number is fiction." 1

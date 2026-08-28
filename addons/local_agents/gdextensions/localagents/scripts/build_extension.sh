@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # godot-cpp and llama.cpp are built ONCE per (dependency commit, compiler, cmake, platform, flags) into
 # ${LA_DEPS_CACHE:-$HOME/.cache/local-agents/extdeps}/<key>, outside every worktree and gitignored by
-# living outside the tree. A worktree whose key matches links the cached artifacts and compiles only the
-# extension's own sources. --clean-deps discards the entry for the current key.
+# living outside the tree. The entry holds its own libs, tools and headers and names them relative to
+# itself, so ANY worktree whose key matches links it and compiles only the extension's own sources.
+# --clean-deps discards the entry for the current key.
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -17,6 +18,7 @@ TOOLCHAIN_FILE=""
 CMAKE_ARGS=()
 CLEAN_BUILD="false"
 CLEAN_DEPS="false"
+PRINT_DEPS_KEY="false"
 
 usage() {
     cat <<USAGE
@@ -31,6 +33,7 @@ Options:
   --cmake-arg <arg>                 Extra argument passed to CMake configure step.
   --clean                           Remove the build directory before configure.
   --clean-deps                      Remove this key's dependency cache entry, forcing a refill.
+  --print-deps-key                  Print the dependency cache key for this tree and exit.
   -h, --help                        Show this help.
 USAGE
 }
@@ -60,10 +63,10 @@ warn() {
     echo "[warn] $*" >&2
 }
 
-collect_from_build_bin() {
+collect_from_deps_lib() {
     local pattern="$1"
     shopt -s nullglob
-    for src in "${DEPS_BIN}"/${pattern}; do
+    for src in "${DEPS_LIB}"/${pattern}; do
         [[ -f "$src" ]] || continue
         cp -f "$src" "${BIN_DIR}/$(basename "$src")"
     done
@@ -189,7 +192,7 @@ stage_tools() {
         tools=(llama-cli.exe llama-server.exe)
     fi
     for tool in "${tools[@]}"; do
-        local tool_path="${DEPS_BIN}/${tool}"
+        local tool_path="${DEPS_LIB}/${tool}"
         [[ -f "${tool_path}" ]] || continue
         cp -f "${tool_path}" "${BIN_DIR}/${tool}"
         chmod +x "${BIN_DIR}/${tool}" 2>/dev/null || true
@@ -202,26 +205,26 @@ package_artifacts() {
     case "$platform" in
         macos)
             mv -f "${BIN_DIR}/liblocalagents.macos.dylib" "${BIN_DIR}/localagents.macos.dylib" 2>/dev/null || true
-            collect_from_build_bin "libllama*.dylib"
-            collect_from_build_bin "libggml*.dylib"
-            collect_from_build_bin "libmtmd*.dylib"
+            collect_from_deps_lib "libllama*.dylib"
+            collect_from_deps_lib "libggml*.dylib"
+            collect_from_deps_lib "libmtmd*.dylib"
             patch_macos_install_names
             stage_tools "$platform"
             vendor_macos_dependencies
             ;;
         linux)
             mv -f "${BIN_DIR}/liblocalagents.linux.so" "${BIN_DIR}/localagents.linux.so" 2>/dev/null || true
-            collect_from_build_bin "libllama*.so*"
-            collect_from_build_bin "libggml*.so*"
-            collect_from_build_bin "libmtmd*.so*"
+            collect_from_deps_lib "libllama*.so*"
+            collect_from_deps_lib "libggml*.so*"
+            collect_from_deps_lib "libmtmd*.so*"
             patch_linux_rpath
             stage_tools "$platform"
             ;;
         windows)
             mv -f "${BIN_DIR}/liblocalagents.windows.dll" "${BIN_DIR}/localagents.windows.dll" 2>/dev/null || true
-            collect_from_build_bin "localagents.windows.dll"
-            collect_from_build_bin "liblocalagents.windows.dll"
-            collect_from_build_bin "*.dll"
+            collect_from_deps_lib "localagents.windows.dll"
+            collect_from_deps_lib "liblocalagents.windows.dll"
+            collect_from_deps_lib "*.dll"
             stage_tools "$platform"
             ;;
         *)
@@ -271,6 +274,10 @@ while [[ $# -gt 0 ]]; do
             CLEAN_DEPS="true"
             shift
             ;;
+        --print-deps-key)
+            PRINT_DEPS_KEY="true"
+            shift
+            ;;
         -h|--help)
             usage
             exit 0
@@ -294,12 +301,6 @@ if [[ -z "$TARGET_PLATFORM" ]]; then
     exit 1
 fi
 
-if [[ "$CLEAN_BUILD" == "true" ]]; then
-    rm -rf "${BUILD_DIR}"
-fi
-
-mkdir -p "${BUILD_DIR}" "${BIN_DIR}"
-
 LAUNCHER_ARGS=()
 if command_exists ccache; then
     LAUNCHER_ARGS=(-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache)
@@ -319,9 +320,20 @@ deps_key() {
 }
 
 DEPS_KEY="$(deps_key)"
+if [[ "$PRINT_DEPS_KEY" == "true" ]]; then
+    echo "${DEPS_KEY}"
+    exit 0
+fi
+
+if [[ "$CLEAN_BUILD" == "true" ]]; then
+    rm -rf "${BUILD_DIR}"
+fi
+
+mkdir -p "${BUILD_DIR}" "${BIN_DIR}"
+
 DEPS_DIR="${DEPS_CACHE_ROOT}/${DEPS_KEY}"
 DEPS_BUILD="${DEPS_DIR}/build"
-DEPS_BIN="${DEPS_BUILD}/bin"
+DEPS_LIB="${DEPS_DIR}/lib"
 if [[ "$CLEAN_DEPS" == "true" ]]; then
     rm -rf "${DEPS_DIR}"
 fi
@@ -339,10 +351,13 @@ while [[ ! -f "${DEPS_DIR}/READY" ]]; do
         mkdir -p "${DEPS_BUILD}"
         cmake -S "${EXT_DIR}/cmake/deps" -B "${DEPS_BUILD}" -DCMAKE_BUILD_TYPE=Release \
             -DGODOT_CPP_DIR="${THIRDPARTY_DIR}/godot-cpp" -DLLAMA_CPP_DIR="${THIRDPARTY_DIR}/llama.cpp" \
-            ${LAUNCHER_ARGS[@]+"${LAUNCHER_ARGS[@]}"}
+            -DLA_DEPS_ENTRY="${DEPS_DIR}" ${LAUNCHER_ARGS[@]+"${LAUNCHER_ARGS[@]}"}
         cmake --build "${DEPS_BUILD}" --target la_deps --config Release \
             --parallel "$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
-        [[ -f "${DEPS_BUILD}/la_deps.cmake" ]] || { echo "Error: the dependency build produced no la_deps.cmake." >&2; exit 1; }
+        [[ -f "${DEPS_DIR}/la_deps.cmake" ]] || { echo "Error: the dependency build produced no la_deps.cmake." >&2; exit 1; }
+        # The build tree names the worktree it was configured in. The staged entry does not need it, and
+        # an entry that keeps it is an entry that carries another tree's paths.
+        rm -rf "${DEPS_BUILD}"
         touch "${DEPS_DIR}/READY"
         rm -rf "${LOCK}"
         trap - EXIT
@@ -363,7 +378,7 @@ while [[ ! -f "${DEPS_DIR}/READY" ]]; do
 done
 
 configure_cmd=(cmake -S "${EXT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release
-    -DLOCAL_AGENTS_DEPS_BUILD="${DEPS_BUILD}" ${LAUNCHER_ARGS[@]+"${LAUNCHER_ARGS[@]}"})
+    -DLOCAL_AGENTS_DEPS_ENTRY="${DEPS_DIR}" ${LAUNCHER_ARGS[@]+"${LAUNCHER_ARGS[@]}"})
 if [[ -n "$GENERATOR" ]]; then
     configure_cmd+=(-G "${GENERATOR}")
 fi
