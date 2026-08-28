@@ -14,6 +14,7 @@ const MineralProfileScript: GDScript = preload("res://addons/local_agents/sim/ma
 const AttributionScript: GDScript = preload("res://addons/local_agents/sim/material/FieldPassAttribution3D.gd")
 const ElementProbeScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldElementProbe3D.gd")
 const PassProbeScript: GDScript = preload("res://addons/local_agents/runtime/FieldPassProbe3D.gd")
+const SnapshotScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSnapshot3D.gd")
 
 ## The pass that solves the potential. Without it this world has no vertical, so the walks that read one
 ## do not run at all rather than reading a flat field.
@@ -70,6 +71,11 @@ func seed_tick() -> bool:
 		return false
 	_f.sample_solidity()          # solid mask -> the bedrock silicate + cement the gravity solve weighs
 	_f.activate()                 # builds the GPU driver, which owns the solve the walks below read
+	var g: LAVoxelGrid = _f._grid
+	var bake: String = LAFieldStateCache.state_key(OS.get_environment("LA_SEAL_KEY"),
+			g.nx, g.ny, g.nz, g.cell_size, g.origin)
+	if _load_seeded(bake):
+		return true
 	if LAProcessSet.has_record("pass", GRAVITY_PASS):
 		_seed_under_gravity()
 	# THE WORLD PUT INTO THE BALANCE THE STEPPER HOLDS. Only the hydrostatic rung stands a column;
@@ -93,7 +99,39 @@ func seed_tick() -> bool:
 		_f._gravity.solve_seed()  # the ocean just landed: relax the potential over the WHOLE seeded mass
 	if _f._gpu != null:
 		_f._gpu.derive_seeded()   # the world's own bulk state, before the first step is budgeted on it
+	_store_seeded(bake)
 	return true
+
+
+## The walks below this line are a pure function of the terrain, the box and the process set, so a run
+## whose key names a bake reads the world they produced instead of producing it again. The seal's own
+## manifest is not stored: it is what the ledgers read off this state, so it comes back with the state.
+func _load_seeded(k: String) -> bool:
+	if k == "" or _f._gpu == null or not SnapshotScript.is_ready(_f):
+		return false
+	var data: Dictionary = LAFieldStateCache.load_state(k, _f._cell_count)
+	if data.is_empty() or not SnapshotScript.restore(_f, data):
+		return false
+	# The soil injector is the one CPU reader left of a seeded mirror; porosity and grain are read only
+	# by the uploads this path skips, and they come back with the channels.
+	_f._regolith = data.get("regolith", PackedByteArray())
+	if _f._seal != null:
+		_f._seal.restore(data.get("created", {}))
+	if LAProcessSet.has_record("pass", GRAVITY_PASS):
+		_f._gravity.solve_seed()
+	_f._gpu.derive_seeded()
+	return true
+
+
+func _store_seeded(k: String) -> void:
+	if k == "" or not SnapshotScript.is_ready(_f):
+		return
+	var data: Dictionary = SnapshotScript.capture(_f)
+	if data.is_empty():
+		return
+	data["regolith"] = _f._regolith
+	data["created"] = _f._seal.report().get("world_created", {}) if _f._seal != null else {}
+	LAFieldStateCache.save_state(k, data)
 
 
 ## The seed steps that need a vertical, and so need the solve. A world with no gravity solve has no

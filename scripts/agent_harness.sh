@@ -355,6 +355,7 @@ if [[ "$cmd" == "lint" ]]; then
     gpu_gate check_slice_exterior
     gate check_shaders_compile
     gate check_reaction_energy
+    gate check_cache_invalidation
     gate check_launch_count
     # EVERY GATE RUNS. Fail-fast meant one red gate hid every gate after it.
     if [[ $lint_unrunnable -gt 0 ]]; then

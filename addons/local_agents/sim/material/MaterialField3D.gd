@@ -3,7 +3,7 @@ extends Node3D
 
 ## LAMaterialField3D: the DENSE 3D material-flow substrate (successor to the 2.5D LAMaterialField).
 
-const SolidCacheScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSolidCache3D.gd")
+const FieldCacheScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldCache3D.gd")
 const GravityScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldGravity3D.gd")
 const MineralStampScript: GDScript = preload("res://addons/local_agents/sim/material/MineralStamp3D.gd")
 
@@ -382,8 +382,8 @@ func sample_solidity() -> void:
 		return
 	var k: String = ""
 	if not _terrain_opts.is_empty():
-		k = SolidCacheScript.key(_terrain_opts, _grid)
-		var cached: PackedByteArray = SolidCacheScript.load_mask(k, _cell_count, self)
+		k = FieldCacheScript.key(_terrain_opts, _grid)
+		var cached: PackedByteArray = FieldCacheScript.load_mask(k, _cell_count, self)
 		if cached.size() == _cell_count:
 			_solid = cached
 			_seed_silicate()
@@ -391,7 +391,7 @@ func sample_solidity() -> void:
 	for c in _cell_count:
 		_solid[c] = 1 if _terrain.is_solid(cell_world_pos_linear(c)) else 0
 	if k != "":
-		SolidCacheScript.save_mask(k, _solid)
+		LAFieldStateCache.save_mask(k, _solid)
 	_seed_silicate()
 
 ## Mineral amounts mirror the sampled mask, so the gravity solve has mass to read before the first step.

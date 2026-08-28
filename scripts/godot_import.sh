@@ -1,36 +1,64 @@
 #!/usr/bin/env bash
-# THE ONE WAY TO RUN `godot --import`. Never call it bare: concurrent imports across worktrees segfault,
-# because each loads every GDExtension and they race over the same native libraries.
-#
-# Usage: scripts/godot_import.sh [project_dir]   (default: the repo this script lives in)
-# EXIT: godot's own status, or 1 if the lock could not be taken.
+# THE ONE WAY TO RUN `godot --import`. Never bare: concurrent imports across worktrees segfault over the
+# same native libraries. The artifacts under .godot/ are a function of the sources scripts/cache_key.sh
+# hashes, so a tree already carrying that key imports nothing and a key another tree has imported is
+# copied from ${LA_IMPORT_CACHE:-$HOME/.cache/local-agents/import}/<key>.
+# Usage: scripts/godot_import.sh [project_dir]. EXIT: godot's own status, or 1 if the lock was refused.
 set -uo pipefail
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$SCRIPT_DIR/lib_godot.sh"
+. "$SCRIPT_DIR/lib_import.sh"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 . "$ROOT/scripts/lib_godot_lock.sh"
 
 PROJ="${1:-$ROOT}"
 [ -f "$PROJ/project.godot" ] || { echo "godot_import: no project.godot under $PROJ" >&2; exit 1; }
+CACHE_ROOT="$(la_import_cache_root)"
+KEEP_ENTRIES=4
 
-# Godot reimports a .glsl only when ITS md5 changed — it records no dependency on the includes — so an
-# edited .glsli rebuilds nothing. Delete the artifacts of every sibling kernel older than an include;
-# a missing artifact always reimports.
-if [ -d "$PROJ/.godot/imported" ]; then
-  while IFS= read -r g; do
-    base="$(basename "$g")"
-    newest_res="$(ls -t "$PROJ/.godot/imported/${base}-"*.res 2>/dev/null | head -1)"
-    [ -n "$newest_res" ] || continue
-    for inc in "$(dirname "$g")"/*.glsli; do
-      [ -f "$inc" ] || continue
-      if [ "$inc" -nt "$newest_res" ]; then
-        rm -f "$PROJ/.godot/imported/${base}-"*.res "$PROJ/.godot/imported/${base}-"*.md5
-        break
-      fi
-    done
-  done < <(find "$PROJ/addons" -name '*.glsl' -not -path '*/thirdparty/*' 2>/dev/null)
+KEY="$("$SCRIPT_DIR/cache_key.sh" import --path "$PROJ" 2>/dev/null || echo "")"
+if [ -n "$KEY" ] && [ "$(cat "$PROJ/.godot/la_import_key" 2>/dev/null)" = "$KEY" ]; then
+	exit 0
 fi
 
 godot_lock || exit 1
 trap godot_unlock EXIT
+
+if [ -n "$KEY" ] && [ "$(cat "$CACHE_ROOT/$KEY/.godot/la_import_key" 2>/dev/null)" = "$KEY" ]; then
+	rm -rf "$PROJ/.godot.incoming"
+	if cp -Rp "$CACHE_ROOT/$KEY/.godot" "$PROJ/.godot.incoming"; then
+		rm -rf "$PROJ/.godot"
+		mv "$PROJ/.godot.incoming" "$PROJ/.godot"
+		exit 0
+	fi
+	rm -rf "$PROJ/.godot.incoming"
+fi
+
+# Godot reimports a .glsl only when ITS md5 changed and records no dependency on the includes, so an
+# edited .glsli rebuilds nothing. A missing artifact always reimports.
+while IFS= read -r base; do
+	[ -n "$base" ] || continue
+	rm -f "$PROJ/.godot/imported/${base}-"*.res "$PROJ/.godot/imported/${base}-"*.md5
+done < <(la_stale_kernels "$PROJ")
+
 LA_GODOT_TIMEOUT="${LA_IMPORT_TIMEOUT:-120}" la_godot --headless --path "$PROJ" --import >/dev/null 2>&1
-exit $?
+rc=$?
+[ "$rc" -eq 0 ] || exit "$rc"
+
+if [ -n "$KEY" ]; then
+	printf '%s\n' "$KEY" > "$PROJ/.godot/la_import_key"
+	if [ ! -d "$CACHE_ROOT/$KEY" ]; then
+		mkdir -p "$CACHE_ROOT/$KEY"
+		if cp -Rp "$PROJ/.godot" "$CACHE_ROOT/$KEY/.godot.tmp"; then
+			mv "$CACHE_ROOT/$KEY/.godot.tmp" "$CACHE_ROOT/$KEY/.godot"
+		else
+			rm -rf "$CACHE_ROOT/$KEY"
+		fi
+	fi
+	# Entries are superseded, never invalidated: what is dropped is only the oldest, and a dropped key
+	# costs one import.
+	ls -dt "$CACHE_ROOT"/*/ 2>/dev/null | tail -n +$((KEEP_ENTRIES + 1)) | while IFS= read -r old; do
+		rm -rf "$old"
+	done
+fi
+exit 0
