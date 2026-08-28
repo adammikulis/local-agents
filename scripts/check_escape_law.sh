@@ -152,6 +152,7 @@ func _init() -> void:
 		quit(2)
 		return
 	var p: RefCounted = (load(PASS_PATH) as GDScript).new()
+	p.face_count = grid.neighbours.size()
 	var want: Dictionary = p._buffers(_cc)
 	# The temporal levels a world gets from StateDerivePass; this rig runs the transport pass alone.
 	want.merge(LATemporalLevels.buffers(_cc, p.group_count()))

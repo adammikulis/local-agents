@@ -164,8 +164,9 @@ void LAFieldHydrosphereSeed::seed(Object *p_field) {
 		deep.push_back(level[c] - height[c]);
 	}
 	if (floors.empty() || !(pore > 0.0)) {
-		UtilityFunctions::push_error("LAFieldHydrosphereSeed: the flood marked no basin floor or the "
-				"regolith walk no pore space, so the body's water has nowhere to stand.");
+		UtilityFunctions::push_error(String("LAFieldHydrosphereSeed: the body's water has nowhere to "
+				"stand — the flood marked ") + String::num_int64(int(floors.size()))
+				+ " basin floor(s) and the regolith walk " + String::num(pore) + " m^3 of pore space.");
 		return;
 	}
 

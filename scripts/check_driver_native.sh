@@ -87,15 +87,16 @@ func _build() -> Dictionary:
 	var grid: LAVoxelGrid = LAVoxelGrid.new()
 	grid.build(NX, 1, 1, CELL, Vector3(-0.5 * float(NX) * CELL, -0.5 * CELL, -0.5 * CELL))
 	var cc: int = grid.cell_count
-	var bufs: Dictionary = {"__cc": cc}
+	var bufs: Dictionary = {"__cc": cc, "__faces": grid.neighbours.size()}
 	for name in LAChannels.channels():
 		bufs[String(name)] = _f32(_filled(cc, 0.0))
 	for name in LAChannels.derived_buffers():
 		bufs[String(name)] = _f32(_filled(cc, 0.0))
 	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "celerity", "speed", "rad_w_m3",
-			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi"]:
+			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi", "k_cond"]:
 		bufs[name] = _f32(_filled(cc, 0.0))
 	bufs["gravity"] = _f32(_filled(cc * 3, 0.0))
+	bufs["g_rest"] = _f32(_filled(cc * 3, 0.0))
 	bufs["nbr"] = _i32(grid.neighbours)
 	bufs["slot_off"] = _i32(grid.slot_off)
 	bufs["face_partner"] = _i32(grid.partners)
@@ -139,8 +140,10 @@ func _attach(bufs: Dictionary) -> RefCounted:
 	var cc: int = int(bufs["__cc"])
 	var p: RefCounted = (load(PASS_PATH) as GDScript).new()
 	p.ghost_count = 0
-	p.face_count = grid.neighbours.size()
+	p.face_count = int(bufs["__faces"])
 	var want: Dictionary = p._buffers(cc)
+	# The temporal levels a world gets from StateDerivePass; this rig runs the transport pass alone.
+	want.merge(LATemporalLevels.buffers(cc, p.group_count()))
 	for key in want:
 		var spec: Variant = want[key]
 		var n: int = int(spec["n"]) if spec is Dictionary else int(spec)
@@ -165,7 +168,7 @@ func _init() -> void:
 	var bufs: Dictionary = _build()
 	var cc: int = int(bufs["__cc"])
 	var p: RefCounted = _attach(bufs)
-	var ctx: Dictionary = {"cell_size": CELL, "sun_dir": Vector3.ZERO, "dt_s": DT}
+	var ctx: Dictionary = {"cell_size": CELL, "cell_size_min": CELL, "sun_dir": Vector3.ZERO, "dt_s": DT}
 	var groups: int = int(ceil(float(cc) / 64.0))
 	# POSITIVE CONTROL: without two levels the box never straddles a seam and the hash below is a hash
 	# of a world one clock stepped, which is not what this gate is for.

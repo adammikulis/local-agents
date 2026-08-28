@@ -105,6 +105,7 @@ func _run(grid, solid_v: PackedFloat32Array, temp_c: PackedFloat32Array) -> Arra
 	var cc: int = grid.cell_count
 	var scr: GDScript = load(PASS_PATH)
 	var p: RefCounted = scr.new()
+	p.face_count = grid.neighbours.size()
 	var bufs: Dictionary = {}
 	for name in LAChannels.channels():
 		bufs[String(name)] = _f32(cc)
@@ -137,7 +138,7 @@ func _run(grid, solid_v: PackedFloat32Array, temp_c: PackedFloat32Array) -> Arra
 	_owned.append(bufs["cell_edge"])
 	# Every wall shut: the boundary redirect holds -1 per face, exactly as the driver builds it.
 	var gh_arr: PackedInt32Array = PackedInt32Array()
-	gh_arr.resize(cc * 6)
+	gh_arr.resize(grid.neighbours.size())
 	gh_arr.fill(-1)
 	var gh_bytes: PackedByteArray = gh_arr.to_byte_array()
 	var gh: RID = _rd.storage_buffer_create(gh_bytes.size(), gh_bytes)
