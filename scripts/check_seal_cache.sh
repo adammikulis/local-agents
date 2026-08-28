@@ -65,7 +65,7 @@ except Exception as exc:
 
 # What the seal says the world was handed, and what a stock reads on the step every baseline is taken on.
 ROWS = ["world_seed", "world_created", "creation_after_seal", "world_seal_step", "world_baseline_step",
-	"energy_stock_first", "mineral_first", "h2o_first", "o2_first", "element_C_total_first"]
+	"energy_total_first", "mineral_first", "h2o_first", "o2_first", "element_C_total_first"]
 
 def close(a, b):
 	if isinstance(a, float) and isinstance(b, float):

@@ -231,11 +231,12 @@ func _run_pair(out: Dictionary, name: String, book: String, seed_key: String, va
 func _publish_energy(out: Dictionary, f: Dictionary, step: int) -> void:
 	var missing: PackedStringArray = f.get("energy_missing", PackedStringArray())
 	if missing.size() > 0 or not f.has("energy_stock"):
-		out["energy_stock_missing"] = missing
 		out["energy_stock"] = null
 		return
-	var stock: float = float(f["energy_stock"])
-	out["energy_stock"] = stock
+	# THE WORLD'S ENERGY IS ITS THREE STORES. Heat expands into motion and motion climbs into height, so
+	# the enthalpy on its own is not conserved and a book kept on it reads a real exchange as drift.
+	out["energy_stock"] = float(f["energy_stock"])
+	out["energy_total"] = float(f["energy_stock"]) + float(f["energy_kinetic"]) + float(f["energy_potential"])
 
 	# WATTS, off the device. transport.glsl's RADIATE row writes what each cell took in and sent out as
 	# J/m^3 for one step; the two reduce rows weight those by cell volume, so the pair arrives in joules
@@ -254,12 +255,12 @@ func _publish_energy(out: Dictionary, f: Dictionary, step: int) -> void:
 	# THE STOCK AND ITS DRIFT STAND WITHOUT THE RADIATIVE PAIR. A world whose processes do not include
 	# radiation exchanges no energy with anything, so what it holds must not move; only the RESIDUAL —
 	# the drift net of what was booked — needs terms to book against.
-	var steps: int = _books.elapsed("energy_stock", step)
-	var was_latched: bool = _books.first_step_of("energy_stock") >= 0
-	var r: Array = _books.run("energy_stock", "energy_j", stock, step)
+	var steps: int = _books.elapsed("energy_total", step)
+	var was_latched: bool = _books.first_step_of("energy_total") >= 0
+	var r: Array = _books.run("energy_total", "energy_j", float(out["energy_total"]), step)
 	if r.is_empty():
 		return
-	out["energy_stock_first"] = float(r[0])
+	out["energy_total_first"] = float(r[0])
 	out["energy_run_drift"] = float(r[1])
 	out["energy_run_drift_rel"] = _rel(float(r[1]), absf(float(r[0])))
 	if not has_rad:

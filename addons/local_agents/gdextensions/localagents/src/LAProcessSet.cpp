@@ -37,6 +37,7 @@ const char *const STATE_PASSES[] = { "StateDerivePass.gd", nullptr };
 const char *const GRAVITY_GATES[] = { "check_gravity_solve.sh", "check_hydrosphere_mass.sh", nullptr };
 const char *const GRAVITY_PASSES[] = { "GravityPass.gd", "ReducePass.gd", nullptr };
 const char *const GRAVITY_REDUCE[] = { "@amounts", "energy_stock", "energy_kinetic",
+	"energy_potential",
 	"solid_cells", "carbonate_cells",
 	"snow_cells", "ice_cells", "crust_latch", "crust_moved", "nonfinite_cells", "nonfinite_*",
 	"bodyf_*",

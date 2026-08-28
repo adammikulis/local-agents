@@ -1446,6 +1446,13 @@ void main() {
 		cement[gidx] = clamp(cement[gidx] * was / amount[gidx], 0.0, 1.0);
 	}
 	h[gidx] = h[gidx] - lost_h + gained_h;
+	// THE FIRST LAW: the work done on this cell's bulk, v dot dp, comes out of its heat.
+	if (is_signed) {
+		float rho_e = rho_bulk[gidx];
+		if (rho_e > params.rho_floor) {
+			h[gidx] -= was * (amount[gidx] - was) / rho_e;
+		}
+	}
 	charge[gidx] = charge[gidx] - lost_q + gained_q;
 	if (!is_signed) {
 		mom_x[gidx] = mom_x[gidx] - lost_m.x + gained_m.x;

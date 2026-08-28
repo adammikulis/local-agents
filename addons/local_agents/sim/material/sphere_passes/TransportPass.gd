@@ -99,19 +99,20 @@ func _buffers(cc: int) -> Dictionary:
 		var keys: Dictionary = LATransportRecords.list_buffers(String(lrow["label"]))
 		out[String(keys["idx"])] = cc
 		out[String(keys["args"])] = {"n": int(Arg.SLOTS), "indirect": true}
-	out.merge(LevelsScript.buffers(cc + ghost_count, _group_count()))
-	out.merge(ActiveScript.buffers(cc + ghost_count, _group_count()))
+	# The temporal levels are StateDerivePass's declaration: its restate walks the same sorted list this
+	# pass dispatches over, and it runs at rungs where this pass does not exist.
+	out.merge(ActiveScript.buffers(cc + ghost_count, group_count()))
 	return out
 
 
 ## One slot per row group, plus the grain prologue's own LAST: it derives where a cell's loose mineral
 ## sits, so it is awake wherever silicate moved rather than wherever anything did.
-func _group_count() -> int:
+static func group_count() -> int:
 	return _grouping(LAProcessSet.transport_rows()).size() + 1
 
 
 ## Consecutive rows that advance on ONE time axis: the acoustic pair and the momentum rows it carries.
-func _grouping(rows: Array) -> Array:
+static func _grouping(rows: Array) -> Array:
 	var out: Array = []
 	for r in rows.size():
 		if r > 0 and _group_row(rows[r]) and _group_row(rows[r - 1]):
@@ -180,7 +181,7 @@ func _plan() -> Dictionary:
 		"groups": groups, "group_acoustic": acoustic, "args": _args_rid,
 		"wake_args": _wake_args_rid, "grain_set": _grain_set, "list_sets": _list_sets,
 		"queue_bin": ActiveScript.QUEUE_BIN, "slots": LevelsScript.SLOTS,
-		"group_count": _group_count(), "flush_every": FLUSH_EVERY,
+		"group_count": group_count(), "flush_every": FLUSH_EVERY,
 		"level_off": PC_LEVEL, "k_off": PC_K, "n_off": PC_N}
 
 
@@ -196,9 +197,11 @@ func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: i
 	var sun: Vector3 = ctx.get("sun_dir", Vector3.ZERO)
 	# No sun in the ctx is no star, which is no XUV — never an assumed one.
 	_xuv_w_m2 = float(ctx.get("xuv_w_m2", 0.0))
+	# The equation of state, restated after every substep's gather. StateDerivePass owns the kernel, the
+	# bindings and the block; this pass owns when the substep asks for it.
 	_driver.run_transport(cl, _peaks, _pc_rows(cc, cell_m, dt_s, sun),
 		_pc_grain(cc, cell_m, dt_s, sun), _pc_lists(cc, cell_m, dt_s, sun),
-		_seed_workgroups(), groups)
+		_seed_workgroups(), groups, ctx.get("restate", {}))
 
 
 ## THE LISTS, before anything reads one: every cell of a world nobody has stepped yet, and every cell
@@ -207,7 +210,7 @@ func _seed_workgroups() -> int:
 	if not _wake_pending or not _grain_set.is_valid():
 		return 0
 	_wake_pending = false
-	var wide: int = maxi(_total, (ActiveScript.QUEUE_BIN + 1) * _group_count())
+	var wide: int = maxi(_total, (ActiveScript.QUEUE_BIN + 1) * group_count())
 	return int(ceil(float(wide) / 64.0))
 
 
@@ -241,7 +244,7 @@ func pre_step(rd: RenderingDevice, ctx: Dictionary, cc: int, _groups: int) -> vo
 	if seed > 0:
 		usets.append(_grain_set)
 		pcs.append(_pc(GRAIN_ROW, cc, PASS_ACT_SEED, cell_m, dt_s, Vector3.ZERO, 0, 0, 1,
-			_group_count()))
+			group_count()))
 		wgs.append(seed)
 		args.append(RID())
 		offs.append(0)
@@ -272,12 +275,12 @@ func pre_step(rd: RenderingDevice, ctx: Dictionary, cc: int, _groups: int) -> vo
 
 
 ## A signed per-axis momentum row, whose gather refreshes its velocity component.
-func _vel_row(row: Dictionary) -> bool:
+static func _vel_row(row: Dictionary) -> bool:
 	return row.has("axis") and bool(row.get("signed", false))
 
 
 ## A row of the acoustic substep group: a momentum row, or compressible matter flagged into it.
-func _group_row(row: Dictionary) -> bool:
+static func _group_row(row: Dictionary) -> bool:
 	return _vel_row(row) or bool(row.get("acoustic", false))
 
 
@@ -303,7 +306,7 @@ func _active_cells(rd: RenderingDevice) -> float:
 	var args: PackedInt32Array = rd.buffer_get_data(_args_rid).to_int32_array()
 	var stride: int = (ActiveScript.QUEUE_BIN + 1) * int(Arg.SLOTS)
 	var n: int = 0
-	for g in mini(_group_count(), args.size() / stride):
+	for g in mini(group_count(), args.size() / stride):
 		n += args[g * stride + int(Arg.SUFFIX)]
 	return float(n)
 
@@ -466,7 +469,7 @@ func _pc_grain(cc: int, cell_m: float, dt_s: float, sun: Vector3) -> Array:
 	t.fill(PackedByteArray())
 	if not _grain_set.is_valid():
 		return t
-	var gslot: int = _group_count() - 1
+	var gslot: int = group_count() - 1
 	t[LAFieldDriver.SLOT_LEVEL_RESET] = _pc(GRAIN_ROW, cc, PASS_LEVEL_RESET, cell_m, dt_s, sun, 0, 0, 1, gslot)
 	t[LAFieldDriver.SLOT_ACT_AGE] = _pc(GRAIN_ROW, cc, PASS_ACT_AGE, cell_m, dt_s, sun, 0, 0, 1, gslot)
 	t[LAFieldDriver.SLOT_ACT_WAKE] = _pc(GRAIN_ROW, cc, PASS_ACT_WAKE, cell_m, dt_s, sun, 0, 0, 1, gslot)
@@ -475,7 +478,7 @@ func _pc_grain(cc: int, cell_m: float, dt_s: float, sun: Vector3) -> Array:
 	t[LAFieldDriver.SLOT_LEVEL_SORT] = _pc(GRAIN_ROW, cc, PASS_LEVEL_SORT, cell_m, dt_s, sun, 0, 0, 1, gslot)
 	t[LAFieldDriver.SLOT_GRAIN] = _pc(GRAIN_ROW, cc, PASS_GRAIN, cell_m, dt_s, sun, 0, 0, 1, gslot)
 	t[LAFieldDriver.SLOT_ACT_SEED] = _pc(GRAIN_ROW, cc, PASS_ACT_SEED, cell_m, dt_s, Vector3.ZERO,
-		0, 0, 1, _group_count())
+		0, 0, 1, group_count())
 	t[LAFieldDriver.SLOT_ACT_WAKE_RESET] = _pc(GRAIN_ROW, cc, PASS_ACT_WAKE_RESET, cell_m, dt_s, sun)
 	return t
 
@@ -557,7 +560,7 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float,
 	pc.encode_u32(PC_N, substep_n)
 	pc.encode_u32(116, act_group)
 	# A row carrying silicate also wakes the prologue that derives where that mineral sits.
-	pc.encode_u32(120, _group_count() - 1 if String(row["channel"]) == "silicate" else NO_GROUP)
+	pc.encode_u32(120, group_count() - 1 if String(row["channel"]) == "silicate" else NO_GROUP)
 	return pc
 
 

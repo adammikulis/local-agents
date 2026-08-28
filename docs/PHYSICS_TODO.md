@@ -237,11 +237,12 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       `LAPlanetComposition::seed` places no gas at all, yet `o2_total` reads non-zero with `biomass_total`
       at zero. **Reproduce:** `bash scripts/check_lifeless_planet.sh`.
 
-- [ ] **A SEALED BOX'S ENERGY DOES NOT CLOSE OVER ITS TWO STORES.** `energy_kinetic` is the joules of
-      motion the enthalpy state does not hold; it moves while `energy_stock` stands still, so their sum is
-      not a constant. The third store, the potential the body force works against, is F's own item and has
-      no gauge. **Reproduce:** `for n in 4 8; do scripts/sim_run.sh --rung 3 --frames $n --report
-      energy_stock,energy_kinetic; done` and read the pair at one length against the other.
+- [ ] **THE ENERGY CLOSURE CANNOT BE READ.** `energy_run_drift_rel` weighs enthalpy plus kinetic plus
+      potential, and it lands under the float32 noise floor of its own sum whether or not transport's
+      `v dot dp` debit is compiled in, so nothing distinguishes a book that closes from one that does not.
+      **Reproduce:** `scripts/sim_run.sh --rung 3 --frames 8 --report
+      energy_stock,energy_kinetic,energy_potential,energy_run_drift_rel`, then again with the `is_signed`
+      debit in `transport.glsl`'s gather deleted.
 
 - [ ] **`o2_first` latches at zero**, so the o2 row has no scale to be a fraction of. A baseline of zero is
       not a baseline.
