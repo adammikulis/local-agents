@@ -13,7 +13,7 @@ trap 'rm -f "$PNG" "$LOG"' EXIT
 
 LA_RUN_TIMEOUT="${LA_GROUND_TIMEOUT:-100}" "$ROOT/scripts/run_sim_offscreen.sh" --path "$ROOT" \
 	addons/local_agents/game/VoxelWorld.tscn \
-	-- --sandbox --planet-only --no-fauna --ui "--shoot=$PNG" \
+	-- --sandbox --planet-only --no-fauna --rung=0 --ui "--shoot=$PNG" \
 	"--shoot-frames=${LA_GROUND_FRAMES:-600}" > "$LOG" 2>&1
 
 shot="$(grep -m1 '^SHOT_SAVED=' "$LOG")"
