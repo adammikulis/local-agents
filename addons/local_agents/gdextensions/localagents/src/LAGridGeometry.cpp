@@ -1,24 +1,327 @@
 #include "LAGridGeometry.hpp"
 
 #include <godot_cpp/core/class_db.hpp>
-#include <godot_cpp/variant/packed_byte_array.hpp>
+#include <godot_cpp/classes/file_access.hpp>
+#include "LAPhysicalRead.hpp"
 #include <godot_cpp/variant/utility_functions.hpp>
-#include <godot_cpp/variant/vector3i.hpp>
-#include <godot_cpp/variant/packed_vector3_array.hpp>
 
+#include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <functional>
+#include <vector>
 
 using namespace godot;
 
 namespace {
 
-// Cell count plus the ghost tail: the length of every per-cell table.
 int total_cells(Object *p_grid) {
 	return int(p_grid->get("cell_count")) + int(p_grid->get("ghost_rows"));
 }
 
 double edge_of(double p_base, int p_level) {
 	return p_base * std::pow(0.5, double(p_level));
+}
+
+const int MAXL = LAGridGeometry::MAX_LEVEL;
+const uint32_t FULL = 1u << MAXL;
+
+// LAVoxelGrid.SLOT_STEP, in the same order: the opposite of d is d ^ 1.
+const int SLOT_DX[6] = { -1, 1, 0, 0, 0, 0 };
+const int SLOT_DY[6] = { 0, 0, -1, 1, 0, 0 };
+const int SLOT_DZ[6] = { 0, 0, 0, 0, -1, 1 };
+
+uint32_t spread3(uint32_t v) {
+	v &= 0x3ff;
+	v = (v | (v << 16)) & 0x030000ff;
+	v = (v | (v << 8)) & 0x0300f00f;
+	v = (v | (v << 4)) & 0x030c30c3;
+	v = (v | (v << 2)) & 0x09249249;
+	return v;
+}
+
+// Full-depth Morton code of a point at resolution 2^MAXL inside one base cell.
+uint32_t morton3(uint32_t x, uint32_t y, uint32_t z) {
+	return spread3(x) | (spread3(y) << 1) | (spread3(z) << 2);
+}
+
+// A leaf: which base cell, its level, its local lattice coordinates at that level, and the Morton
+// code of its lowest corner at full depth. Leaves of one base are kept sorted by that code.
+struct Leaf {
+	int base;
+	int level;
+	int lx, ly, lz;
+	uint32_t code;
+};
+
+uint32_t leaf_code(const Leaf &l) {
+	const uint32_t sh = uint32_t(MAXL - l.level);
+	return morton3(uint32_t(l.lx) << sh, uint32_t(l.ly) << sh, uint32_t(l.lz) << sh);
+}
+
+struct Lattice {
+	int nx, ny, nz;
+	std::vector<std::vector<Leaf>> leaves;   // per base, sorted by code
+
+	int index(int x, int y, int z) const { return x + nx * (y + ny * z); }
+	bool in_bounds(int x, int y, int z) const {
+		return x >= 0 && x < nx && y >= 0 && y < ny && z >= 0 && z < nz;
+	}
+	int base_step(int b, int d) const {
+		const int x = (b % nx) + SLOT_DX[d];
+		const int y = ((b / nx) % ny) + SLOT_DY[d];
+		const int z = (b / (nx * ny)) + SLOT_DZ[d];
+		return in_bounds(x, y, z) ? index(x, y, z) : -1;
+	}
+	bool edge_base(int b) const {
+		const int x = b % nx, y = (b / nx) % ny, z = b / (nx * ny);
+		return x == 0 || y == 0 || z == 0 || x == nx - 1 || y == ny - 1 || z == nz - 1;
+	}
+	// The leaf of base b holding the full-depth point (fx, fy, fz): the last whose code is not past it.
+	int find(int b, uint32_t fx, uint32_t fy, uint32_t fz) const {
+		const uint32_t m = morton3(fx, fy, fz);
+		const std::vector<Leaf> &v = leaves[b];
+		int lo = 0, hi = int(v.size()) - 1;
+		while (lo < hi) {
+			const int mid = (lo + hi + 1) / 2;
+			if (v[mid].code <= m) {
+				lo = mid;
+			} else {
+				hi = mid - 1;
+			}
+		}
+		return lo;
+	}
+	// Full-depth coordinates (px, py, pz) of a point in base b, stepped by `step` along axis `axis`;
+	// returns the base it lands in (or -1) and rewrites the coordinate.
+	int step_point(int b, int axis, int step, int64_t &px, int64_t &py, int64_t &pz) const {
+		int64_t *c = axis == 0 ? &px : (axis == 1 ? &py : &pz);
+		*c += step;
+		if (*c >= 0 && *c < int64_t(FULL)) {
+			return b;
+		}
+		const int d = axis * 2 + (step > 0 ? 1 : 0);
+		const int b2 = base_step(b, d);
+		if (b2 < 0) {
+			return -1;
+		}
+		*c = step > 0 ? *c - int64_t(FULL) : *c + int64_t(FULL);
+		return b2;
+	}
+	void split(int b, int i) {
+		Leaf l = leaves[b][i];
+		std::vector<Leaf> kids;
+		for (int o = 0; o < 8; o++) {
+			Leaf k;
+			k.base = b;
+			k.level = l.level + 1;
+			k.lx = l.lx * 2 + (o & 1);
+			k.ly = l.ly * 2 + ((o >> 1) & 1);
+			k.lz = l.lz * 2 + ((o >> 2) & 1);
+			k.code = leaf_code(k);
+			kids.push_back(k);
+		}
+		leaves[b].erase(leaves[b].begin() + i);
+		leaves[b].insert(leaves[b].begin() + i, kids.begin(), kids.end());
+	}
+};
+
+// Full-depth centre of a leaf.
+void leaf_centre_full(const Leaf &l, int64_t &px, int64_t &py, int64_t &pz) {
+	const int64_t w = int64_t(1) << (MAXL - l.level);
+	px = int64_t(l.lx) * w + w / 2;
+	py = int64_t(l.ly) * w + w / 2;
+	pz = int64_t(l.lz) * w + w / 2;
+}
+
+// The leaves across face d of leaf (b, i): one when the neighbour is as coarse or coarser, four when it
+// is finer. Probes the four subface centres one full-depth unit past the face.
+void faces_across(const Lattice &lat, int b, int i, int d, std::vector<int> &out_base,
+		std::vector<int> &out_leaf) {
+	out_base.clear();
+	out_leaf.clear();
+	const Leaf &l = lat.leaves[b][i];
+	const int axis = d >> 1;
+	const int64_t w = int64_t(1) << (MAXL - l.level);
+	const int64_t q = w / 4 > 0 ? w / 4 : 0;
+	int64_t cx, cy, cz;
+	leaf_centre_full(l, cx, cy, cz);
+	int64_t base[3] = { cx, cy, cz };
+	// Onto the face plane, one unit past it.
+	base[axis] += (d & 1) ? w / 2 : -(w / 2 + 1);
+	const int u = (axis + 1) % 3, v = (axis + 2) % 3;
+	int last_b = -2, last_leaf = -2;
+	for (int s = 0; s < 4; s++) {
+		int64_t p[3] = { base[0], base[1], base[2] };
+		p[u] += (s & 1) ? q : -q;
+		p[v] += (s & 2) ? q : -q;
+		int64_t px = p[0], py = p[1], pz = p[2];
+		int b2 = b;
+		// The probe may have crossed the base cell along the face axis only.
+		for (int a = 0; a < 3 && b2 >= 0; a++) {
+			int64_t *c = a == 0 ? &px : (a == 1 ? &py : &pz);
+			if (*c < 0) {
+				b2 = lat.base_step(b2, a * 2);
+				*c += int64_t(FULL);
+			} else if (*c >= int64_t(FULL)) {
+				b2 = lat.base_step(b2, a * 2 + 1);
+				*c -= int64_t(FULL);
+			}
+		}
+		if (b2 < 0) {
+			out_base.push_back(-1);
+			out_leaf.push_back(-1);
+			return;
+		}
+		const int j = lat.find(b2, uint32_t(px), uint32_t(py), uint32_t(pz));
+		if (b2 == last_b && j == last_leaf) {
+			continue;
+		}
+		last_b = b2;
+		last_leaf = j;
+		out_base.push_back(b2);
+		out_leaf.push_back(j);
+	}
+}
+
+// Refine every leaf `want` asks for, then balance to 2:1 across every face.
+void refine_lattice(Lattice &lat, const std::function<bool(const Leaf &)> &want) {
+	for (int b = 0; b < int(lat.leaves.size()); b++) {
+		for (int i = 0; i < int(lat.leaves[b].size());) {
+			if (lat.leaves[b][i].level < MAXL && want(lat.leaves[b][i])) {
+				lat.split(b, i);
+			} else {
+				i++;
+			}
+		}
+	}
+	bool changed = true;
+	std::vector<int> nb, nl;
+	while (changed) {
+		changed = false;
+		for (int b = 0; b < int(lat.leaves.size()); b++) {
+			for (int i = 0; i < int(lat.leaves[b].size());) {
+				const int lv = lat.leaves[b][i].level;
+				bool split = false;
+				for (int d = 0; d < 6 && !split; d++) {
+					faces_across(lat, b, i, d, nb, nl);
+					for (size_t k = 0; k < nb.size(); k++) {
+						if (nb[k] >= 0 && lat.leaves[nb[k]][nl[k]].level > lv + 1) {
+							split = true;
+							break;
+						}
+					}
+				}
+				if (split && lv < MAXL) {
+					lat.split(b, i);
+					changed = true;
+				} else {
+					i++;
+				}
+			}
+		}
+	}
+}
+
+Dictionary emit(const Lattice &lat) {
+	Dictionary out;
+	const int base_count = int(lat.leaves.size());
+	PackedInt32Array base_head, base_leaves, cell_base, cell_local, cell_morton;
+	PackedByteArray levels;
+	base_head.resize(base_count);
+	base_leaves.resize(base_count);
+	int n = 0;
+	for (int b = 0; b < base_count; b++) {
+		base_head.set(b, n);
+		base_leaves.set(b, int(lat.leaves[b].size()));
+		n += int(lat.leaves[b].size());
+	}
+	cell_base.resize(n);
+	cell_local.resize(n * 3);
+	cell_morton.resize(n);
+	levels.resize(n);
+	int top = 0;
+	for (int b = 0; b < base_count; b++) {
+		for (int i = 0; i < int(lat.leaves[b].size()); i++) {
+			const Leaf &l = lat.leaves[b][i];
+			const int c = base_head[b] + i;
+			cell_base.set(c, b);
+			cell_local.set(c * 3, l.lx);
+			cell_local.set(c * 3 + 1, l.ly);
+			cell_local.set(c * 3 + 2, l.lz);
+			cell_morton.set(c, int32_t(l.code));
+			levels.set(c, uint8_t(l.level));
+			top = MAX(top, l.level);
+		}
+	}
+	PackedInt32Array slot_off, neighbours, partners;
+	slot_off.resize(n * 7);
+	std::vector<int> nb, nl;
+	int at = 0;
+	for (int b = 0; b < base_count; b++) {
+		for (int i = 0; i < int(lat.leaves[b].size()); i++) {
+			const int c = base_head[b] + i;
+			for (int d = 0; d < 6; d++) {
+				slot_off.set(c * 7 + d, at);
+				faces_across(lat, b, i, d, nb, nl);
+				for (size_t k = 0; k < nb.size(); k++) {
+					neighbours.append(nb[k] < 0 ? -1 : base_head[nb[k]] + nl[k]);
+					at++;
+				}
+			}
+			slot_off.set(c * 7 + 6, at);
+		}
+	}
+	partners.resize(neighbours.size());
+	for (int f = 0; f < partners.size(); f++) {
+		partners.set(f, -1);
+	}
+	for (int c = 0; c < n; c++) {
+		for (int d = 0; d < 6; d++) {
+			const int back = d ^ 1;
+			for (int f = slot_off[c * 7 + d]; f < slot_off[c * 7 + d + 1]; f++) {
+				const int m = neighbours[f];
+				if (m < 0) {
+					continue;
+				}
+				for (int g = slot_off[m * 7 + back]; g < slot_off[m * 7 + back + 1]; g++) {
+					if (neighbours[g] == c) {
+						partners.set(f, g);
+						break;
+					}
+				}
+			}
+		}
+	}
+	out["cell_count"] = n;
+	out["max_level"] = top;
+	out["levels"] = levels;
+	out["cell_base"] = cell_base;
+	out["cell_local"] = cell_local;
+	out["cell_morton"] = cell_morton;
+	out["base_head"] = base_head;
+	out["base_leaves"] = base_leaves;
+	out["slot_off"] = slot_off;
+	out["neighbours"] = neighbours;
+	out["partners"] = partners;
+	return out;
+}
+
+Lattice uniform(const Vector3i &p_dims) {
+	Lattice lat;
+	lat.nx = MAX(p_dims.x, 1);
+	lat.ny = MAX(p_dims.y, 1);
+	lat.nz = MAX(p_dims.z, 1);
+	lat.leaves.resize(size_t(lat.nx) * lat.ny * lat.nz);
+	for (int b = 0; b < int(lat.leaves.size()); b++) {
+		Leaf l;
+		l.base = b;
+		l.level = 0;
+		l.lx = l.ly = l.lz = 0;
+		l.code = 0;
+		lat.leaves[b].push_back(l);
+	}
+	return lat;
 }
 
 } // namespace
@@ -49,189 +352,214 @@ PackedFloat32Array LAGridGeometry::volumes(Object *p_grid) {
 	return out;
 }
 
-PackedByteArray LAGridGeometry::refine_mask(Object *p_grid, const Vector3 &p_centre, Object *p_terrain,
-		double p_below_m, double p_above_m) {
-	PackedByteArray out;
+Dictionary LAGridGeometry::build(const Vector3i &p_dims, const PackedByteArray &p_mask) {
+	Lattice lat = uniform(p_dims);
+	const bool use = p_mask.size() == int(lat.leaves.size());
+	if (use) {
+		refine_lattice(lat, [&](const Leaf &l) { return l.level == 0 && p_mask[l.base] != 0; });
+	}
+	return emit(lat);
+}
+
+Dictionary LAGridGeometry::build_graded(const Vector3i &p_dims, const Vector3 &p_origin,
+		double p_cell_size, const Vector3 &p_centre, Object *p_terrain, double p_below_m,
+		double p_above_m, double p_target_edge_m) {
+	Lattice lat = uniform(p_dims);
+	const bool can = p_terrain && p_terrain->has_method("surface_radius") && p_cell_size > 0.0
+			&& p_target_edge_m > 0.0;
+	if (can) {
+		// ONE terrain sample per base cell, at its centre; the relief the terrain spans pads the band so
+		// a leaf whose own direction stands on a mountain or a trench is still counted.
+		const int base_count = int(lat.leaves.size());
+		std::vector<double> rs_base(base_count, NAN);
+		double relief = 0.0;
+		if (p_terrain->has_method("max_surface_radius") && p_terrain->has_method("planet_radius")) {
+			relief = std::abs(double(p_terrain->call("max_surface_radius")) - double(p_terrain->call("planet_radius")));
+		}
+		for (int b = 0; b < base_count; b++) {
+			const Vector3 bo(float(b % lat.nx) + 0.5f, float((b / lat.nx) % lat.ny) + 0.5f, float(b / (lat.nx * lat.ny)) + 0.5f);
+			const Vector3 rel = p_origin + bo * float(p_cell_size) - p_centre;
+			const double r = double(rel.length());
+			if (r > 0.0) {
+				rs_base[b] = double(p_terrain->call("surface_radius", rel / float(r)));
+			}
+		}
+		refine_lattice(lat, [&](const Leaf &l) {
+			if (lat.edge_base(l.base)) {
+				return false;   // THE BOX EDGE STAYS COARSEST: an exterior and a torus are 1:1 on a face
+			}
+			const double edge = edge_of(p_cell_size, l.level);
+			if (!(edge > p_target_edge_m)) {
+				return false;
+			}
+			const int b = l.base;
+			const Vector3 bo(float(b % lat.nx), float((b / lat.nx) % lat.ny), float(b / (lat.nx * lat.ny)));
+			const Vector3 lo(float(l.lx) + 0.5f, float(l.ly) + 0.5f, float(l.lz) + 0.5f);
+			const Vector3 p = p_origin + (bo + lo * float(std::pow(0.5, double(l.level)))) * float(p_cell_size);
+			// A cell counts when its own CUBE reaches the band, not just its centre.
+			const double pad = 0.5 * std::sqrt(3.0) * edge;
+			const Vector3 rel = p - p_centre;
+			const double r = double(rel.length());
+			if (!(r > 0.0)) {
+				return false;
+			}
+			const double rs = rs_base[l.base];
+			if (!std::isfinite(rs)) {
+				return false;
+			}
+			return r >= rs - p_below_m - pad - relief && r <= rs + p_above_m + pad + relief;
+		});
+	}
+	return emit(lat);
+}
+
+Dictionary LAGridGeometry::build_to_budget(const Vector3i &p_dims, const Vector3 &p_origin,
+		double p_cell_size, const Vector3 &p_centre, Object *p_terrain, double p_below_m,
+		double p_above_m, double p_target_edge_m, int p_budget) {
+	// COARSE TO FINE: each halving of the target is tried only after the coarser grid fit, so the first
+	// grid that would not fit is never built.
+	Dictionary best = build(p_dims, PackedByteArray());
+	best["target_edge_m"] = p_cell_size;
+	double target = 0.5 * p_cell_size;
+	while (p_target_edge_m > 0.0 && p_budget > 0 && target > 0.0) {
+		Dictionary next = build_graded(p_dims, p_origin, p_cell_size, p_centre, p_terrain, p_below_m,
+				p_above_m, target);
+		if (int(next.get("cell_count", 0)) > p_budget) {
+			break;
+		}
+		next["target_edge_m"] = target;
+		best = next;
+		if (target <= p_target_edge_m) {
+			break;   // the band's finest cells are at or under the edge asked for
+		}
+		target *= 0.5;
+	}
+	return best;
+}
+
+double LAGridGeometry::target_edge_m(double p_mass_kg, double p_radius_m, double p_t_c,
+		double p_cells_per_h) {
+	if (!(p_mass_kg > 0.0) || !(p_radius_m > 0.0) || !(p_cells_per_h > 0.0)) {
+		return 0.0;
+	}
+	const double g = la_physical("GRAVITATIONAL_CONSTANT") * p_mass_kg / (p_radius_m * p_radius_m);
+	const double h = la_physical("DRY_AIR_GAS_CONSTANT_J_KGK") * (p_t_c + la_physical("KELVIN_OFFSET")) / g;
+	return h / p_cells_per_h;
+}
+
+int LAGridGeometry::cell_budget() {
+	Ref<FileAccess> f = FileAccess::open("res://docs/CELL_BUDGET", FileAccess::READ);
+	if (f.is_null()) {
+		return -1;
+	}
+	while (!f->eof_reached()) {
+		const String line = f->get_line().strip_edges();
+		if (line.is_valid_int()) {
+			return int(line.to_int());
+		}
+	}
+	return -1;
+}
+
+int LAGridGeometry::wrap_partner(Object *p_grid, int p_c, int p_d) {
+	if (!p_grid || p_c < 0 || p_d < 0 || p_d > 5) {
+		return -1;
+	}
+	const int dims[3] = { int(p_grid->get("nx")), int(p_grid->get("ny")), int(p_grid->get("nz")) };
+	const PackedInt32Array cell_base = p_grid->get("cell_base");
+	const PackedInt32Array base_head = p_grid->get("base_head");
+	if (p_c >= cell_base.size()) {
+		return -1;
+	}
+	const int b = cell_base[p_c];
+	int v[3] = { b % dims[0], (b / dims[0]) % dims[1], b / (dims[0] * dims[1]) };
+	const int axis = p_d >> 1;
+	v[axis] = (p_d & 1) == 0 ? dims[axis] - 1 : 0;
+	return base_head[v[0] + dims[0] * (v[1] + dims[1] * v[2])];
+}
+
+double LAGridGeometry::face_distance(Object *p_grid, int p_c, int p_f) {
 	if (!p_grid) {
-		return out;
+		return 0.0;
+	}
+	const PackedByteArray levels = p_grid->get("levels");
+	const PackedInt32Array nbr = p_grid->get("neighbours");
+	const double base = double(p_grid->get("cell_size"));
+	const double e = edge_of(base, p_c >= 0 && p_c < levels.size() ? int(levels[p_c]) : 0);
+	const int m = p_f >= 0 && p_f < nbr.size() ? nbr[p_f] : -1;
+	if (m < 0) {
+		return e;
+	}
+	return 0.5 * (e + edge_of(base, m < levels.size() ? int(levels[m]) : 0));
+}
+
+int LAGridGeometry::cell_at(Object *p_grid, const Vector3 &p_point) {
+	if (!p_grid) {
+		return -1;
 	}
 	const int nx = int(p_grid->get("nx"));
 	const int ny = int(p_grid->get("ny"));
 	const int nz = int(p_grid->get("nz"));
 	const double edge = double(p_grid->get("cell_size"));
 	const Vector3 origin = p_grid->get("origin");
-	const int base_count = nx * ny * nz;
-	if (base_count <= 0 || !(edge > 0.0)) {
-		return out;
+	if (!(edge > 0.0)) {
+		return -1;
 	}
-	out.resize(base_count);
-	// A cell counts when its own CUBE reaches the band, not just its centre.
-	const double pad = 0.5 * std::sqrt(3.0) * edge;
-	// RESOLUTION FOLLOWS POSITION, AND STOPS WHERE IT IS ALREADY THERE. `above_m` is the air column the
-	// refinement is FOR; a cell no coarser than that column already resolves what stands in it, and
-	// splitting it buys nothing and costs eight cells. This keeps a small box uniform and a
-	// planet-sized one graded, off one rule and no special case.
-	const bool surface = p_above_m > 0.0 && edge > p_above_m && p_terrain
-			&& p_terrain->has_method("surface_radius");
-	if (!surface) {
-		return out;
+	const Vector3 local = (p_point - origin) / float(edge);
+	const int x = int(std::floor(local.x)), y = int(std::floor(local.y)), z = int(std::floor(local.z));
+	if (x < 0 || y < 0 || z < 0 || x >= nx || y >= ny || z >= nz) {
+		return -1;
 	}
-	uint8_t *w = out.ptrw();
-	for (int b = 0; b < base_count; b++) {
-		w[b] = 0;
-		const int x = b % nx;
-		const int y = (b / nx) % ny;
-		const int z = b / (nx * ny);
-		// THE BOX EDGE STAYS COARSEST: prescribing an exterior and wrapping a torus are 1:1 on a face.
-		if (x == 0 || y == 0 || z == 0 || x == nx - 1 || y == ny - 1 || z == nz - 1) {
-			continue;
+	const int b = x + nx * (y + ny * z);
+	const PackedInt32Array base_head = p_grid->get("base_head");
+	const PackedInt32Array base_leaves = p_grid->get("base_leaves");
+	const PackedInt32Array codes = p_grid->get("cell_morton");
+	if (b >= base_head.size() || b >= base_leaves.size()) {
+		return -1;
+	}
+	auto full = [&](double f) {
+		const double v = std::floor((f - std::floor(f)) * double(FULL));
+		return uint32_t(std::min(std::max(v, 0.0), double(FULL - 1)));
+	};
+	const uint32_t m = morton3(full(local.x), full(local.y), full(local.z));
+	int lo = base_head[b], hi = base_head[b] + base_leaves[b] - 1;
+	while (lo < hi) {
+		const int mid = (lo + hi + 1) / 2;
+		if (uint32_t(codes[mid]) <= m) {
+			lo = mid;
+		} else {
+			hi = mid - 1;
 		}
-		const Vector3 p = origin + (Vector3(float(x), float(y), float(z)) + Vector3(0.5, 0.5, 0.5))
-				* float(edge);
-		bool hit = false;
-		const Vector3 rel = p - p_centre;
-		const double r = double(rel.length());
-		if (r > 0.0) {
-			const double rs = double(p_terrain->call("surface_radius", rel / float(r)));
-			hit = r >= rs - p_below_m - pad && r <= rs + p_above_m + pad;
-		}
-		w[b] = hit ? 1 : 0;
 	}
-	return out;
+	return lo;
 }
 
-namespace {
-
-// LAVoxelGrid.SLOT_STEP, in the same order: the opposite of d is d ^ 1.
-const int SLOT_DX[6] = { -1, 1, 0, 0, 0, 0 };
-const int SLOT_DY[6] = { 0, 0, -1, 1, 0, 0 };
-const int SLOT_DZ[6] = { 0, 0, 0, 0, -1, 1 };
-
-} // namespace
-
-Dictionary LAGridGeometry::build(const Vector3i &p_dims, const PackedByteArray &p_mask) {
-	Dictionary out;
-	const int nx = MAX(p_dims.x, 1);
-	const int ny = MAX(p_dims.y, 1);
-	const int nz = MAX(p_dims.z, 1);
-	const int base_count = nx * ny * nz;
-	const bool use = p_mask.size() == base_count;
-
-	PackedInt32Array base_head;
-	PackedByteArray base_split;
-	base_head.resize(base_count);
-	base_split.resize(base_count);
-	int n = 0;
-	for (int b = 0; b < base_count; b++) {
-		const bool split = use && p_mask[b] != 0;
-		base_split.set(b, split ? 1 : 0);
-		base_head.set(b, n);
-		n += split ? 8 : 1;
+PackedVector3Array LAGridGeometry::centres(Object *p_grid) {
+	PackedVector3Array out;
+	if (!p_grid) {
+		return out;
 	}
-	PackedInt32Array cell_base;
-	PackedByteArray cell_oct, levels;
-	cell_base.resize(n);
-	cell_oct.resize(n);
-	levels.resize(n);
-	for (int b = 0; b < base_count; b++) {
-		const int head = base_head[b];
-		const int kids = base_split[b] != 0 ? 8 : 1;
-		for (int o = 0; o < kids; o++) {
-			cell_base.set(head + o, b);
-			cell_oct.set(head + o, kids == 8 ? o : 0);
-			levels.set(head + o, kids == 8 ? 1 : 0);
-		}
-	}
-
-	auto index = [&](int x, int y, int z) { return x + nx * (y + ny * z); };
-	auto in_bounds = [&](int x, int y, int z) {
-		return x >= 0 && x < nx && y >= 0 && y < ny && z >= 0 && z < nz;
-	};
-	auto base_step = [&](int b, int d) {
-		const int x = (b % nx) + SLOT_DX[d];
-		const int y = ((b / nx) % ny) + SLOT_DY[d];
-		const int z = (b / (nx * ny)) + SLOT_DZ[d];
-		return in_bounds(x, y, z) ? index(x, y, z) : -1;
-	};
-	auto leaf = [&](int b, int o) { return base_head[b] + (base_split[b] != 0 ? o : 0); };
-
-	PackedInt32Array slot_off, neighbours, partners;
-	slot_off.resize(n * 7);
-	int at = 0;
+	const int nx = int(p_grid->get("nx"));
+	const int ny = int(p_grid->get("ny"));
+	const double edge = double(p_grid->get("cell_size"));
+	const Vector3 origin = p_grid->get("origin");
+	const PackedInt32Array cell_base = p_grid->get("cell_base");
+	const PackedInt32Array cell_local = p_grid->get("cell_local");
+	const PackedByteArray levels = p_grid->get("levels");
+	const int n = total_cells(p_grid);
+	out.resize(n);
+	Vector3 *w = out.ptrw();
 	for (int c = 0; c < n; c++) {
-		const int b = cell_base[c];
-		const int lv = int(levels[c]);
-		const int o = int(cell_oct[c]);
-		for (int d = 0; d < 6; d++) {
-			slot_off.set(c * 7 + d, at);
-			const int axis = d >> 1;
-			if (lv == 0) {
-				const int b2 = base_step(b, d);
-				if (b2 < 0) {
-					neighbours.append(-1);
-					at++;
-				} else if (base_split[b2] == 0) {
-					neighbours.append(base_head[b2]);
-					at++;
-				} else {
-					// The four octants of the neighbour that touch the face this slot crosses.
-					const int bit = ((d ^ 1) & 1) == 1 ? 1 : 0;
-					for (int oc = 0; oc < 8; oc++) {
-						if (((oc >> axis) & 1) == bit) {
-							neighbours.append(base_head[b2] + oc);
-							at++;
-						}
-					}
-				}
-			} else {
-				const int bit = (o >> axis) & 1;
-				const bool toward_hi = (d & 1) == 1;
-				if ((toward_hi && bit == 0) || (!toward_hi && bit == 1)) {
-					neighbours.append(base_head[b] + (o ^ (1 << axis)));
-				} else {
-					const int b3 = base_step(b, d);
-					neighbours.append(b3 < 0 ? -1 : leaf(b3, o ^ (1 << axis)));
-				}
-				at++;
-			}
+		const int b = c < cell_base.size() ? cell_base[c] : 0;
+		const Vector3 bo(float(b % nx), float((b / nx) % ny), float(b / (nx * ny)));
+		const int lv = c < levels.size() ? int(levels[c]) : 0;
+		Vector3 lo(0.5f, 0.5f, 0.5f);
+		if (c * 3 + 2 < cell_local.size()) {
+			lo = Vector3(float(cell_local[c * 3]) + 0.5f, float(cell_local[c * 3 + 1]) + 0.5f,
+					float(cell_local[c * 3 + 2]) + 0.5f) * float(std::pow(0.5, double(lv)));
 		}
-		slot_off.set(c * 7 + 6, at);
+		w[c] = origin + (bo + lo) * float(edge);
 	}
-	partners.resize(neighbours.size());
-	for (int f = 0; f < partners.size(); f++) {
-		partners.set(f, -1);
-	}
-	for (int c = 0; c < n; c++) {
-		for (int d = 0; d < 6; d++) {
-			const int back = d ^ 1;
-			for (int f = slot_off[c * 7 + d]; f < slot_off[c * 7 + d + 1]; f++) {
-				const int m = neighbours[f];
-				if (m < 0) {
-					continue;
-				}
-				for (int g = slot_off[m * 7 + back]; g < slot_off[m * 7 + back + 1]; g++) {
-					if (neighbours[g] == c) {
-						partners.set(f, g);
-						break;
-					}
-				}
-			}
-		}
-	}
-	int top = 0;
-	for (int c = 0; c < n; c++) {
-		top = MAX(top, int(levels[c]));
-	}
-	out["cell_count"] = n;
-	out["max_level"] = top;
-	out["levels"] = levels;
-	out["cell_base"] = cell_base;
-	out["cell_oct"] = cell_oct;
-	out["base_head"] = base_head;
-	out["base_split"] = base_split;
-	out["slot_off"] = slot_off;
-	out["neighbours"] = neighbours;
-	out["partners"] = partners;
 	return out;
 }
 
@@ -292,36 +620,6 @@ Dictionary LAGridGeometry::validate(Object *p_grid) {
 	return out;
 }
 
-PackedVector3Array LAGridGeometry::centres(Object *p_grid) {
-	PackedVector3Array out;
-	if (!p_grid) {
-		return out;
-	}
-	const int nx = int(p_grid->get("nx"));
-	const int ny = int(p_grid->get("ny"));
-	const double edge = double(p_grid->get("cell_size"));
-	const Vector3 origin = p_grid->get("origin");
-	const PackedInt32Array cell_base = p_grid->get("cell_base");
-	const PackedByteArray cell_oct = p_grid->get("cell_oct");
-	const PackedByteArray levels = p_grid->get("levels");
-	const int n = total_cells(p_grid);
-	out.resize(n);
-	Vector3 *w = out.ptrw();
-	for (int c = 0; c < n; c++) {
-		const int b = c < cell_base.size() ? cell_base[c] : 0;
-		const Vector3 base(float((b % nx) + 0.5), float(((b / nx) % ny) + 0.5),
-				float((b / (nx * ny)) + 0.5));
-		Vector3 p = origin + base * float(edge);
-		if (c < levels.size() && levels[c] != 0) {
-			const int o = int(cell_oct[c]);
-			const Vector3 q(float(o & 1), float((o >> 1) & 1), float((o >> 2) & 1));
-			p += (q - Vector3(0.5, 0.5, 0.5)) * float(0.5 * edge);
-		}
-		w[c] = p;
-	}
-	return out;
-}
-
 Dictionary LAGridGeometry::ghost_rows(Object *p_grid, int p_n) {
 	Dictionary out;
 	if (!p_grid || p_n <= 0) {
@@ -377,8 +675,23 @@ void LAGridGeometry::_bind_methods() {
 	ClassDB::bind_static_method("LAGridGeometry", D_METHOD("edges", "grid"), &LAGridGeometry::edges);
 	ClassDB::bind_static_method("LAGridGeometry", D_METHOD("volumes", "grid"), &LAGridGeometry::volumes);
 	ClassDB::bind_static_method("LAGridGeometry",
-			D_METHOD("refine_mask", "grid", "centre", "terrain", "below_m", "above_m"),
-			&LAGridGeometry::refine_mask);
+			D_METHOD("build_graded", "dims", "origin", "cell_size", "centre", "terrain", "below_m",
+					"above_m", "target_edge_m"),
+			&LAGridGeometry::build_graded);
+	ClassDB::bind_static_method("LAGridGeometry",
+			D_METHOD("build_to_budget", "dims", "origin", "cell_size", "centre", "terrain", "below_m",
+					"above_m", "target_edge_m", "budget"),
+			&LAGridGeometry::build_to_budget);
+	ClassDB::bind_static_method("LAGridGeometry",
+			D_METHOD("target_edge_m", "mass_kg", "radius_m", "t_c", "cells_per_h"),
+			&LAGridGeometry::target_edge_m);
+	ClassDB::bind_static_method("LAGridGeometry", D_METHOD("cell_budget"), &LAGridGeometry::cell_budget);
+	ClassDB::bind_static_method("LAGridGeometry", D_METHOD("wrap_partner", "grid", "c", "d"),
+			&LAGridGeometry::wrap_partner);
+	ClassDB::bind_static_method("LAGridGeometry", D_METHOD("face_distance", "grid", "c", "f"),
+			&LAGridGeometry::face_distance);
+	ClassDB::bind_static_method("LAGridGeometry", D_METHOD("cell_at", "grid", "point"),
+			&LAGridGeometry::cell_at);
 	ClassDB::bind_static_method("LAGridGeometry", D_METHOD("build", "dims", "mask"),
 			&LAGridGeometry::build);
 	ClassDB::bind_static_method("LAGridGeometry", D_METHOD("validate", "grid"),

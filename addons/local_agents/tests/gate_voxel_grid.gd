@@ -1,12 +1,21 @@
 extends SceneTree
 
+
+class _Sphere extends RefCounted:
+	var r: float
+	func _init(p_r: float) -> void:
+		r = p_r
+	func surface_radius(_dir: Vector3) -> float:
+		return r
+
 ## A 2:1 pair's volumes differ by eight, four fine faces tile the coarse face they meet, and every
 ## face names the face that points back.
 
 func _init() -> void:
 	var fail: int = 0
 	var g = LAVoxelGrid.new()
-	g.build_centred(Vector3.ZERO, 660.0, 16.0)
+	var gd: Vector3i = LAVoxelGrid.dims_for(660.0, 16.0)
+	g.build(gd.x, gd.y, gd.z, 16.0, -0.5 * float(gd.x) * 16.0 * Vector3.ONE)
 	var uni: Dictionary = g.validate()
 	if not bool(uni["ok"]): fail += 1
 	if int(uni["non_reciprocal"]) != 0: fail += 1
@@ -46,6 +55,22 @@ func _init() -> void:
 		var child: int = r.leaf_at(2, 2, 2) + o
 		if r.cell_at(r.cell_world_pos(child)) != child: fail += 1
 
+	# N LEVELS: a band around a sphere's surface, refined until the edge is under the target, 2:1 balanced.
+	var t = LAVoxelGrid.new()
+	t.build(9, 9, 9, 100.0, Vector3(-450.0, -450.0, -450.0))
+	t.refine_graded(Vector3.ZERO, _Sphere.new(300.0), 40.0, 60.0, 12.0)
+	var tv: Dictionary = t.validate()
+	if not bool(tv["ok"]): fail += 1
+	if t.max_level < 3: fail += 1
+	for i in t.cell_count:
+		if t.cell_at(t.cell_world_pos(i)) != i: fail += 1
+		for d in 6:
+			for f in range(t.slot_begin(i, d), t.slot_begin(i, d + 1)):
+				var m: int = t.neighbours[f]
+				if m >= 0 and absi(t.level_of(m) - t.level_of(i)) > 1: fail += 1
+	var fine_edge: float = t.cell_size * pow(0.5, float(t.max_level))
+	if fine_edge > 12.0: fail += 1
+
 	var h = LAVoxelGrid.new()
 	h.build(5, 7, 3, 2.0, Vector3(-4.0, 6.0, 0.0))
 	if h.cell_count != 105: fail += 1
@@ -55,7 +80,7 @@ func _init() -> void:
 		if h.cell_at(h.cell_world_pos(i)) != i: fail += 1
 	if h.neighbours[h.slot_begin(h.leaf_at(0, 0, 0), LAVoxelGrid.S_NEG_X)] != -1: fail += 1
 	if h.neighbours[h.slot_begin(h.leaf_at(4, 6, 2), LAVoxelGrid.S_POS_Z)] != -1: fail += 1
-	print('VOXEL_GRID={"cells":%d,"non_reciprocal":%d,"volume_ratio":%.6f,"ratio_violations":%d,"area_violations":%d,"failures":%d}'
-		% [int(v["cells"]), int(v["non_reciprocal"]), float(v["volume_ratio"]),
+	print('VOXEL_GRID={"graded_cells":%d,"graded_levels":%d,"cells":%d,"non_reciprocal":%d,"volume_ratio":%.6f,"ratio_violations":%d,"area_violations":%d,"failures":%d}'
+		% [t.cell_count, t.max_level, int(v["cells"]), int(v["non_reciprocal"]), float(v["volume_ratio"]),
 			int(v["ratio_violations"]), int(v["area_violations"]), fail])
 	quit(1 if fail > 0 else 0)

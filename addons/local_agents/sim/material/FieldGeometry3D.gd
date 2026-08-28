@@ -125,8 +125,8 @@ static func _axis_deriv(field, c: int, lo_slot: int, hi_slot: int) -> Vector3:
 	var f_hi: int = grid.slot_begin(c, hi_slot)
 	var lo: int = grid.neighbours[f_lo]
 	var hi: int = grid.neighbours[f_hi]
-	var d_lo: float = maxf(grid.face_distance(c, f_lo), 1.0e-6)
-	var d_hi: float = maxf(grid.face_distance(c, f_hi), 1.0e-6)
+	var d_lo: float = maxf(LAGridGeometry.face_distance(grid, c, f_lo), 1.0e-6)
+	var d_hi: float = maxf(LAGridGeometry.face_distance(grid, c, f_hi), 1.0e-6)
 	if lo >= 0 and hi >= 0:
 		return (velocity(field, hi) - velocity(field, lo)) / (d_lo + d_hi)
 	if hi >= 0:

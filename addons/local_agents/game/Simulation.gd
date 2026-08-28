@@ -121,7 +121,8 @@ func _build_field() -> void:
 		var dims: Vector3i = LAVoxelGrid.dims_for(extent_m, cell_m)
 		var half: float = 0.5 * float(dims.x) * cell_m
 		_material.setup_box(_body.center() - Vector3(half, half, half), dims, cell_m, _terrain,
-			_body.center(), cell_m, LocalAgentSimWorld.MODELLED_ATMOSPHERE_HEIGHT_M)
+			_body.center(), LocalAgentSimWorld.MODELLED_ATMOSPHERE_HEIGHT_M, LocalAgentSimWorld.MODELLED_ATMOSPHERE_HEIGHT_M,
+			LAFieldGridBudget.target_edge_m("planet", float(_body.radius()), LAMaterialField3D.INITIAL_TEMP))
 	_validate_grid(_material._grid)
 	if _material.has_method("sample_solidity"):
 		_material.sample_solidity()

@@ -9,9 +9,6 @@ enum { S_NEG_X, S_POS_X, S_NEG_Y, S_POS_Y, S_NEG_Z, S_POS_Z }
 
 const SLOTS: int = S_POS_Z + 1
 
-## Levels the refinement carries. 2:1 between neighbours, so a face joins levels L and L+1 at most.
-const MAX_LEVEL: int = 1
-
 ## Slot -> unit step in cell indices. Order matches the constants above, so `d ^ 1` is the reverse.
 const SLOT_STEP: Array[Vector3i] = [
 	Vector3i(-1, 0, 0), Vector3i(1, 0, 0),
@@ -30,13 +27,14 @@ var cell_count: int = 0                    # leaves; a refined base cell is not 
 ## Refinement level per cell, over interior plus ghost tail.
 var levels: PackedByteArray = PackedByteArray()
 
-## Per cell: the base lattice cell it lies in, which octant of it, and its centre in world coordinates.
+## Per cell: base lattice cell, lattice coordinates at its level (3 ints), full-depth Morton code, centre.
 var cell_base: PackedInt32Array = PackedInt32Array()
-var cell_oct: PackedByteArray = PackedByteArray()
+var cell_local: PackedInt32Array = PackedInt32Array()
+var cell_morton: PackedInt32Array = PackedInt32Array()
 var centres: PackedVector3Array = PackedVector3Array()
-## Per base cell: its leaf, or the first of its eight children; and whether it was split.
+## Per base cell: first leaf, and leaf count.
 var base_head: PackedInt32Array = PackedInt32Array()
-var base_split: PackedByteArray = PackedByteArray()
+var base_leaves: PackedInt32Array = PackedInt32Array()
 
 ## Absolute face index where cell c's slot-d faces begin, 7 per cell; [c * 7 + 6] ends the cell.
 var slot_off: PackedInt32Array = PackedInt32Array()
@@ -73,10 +71,6 @@ func coords(c: int) -> Vector3i:
 	return Vector3i(b % nx, (b / nx) % ny, b / (nx * ny))
 
 
-func in_bounds(x: int, y: int, z: int) -> bool:
-	return x >= 0 and x < nx and y >= 0 and y < ny and z >= 0 and z < nz
-
-
 ## Refinement level of cell `c`; 0 is the coarsest.
 func level_of(c: int) -> int:
 	return int(levels[c]) if c >= 0 and c < levels.size() else 0
@@ -88,8 +82,7 @@ func cell_edge(c: int) -> float:
 
 
 func cell_volume(c: int = 0) -> float:
-	var e: float = cell_edge(c)
-	return e * e * e
+	return pow(cell_edge(c), 3.0)
 
 
 ## Centre of cell `c` in world coordinates.
@@ -99,34 +92,15 @@ func cell_world_pos(c: int) -> Vector3:
 
 ## The leaf containing a world point, or -1 outside the box.
 func cell_at(p: Vector3) -> int:
-	var local: Vector3 = (p - origin) / cell_size
-	var x: int = int(floor(local.x))
-	var y: int = int(floor(local.y))
-	var z: int = int(floor(local.z))
-	if not in_bounds(x, y, z):
-		return -1
-	var b: int = index(x, y, z)
-	if base_split[b] == 0:
-		return base_head[b]
-	var f: Vector3 = local - Vector3(float(x), float(y), float(z))
-	return base_head[b] + ((1 if f.x >= 0.5 else 0) | (2 if f.y >= 0.5 else 0)
-		| (4 if f.z >= 0.5 else 0))
+	return LAGridGeometry.cell_at(self, p)
 
 
-## The leaf of base lattice cell (x, y, z); the first of its eight children where it was split.
 func leaf_at(x: int, y: int, z: int) -> int:
 	return base_head[index(x, y, z)]
 
 
-## The leaf across the box on the axis slot `d` runs along: the torus partner of `c`. A box-edge cell is
-## never refined, so this is one cell and not four.
 func wrap_partner(c: int, d: int) -> int:
-	var axis: int = d >> 1
-	var dims: PackedInt32Array = PackedInt32Array([nx, ny, nz])
-	var v: Vector3i = coords(c)
-	var p: PackedInt32Array = PackedInt32Array([v.x, v.y, v.z])
-	p[axis] = dims[axis] - 1 if (d & 1) == 0 else 0
-	return leaf_at(p[0], p[1], p[2])
+	return LAGridGeometry.wrap_partner(self, c, d)
 
 
 ## Every cell's volume, m^3, and every cell's edge, m.
@@ -140,20 +114,13 @@ func cell_edges() -> PackedFloat32Array:
 
 ## Longest march a column can take before it leaves the box, in the FINEST cells it may cross.
 func max_span() -> int:
-	return maxi(maxi(nx, ny), nz) << MAX_LEVEL
+	return maxi(maxi(nx, ny), nz) << max_level
 
 
 ## First face of cell `c` on slot `d`; `d` == SLOTS ends the cell. Four faces on a slot where a coarse
 ## cell meets fine ones, and the whole cell's range is slot 0 to SLOTS.
 func slot_begin(c: int, d: int) -> int:
 	return slot_off[c * 7 + d]
-
-
-## Centre-to-centre distance across face `f` owned by cell `c`, m; a box edge has half a cell beyond it.
-func face_distance(c: int, f: int) -> float:
-	var e: float = cell_edge(c)
-	var m: int = neighbours[f]
-	return 0.5 * (e + cell_edge(m)) if m >= 0 else e
 
 
 func build(p_nx: int, p_ny: int, p_nz: int, p_cell_size: float, p_origin: Vector3) -> void:
@@ -165,24 +132,28 @@ func build(p_nx: int, p_ny: int, p_nz: int, p_cell_size: float, p_origin: Vector
 	refine(PackedByteArray())
 
 
-## Build a box centred on `centre` that contains a sphere of `radius`, at `p_cell_size` resolution.
-func build_centred(centre: Vector3, radius: float, p_cell_size: float) -> void:
-	var d: Vector3i = dims_for(radius, p_cell_size)
-	var half: float = 0.5 * float(d.x) * p_cell_size
-	build(d.x, d.y, d.z, p_cell_size, centre - Vector3(half, half, half))
-
-
-## Split the base cells `mask` marks into eight, and rebuild the face list. The mask is the whole
-## statement of where the grid is fine, so refining twice with the same mask is one grid.
 func refine(mask: PackedByteArray) -> void:
-	var g: Dictionary = LAGridGeometry.build(Vector3i(nx, ny, nz), mask)
+	_adopt_geometry(LAGridGeometry.build(Vector3i(nx, ny, nz), mask))
+
+
+## Refine to `target_edge_m` in the surface band, 2:1 balanced, under `budget` cells; the edge reached.
+func refine_graded(centre: Vector3, terrain: Object, below_m: float, above_m: float,
+		target_edge_m: float, budget: int = 0) -> float:
+	var g: Dictionary = LAGridGeometry.build_to_budget(Vector3i(nx, ny, nz), origin, cell_size, centre,
+		terrain, below_m, above_m, target_edge_m, budget if budget > 0 else 2147483647)
+	_adopt_geometry(g)
+	return float(g.get("target_edge_m", cell_size))
+
+
+func _adopt_geometry(g: Dictionary) -> void:
 	cell_count = int(g["cell_count"])
 	levels = g["levels"]
 	max_level = int(g["max_level"])
 	cell_base = g["cell_base"]
-	cell_oct = g["cell_oct"]
+	cell_local = g["cell_local"]
+	cell_morton = g["cell_morton"]
 	base_head = g["base_head"]
-	base_split = g["base_split"]
+	base_leaves = g["base_leaves"]
 	slot_off = g["slot_off"]
 	neighbours = g["neighbours"]
 	partners = g["partners"]

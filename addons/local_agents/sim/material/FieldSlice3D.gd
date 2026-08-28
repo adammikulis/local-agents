@@ -105,8 +105,9 @@ func apply(field, body, terrain) -> bool:
 	# THE SLICE IS A REGION OF THE ONE CONSTRUCTION PATH, not a second one, and it is handed the SAME
 	# refinement rule the whole body gets: a shell around the terrain surface, refined only where a
 	# cell is coarser than that shell. A slice whose own edge already resolves it stays uniform.
-	field.setup_box(centre - half, dims, cell_size, terrain, body.center(), cell_size,
-		LocalAgentSimWorld.MODELLED_ATMOSPHERE_HEIGHT_M)
+	field.setup_box(centre - half, dims, cell_size, terrain, body.center(), LocalAgentSimWorld.MODELLED_ATMOSPHERE_HEIGHT_M,
+		LocalAgentSimWorld.MODELLED_ATMOSPHERE_HEIGHT_M,
+		LAFieldGridBudget.target_edge_m("planet", float(body.radius()), LAMaterialField3D.INITIAL_TEMP))
 	_configure_boundary(field)
 	return error == ""
 

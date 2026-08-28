@@ -15,7 +15,7 @@ question, which nothing could previously ask: should this be a number at all, an
 Every row names what would have to exist for the number to stop being needed. A row that never acquires
 that field is a value nobody intends to fix.
 
-**MAX_DECLARED: 253**
+**MAX_DECLARED: 254**
 
 The gate fails if the table grows past that ceiling. To add a number, derive it, bind it, or raise the
 ceiling in the same commit and argue for it in the message. When the count drops, lower the ceiling to bank
@@ -82,6 +82,7 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/game/render/VegetationRenderer.gd` | `_INITIAL_CAP` | 512 | presentation or diagnostic buffer length, not physics | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/sim/SimWorld.gd` | `SLOW_BUILD_CELLS` | 250000 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/SimWorld.gd` | `MODELLED_ATMOSPHERE_HEIGHT_M` | 1.0e5 | modelling extent: how much air the box holds | a body that declares its own atmosphere mass |
+| `addons/local_agents/sim/material/FieldGridBudget3D.gd` | `CELLS_PER_SCALE_HEIGHT` | 2.0 | cells one atmospheric scale height is cut into at the target edge; a DISCRETISATION of the air column, held under `docs/CELL_BUDGET` | a grid that resolves the scale height everywhere, which the cell budget forbids at planet scale |
 | `addons/local_agents/sim/terrain/PlanetShape.gd` | `FINEST_WAVELENGTH_M` | 4.0e2 | shortest relief wavelength the seeded body carries; a resolution of the declared shape, not a rate | 0.5 grows the terrain by simulating geology forward |
 | `addons/local_agents/sim/terrain/PlanetShape.gd` | `CDF_SAMPLES` | 8192 | directions the relief cascade's own distribution is measured over before the hypsographic curve is laid along it | a closed form for the cascade's distribution |
 | `addons/local_agents/sim/terrain/PlanetShape.gd` | `CURVE_POINTS` | 65 | control points of that map | the same closed form |
