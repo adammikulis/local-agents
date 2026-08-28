@@ -33,7 +33,7 @@ const char *const NONE_[] = { nullptr };
 const char *const STATE_GATES[] = { "check_rung_state.sh", nullptr };
 const char *const STATE_PASSES[] = { "StateDerivePass.gd", nullptr };
 
-const char *const GRAVITY_GATES[] = { "check_gravity_solve.sh", nullptr };
+const char *const GRAVITY_GATES[] = { "check_gravity_solve.sh", "check_hydrosphere_mass.sh", nullptr };
 const char *const GRAVITY_PASSES[] = { "GravityPass.gd", "ReducePass.gd", nullptr };
 const char *const GRAVITY_REDUCE[] = { "@amounts", "energy_stock", "solid_cells", "carbonate_cells",
 	"snow_cells", "ice_cells", "crust_latch", "crust_moved", "nonfinite_cells", "nonfinite_*",
@@ -48,11 +48,14 @@ const char *const GRAVITY_REDUCE[] = { "@amounts", "energy_stock", "solid_cells"
 	"solid_detritus", "solid_fuel", "solid_org_h", "solid_org_o",
 	"organic_hc_min", "organic_oc_min", "organic_coalified", nullptr };
 
-const char *const HYDRO_GATES[] = { "check_atmosphere_at_rest.sh", nullptr };
+const char *const HYDRO_GATES[] = { "check_hydrostatic_seed.sh", nullptr };
 const char *const HYDRO_PASSES[] = { "PressurePass.gd", nullptr };
 const char *const HYDRO_REDUCE[] = { "pressure_*", nullptr };
 
-const char *const ACOUSTIC_GATES[] = { "check_rung_acoustic.sh", nullptr };
+// A column at rest stays at rest only where there is momentum to move it, so the rest gate is this
+// rung's and not the one below's.
+const char *const ACOUSTIC_GATES[] = { "check_rung_acoustic.sh", "check_atmosphere_at_rest.sh",
+	nullptr };
 const char *const ACOUSTIC_PASSES[] = { "TransportPass.gd", nullptr };
 const char *const ACOUSTIC_TRANSPORT[] = { "h2o_liquid_advect", "h2o_vapour_eddy", "o2_eddy", "co2_eddy",
 	"n2_eddy", "h2_eddy", "co_eddy", "so2_eddy", "h2s_eddy", "ch4_eddy",

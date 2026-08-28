@@ -5,9 +5,6 @@ extends RefCounted
 
 ## Solid shells below the ground surface that are permeable.
 const REGOLITH_CELLS: int = 4
-## Initial saturation of the regolith pore space.
-const INITIAL_TABLE_FRAC: float = 0.5
-
 var _f = null
 
 
@@ -25,7 +22,8 @@ static func porosity_at(shells: int) -> float:
 	return LAPhysical.REGOLITH_SURFACE_POROSITY * exp(-z / LAPhysical.COMPACTION_LENGTH_M)
 
 
-## Compute the permeability mask, the grain-size field and the initial water table.
+## Compute the permeability mask, the grain-size field and the pore fraction. The water that stands in
+## those pores is the body's own, and LAMaterialFieldHydrosphere3D lays it.
 func compute() -> void:
 	if _f._grid == null or _f._solid.size() != _f._cell_count:
 		return
@@ -36,9 +34,6 @@ func compute() -> void:
 	_f._grain.resize(cell_count)                           # representative grain diameter, metres
 	_f._porosity = PackedFloat32Array()
 	_f._porosity.resize(cell_count)                        # Athy pore fraction, 0 outside the regolith band
-	if _f._h2o.size() != cell_count:
-		_f._h2o = PackedFloat32Array()
-		_f._h2o.resize(cell_count)
 	var sea_r: float = _f.sea_radius()
 	var burial: PackedInt32Array = PackedInt32Array()
 	burial.resize(cell_count)
@@ -62,4 +57,3 @@ func compute() -> void:
 		_f._grain[c] = LAPhysical.GRAIN_D_LOWLAND_M * pow(
 			LAPhysical.GRAIN_D_UPLAND_M / LAPhysical.GRAIN_D_LOWLAND_M, height)
 		_f._porosity[c] = phi
-		_f._h2o[c] = phi * INITIAL_TABLE_FRAC * LAMaterialField3D.MAX_MASS  # prime the water table, mol/m^3

@@ -207,20 +207,12 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       any scale height this planet can have, and `MODELLED_ATMOSPHERE_HEIGHT_M` is itself under one cell.
       There is no lapse rate, no vertical structure and no honest pressure gradient for the momentum
       equation to work against, and the open cells that remain are mostly the cube's corners.
-      **Reproduce:** `scripts/sim_run.sh --frames 10` — the DRY open-pair class carries the whole
-      `PRESSURE_BROKEN` count while rock and surface read zero.
-- [ ] **The hydrostatic rung does not stay in the balance it is seeded into, on the sphere.** The pressure
-      audit counts open-cell inversions on the default box while the rock and surface classes read zero,
-      and the sealed one-cell-wide column on the body axis is the arm that does not show it.
-      **Reproduce:** `bash scripts/check_process_ladder.sh` stops at rung `hydrostatic`, and
-      `scripts/agent_harness.sh sim --rung=2 --frames 8` prints the `PRESSURE_BROKEN` line directly.
-- [ ] **The hydrosphere is seeded by fill, not by the planet's water mass.** Every open cell below sea
-      level and every flooded basin cell is written brim-full of liquid, so the seeded H2O mass is set by
-      how many cells the grid puts under sea level rather than by how much water the body has.
-      **Reproduce:** `rg -n MAX_MASS addons/local_agents/sim/material/MaterialField3D.gd
-      addons/local_agents/sim/material/MaterialFieldLakes3D.gd`, then compare `h2o_total` from
-      `scripts/agent_harness.sh sim --frames 6 --rung=1 --report h2o_total` against the body's own
-      hydrosphere.
+      **Reproduce:** `scripts/sim_run.sh --rung 2 --frames 6 --report alt_band_temp_min` against
+      `bash scripts/check_alt_bands.sh` — every populated altitude band reads one temperature.
+- [ ] **An open cell leaves the pressure it was seeded at as soon as the world is stepped.** The seed
+      publishes a pressure field and `state_derive.glsl` states its own from the matter in the cell; on the
+      default box the two are not the same field, and nothing has moved.
+      **Reproduce:** `scripts/sim_run.sh --rung 2 --frames 6 --report pressure_rest_rel`.
 - [ ] **The grid cannot resolve its own aquifer.** `LAVoxelGrid.cell_size` is one number for all three axes
       and for every cell, so the few cells of regolith between the surface and the water table are as coarse
       as the sky. The same axis-aligned refinement the atmosphere above needs answers this one: resolution

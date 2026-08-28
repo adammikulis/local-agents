@@ -28,6 +28,11 @@ constexpr double SOLAR_SYSTEM_AGE_YEARS = 4.567e9;
 
 constexpr double EARTH_MASS_KG = 5.97217e24;        // IAU 2015 B3 nominal terrestrial mass
 constexpr double LUNAR_MASS_KG = 7.346e22;          // Williams et al. 2014, LLR
+// Water in the whole hydrosphere, kg: oceans, ice caps, groundwater, lakes and the air
+// (Gleick 1996, Water in Crisis, Table 2.1).
+constexpr double EARTH_HYDROSPHERE_KG = 1.386e21;
+// The share of it standing in pore space rather than on the surface (Gleick 1996, Table 2.1).
+constexpr double EARTH_GROUNDWATER_KG = 2.34e19;
 
 // Total angular momentum of the Earth-Moon pair. Tides move it between spin and orbit; they do not change
 // the sum, so this one number holds for the epoch as it does for today (Canup 2012, Science 338:1052;
@@ -161,6 +166,8 @@ Dictionary LABodySeeds::rows() {
 
 	Dictionary planet;
 	planet["mass_kg"] = EARTH_MASS_KG;
+	planet["hydrosphere_kg"] = EARTH_HYDROSPHERE_KG;
+	planet["groundwater_kg"] = EARTH_GROUNDWATER_KG;
 	planet["position_m"] = Vector3();
 	planet["velocity_m_s"] = Vector3(0.0, 0.0, v_orbit);
 	planet["spin_axis"] = spin;
