@@ -111,6 +111,9 @@ func _uset(kernel: RID, entries: Array) -> RID:
 		return RID()
 	var uniforms: Array[RDUniform] = []
 	for e in entries:
+		if not (e[1] as RID).is_valid():
+			push_error("%s: binding %d has no buffer, so this pass will not run." % [_label(), int(e[0])])
+			return RID()
 		var u: RDUniform = RDUniform.new()
 		u.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
 		u.binding = int(e[0])

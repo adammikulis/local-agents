@@ -247,8 +247,9 @@ printf '%s\n' "$out" | grep '^check_escape_law:' >&2 || true
 
 # --- arm two: the seeded world loses hydrogen through the top and the ledger's pair closes ------------
 ERRLOG="$(mktemp "${TMPDIR:-/tmp}/la_escape.XXXXXX")"
+# The escape rows arrive at the chemistry rung; the default one has no escape in it to measure.
 world_out="$(la_report hydrogen_bnd_crossed,hydrogen_bnd_in,hydrogen_rel_drift \
-  --path "$REPO_ROOT" --frames "${LA_ESCAPE_FRAMES:-20}" 2>"$ERRLOG")"
+  --path "$REPO_ROOT" --rung "${LA_ESCAPE_RUNG:-8}" --frames "${LA_ESCAPE_FRAMES:-20}" 2>"$ERRLOG")"
 world_rc=$?
 case "$world_rc" in
   0|122|123|126) ;;
