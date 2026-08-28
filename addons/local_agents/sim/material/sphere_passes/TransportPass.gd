@@ -428,10 +428,6 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 	# Mass does not move without its heat, so the enthalpy field is required of every row that carries mass.
 	# The detector-list buffers a synthetic row compacts into; empty for an ordinary row.
 	var list: Dictionary = LATransportRecords.list_buffers(String(row.get("list", "")))
-	if String(row.get("list", "")) != "" and list.is_empty():
-		push_error("TransportPass: no \"%s\" list, so the %s row does not move."
-			% [String(row["list"]), channel])
-		return RID()
 	var entries: Array = []
 	for key in BINDINGS.keys() + [channel, drive, resist, aux, frac, "h_h2o", "h_silicate",
 			"h_sensible", "bnd_void", "bnd_h_void", String(list.get("idx", "")),

@@ -744,6 +744,23 @@ void list_append(uint g) {
 uint act_listed() { return level_args[args_base() + 6u]; }
 
 
+// A ROW THE FIELD DOES NOT DRIVE CANNOT BE MEASURED ASLEEP BY THE FIELD. The escape law's push is the
+// star's XUV and the zenith angle it arrives at, and both change while every cell stands still, so a
+// face onto space stays awake whatever the field did.
+bool la_outside_driven(uint c) {
+	if (params.law != LAW_ESCAPE) {
+		return false;
+	}
+	uint b = c * N_SLOTS;
+	for (uint d = 0u; d < N_SLOTS; ++d) {
+		if (ghost[b + d] == GHOST_SPACE) {
+			return true;
+		}
+	}
+	return false;
+}
+
+
 // One cell into the compaction queue, counted into its level's bin; a second claimant is dropped.
 void act_claim_append(uint n) {
 	if (atomicExchange(act_claim[n], 1u) != 0u) {
@@ -811,7 +828,7 @@ void main() {
 	if (params.pass_id == PASS_ACT_AGE) {
 		if (gidx < act_listed()) {
 			uint c = level_idx[act_base() + gidx];
-			quiet[act_base() + c] = quiet[act_base() + c] + 1u;
+			quiet[act_base() + c] = la_outside_driven(c) ? 0u : quiet[act_base() + c] + 1u;
 		}
 		return;
 	}

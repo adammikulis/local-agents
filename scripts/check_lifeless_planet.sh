@@ -62,6 +62,12 @@ func _run(cond: Dictionary) -> Dictionary:
 		bufs[String(name)] = _f32(_filled(cc, 0.0), owned)
 	for name in ["col_e", "strike"]:
 		bufs[name] = _f32(_filled(cc, 0.0), owned)
+	# A record that fires says WHERE, so the transport mask cannot leave that cell asleep. The reaction
+	# pass binds the wake queue, so a rig that drives that pass builds it.
+	var act: Dictionary = LAActiveCells.buffers(cc, 1)
+	for key in act:
+		var spec: Variant = act[key]
+		bufs[String(key)] = _f32(_filled(int(spec["n"]) if spec is Dictionary else int(spec), 0.0), owned)
 	bufs["cell_vol"] = _f32(_filled(cc, CELL * CELL * CELL), owned)
 	var grav: PackedFloat32Array = PackedFloat32Array()
 	grav.resize(cc * 3)
@@ -200,7 +206,9 @@ fi
 # ARM TWO — the world the SIM seeds is lifeless and unoxygenated, and must stay so.
 # ---------------------------------------------------------------------------------------------------
 SIM_FRAMES="${LA_LIFELESS_FRAMES:-20}"
-sim_out="$(la_report o2_total,biomass_total --path "$REPO_ROOT" --frames "$SIM_FRAMES" 2>&1)"
+# Photosynthesis arrives with the chemistry rung; the default one holds no reaction pass at all.
+sim_out="$(la_report o2_total,biomass_total --path "$REPO_ROOT" --rung "${LA_LIFELESS_RUNG:-8}" \
+  --frames "$SIM_FRAMES" 2>&1)"
 sim_rc=$?
 printf '%s\n' "$sim_out" | grep -E '^(o2_total|biomass_total)' || true
 fail=0
