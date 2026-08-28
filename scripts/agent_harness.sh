@@ -349,6 +349,7 @@ if [[ "$cmd" == "lint" ]]; then
     gate check_duplicate_logic
     gate check_never_assigned
     gate check_voxel_grid
+    gate check_hypsometry
     gpu_gate check_gravity_solve
     gpu_gate check_finite_channels
     gpu_gate check_radiative_row

@@ -8,7 +8,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_rung.sh"
 
 FRAMES="${LA_HYDROSTATIC_FRAMES:-6}"
-KEYS="pressure_inversions,pressure_audited,pressure_inv_open,pressure_inv_rock,pressure_inv_surface"
+KEYS="pressure_inversions,pressure_audited,pressure_inv_open,pressure_inv_rock,pressure_inv_surface,pressure_aud_open,pressure_aud_rock,pressure_aud_surface"
 
 out="$(la_rung_report 2 "$FRAMES" "$KEYS")"
 rc=$?
@@ -16,9 +16,11 @@ la_rung_require "$out" pressure_inversions pressure_audited || exit 2
 
 inv="$(la_rung_value "$out" pressure_inversions)"
 aud="$(la_rung_value "$out" pressure_audited)"
-printf 'HYDROSTATIC_SEED={"inversions":%s,"audited":%s,"open":%s,"rock":%s,"surface":%s}\n' \
-	"$inv" "$aud" "$(la_rung_value "$out" pressure_inv_open)" \
-	"$(la_rung_value "$out" pressure_inv_rock)" "$(la_rung_value "$out" pressure_inv_surface)"
+printf 'HYDROSTATIC_SEED={"inversions":%s,"audited":%s,"open":%s/%s,"rock":%s/%s,"surface":%s/%s}\n' \
+	"$inv" "$aud" \
+	"$(la_rung_value "$out" pressure_inv_open)" "$(la_rung_value "$out" pressure_aud_open)" \
+	"$(la_rung_value "$out" pressure_inv_rock)" "$(la_rung_value "$out" pressure_aud_rock)" \
+	"$(la_rung_value "$out" pressure_inv_surface)" "$(la_rung_value "$out" pressure_aud_surface)"
 
 if ! awk -v a="$aud" 'BEGIN{exit !(a > 0)}'; then
 	echo "check_hydrostatic_seed: the audit examined no vertical pair, so it asserts nothing about the" >&2
