@@ -32,7 +32,7 @@ static func rows() -> Dictionary:
 		"fuel":        {"residency": "situational", "slot": D.FUEL,      "substance": "organic_c",  "phase": "solid",  "unit": "mol_m3", "kind": "state"},
 		"org_h":       {"residency": "situational", "slot": D.ORG_H,     "substance": "organic_h",  "phase": "solid",  "unit": "mol_m3", "kind": "state"},
 		"org_o":       {"residency": "situational", "slot": D.ORG_O,     "substance": "organic_o",  "phase": "solid",  "unit": "mol_m3", "kind": "state"},
-		"fert":        {"residency": "slow",        "slot": D.FERT,      "substance": "fixed_n",    "phase": "solid",  "unit": "mol_m3", "kind": "state"},
+		"fert":        {"residency": "slow",        "slot": D.FERT,      "substance": "fixed_n",    "phase": "dissolved", "unit": "mol_m3", "kind": "state"},
 		"charge":      {"residency": "hot",         "slot": -1,          "substance": "",           "phase": "",       "unit": "", "kind": "state"},
 		"shock":       {"residency": "situational", "slot": -1,          "substance": "",           "phase": "",       "unit": "", "kind": "state"},
 		"mom_x":       {"residency": "hot",         "slot": -1,          "substance": "",           "phase": "",       "unit": "", "kind": "state"},

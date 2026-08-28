@@ -94,10 +94,11 @@ func _run(p_ghost: float, mode: int = LAFieldBoundary3D.CONSTANT, vel: Vector3 =
 		bufs[String(name)] = _f32(_filled(tc, 0.0), owned)
 	for name in LAChannels.derived_buffers():
 		bufs[String(name)] = _f32(_filled(tc, 0.0), owned)
-	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "celerity", "speed", "rad_w_m3",
+	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "celerity", "k_cond", "speed", "rad_w_m3",
 			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi"]:
 		bufs[name] = _f32(_filled(tc, 0.0), owned)
 	bufs["gravity"] = _f32(_filled(tc * 3, 0.0), owned)
+	bufs["g_rest"] = _f32(_filled(tc * 3, 0.0), owned)
 	bufs["nbr"] = _i32(grid.neighbours, owned)
 	var ghost_tbl: PackedInt32Array = PackedInt32Array()
 	ghost_tbl.resize(tc * LAVoxelGrid.SLOTS)
@@ -117,12 +118,10 @@ func _run(p_ghost: float, mode: int = LAFieldBoundary3D.CONSTANT, vel: Vector3 =
 		owned.append(r)
 		bufs[String(key)] = r
 
-	# Air of that pressure holds this mass and this sound speed: a cell at P with zero density, or with
-	# no celerity, is not a state matter has.
+	# Air of that pressure holds this mass: a cell at P with zero density is not a state matter has, and
+	# the gas layer's sound speed follows from the pressure and the mass rather than being typed beside it.
 	var rho_air: float = P_IN / (LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK * (T_C + LAPhysical.KELVIN_OFFSET))
-	var c_air: float = sqrt(LAPhysical.AIR_ADIABATIC_INDEX * LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK
-		* (T_C + LAPhysical.KELVIN_OFFSET))
-	for pair: Array in [["pressure", P_IN], ["temp", T_C], ["rho_bulk", rho_air], ["celerity", c_air]]:
+	for pair: Array in [["pressure", P_IN], ["temp", T_C], ["rho_bulk", rho_air]]:
 		var vals: PackedByteArray = _filled(tc, float(pair[1])).to_byte_array()
 		_rd.buffer_update(bufs[String(pair[0])], 0, vals.size(), vals)
 
@@ -286,7 +285,8 @@ if la_cap_dir >/dev/null; then
 else
   CAP="${LA_BND_MOM_CAP:-$(mktemp "${TMPDIR:-/tmp}/bnd_mom_cap.XXXXXX")}"
   OWN_CAP=1
-  sim_out="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --from-seal --frames "$SIM_FRAMES" \
+  sim_out="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --rung 3 --from-seal \
+    --frames "$SIM_FRAMES" \
     --slice-capture "$CAP" --report momentum_book_bnd 2>&1)"
   sim_rc=$?
 fi
@@ -319,7 +319,7 @@ if [ ! -s "$CAP" ] || ! grep -q '"samples"' "$CAP"; then
 fi
 REPLAY_FRAMES="${LA_BND_MOM_REPLAY_FRAMES:-15}"
 replay_out="$(LA_SLICE_REPLAY=1 "$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --slice --keep \
-  --slice-state "$CAP" --frames "$REPLAY_FRAMES" --report momentum_book_bnd 2>&1)"
+  --rung 3 --slice-state "$CAP" --frames "$REPLAY_FRAMES" --report momentum_book_bnd 2>&1)"
 replay_rc=$?
 drop_cap
 # SLICE_BOUNDARY prints inside the engine log, which sim_run does not forward; --keep names it.

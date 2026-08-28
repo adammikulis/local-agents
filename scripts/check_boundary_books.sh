@@ -131,10 +131,11 @@ func _init() -> void:
 		bufs[String(name)] = _f32(_filled(tc, 0.0), owned)
 	for name in LAChannels.derived_buffers():
 		bufs[String(name)] = _f32(_filled(tc, 0.0), owned)
-	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "celerity", "speed", "rad_w_m3",
+	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "celerity", "k_cond", "speed", "rad_w_m3",
 			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi"]:
 		bufs[name] = _f32(_filled(tc, 0.0), owned)
 	bufs["gravity"] = _f32(_filled(tc * 3, 0.0), owned)
+	bufs["g_rest"] = _f32(_filled(tc * 3, 0.0), owned)
 	bufs["nbr"] = _i32(grid.neighbours, owned)
 	var ghost_tbl: PackedInt32Array = PackedInt32Array()
 	ghost_tbl.resize(tc * LAVoxelGrid.SLOTS)

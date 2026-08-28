@@ -12,18 +12,18 @@ const TransportPassScript: GDScript = preload("res://addons/local_agents/sim/mat
 ## declaration: the absence check and the uniform set ask the same list.
 const BOUND: Dictionary = {
 	"solid": 14, "cement": 15, "regolith": 16, "grain": 17, "pos": 18, "liquid": 19, "org_hc": 20,
-	"h_j_m3": 21, "pressure": 22,
+	"h_j_m3": 21, "pressure": 22, "ke_j_m3": 90,
 	"temp": 23, "mom_x": 25, "mom_y": 26, "mom_z": 27, "vel_x": 28, "vel_y": 29, "vel_z": 30,
 	"org_oc": 31, "rho_bulk": 32, "conductivity": 33, "h2o_solid": 34, "h2o_liquid": 35,
 	"h2o_vapour": 36, "silicate_melt": 37, "org_fresh": 38, "cell_vol": 40, "speed": 41, "lat": 42,
 	"alt": 43, "nonfinite": 44, "h_h2o": 45, "h_silicate": 46, "h_sensible": 47, "cap_sensible": 48,
-	"gravity": 49, "bodyf_x": 50, "bodyf_y": 51, "bodyf_z": 52, "celerity": 53, "rad_w_m3": 65}
+	"gravity": 49, "bodyf_x": 50, "bodyf_y": 51, "bodyf_z": 52, "k_cond": 53, "rad_w_m3": 65, "g_rest": 39}
 
 ## One mole of organic carbon per cell — the pool below which a cell's C:H:O ratio is fp32 noise.
 const ORG_MIN_POOL_MOL: float = 1.0
 
 ## props row layout — state_derive.glsl PROP_*.
-const PROP_STRIDE: int = 11
+const PROP_STRIDE: int = 12
 const PROP_M: int = 0
 const PROP_C: int = 1
 const PROP_MOL_PER_KG: int = 2
@@ -38,6 +38,9 @@ const PROP_TREF: int = 8
 const PROP_LITHIC: int = 9
 ## 1-based index into the push constant's radiogenic W/kg slots; 0 for a substance with no U/Th/K.
 const PROP_RAD_GROUP: int = 10
+## 1 where the channel is a CONDENSED phase: it fills volume of its own and resists being squeezed. A
+## dissolved solute rides in its solvent and does neither.
+const PROP_CONDENSED: int = 11
 
 ## Push-constant slots for distinct radiogenic trace mixes, re-evaluated at the run's epoch per step.
 const RAD_GROUPS: int = 4
@@ -57,8 +60,8 @@ func _buffers(cc: int) -> Dictionary:
 		"h_sensible": {"n": cc, "ghosts": true}, "cap_sensible": {"n": cc, "ghosts": true},
 		"org_hc": cc, "org_oc": cc, "org_fresh": cc,
 		"bodyf_x": cc, "bodyf_y": cc, "bodyf_z": cc,
-		"celerity": {"n": cc, "ghosts": true},
-		"rad_w_m3": {"n": cc, "ghosts": true}}
+		"k_cond": {"n": cc, "ghosts": true}, "g_rest": {"n": cc * 3, "ghosts": true},
+		"rad_w_m3": {"n": cc, "ghosts": true}, "ke_j_m3": cc}
 
 
 func _setup(bufs: Dictionary, _cc: int) -> void:
@@ -172,9 +175,12 @@ func _props() -> PackedFloat32Array:
 		out[base + PROP_ENTRY] = float(entry)
 		out[base + PROP_FULL] = full[i]
 		out[base + PROP_ALPHA] = float(s.get("expansion_per_k", 0.0))
-		# No bulk modulus is a DECLARED incompressibility, not a guessed one: the substance occupies its
-		# unstressed volume and takes no part in the compressibility sum.
-		out[base + PROP_BULK] = float(s.get("bulk_modulus_pa", 0.0))
+		# CONDENSED fills volume of its own and resists being squeezed, which is what the EOS sums; a gas
+		# is the A term and a dissolved solute rides in its solvent. No modulus is a substance nobody has
+		# measured, and reading one as incompressible lets its cell signal at any speed at all.
+		out[base + PROP_CONDENSED] = 0.0 if mol_per_kg > 0.0 \
+			or String(row.get("phase", "")) == "dissolved" else 1.0
+		out[base + PROP_BULK] = float(s.get("bulk_modulus_pa", s.get("bulk_modulus_solid_pa", 0.0)))
 		out[base + PROP_TREF] = float(s.get("density_ref_t_c", 0.0))
 		out[base + PROP_LITHIC] = 1.0 if bool(row.get("lithic", false)) else 0.0
 		out[base + PROP_RAD_GROUP] = float(_rad_group(s.get("traces", {})))

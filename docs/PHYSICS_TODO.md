@@ -226,8 +226,12 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
 - [ ] **Five matter rows trip the conservation gate on a clean tree** — h2o, nitrogen, mineral, oxidant and
       element_C — and the energy row reads UNMEASURED rather than conserved. **Reproduce:**
       `scripts/check_conservation.sh`.
-- [ ] **`o2_first` latches at zero**, so the o2 row has no scale to be a fraction of. A baseline of zero is
-      not a baseline.
+
+- [ ] **A SEALED BOX'S ENERGY DOES NOT CLOSE OVER ITS TWO STORES.** `energy_kinetic` is the joules of
+      motion the enthalpy state does not hold; it moves while `energy_stock` stands still, so their sum is
+      not a constant. The third store, the potential the body force works against, is F's own item and has
+      no gauge. **Reproduce:** `for n in 4 8; do scripts/sim_run.sh --rung 3 --frames $n --report
+      energy_stock,energy_kinetic; done` and read the pair at one length against the other.
 
 - [ ] **`LA_PASS_PROBE` sums bare fill fractions**, which a kernel moving fill fractions conserves by
       construction, so it cannot see a volume-weighted loss and its silence is not evidence. Every
@@ -236,19 +240,12 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       deleted on purpose (wind speed is an output), so this is the momentum equation, not a missing clamp.
       **THIS IS WHAT DENIES THE TRANSPORT SUBSTEP BUDGET**, so it is upstream of every number the substrate
       prints and of `HANDOFF.md` item 0. It is NOT a near-vacuum division artifact: the peak falls with
-      density but survives it, so gating the gauge hides it rather than fixing it.
-      `transport.glsl`'s `face_p()` reconstruction and the `bodyf_*` body force cancel exactly for a column
-      already in discrete hydrostatic balance, and `LAFieldLithostaticSeed.compress` marches that balance
-      cell by cell along the solved gravity, so a sealed column reads zero wind at every drain. What is
-      left is the PRESSURE: after the transport pass every open cell reads zero, so `pressure_aud_open`
-      audits no pair and `pressure_rest_rel` reads its whole seeded value, while a solid cell keeps a
-      sane one. **Reproduce:** `bash scripts/check_atmosphere_at_rest.sh`, or
-      `LA_PASS_PROBE=n2 scripts/sim_run.sh --slice --slice-box "0,surface,0,1,20,1,2000" --frames 2`.
-      And it GROWS with run
+      density but survives it, so gating the gauge hides it rather than fixing it. And it GROWS with run
       length rather than relaxing, so it is not a seed transient settling — something adds energy.
-      **Reproduce:** `scripts/check_rung_acoustic.sh`, or `scripts/agent_harness.sh sim --rung=3
-      --frames 8` — the smallest world that shows it, driven only by pressure and gravity, which cancel
-      at balance and so may not blow it past its own sound speed.
+      **Reproduce:** `bash scripts/check_wind_subsonic.sh`, or `bash scripts/check_atmosphere_at_rest.sh`
+      whose sealed column moves; or `scripts/agent_harness.sh sim --rung=3 --frames 8`, the smallest
+      world that shows it, driven only by pressure and gravity, which cancel at balance and so may not
+      blow it past its own sound speed.
 - [ ] **`mineral_total` still trips the conservation gate**, and the pass its per-pass probe once named no
       longer exists. Re-localise it against the surviving passes before theorising.
 - [ ] **No per-pass attribution for ELEMENTS.** Mineral and energy each have a probe, and each named its

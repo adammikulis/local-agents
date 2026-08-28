@@ -80,10 +80,13 @@ func seed_tick() -> bool:
 		_seed_under_gravity()
 	# THE WORLD PUT INTO THE BALANCE THE STEPPER HOLDS. Only the hydrostatic rung stands a column;
 	# below it a cell stands at the pressure its own amounts state.
-	var g_solved: PackedFloat32Array = LAFieldLithostaticSeed.vertical(_f, _f._gravity.mirror())
+	_f._gpu.derive_seeded()   # publishes g_rest as geometry: gravitation and this frame's own spin
+	var g_solved: PackedFloat32Array = LAFieldLithostaticSeed.vertical(_f, _f._gpu.read_raw("g_rest"))
 	LAFieldLithostaticSeed.shape_atmosphere(_f, LAMaterialField3D.INITIAL_TEMP, _f._body_measure, g_solved)
 	var p_marched: PackedFloat32Array = LAFieldLithostaticSeed.compress(_f, g_solved)
 	LAFieldEnthalpySeed.seed(_f, LAMaterialField3D.INITIAL_TEMP, p_marched)
+	# WEIGH THE BODY once the march has compressed the rock it stands on.
+	_f._body_measure.measure(_f, LABodySeeds.spin_axis_of(_f._body_key))
 	if _f._gpu != null:                                # hand the device what those walks produced
 		_f._gpu._seed_regolith()                       # permeability mask + grain size
 		_f._gpu._seed("porosity", _f._porosity)        # Athy pore fraction
@@ -98,7 +101,7 @@ func seed_tick() -> bool:
 	if LAProcessSet.has_record("pass", GRAVITY_PASS):
 		_f._gravity.solve_seed()  # the ocean just landed: relax the potential over the WHOLE seeded mass
 	if _f._gpu != null:
-		_f._gpu.derive_seeded()   # the world's own celerity, before the first step is budgeted against it
+		_f._gpu.derive_seeded()   # the world's own bulk state, before the first step is budgeted on it
 	_store_seeded(bake)
 	return true
 
@@ -120,6 +123,8 @@ func _load_seeded(k: String) -> bool:
 	if LAProcessSet.has_record("pass", GRAVITY_PASS):
 		_f._gravity.solve_seed()
 	_f._gpu.derive_seeded()
+	# The body is the matter it is made of, so a world that was LOADED is weighed like one that was walked.
+	_f._body_measure.measure(_f, LABodySeeds.spin_axis_of(_f._body_key))
 	return true
 
 

@@ -329,7 +329,10 @@ void LABodyMeasure::measure(Object *p_field, const Vector3 &p_spin_axis) {
 		mass_by_channel[names[k]] = per[k];
 	}
 	surface_r_m = r_max;
-	inertia_kg_m2 = i_acc;
+	// A WINDOW ON A BODY IS NOT THE BODY. A slice holds a slab of it, so the mass it sums carries no
+	// moment about the body's axis and the inertia stays UNMEASURED: the spin rate has no denominator
+	// and there is no rotating frame, rather than one whose rate is the slab's own.
+	inertia_kg_m2 = p_field->get("_slice").get_type() == Variant::NIL ? i_acc : -1.0;
 	if (moles > 0.0 && gas_kg > 0.0) {
 		gas_constant_j_kgk = la_physical("GAS_CONSTANT_J_MOL_K") * moles / gas_kg;
 	}

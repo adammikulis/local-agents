@@ -398,8 +398,7 @@ func sample_solidity() -> void:
 ## Seeded rock is fully consolidated bedrock, layered as the differentiated planet LAPlanetComposition
 ## derives from the element registry.
 func _seed_silicate() -> void:
-	if _silicate.size() != _cell_count or _cement.size() != _cell_count \
-			or _solid.size() != _cell_count:
+	if _silicate.size() != _cell_count or _cement.size() != _cell_count or _solid.size() != _cell_count:
 		return
 	LAPlanetComposition.seed(self, INITIAL_TEMP)
 	# Shape the CPU arrays BEFORE the driver's seed_field reads them. The hydrostatic balance waits for

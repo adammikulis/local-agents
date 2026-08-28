@@ -161,19 +161,15 @@ void LAFieldHydrosphereSeed::seed(Object *p_field) {
 	if (!(mass_mol > 0.0)) {
 		return;
 	}
-	const double sat = ground_kg / (mass_mol * pore);
+	const double sat = MIN(ground_kg / (mass_mol * pore), 1.0);
 	const double want = (water_kg - ground_kg) / mass_mol;
-	if (sat > 1.0) {
-		UtilityFunctions::push_error("LAFieldHydrosphereSeed: the body's groundwater is more water than the "
-				"regolith has pore space for, so it cannot stand in the crust.");
-		return;
-	}
-	// A BOX THAT IS A WINDOW ON THE BODY HOLDS PART OF ITS OCEAN. The basins in it fill and the rest of the
-	// water is elsewhere on the body; scripts/check_hydrosphere_mass.sh holds the whole box to the whole
-	// hydrosphere, which is where a body that cannot hold its own water shows up.
-	if (want > double(floors.size())) {
-		UtilityFunctions::push_warning("LAFieldHydrosphereSeed: the basins in this box hold less than the "
-				"body's water, so they fill and the rest of it stands outside the box.");
+	// A BOX THAT IS A WINDOW ON THE BODY HOLDS PART OF ITS OCEAN AND PART OF ITS GROUNDWATER. The basins
+	// and the pore space in it fill and the rest of the water is elsewhere on the body;
+	// scripts/check_hydrosphere_mass.sh holds the whole box to the whole hydrosphere, which is where a
+	// body that cannot hold its own water shows up.
+	if (want > double(floors.size()) || ground_kg > mass_mol * pore) {
+		UtilityFunctions::push_warning("LAFieldHydrosphereSeed: the basins and pore space in this box hold "
+				"less than the body's water, so they fill and the rest of it stands outside the box.");
 	}
 	// THE ONE SCALE ON BASIN DEPTH THAT SPENDS THE BUDGET, capped at a brim-full cell: water poured into a
 	// basin that is already full runs into the next one.

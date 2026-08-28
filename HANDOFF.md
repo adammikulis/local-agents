@@ -16,23 +16,33 @@ on the file it named. If you know the cause you are close enough to fix it, so f
 
 ## 0. THE WIND BLOWS PAST ITS OWN SOUND SPEED, AND THE DEFAULT BOX IS NOT EXEMPT
 
-`scripts/sim_run.sh --slice --frames 5` refuses to transport the h2o, silicate, fungus and shock rows:
-their own cells carry a signal speed at or past light, so no timestep integrates them and the harness
-withholds every number.
+`bash scripts/check_process_ladder.sh` stops at `hydrostatic`: `bash scripts/check_hydrostatic_seed.sh`
+counts a handful of open vertical pairs whose pressure falls going down. They are the columns
+`LAFieldLithostaticSeed::shape_atmosphere` refuses because their surface sits under the sea-level datum.
+Deleting that refusal reads zero inversions and seeds tens of atmospheres into open ground kilometres
+under the datum, which the sky flood reaches through the box's own outside; the wind then reads eight
+figures. Reproduce either way by flipping the `surf[c] < datum` test.
 
-`scripts/check_rung_acoustic.sh` is the acceptance test, and it names the smallest world that shows it:
-`scripts/agent_harness.sh sim --rung=3 --frames 8` holds state, gravity, the hydrostatic pressure and the
-acoustic group and nothing else, and the wind is already past the substrate's own sound speed there. The
-rungs under it are green, so nothing below the acoustic group is party to it.
+Above it, `bash scripts/check_rung_acoustic.sh` reads a cell moving faster than its own sound speed. The
+peak stops climbing and holds, and it holds far past the ~70 m/s of a real jet stream, on a world nothing
+drives but pressure and gravity, which cancel at balance. **Reproduce:**
+`for n in 4 8 16; do scripts/sim_run.sh --rung 3 --frames $n --report wind_speed_max; done`.
+
+`bash scripts/check_wind_subsonic.sh` reads that same peak against the sound speed the substrate states
+for it.
+
+`bash scripts/check_atmosphere_at_rest.sh` is rung 3's other gate: its sealed column moves. Its vented
+control opens the column's side and reads past it, so the gate has a control.
 `docs/PHYSICS_TODO.md` E carries the wind as its own item, and E is downstream of item 1. Until it reads a physical speed no run's numbers
 mean anything. `rho_max_open` is the reading that shows it: an open cell may not be denser than the densest
 substance the table declares, and that is this item's acceptance test.
 
-The slice reaches non-finite state and publishes no `momentum_book_bnd`, so
-`check_boundary_momentum_book.sh`'s replay arm fails on its absence. Reproduce:
-`scripts/sim_run.sh --frames 20 --slice-capture C`, then
-`scripts/sim_run.sh --slice --slice-state C --frames 20 --report rho_max_open,celerity_max`.
+`bash scripts/check_boundary_momentum_book.sh` publishes `momentum_book_bnd` on any run holding momentum
+rows; its twenty-frame capture arm runs long enough for the wind to refuse the transport.
 An offset component of `surface` puts a box on the body without naming a radius.
+
+A slice's one basin cell is seeded brim full and reads back superheated. Reproduce:
+`LA_PASS_PROBE=h2o scripts/sim_run.sh --slice --rung 3 --frames 1`.
 
 ## 1. BUILD THE GRADED GRID. IT IS THE TRUNK AND ITEM 0 WAITS ON IT
 

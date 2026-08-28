@@ -48,11 +48,10 @@ static func rows() -> Array:
 		out.append({"key": "all_" + name, "source": name, "op": Op.SUM, "mask": Mask.ALL, "weight": true})
 		out.append({"key": "open_" + name, "source": name, "op": Op.SUM, "mask": Mask.OPEN, "weight": true})
 	out.append({"key": "energy_stock", "source": "h_j_m3", "op": Op.SUM, "mask": Mask.ALL, "weight": true})
-	# Net charge over the whole box, coulombs: C/m^3 weighted by cell volume. `charge_gross` is the charge
-	# that EXISTS, the scale a net that should read zero is a fraction of.
+	out.append({"key": "energy_kinetic", "source": "ke_j_m3", "op": Op.SUM, "weight": true})
+	# Coulombs over the box; `charge_gross` is the charge that EXISTS, the scale a net is a fraction of.
 	out.append({"key": "charge_stock", "source": "charge", "op": Op.SUM, "mask": Mask.ALL, "weight": true})
-	out.append({"key": "charge_gross", "source": "charge", "op": Op.SUM_ABS, "mask": Mask.ALL,
-		"weight": true})
+	out.append({"key": "charge_gross", "source": "charge", "op": Op.SUM_ABS, "weight": true})
 	out.append({"key": "solid_cells", "source": "solid", "op": Op.COUNT_GT, "threshold": 0.0})
 	# Conserved amounts are finite reals; state_derive.glsl counts a cell's NaN and infinite ones.
 	out.append({"key": "nonfinite_cells", "source": "nonfinite", "op": Op.SUM, "mask": Mask.ALL})

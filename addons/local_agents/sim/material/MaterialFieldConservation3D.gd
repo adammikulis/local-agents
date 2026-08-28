@@ -30,7 +30,8 @@ const GATED: Dictionary = {
 	"lith_Cl_total": {"rel": "lith_Cl_rel_drift"},
 	"lith_P_total": {"rel": "lith_P_rel_drift"},
 	"energy_stock": {"rel": "energy_residual_rel", "turnover": "energy_turnover_j", "stock": "energy_stock"},
-	"charge_stock": {"rel": "charge_rel_drift", "turnover": "charge_gross", "stock": "charge_gross"},
+	"charge_stock": {"rel": "charge_rel_drift", "turnover": "charge_gross", "stock": "charge_gross",
+		"needs": "charge_separate"},
 }
 
 var _f = null
@@ -61,6 +62,9 @@ func check(d: Dictionary) -> Dictionary:
 	var unmeasured: PackedStringArray = PackedStringArray()
 	for key in GATED:
 		var spec: Dictionary = GATED[key]
+		# A quantity no process in THIS world produces is absent, not a stock that went unmeasured.
+		if spec.has("needs") and not LAProcessSet.has_record("transport", String(spec["needs"])):
+			continue
 		var rel = d.get(String(spec["rel"]))
 		var allowed: float = _allowed_rel(d, spec, floor_rel)
 		# A tolerance at or past 1.0 cannot tell a wholly unaccounted window from round-off, so the row reads
