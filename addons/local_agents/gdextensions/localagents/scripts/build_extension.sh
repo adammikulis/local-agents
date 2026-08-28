@@ -18,6 +18,7 @@ TOOLCHAIN_FILE=""
 CMAKE_ARGS=()
 CLEAN_BUILD="false"
 CLEAN_DEPS="false"
+PRINT_DEPS_KEY="false"
 
 usage() {
     cat <<USAGE
@@ -32,6 +33,7 @@ Options:
   --cmake-arg <arg>                 Extra argument passed to CMake configure step.
   --clean                           Remove the build directory before configure.
   --clean-deps                      Remove this key's dependency cache entry, forcing a refill.
+  --print-deps-key                  Print the dependency cache key for this tree and exit.
   -h, --help                        Show this help.
 USAGE
 }
@@ -272,6 +274,10 @@ while [[ $# -gt 0 ]]; do
             CLEAN_DEPS="true"
             shift
             ;;
+        --print-deps-key)
+            PRINT_DEPS_KEY="true"
+            shift
+            ;;
         -h|--help)
             usage
             exit 0
@@ -295,12 +301,6 @@ if [[ -z "$TARGET_PLATFORM" ]]; then
     exit 1
 fi
 
-if [[ "$CLEAN_BUILD" == "true" ]]; then
-    rm -rf "${BUILD_DIR}"
-fi
-
-mkdir -p "${BUILD_DIR}" "${BIN_DIR}"
-
 LAUNCHER_ARGS=()
 if command_exists ccache; then
     LAUNCHER_ARGS=(-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache)
@@ -320,6 +320,17 @@ deps_key() {
 }
 
 DEPS_KEY="$(deps_key)"
+if [[ "$PRINT_DEPS_KEY" == "true" ]]; then
+    echo "${DEPS_KEY}"
+    exit 0
+fi
+
+if [[ "$CLEAN_BUILD" == "true" ]]; then
+    rm -rf "${BUILD_DIR}"
+fi
+
+mkdir -p "${BUILD_DIR}" "${BIN_DIR}"
+
 DEPS_DIR="${DEPS_CACHE_ROOT}/${DEPS_KEY}"
 DEPS_BUILD="${DEPS_DIR}/build"
 DEPS_LIB="${DEPS_DIR}/lib"
