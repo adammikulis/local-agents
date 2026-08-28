@@ -45,7 +45,8 @@ const SEAM_CELL: float = 2000.0
 const SEAM_P: float = 101325.0
 const SEAM_T: float = 15.0
 const SEAM_V: float = 20.0
-const SEAM_C_STIFF: float = 4000.0
+## The right half is shock-heated, and a gas's own sqrt(gamma R T) is then the seam.
+const SEAM_T_STIFF: float = 10000.0
 const SEAM_RHO: float = 10.0
 const TOL: float = 1.0e-5
 
@@ -196,8 +197,7 @@ func _seam() -> void:
 	var co2: PackedFloat32Array = PackedFloat32Array()
 	# A sheared momentum column beside the flow, so every row of the group leaves a NONZERO face flux:
 	# a stale one a coarse neighbour never wrote this substep is then visible as matter appearing.
-	# The gas layer's stiffness IS its pressure: gamma p / rho is the speed the right half signals at.
-	var pres: PackedFloat32Array = PackedFloat32Array()
+	var temps: PackedFloat32Array = PackedFloat32Array()
 	var momz: PackedFloat32Array = PackedFloat32Array()
 	var velz: PackedFloat32Array = PackedFloat32Array()
 	var spd: PackedFloat32Array = PackedFloat32Array()
@@ -205,8 +205,7 @@ func _seam() -> void:
 		h2o.append(500.0 - 40.0 * float(c))
 		o2.append(200.0 + 10.0 * float(c))
 		co2.append(50.0 + 3.0 * float(c))
-		pres.append((SEAM_RHO * SEAM_C_STIFF * SEAM_C_STIFF / LAPhysical.AIR_ADIABATIC_INDEX)
-			if c >= cc / 2 else SEAM_P)
+		temps.append(SEAM_T_STIFF if c >= cc / 2 else SEAM_T)
 		momz.append(10.0 + 2000.0 * float(c))
 		velz.append((10.0 + 2000.0 * float(c)) / SEAM_RHO)
 		spd.append(sqrt(SEAM_V * SEAM_V + velz[c] * velz[c]))
@@ -219,8 +218,8 @@ func _seam() -> void:
 	_write(bufs, "co2", co2)
 	_write(bufs, "h2o_liquid", _filled(cc, 1.0))
 	_write(bufs, "rho_bulk", _filled(cc, SEAM_RHO))
-	_write(bufs, "pressure", pres)
-	_write(bufs, "temp", _filled(cc, SEAM_T))
+	_write(bufs, "pressure", _filled(cc, SEAM_P))
+	_write(bufs, "temp", temps)
 
 	p.setup(_rd, bufs, cc)
 	var checked: PackedStringArray = PackedStringArray(["h2o", "o2", "co2"])

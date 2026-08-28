@@ -387,7 +387,8 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c, 
 	const PackedFloat32Array sil = p_field->get("_silicate");
 	const double full_h2o = LASubstances::full_mol_m3("h2o");
 	const double full_sil = LASubstances::full_mol_m3("silicate");
-	if (nbr.size() != cc * 6 || h2o.size() != cc || sil.size() != cc
+	// A ghost tail rides after the interior block, so the table is at least the interior's six slots.
+	if (nbr.size() < cc * 6 || h2o.size() != cc || sil.size() != cc
 			|| !(full_h2o > 0.0) || !(full_sil > 0.0) || !(edge > 0.0)) {
 		UtilityFunctions::push_error("LAFieldLithostaticSeed.shape_atmosphere: no neighbour table or no "
 				"condensed amounts, so no column knows where its own surface is.");
