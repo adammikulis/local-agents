@@ -175,6 +175,7 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: in
 	# No sun in the ctx is no star, which is no XUV — never an assumed one.
 	_xuv_w_m2 = float(ctx.get("xuv_w_m2", 0.0))
 	_pc_cache.clear()
+	_seed_lists(rd, cl, cc, cell_m, dt_s)
 	# THE DETECTOR LISTS: where the strikes and the non-finite values are. A detector looks everywhere
 	# because a value it has never seen can sit anywhere; no row dispatches over one.
 	for r in _list_rows.size():
@@ -222,6 +223,18 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: in
 	# The wake queue is consumed; what the reactions write after this pass is next step's business.
 	if _grain_set.is_valid():
 		_fire(rd, cl, _grain_set, GRAIN_ROW, cc, PASS_ACT_WAKE_RESET, cell_m, dt_s, sun, 0, 0, RID(), 1)
+
+
+## THE LISTS, before anything reads one: every cell of a world nobody has stepped yet, and every cell
+## again after a CPU write no kernel saw. The only pass here that walks the box, and it runs on neither
+## cadence — once at the seal, and once more whenever the field is written from outside.
+func _seed_lists(rd: RenderingDevice, cl: int, cc: int, cell_m: float, dt_s: float) -> void:
+	if not _wake_pending:
+		return
+	_wake_pending = false
+	var wide: int = maxi(_total, (ActiveScript.QUEUE_BIN + 1) * _group_count())
+	_fire(rd, cl, _grain_set, GRAIN_ROW, cc, PASS_ACT_SEED, cell_m, dt_s, Vector3.ZERO,
+		_group_count(), 0, RID(), int(ceil(float(wide) / 64.0)))
 
 
 ## THE LEVEL FIELD, once per group over the cells it holds: clear it, seed each row's own need, then
@@ -299,13 +312,7 @@ func pre_step(rd: RenderingDevice, ctx: Dictionary, cc: int, _groups: int) -> vo
 	var dt_s: float = _ctx_num(ctx, "dt_s")
 	rd.buffer_clear(_peak_rid, 0, _row_groups.size() * 4)
 	var cl: int = rd.compute_list_begin()
-	# THE LISTS, before the peak reads one: every cell of a world nobody has stepped yet, and every
-	# cell again after a CPU write no kernel saw.
-	if _wake_pending:
-		_wake_pending = false
-		_fire(rd, cl, _grain_set, GRAIN_ROW, cc, PASS_ACT_SEED, cell_m, dt_s, Vector3.ZERO,
-			_group_count(), 0, RID(), int(ceil(float(maxi(_total,
-			(ActiveScript.QUEUE_BIN + 1) * _group_count())) / 64.0)))
+	_seed_lists(rd, cl, cc, cell_m, dt_s)
 	for g in _row_groups.size():
 		for gi in _row_groups[g]:
 			_act(rd, cl, _sets[gi], _rows[gi], cc, PASS_LEVEL_PEAK, cell_m, dt_s, Vector3.ZERO, g, g, 0)
@@ -387,11 +394,6 @@ func _active_cells(rd: RenderingDevice) -> float:
 	return float(n)
 
 
-## The detector-list buffer keys a synthetic row compacts into; empty for an ordinary row.
-func _list_keys(row: Dictionary) -> Dictionary:
-	var label: String = String(row.get("list", ""))
-	return {} if label == "" else LATransportRecords.list_buffers(label)
-
 ## Bindings that are just a driver buffer by name: its key to transport.glsl's binding number. ONE
 ## declaration of what this pass needs, so a buffer the driver never made is a named error, not a
 ## silent set. The level and activity names are LATemporalLevels.KEYS and LAActiveCells.KEYS.
@@ -424,7 +426,8 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 	var frac: String = String(row.get("frac", ""))
 	var moves_enthalpy: bool = channel == "h_j_m3"
 	# Mass does not move without its heat, so the enthalpy field is required of every row that carries mass.
-	var list: Dictionary = _list_keys(row)
+	# The detector-list buffers a synthetic row compacts into; empty for an ordinary row.
+	var list: Dictionary = LATransportRecords.list_buffers(String(row.get("list", "")))
 	if String(row.get("list", "")) != "" and list.is_empty():
 		push_error("TransportPass: no \"%s\" list, so the %s row does not move."
 			% [String(row["list"]), channel])

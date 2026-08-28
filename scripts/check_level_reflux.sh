@@ -237,7 +237,7 @@ if la_cap_dir >/dev/null; then
   rc2=$?
 else
   out2="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --frames "${LA_LEVEL_FRAMES:-2}" \
-    --report transport_levels 2>&1)"
+    --rung "${LA_LEVEL_RUNG:-5}" --report transport_levels 2>&1)"
   rc2=$?
   # 122/123/126 are physics verdicts from a run that COMPLETED; only a failed run hides the gauge.
   case "$rc2" in 0|122|123|126) ;; *) out2="" ;; esac
