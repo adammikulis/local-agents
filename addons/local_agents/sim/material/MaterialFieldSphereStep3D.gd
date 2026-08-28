@@ -82,7 +82,9 @@ func seed_tick() -> bool:
 	# below it a cell stands at the pressure its own amounts state.
 	_f._gpu.derive_seeded()   # publishes g_rest as geometry: gravitation and this frame's own spin
 	var g_solved: PackedFloat32Array = LAFieldLithostaticSeed.vertical(_f, _f._gpu.read_raw("g_rest"))
-	LAFieldLithostaticSeed.shape_atmosphere(_f, LAMaterialField3D.INITIAL_TEMP, _f._body_measure, g_solved)
+	# The barometric profile is a function of the SOLVED POTENTIAL, so the solve's own phi goes with it.
+	LAFieldLithostaticSeed.shape_atmosphere(_f, LAMaterialField3D.INITIAL_TEMP, _f._body_measure,
+		g_solved, _f._gpu.read_raw("grav_phi"))
 	var p_marched: PackedFloat32Array = LAFieldLithostaticSeed.compress(_f, g_solved)
 	LAFieldEnthalpySeed.seed(_f, LAMaterialField3D.INITIAL_TEMP, p_marched)
 	# WEIGH THE BODY once the march has compressed the rock it stands on.

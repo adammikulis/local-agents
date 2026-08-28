@@ -395,7 +395,7 @@ void LAFieldLithostaticSeed::clear_gas_in_rock(Object *p_field) {
 }
 
 void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c, Object *p_measure,
-		const PackedFloat32Array &p_gravity) {
+		const PackedFloat32Array &p_gravity, const PackedFloat32Array &p_phi) {
 	if (!p_field || !p_measure) {
 		return;
 	}
@@ -411,30 +411,39 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c, 
 				"so the atmosphere has no scale height and would fill the box to its top at one density.");
 		return;
 	}
-	const PackedFloat32Array edges = grid->call("cell_edges");
-	Object *terrain = Object::cast_to<Object>(p_field->get("_terrain"));
-	const double datum = terrain ? double(terrain->call("sea_radius")) : 0.0;
 	const PackedInt32Array nbr = grid->get("neighbours");
 	const PackedInt32Array slot_off = grid->get("slot_off");
 	// A ghost tail rides after the interior block, so the tables are at least the interior's.
-	if (nbr.is_empty() || slot_off.size() < cc * 7 || edges.size() < cc || !(datum > 0.0)) {
-		UtilityFunctions::push_error("LAFieldLithostaticSeed.shape_atmosphere: no face list or no sea "
-				"datum, so the atmosphere has no level surface to stand its pressure on.");
+	if (nbr.is_empty() || slot_off.size() < cc * 7 || p_phi.size() < cc) {
+		UtilityFunctions::push_error("LAFieldLithostaticSeed.shape_atmosphere: no face list or no solved "
+				"potential, so the atmosphere has nothing to stand its pressure on.");
 		return;
 	}
-	const Vector3 centre = field_centre(p_field);
-	// Height along the LOCAL VERTICAL, the axis the column is stacked along. A rotating body's plumb
-	// line is not its radius.
-	std::vector<double> h(cc, 0.0), scale(cc, 0.0);
-	for (int c = 0; c < cc; c++) {
+	// R T / M of the air, m^2/s^2: the scale height times the gravity it was taken at, which is one
+	// number for the whole body however g varies over it.
+	double rt_over_m = 0.0;
+	bool pulled = false;
+	for (int c = 0; c < cc && !(rt_over_m > 0.0); c++) {
 		const Vector3 g(p_gravity[c * 3], p_gravity[c * 3 + 1], p_gravity[c * 3 + 2]);
 		const double gm = double(g.length());
 		if (!(gm > 0.0)) {
 			continue;
 		}
-		const Vector3 ray = Vector3(grid->call("cell_world_pos", c)) - centre;
-		h[c] = double(ray.dot(-g / gm));
-		scale[c] = m->scale_height_at(p_temp_c, gm);
+		pulled = true;
+		const double sh = m->scale_height_at(p_temp_c, gm);
+		if (std::isfinite(sh) && sh > 0.0) {
+			rt_over_m = gm * sh;
+		}
+	}
+	// A WORLD NOTHING PULLS ON HAS NO COLUMN TO STAND. Below the gravity rung the solve never ran, so
+	// there is no vertical and no profile to lay; the composition's own amounts stand as they are.
+	if (!pulled) {
+		return;
+	}
+	if (!(rt_over_m > 0.0)) {
+		UtilityFunctions::push_error("LAFieldLithostaticSeed.shape_atmosphere: gravity pulls on this "
+				"world and the air still states no scale height, so its column has no law.");
+		return;
 	}
 	// AIR IS WHAT THE OUTSIDE REACHES, which is CONNECTIVITY and not a direction: flooded through open
 	// faces from every open cell the box edge touches. A void the flood never reaches is sealed under
@@ -465,32 +474,41 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c, 
 			front.push_back(n);
 		}
 	}
+	// THE EXACT ISOTHERMAL HYDROSTATIC SOLUTION, IN THE POTENTIAL THE SOLVE PRODUCED. dp/dz = -rho g
+	// with p = rho R T / M integrates to p = p0 exp(-M (phi - phi0) / (R T)) in ANY field, so the
+	// profile is a function of the POTENTIAL and not of a height times a local scale height. A scale
+	// height is only 1/g's own linearization, and g falls by tens of percent over this box: taking each
+	// cell's own H makes every cell a different atmosphere, and two neighbours then disagree about
+	// which of them holds the denser air. The same lambda = M depth / (R T) the escape law reads.
+	// LA_APPROX: cell_centre_barometric
+	// The deepest air the flood reached, as the exponent's ZERO. Any constant anchor cancels in the
+	// renormalisation below; this one keeps every exponent negative, so nothing overflows.
+	double phi_ref = 0.0;
+	bool have_ref = false;
+	for (int c = 0; c < cc; c++) {
+		if (solid[c] != 0 || sky[c] == 0 || !std::isfinite(double(p_phi[c]))) {
+			continue;
+		}
+		if (!have_ref || double(p_phi[c]) < phi_ref) {
+			phi_ref = double(p_phi[c]);
+			have_ref = true;
+		}
+	}
 	PackedFloat32Array f = unit_factor(cc);
 	f.fill(-1.0f);
-	for (int c = 0; c < cc; c++) {
-		if (sky[c] == 0 || !std::isfinite(scale[c]) || scale[c] <= 0.0) {
-			continue;
-		}
-		// THE MEAN OF exp(-z/H) OVER THE HEIGHT THIS CELL SPANS ABOVE THE DATUM. state_derive.glsl
-		// states a cell's pressure off the amounts it holds and kernels3d/stack.glsli reads that
-		// pressure as the gas layer's own mean, so the MEAN density is what makes the two agree,
-		// and dividing by the spanned height rather than the whole edge is what makes cells of
-		// different size agree about which of a stacked pair holds the denser air.
-		// A PRESSURE SURFACE IS LEVEL: the height is measured from ONE datum for the whole body, and
-		// never from the ground under this particular cell. Rock under a column does not change the
-		// pressure at an altitude; it only means there is no air below the ground, which is the solid
-		// mask's statement and not this one's.
-		const double edge = double(edges[c]);
-		const double z_bot = MAX(h[c] - 0.5 * edge, datum);
-		const double z_top = h[c] + 0.5 * edge;
-		if (!(z_top > z_bot)) {
-			continue;
-		}
-		f[c] = float((scale[c] / (z_top - z_bot)) * (std::exp(-(z_bot - datum) / scale[c])
-				- std::exp(-(z_top - datum) / scale[c])));
+	if (!have_ref) {
+		return;
 	}
-	std::vector<double> vol(cc, 0.0);
 	for (int c = 0; c < cc; c++) {
+		if (sky[c] == 0 || !std::isfinite(double(p_phi[c]))) {
+			continue;
+		}
+		// phi rises outward, so this is 1 at that anchor and falls from there.
+		f[c] = float(std::exp(-(double(p_phi[c]) - phi_ref) / rt_over_m));
+	}
+	const PackedFloat32Array edges = grid->call("cell_edges");
+	std::vector<double> vol(cc, 0.0);
+	for (int c = 0; c < cc && c < edges.size(); c++) {
 		const double e = double(edges[c]);
 		vol[c] = e * e * e;
 	}
@@ -525,7 +543,7 @@ void LAFieldLithostaticSeed::_bind_methods() {
 	ClassDB::bind_static_method("LAFieldLithostaticSeed", D_METHOD("clear_gas_in_rock", "field"),
 			&LAFieldLithostaticSeed::clear_gas_in_rock);
 	ClassDB::bind_static_method("LAFieldLithostaticSeed",
-			D_METHOD("shape_atmosphere", "field", "temp_c", "measure", "gravity"),
+			D_METHOD("shape_atmosphere", "field", "temp_c", "measure", "gravity", "phi"),
 			&LAFieldLithostaticSeed::shape_atmosphere);
 	ClassDB::bind_static_method("LAFieldLithostaticSeed", D_METHOD("displace_gas_from_water", "field"),
 			&LAFieldLithostaticSeed::displace_gas_from_water);
