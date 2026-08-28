@@ -103,8 +103,8 @@ float source_of(uint c) {
 	return 4.0 * acos(-1.0) * params.g_si * density[c] * cell_volume(c);
 }
 
-// Conductance sum over the cell's faces and the same sum weighted by each neighbour's potential. The
-// finite-volume Laplacian at any refinement; on a uniform grid it is the seven-point stencil.
+// The finite-volume Laplacian at any refinement: face conductance summed, and summed against each
+// neighbour's potential. On a uniform grid it is the seven-point stencil.
 void la_stencil(uint c, out float w_sum, out float w_phi) {
 	w_sum = 0.0;
 	w_phi = 0.0;
@@ -217,9 +217,8 @@ void mode_seed(uint c) {
 	phi[c] = -params.g_si * total / max(r, cell_edge[c]);
 }
 
-// JACOBI, out of place: the graded face graph has odd cycles — a coarse cell and two of the fine cells
-// across one of its faces — so no two-colouring exists and an in-place sweep would relax neighbours
-// together. The operator and its fixed point are unchanged.
+// JACOBI, out of place: the graded face graph has odd cycles, so no two-colouring exists and an
+// in-place sweep would relax neighbours together. Same operator, same fixed point.
 void mode_relax(uint c) {
 	if ((cellflag[c] & FLAG_BOUNDARY) != 0u) {
 		phi_next[c] = phi[c];
@@ -362,10 +361,8 @@ void mode_field_stats() {
 	}
 }
 
-// The cell the plumb line through `gidx` runs into along `dir`, snapped to the axis that direction lies
-// nearest. Where that slot meets four finer cells, the one LEAST OFF the line is the one over (or under)
-// this cell; any other of the four stands over different ground, which on a body this size is a different
-// surface and a different air column.
+// The cell the plumb line through `c` runs into along `dir`: the neighbour least off that line, so a
+// coarse cell's four fine neighbours do not put another column's ground over this one.
 int plumb_step(uint c, vec3 dir) {
 	int d = la_slot_toward(dir);
 	if (d < 0) {
@@ -403,9 +400,8 @@ void mode_vert_up(uint gidx) {
 	vert_down[gidx] = 0xFFFFFFFFu;
 }
 
-// INVERT THE TABLE ABOVE, so the audit walks the column the pressure march built. Four fine cells can
-// name one coarse cell as their up, and the one under it is the one least off its plumb line: the key
-// is that offset over the cell's own edge, with the index below it to break a tie deterministically.
+// Invert the table above, so every `below` read walks the column the pressure march built. The key is
+// the claimant's offset from the plumb line over its own edge, the index below it to break a tie.
 void mode_vert_down(uint gidx) {
 	int u = vert_up[gidx];
 	if (u < 0 || gidx >= VERT_INDEX_LIMIT) {

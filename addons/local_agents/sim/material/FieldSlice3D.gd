@@ -104,8 +104,8 @@ func apply(field, body, terrain) -> bool:
 	var half: Vector3 = 0.5 * Vector3(dims) * cell_size
 	# THE SLICE BOX IS A REFINEMENT REGION, not a second construction path: its interior resolves at
 	# half the declared edge, and the rim that carries the prescribed exterior stays coarsest.
-	field.setup_box(centre - half, dims, cell_size, terrain,
-		LAGridRefine.box(AABB(centre - half, 2.0 * half)), body.center())
+	field.setup_box(centre - half, dims, cell_size, terrain, body.center(), 0.0, 0.0,
+		AABB(centre - half, 2.0 * half))
 	_configure_boundary(field)
 	return error == ""
 

@@ -60,8 +60,8 @@ func add_heat_energy(world_pos: Vector3, joules: float, radius: float = 0.0) -> 
 func _inject_energy(cells: PackedInt32Array, joules: float) -> float:
 	if cells.size() == 0:
 		return 0.0
-	var vol: PackedFloat32Array = LAMaterialFieldCellVolume3D.of(_f)
-	if vol.size() != _f._cell_count:
+	var vol: PackedFloat32Array = _f._grid.cell_volumes() if _f._grid != null else PackedFloat32Array()
+	if vol.size() < _f._cell_count:
 		return 0.0
 	var total_vol: float = 0.0
 	for c in cells:

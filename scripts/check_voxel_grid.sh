@@ -1,17 +1,13 @@
 #!/usr/bin/env bash
 # =====================================================================================================
 # VOXEL GRID — the structural claims of the GRADED Cartesian grid, checked rather than asserted.
-#
-# Resolution follows position, so cells differ in size and the claims that matter are:
 #   volume_ratio == 8         a 2:1 neighbour's volume ratio is EXACTLY eight, never a near miss
 #   ratio_violations == 0     no pair differs by anything else
 #   area_violations == 0      the four fine faces across a coarse face tile it exactly
 #   non_reciprocal == 0       every face names the face that points back, through `partners`
-#
-# And every transfer across such a face must go through `cellvol.glsli`'s vol_ratio(donor, receiver):
-# a channel value is a FILL FRACTION of the cell holding it, so carrying one across a 2:1 seam without
-# the ratio creates or destroys seven eighths of what crossed.
-#
+# Plus: every transfer across such a face goes through `cellvol.glsli`'s vol_ratio(donor, receiver).
+# A channel value is a FILL FRACTION of the cell holding it, so a 2:1 crossing without the ratio
+# creates or destroys seven eighths of what crossed.
 # EXIT CODES. 0 pass · 1 a structural claim is false · 2 could not run.
 # =====================================================================================================
 set -uo pipefail

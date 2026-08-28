@@ -371,8 +371,8 @@ float cond_kg_m3(uint c) {
 	return cloud_water_kg_m3(c) + max(silicate[c], 0.0) * M_SILICATE;
 }
 
-// Depth of face d below the cell's top, m: where the face cuts the stack. The cell's OWN edge, so a
-// 2:1 seam has each side reconstruct over the half-edge it actually has.
+// Depth of face d below the cell's top, m, over the cell's OWN edge: each side of a 2:1 seam
+// reconstructs over the half-edge it has.
 float face_z(uint c, uint d) {
 	vec3 gv = g_at(c);
 	float gm = length(gv);
@@ -439,7 +439,7 @@ float impedance(uint c, uint f, uint d) {
 }
 
 // Magnitude of the resolved strain-rate tensor, 1/s: |S| = sqrt(2 S_ij S_ij).
-// Area-weighted velocity across one slot and the centre distance to it; the cell's own at a wall.
+// Area-weighted velocity across one slot, and the centre distance to it. The cell's own at a wall.
 vec3 slot_vel(uint c, uint d, out float dist) {
 	float a = 0.0;
 	vec3 av = vec3(0.0);
@@ -696,8 +696,8 @@ float escape_fraction(uint c, uint f, uint d, out float tail_j_mol) {
 #include "transport_radiate.glsli"
 
 // Piezometric head at face d: drive head, plus elevation and p/(rho g) for a hydraulic POTENTIAL row.
-// `L` is the FACE'S centre distance, so both sides of a 2:1 seam scale their drive by one length; the
-// elevation term is each cell's own half-edge, which is the geometry it actually has.
+// `L` is the FACE'S centre distance, one length for both sides of a seam; the elevation term is each
+// cell's own half-edge.
 float potential(uint c, uint d, float L) {
 	vec3 gv = g_at(c);
 	float gmag = length(gv);
@@ -1296,8 +1296,7 @@ void main() {
 						float mu = 0.5 * (ra + rb) * eddy_viscosity(gidx);
 						float k = mu * (1.0 / ra + 1.0 / rb) * div_f / dist_f;
 						float m_red = ra * rb / (ra + rb);
-						// Every face relaxes from ONE pre-state, so each takes at most its own share of
-						// full equalization; the summed pull can then never pass the neighbours' mean.
+						// Each face relaxes from one pre-state, so the summed pull cannot pass the mean.
 						float nf = float(la_face_count(gidx));
 						sflux = m_red * (va - vb)
 							* (1.0 - exp(-nf * k * la_dt)) / nf * open;
@@ -1410,8 +1409,7 @@ void main() {
 			continue;
 		}
 		uint nb = uint(inb);
-		// EVERY TRANSFER IS A FILL FRACTION IN THE DONOR'S OWN VOLUME, so what arrives here is scaled by
-		// the pair's volume ratio. On a uniform grid it is 1; across a 2:1 seam it is 8 or an eighth.
+		// A FILL FRACTION IS OF THE DONOR'S OWN VOLUME, so what arrives is scaled by the pair's ratio.
 		uint bf = la_back_face(f, nb, d);
 		float ratio = vol_ratio(nb, gidx);
 		// The same face rule as the outflow: a neighbour coarser than this substep did not run, so its
@@ -1471,8 +1469,7 @@ void main() {
 		rad_emitted[gidx] = lost;
 		// What the beam march removed and this cell did not keep: PASS_SW carries it back out.
 		sw_src[gidx] = intercepted * albedo;
-		// Stefan-Boltzmann, recomputed against the published emission: every face of e*sigma*T^4 over
-		// the area it actually carries.
+		// Stefan-Boltzmann against the published emission: every face of e*sigma*T^4 over its own area.
 		float tk_sb = t_k(gidx);
 		float div_sum = 0.0;
 		for (uint fs = f_lo; fs < f_hi; ++fs) {

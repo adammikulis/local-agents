@@ -1,7 +1,6 @@
 class_name LAFieldPassProbe3D
 extends RefCounted
 
-const CellVolScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldCellVolume3D.gd")
 
 ## Totals ONE channel after EVERY pass, for the first few steps. `LA_PASS_PROBE=o2`. Volume-weighted: a
 ## channel value is a fill FRACTION, so a bare buffer sum moves when transport conserves matter.
@@ -85,10 +84,10 @@ func _peak() -> Dictionary:
 func _total() -> float:
 	var gpu = _f._gpu
 	var cc: int = _f._cell_count
-	var vol: PackedFloat32Array = CellVolScript.of(_f)
-	if gpu == null or vol.size() != cc:
+	var vol: PackedFloat32Array = _f._grid.cell_volumes() if _f._grid != null else PackedFloat32Array()
+	if gpu == null or vol.size() < cc:
 		return NAN
 	var one: PackedFloat32Array = gpu.read_raw(_channel)
 	if one.size() != cc:
 		return NAN
-	return CellVolScript.weighted(one, vol, PackedByteArray(), false)
+	return LAGridGeometry.weighted(one, vol, PackedByteArray(), false)

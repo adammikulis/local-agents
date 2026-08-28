@@ -35,8 +35,8 @@ static func seed(f, t_c: float, p_pa: PackedFloat32Array) -> void:
 	if f._cell_count <= 0:
 		return
 	f._h.resize(f._cell_count)
-	var vol: PackedFloat32Array = LAMaterialFieldCellVolume3D.of(f)
-	if vol.size() != f._cell_count or p_pa.size() != f._cell_count:
+	var vol: PackedFloat32Array = f._grid.cell_volumes() if f._grid != null else PackedFloat32Array()
+	if vol.size() < f._cell_count or p_pa.size() != f._cell_count:
 		push_error("LAFieldEnthalpySeed: no cell volumes, or no marched pressure to seed the ladder on.")
 		return
 	var total_j: float = 0.0

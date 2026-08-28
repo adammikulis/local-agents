@@ -197,7 +197,7 @@ func _build_sphere() -> bool:
 		# RESOLUTION FOLLOWS POSITION: the shell that holds the air column and the regolith under it is
 		# refined; the vacuum corners and the deep interior stay coarsest.
 		_material.setup_box(_body.center() - Vector3(half, half, half), dims, cell_m, _terrain,
-			LAGridRefine.shell(cell_m, MODELLED_ATMOSPHERE_HEIGHT_M), _body.center())
+			_body.center(), cell_m, MODELLED_ATMOSPHERE_HEIGHT_M)
 	if _material.has_method("sample_solidity"):
 		_material.sample_solidity()
 	if _sun != null and _material.has_method("set_sun"):
