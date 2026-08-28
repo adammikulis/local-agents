@@ -16,8 +16,17 @@ PROJ="${1:-$ROOT}"
 CACHE_ROOT="$(la_import_cache_root)"
 KEEP_ENTRIES=4
 
+# The key is the content of every source, so a key match PROVES the artifacts were built from this tree.
+# `cp -Rp` carries the cache's own mtimes back with them, which la_stale_kernels then reads as every
+# kernel being older than its includes and refuses every run afterwards.
+la_stamp_imported() {
+	[ -d "$PROJ/.godot/imported" ] || return 0
+	touch "$PROJ/.godot/imported"/*.res "$PROJ/.godot/imported"/*.md5 2>/dev/null || true
+}
+
 KEY="$("$SCRIPT_DIR/cache_key.sh" import --path "$PROJ" 2>/dev/null || echo "")"
 if [ -n "$KEY" ] && [ "$(cat "$PROJ/.godot/la_import_key" 2>/dev/null)" = "$KEY" ]; then
+	la_stamp_imported
 	exit 0
 fi
 
@@ -29,6 +38,7 @@ if [ -n "$KEY" ] && [ "$(cat "$CACHE_ROOT/$KEY/.godot/la_import_key" 2>/dev/null
 	if cp -Rp "$CACHE_ROOT/$KEY/.godot" "$PROJ/.godot.incoming"; then
 		rm -rf "$PROJ/.godot"
 		mv "$PROJ/.godot.incoming" "$PROJ/.godot"
+		la_stamp_imported
 		exit 0
 	fi
 	rm -rf "$PROJ/.godot.incoming"

@@ -375,14 +375,30 @@ float face_z(uint c, uint d) {
 		: 0.5 * params.cell_m;
 }
 
-// The cell's pressure at face d, off the LAYERS it holds, so an equilibrium column presents ONE pressure
-// to a shared face however the interface cuts the cell.
+// How far face d lies below the cell's centre, in half-edges. It is a GEOPOTENTIAL between two cell
+// centres, never a length along a frozen gravity vector: a step ACROSS the field changes no altitude,
+// however far gravity leans off the box axes. The box edge has no second centre to read it from.
+float face_cos(uint c, uint d) {
+	vec3 gv = g_at(c);
+	float gm = length(gv);
+	if (gm <= 0.0) {
+		return 0.0;
+	}
+	int inb = nbr[c * N_SLOTS + d];
+	return (inb >= 0 && uint(inb) < params.cell_count)
+		? (grav_phi[c] - grav_phi[uint(inb)]) / (gm * params.cell_m)
+		: dot(face_normal(d), gv) / gm;
+}
+
+// The cell's MEAN pressure over face d, off the matter it holds, so its own six faces return its own
+// weight and an equilibrium column presents ONE pressure to a shared face.
 float face_p(uint c, uint d) {
 	vec3 gv = g_at(c);
-	if (length(gv) <= 0.0) {
+	float gm = length(gv);
+	if (gm <= 0.0) {
 		return pressure[c];
 	}
-	return la_stack_p(face_z(c, d), params.cell_m, length(gv), condensed_frac(c), cond_kg_m3(c),
+	return la_stack_face_p(face_cos(c, d), params.cell_m, gm, cond_kg_m3(c),
 		max(rho_bulk[c], 0.0), max(pressure[c], 0.0));
 }
 
