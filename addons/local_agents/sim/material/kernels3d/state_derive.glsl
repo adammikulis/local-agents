@@ -10,7 +10,7 @@ layout(local_size_x = 64) in;
 #include "matter_channels.glsli"
 #include "eos.glsli"
 
-layout(set = 0, binding = 21, std430) restrict readonly buffer Enthalpy { float h_j_m3[]; };
+layout(set = 0, binding = 21, std430) restrict buffer Enthalpy { float h_j_m3[]; };
 layout(set = 0, binding = 22, std430) restrict buffer Pressure { float pressure[]; };
 // Read as well as written: this pass is the ONE writer, and reads the temperature it replaces.
 layout(set = 0, binding = 23, std430) restrict buffer Temp { float temp[]; };
@@ -414,6 +414,9 @@ void main() {
 	float m_h2o = mass[E_H2O];
 	float t_c = temp[g];
 	float p_pa = max(pressure[g], 0.0);
+	// THE SUBSTEP'S OWN Dp/Dt: an open cell's enthalpy moves with the pressure this solve lands on.
+	bool dpdt = params.restate != 0u && solid[g] == 0.0;
+	float p_prev = p_pa;
 	float f_solid = 0.0;
 	float f_liquid = 0.0;
 	float f_vapour = 0.0;
@@ -437,8 +440,8 @@ void main() {
 		p_pa = max(p_pa, p_sat);
 		pinned = false;
 		progress = 0.0;
-		t_c = la_mix_state(subs, mass, N_ENTRIES, h_j_m3[g] * vol, p_pa, n_gas_mol, 0.0,
-			pinned, progress);
+		t_c = la_mix_state(subs, mass, N_ENTRIES, (h_j_m3[g] + (dpdt ? p_pa - p_prev : 0.0)) * vol, p_pa,
+			n_gas_mol, 0.0, pinned, progress);
 
 		// THE PHASE SPLIT OF THIS CELL'S H2O, off the SAME ladder. `progress` is where inside a latent
 		// plateau the enthalpy landed, so a cell at the melting point reports a partial solid share.
@@ -493,6 +496,9 @@ void main() {
 	temp[g] = t_c;
 	if (solid[g] == 0.0) {
 		pressure[g] = p_pa;
+		if (dpdt) {
+			h_j_m3[g] += p_pa - p_prev;
+		}
 	}
 
 	// The decomposition la_mix_enthalpy_at sums, kept per entry so transport moves heat with matter.

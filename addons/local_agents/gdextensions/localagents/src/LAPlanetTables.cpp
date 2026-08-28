@@ -486,6 +486,7 @@ Dictionary LAPlanetComposition::body_field(Object *p_grid, const Vector3 &p_cent
 	}
 	const PackedFloat64Array cw = LAGridGeometry::centres_f64(p_grid);
 	const int cc = cw.size() / 3;
+	const double phi_datum = -g_si * prof.mass / p_radius_m;
 	PackedFloat32Array g, ref, dev;
 	PackedFloat64Array phi;
 	g.resize(cc * 3);
@@ -515,13 +516,31 @@ Dictionary LAPlanetComposition::body_field(Object *p_grid, const Vector3 &p_cent
 		gw[c * 3 + 1] = float(r > 0.0 ? -mag * dy / r : 0.0);
 		gw[c * 3 + 2] = float(r > 0.0 ? -mag * dz / r : 0.0);
 		pw[c] = ph;
-		rw[c] = float(ph);
+		rw[c] = float(ph - phi_datum);
 	}
 	out["g"] = g;
 	out["phi"] = phi;
 	out["ref"] = ref;
+	out["phi_datum"] = phi_datum;
 	out["dev"] = dev;
 	return out;
+}
+
+// The body's field onto a slab's device buffers: "gravity", "grav_ref" (against the datum) and a zero
+// "grav_phi". Returns body_field's dictionary.
+Dictionary LAPlanetComposition::upload_body_field(RenderingDevice *p_rd, const Dictionary &p_bufs, Object *p_grid,
+		const Vector3 &p_centre, double p_radius_m, double p_t_c) {
+	Dictionary bf = body_field(p_grid, p_centre, p_radius_m, p_t_c);
+	if (!p_rd || bf.is_empty() || !p_bufs.has("gravity") || !p_bufs.has("grav_ref") || !p_bufs.has("grav_phi")) {
+		return Dictionary();
+	}
+	const char *keys[3] = { "g", "ref", "dev" };
+	const char *bufs[3] = { "gravity", "grav_ref", "grav_phi" };
+	for (int i = 0; i < 3; i++) {
+		const PackedByteArray b = PackedFloat32Array(bf[keys[i]]).to_byte_array();
+		p_rd->buffer_update(RID(p_bufs[bufs[i]]), 0, b.size(), b);
+	}
+	return bf;
 }
 
 // The core boundary of the relaxed body of radius R, metres.
@@ -753,6 +772,7 @@ void LAPlanetComposition::_bind_methods() {
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("radius_for_mass", "mass_kg", "t_c"), &radius_for_mass);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("core_radius_m", "radius_m", "t_c"), &core_radius_m);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("body_field", "grid", "centre", "radius_m", "t_c"), &body_field);
+	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("upload_body_field", "rd", "bufs", "grid", "centre", "radius_m", "t_c"), &upload_body_field);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("seed", "field", "t_c"), &seed);
 }
 

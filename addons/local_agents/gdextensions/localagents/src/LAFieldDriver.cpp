@@ -57,11 +57,19 @@ void LAFieldDriver::clear_buffers(const Array &p_bufs, int p_bytes) {
 	if (_rd == nullptr || p_bytes <= 0) {
 		return;
 	}
+	bool any = false;
 	for (int i = 0; i < p_bufs.size(); ++i) {
 		const RID r = rid_at(p_bufs, i);
 		if (r.is_valid()) {
 			_rd->buffer_clear(r, 0, (uint32_t)p_bytes);
+			any = true;
 		}
+	}
+	// A clear outside a list is not ordered ahead of the lists submitted after it: the device ran it
+	// mid-step and wiped most of a step's books. Its own submit puts it before anything that follows.
+	if (any) {
+		_rd->submit();
+		_rd->sync();
 	}
 }
 
@@ -384,11 +392,12 @@ int64_t LAFieldDriver::run_transport(int64_t p_cl, const PackedInt32Array &p_pea
 			// EVERY FACE STATES ITSELF ONCE, before any record reads one: the pair's interface
 			// pressure and velocity, off the state this substep starts in.
 			_run_slot(cl, first, p_pc_rows, SLOT_FACE, lk, k, n);
+			// THE PRESSURE AND THE BODY IMPULSE NEXT, on the mass the faces were solved over, so what
+			// the records then move carries its share of the momentum and leaves none behind.
+			_run_slot(cl, last, p_pc_rows, SLOT_MOMENTUM, lk, k, n);
 			for (int i = 0; i < group.size(); ++i) {
 				_run_row(cl, group[i], p_pc_rows, lk, k, n);
 			}
-			// THE PRESSURE AND THE BODY IMPULSE LAST, against the mass the records just moved.
-			_run_slot(cl, last, p_pc_rows, SLOT_MOMENTUM, lk, k, n);
 			_restate(cl, g, lk);
 			_recorded += group.size() + 5;
 			if (_recorded > _flush_every) {

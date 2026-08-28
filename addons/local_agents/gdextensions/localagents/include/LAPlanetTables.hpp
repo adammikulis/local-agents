@@ -2,6 +2,7 @@
 #define LOCAL_AGENTS_LA_PLANET_TABLES_HPP
 
 #include <godot_cpp/classes/ref_counted.hpp>
+#include <godot_cpp/classes/rendering_device.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_string_array.hpp>
 
@@ -54,6 +55,8 @@ public:
 	static double radius_for_mass(double p_mass_kg, double p_t_c);
 	static double core_radius_m(double p_radius_m, double p_t_c);
 	static Dictionary body_field(Object *p_grid, const Vector3 &p_centre, double p_radius_m, double p_t_c);
+	static Dictionary upload_body_field(RenderingDevice *p_rd, const Dictionary &p_bufs, Object *p_grid,
+			const Vector3 &p_centre, double p_radius_m, double p_t_c);
 	static void seed(Object *p_field, double p_t_c);
 
 protected:

@@ -20,6 +20,9 @@ public:
 	// The regolith walk's products onto the device: the permeable mask as floats, grain size and Athy
 	// porosity, each only when the walk produced it.
 	static void upload_regolith(RenderingDevice *p_rd, const Dictionary &p_bufs, Object *p_field);
+	// The regolith walk: the permeable mask, Athy porosity and grain size of the `p_shells` solid shells
+	// under the ground surface, climbing the solved up-table. Writes _regolith, _grain, _porosity.
+	static void regolith(Object *p_field, int p_shells);
 	static double gas_moles_at(Object *p_field, int p_c, double p_cell_m3);
 	// [mirror array, molar mass kg/mol] for every channel the field carries as an amount of matter.
 	static Array mirrors(Object *p_field);

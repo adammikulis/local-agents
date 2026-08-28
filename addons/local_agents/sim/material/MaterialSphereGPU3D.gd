@@ -225,6 +225,7 @@ func begin_frame(h: PackedFloat32Array, water: PackedFloat32Array) -> void:
 	# The SOLVED gravity, for the handful of scalar laws a pass evaluates once. A per-cell law reads the
 	# g field itself; nothing anywhere reads a gravity constant, because there is not one.
 	_ctx["g_m_s2"] = _field._gravity.mean_g() if _field._gravity != null else 0.0
+	_ctx["phi_datum"] = _field._gravity.phi_datum() if _field._gravity != null else 0.0
 	# March bound: a column cannot be longer than the box.
 	_ctx["depth"] = _grid.max_span()
 	_ctx["centre"] = _field.centre()     # the body centre — the spin axis passes through it

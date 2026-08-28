@@ -14,12 +14,15 @@ require_tool python3
 CELL="${LA_REST_CELL_M:-2000}"
 CELLS="${LA_REST_CELLS:-20}"
 FRAMES="${LA_REST_FRAMES:-12}"
+# The control drains a column this short in about a minute, so it runs four frames, past the seal: long enough for
+# gas to leave through the open top, short enough that matter remains to be read.
+VENT_FRAMES="${LA_REST_VENT_FRAMES:-4}"
 
 # One column run at the given face spec. Prints the three readings, space separated, or nothing.
 column() {
 	LA_BOUNDARY_FACES="$1" "$ROOT/scripts/sim_run.sh" --path "$ROOT" --slice --rung 3 \
-		--slice-box "0,surface,0,1,${CELLS},1,${CELL}" --frames "$FRAMES" \
-		--report wind_speed_max,celerity_max,pressure_rest_rel,transport_levels 2>&1
+		--slice-box "0,surface,0,1,${CELLS},1,${CELL}" --frames "${2:-$FRAMES}" \
+		--report wind_speed_max,celerity_max,pressure_rest_rel,transport_levels,bnd_n2,energy_residual_rel,energy_held,energy_turnover_j,energy_stock,energy_stock_open 2>&1
 }
 
 # `max` off one gauge line of sim_run's report; empty when the gauge is absent.
@@ -46,20 +49,38 @@ numeric() { printf '%s' "$1" | rg -N -q -e '^[+-]?[0-9]+(\.[0-9]+)?([eE][+-]?[0-
 # non-finite, the loudest form of NOT at rest, and carries no comparable numbers.
 measure() {
 	local out wind cel prel lv
-	out="$(column "$1")"
+	out="$(column "$1" "${2:-$FRAMES}")"
 	wind="$(reading wind_speed_max "$out")"
 	cel="$(reading celerity_max "$out")"
 	prel="$(reading pressure_rest_rel "$out")"
 	lv="$(reading transport_levels "$out")"
+	local left eres held turn ebar
+	left="$(reading bnd_n2 "$out")"
+	eres="$(reading energy_residual_rel "$out")"
+	held="$(reading energy_held "$out")"
+	turn="$(reading energy_turnover_j "$out")"
+	local stock sopen
+	stock="$(reading energy_stock "$out")"
+	sopen="$(reading energy_stock_open "$out")"
+	numeric "$left" || left=0
+	numeric "$eres" || eres=-1
+	numeric "$held" || held=0
+	numeric "$turn" || turn=0
+	numeric "$stock" || stock=0
+	numeric "$sopen" || sopen=0
+	# float32's own rounding of the book: two readings of the held total, the rock's stock rounded once
+	# a frame, the air's once a substep, as a share of the joules that crossed.
+	ebar="$(awk -v h="$held" -v t="$turn" -v l="$lv" -v n="${2:-$FRAMES}" -v s="$stock" -v o="$sopen" \
+		'function a(x){return x < 0 ? -x : x} BEGIN{ e = 1.1920929e-7; if (t > 0) printf "%.12g", e * (2 * a(h) + n * a(s - o) + n * (2 ^ l) * a(o)) / t; else print -1 }')"
 	# The run's own guard says it first: a reduced row that went non-finite is refused as fiction, and
 	# sim_run then withholds every number. That IS the reading — the column did not stay at rest.
 	# A row the clock refuses because its own cells signal at light is the same reading by another name.
 	if printf '%s\n' "$out" | rg -N -q -e 'reduced to (inf|-inf|nan)|signal speed at or past light'; then
-		echo "0 0 0 0"
+		echo "0 0 0 0 0 -1 -1"
 		return 0
 	fi
 	if printf '%s %s %s' "$wind" "$cel" "$prel" | rg -N -q -i -e 'nan|inf'; then
-		echo "0 0 0 0"
+		echo "0 0 0 0 0 -1 -1"
 		return 0
 	fi
 	if ! numeric "$wind" || ! numeric "$cel" || ! numeric "$prel" || ! numeric "$lv"; then
@@ -70,8 +91,8 @@ measure() {
 		echo "check_atmosphere_at_rest: celerity_max is not positive; the column holds no matter." >&2
 		return 1
 	fi
-	awk -v w="$wind" -v c="$cel" -v p="$prel" -v l="$lv" \
-		'BEGIN{printf "1 %.12g %.12g %d", w / c, p, l}'
+	awk -v w="$wind" -v c="$cel" -v p="$prel" -v l="$lv" -v x="$left" -v e="$eres" -v b="$ebar" \
+		'BEGIN{printf "1 %.12g %.12g %d %.12g %.12g %.12g", w / c, p, l, x, e, b}'
 }
 
 # True when this arm stayed at rest: finite, and both readings inside the arithmetic's own bar — the
@@ -85,7 +106,7 @@ rest="$(measure "shut,shut,shut,shut,shut,shut")" || {
 	echo "check_atmosphere_at_rest: the resting column published no wind_speed_max/celerity_max/pressure_rest_rel." >&2
 	exit 2
 }
-read -r REST_FIN REST_MACH REST_PREL REST_LV <<EOF
+read -r REST_FIN REST_MACH REST_PREL REST_LV REST_LEFT REST_ERES REST_EBAR <<EOF
 $rest
 EOF
 echo "ATMOSPHERE_AT_REST={\"finite\":$REST_FIN,\"mach\":$REST_MACH,\"pressure_rest_rel\":$REST_PREL,\"levels\":$REST_LV}"
@@ -94,19 +115,27 @@ echo "ATMOSPHERE_AT_REST={\"finite\":$REST_FIN,\"mach\":$REST_MACH,\"pressure_re
 # MOVED has already shown this instrument reads motion, so there is nothing for a vented arm to prove
 # and no engine to start for it. A sealed column at rest is the reading that needs a control.
 if at_rest "$REST_FIN" "$REST_MACH" "$REST_PREL" "$REST_LV"; then
-	vent="$(measure "space,shut,shut,shut,shut,shut")" || {
+	vent="$(measure "shut,shut,shut,space,shut,shut" "$VENT_FRAMES")" || {
 		echo "check_atmosphere_at_rest: the vented control published no readings, so the gate has no control." >&2
 		exit 2
 	}
-	read -r VENT_FIN VENT_MACH VENT_PREL VENT_LV <<EOF
+	read -r VENT_FIN VENT_MACH VENT_PREL VENT_LV VENT_LEFT VENT_ERES VENT_EBAR <<EOF
 $vent
 EOF
-	echo "ATMOSPHERE_VENTED={\"finite\":$VENT_FIN,\"mach\":$VENT_MACH,\"pressure_rest_rel\":$VENT_PREL,\"levels\":$VENT_LV}"
-	if at_rest "$VENT_FIN" "$VENT_MACH" "$VENT_PREL" "$VENT_LV"; then
+	echo "ATMOSPHERE_VENTED={\"finite\":$VENT_FIN,\"gas_left\":$VENT_LEFT,\"energy_residual_rel\":$VENT_ERES,\"energy_bar\":$VENT_EBAR,\"levels\":$VENT_LV}"
+	# THE CONTROL: gas leaves through the open face, and the energy book closes on what left — the
+	# residual over the turnover inside the book's own float32 rounding.
+	if ! awk -v l="$VENT_LEFT" 'BEGIN{exit !(l < 0)}'; then
 		echo >&2
-		echo "check_atmosphere_at_rest: the column with its SIDE OPEN TO SPACE also stayed at rest. Every" >&2
-		echo "cell holding matter touches that face, so it must move. This gate cannot fail." >&2
+		echo "check_atmosphere_at_rest: the column with its TOP OPEN TO SPACE lost no gas through it, so" >&2
+		echo "the instrument reads no venting. This gate cannot fail." >&2
 		exit 2
+	fi
+	if ! awk -v r="$VENT_ERES" -v b="$VENT_EBAR" 'BEGIN{exit !(r >= 0 && r <= b)}'; then
+		echo >&2
+		echo "check_atmosphere_at_rest: the vented column's energy book does not close: residual $VENT_ERES of" >&2
+		echo "the turnover against a bar of $VENT_EBAR. Enthalpy, motion and what left through the face disagree." >&2
+		exit 1
 	fi
 	echo "check_atmosphere_at_rest: OK"
 	exit 0

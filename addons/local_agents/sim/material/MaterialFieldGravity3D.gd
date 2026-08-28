@@ -34,6 +34,7 @@ func solve() -> void:
 	_bind()
 	if _pass == null or _f._gpu == null or _f._gpu._rd == null:
 		return
+	_pass.set_datum(0.5 * float(_f._grid.nx) * _f._grid.cell_size)
 	var rel: float = _pass.solve_converged(_f._gpu._rd, _f._grid, _f._gpu._cc, _f._gpu._groups)
 	if rel > _pass.RESIDUAL_TOLERANCE:
 		push_error(("The gravity solve did not converge: the discrete Poisson residual is still %f of its "
@@ -51,6 +52,15 @@ func phi_abs() -> PackedFloat64Array:
 
 
 var _phi_slab: PackedFloat64Array = PackedFloat64Array()
+var _phi_datum_slab: float = 0.0
+
+
+## The potential at the datum against infinity, J/kg: the device's la_phi plus this is the full potential.
+func phi_datum() -> float:
+	if not _phi_slab.is_empty():
+		return _phi_datum_slab
+	_bind()
+	return float(_pass.phi_datum()) if _pass != null else 0.0
 
 
 ## SLICE: a partial slab cannot solve Poisson — its own mass is not the field's source. The DECLARED
@@ -65,14 +75,12 @@ func _solve_slice() -> void:
 		push_error("SLICE_NO_BODY: slice mode has no declared body, so gravity has no mass to point at. "
 			+ "Declare the body (set_body) before the seed.")
 		return
-	var bf: Dictionary = LAPlanetComposition.body_field(_f._grid, _f.centre(), float(body.radius()),
-		LAMaterialField3D.INITIAL_TEMP)
+	var bf: Dictionary = LAPlanetComposition.upload_body_field(_f._gpu._rd, _f._gpu._bufs, _f._grid,
+		_f.centre(), float(body.radius()), LAMaterialField3D.INITIAL_TEMP)
 	if bf.is_empty():
 		return
 	_phi_slab = bf["phi"]
-	_f._gpu._seed("gravity", bf["g"])
-	_f._gpu._seed("grav_ref", bf["ref"])
-	_f._gpu._seed("grav_phi", bf["dev"])
+	_phi_datum_slab = float(bf["phi_datum"])
 	var rd: RenderingDevice = _f._gpu._rd
 	var cl: int = rd.compute_list_begin()
 	_pass.dispatch_slab(rd, cl, _f._gpu._cc, _f._gpu._groups)

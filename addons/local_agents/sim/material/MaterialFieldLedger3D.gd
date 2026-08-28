@@ -235,6 +235,7 @@ func _publish_energy(out: Dictionary, f: Dictionary, step: int) -> void:
 		return
 	# THE FIRST LAW'S TOTAL: internal energy (the stored enthalpy less its pV) plus motion plus potential.
 	out["energy_stock"] = float(f["energy_stock"])
+	out["energy_stock_open"] = float(f["energy_stock_open"]) if f.has("energy_stock_open") else null
 	out["energy_held"] = float(f["energy_stock"]) - float(f["energy_pv"]) + float(f["energy_kinetic"]) \
 		+ float(f["energy_potential"])
 
@@ -244,6 +245,9 @@ func _publish_energy(out: Dictionary, f: Dictionary, step: int) -> void:
 	var dt_s: float = LAMaterialFieldSphereStep3D.real_seconds_per_step()
 	var has_rad: bool = f.has("rad_absorbed") and f.has("rad_emitted") and f.has("radiogenic") \
 		and dt_s > 0.0
+	# A world that declares no radiative record exchanges nothing by radiation; one that declares it
+	# and publishes no reading is unmeasured.
+	var rad_declared: bool = LAProcessSet.has_record("transport", "heat_radiate")
 	var absorbed_w: float = float(f.get("rad_absorbed", 0.0)) / dt_s if has_rad else 0.0
 	var emitted_w: float = float(f.get("rad_emitted", 0.0)) / dt_s if has_rad else 0.0
 	var radiogenic_w: float = float(f.get("radiogenic", 0.0)) / dt_s if has_rad else 0.0
@@ -263,8 +267,8 @@ func _publish_energy(out: Dictionary, f: Dictionary, step: int) -> void:
 	out["energy_held_first"] = float(r[0])
 	out["energy_run_drift"] = float(r[1])
 	out["energy_run_drift_rel"] = _rel(float(r[1]), absf(float(r[0])))
-	if not has_rad:
-		# A missing measurement is missing: with no radiative pair there is nothing to book against.
+	if rad_declared and not has_rad:
+		# A missing measurement is missing: the declared radiative pair published no reading.
 		for key in ["energy_booked", "energy_residual", "energy_residual_rel", "energy_turnover_j"]:
 			out[key] = null
 		return

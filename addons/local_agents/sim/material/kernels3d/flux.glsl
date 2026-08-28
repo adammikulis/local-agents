@@ -128,6 +128,7 @@ layout(set = 0, binding = 76, std430) readonly buffer N2Buf { float n2_gas[]; };
 layout(set = 0, binding = 77, std430) readonly buffer H2Buf { float h2_gas[]; };
 layout(set = 0, binding = 78, std430) restrict readonly buffer GravPhi { float grav_phi[]; };  // J/kg
 layout(set = 0, binding = 95, std430) restrict readonly buffer GravRef { float grav_ref[]; };  // J/kg
+layout(set = 0, binding = 91, std430) restrict buffer PotBuf { float pe_j_m3[]; };  // the cell's own potential energy per volume
 // The charge riding a crossing, C/m^3 per step.
 layout(set = 0, binding = 79, std430) buffer BndQ { float bnd_q[]; };
 
@@ -161,6 +162,8 @@ layout(push_constant, std430) uniform Params {
 	uint substep_n;       // substeps the finest level takes across the field step, 2^levels
 	uint act_group;       // the row group whose activity counter and cell list this dispatch walks
 	uint act_group2;      // a second group this row's crossings wake; ACT_NO_GROUP for none
+	float phi_datum;      // J/kg: la_phi's zero against infinity
+	float grav_self;      // share of rho*phi that is the cell's own potential energy: 0.5 self-gravitating, 1 in a body's field
 } params;
 
 // The seconds THIS invocation integrates. A cell's own is dt/2^tlevel.
@@ -322,8 +325,10 @@ void face_states(uint c) {
 		if (inb < 0) {
 			inb = ghost[f];
 		}
-		// A FACE ONTO SPACE meets vacuum: no pressure stands there to push back.
+		// A FACE ONTO SPACE meets vacuum: p* is zero and the layer free-expands outward at u + p/Z.
 		if (inb == GHOST_SPACE) {
+			fp_star[f] = 0.0;
+			face_u[f] = zc > 0.0 ? max(dot(vel_at(c), face_normal(d)) + pc / zc, 0.0) : 0.0;
 			continue;
 		}
 		// A WALL STILL PUSHES: matter crosses neither a shut box edge nor rock, pressure does.
@@ -332,8 +337,9 @@ void face_states(uint c) {
 			continue;
 		}
 		uint n = uint(inb);
-		// A neighbour coarser than this substep is not stepping now: its wall stands, nothing crosses.
-		if (tlevel[n] < params.level) {
+		// A neighbour coarser than this substep, or not in its list, is not stepping now: its wall
+		// stands, nothing crosses.
+		if (tlevel[n] < params.level || !listed(n)) {
 			fp_star[f] = pc;
 			continue;
 		}
@@ -406,6 +412,17 @@ void row_flux(uint c) {
 			x_q[f] = cross * charge_per_unit(c);
 			continue;
 		}
+		if (inb == GHOST_SPACE && rides && carries && awake(c)) {
+			la_dt = la_level_dt(lv_c);
+			float u_out = max(face_u[f], 0.0);
+			float cross = row_amount(c) * u_out * open_c * la_dt * la_face_div(c, nbr[f]);
+			if (cross > 0.0) {
+				x_amt[f] = cross;
+				x_h[f] = cross * h_per_unit(c);
+				x_q[f] = cross * charge_per_unit(c);
+			}
+			continue;
+		}
 		if (inb < 0) {
 			continue;   // a shut wall, or a space face this record has no law for
 		}
@@ -415,7 +432,7 @@ void row_flux(uint c) {
 			continue;
 		}
 		// A face runs on the COARSER of the pair's clocks, and a sleeping pair moves nothing.
-		if (tlevel[n] < params.level || (!awake(c) && !awake(n))) {
+		if (tlevel[n] < params.level || !listed(n) || (!awake(c) && !awake(n))) {
 			continue;
 		}
 		float dist_f = la_face_dist(c, inb);
@@ -460,6 +477,7 @@ void row_apply(uint c) {
 	float d_amt = 0.0;
 	float d_h = 0.0;
 	float d_q = 0.0;
+	float ke_ride = 0.0;
 	vec3 d_m = vec3(0.0);
 	uint f_lo = la_face_lo(c);
 	uint f_hi = la_face_hi(c);
@@ -478,9 +496,13 @@ void row_apply(uint c) {
 		d_amt -= cross;
 		d_h -= cross_h;
 		d_q -= cross_q;
+		float ke_cross = 0.0;
 		if (carries) {
 			uint donor = cross > 0.0 ? c : uint(max(inb, 0));
-			d_m -= cross * kg_mol * vel_at(donor);
+			vec3 vd = vel_at(donor);
+			d_m -= cross * kg_mol * vd;
+			ke_cross = cross * kg_mol * 0.5 * dot(vd, vd);
+			ke_ride -= ke_cross;
 			// A parcel the potential carried DOWN arrives with what it lost as heat; nothing here gave
 			// it motion instead. Only the receiving side books it, and only from an interior donor.
 			if (params.mode == MODE_POTENTIAL && cross < 0.0 && inb >= 0
@@ -491,7 +513,11 @@ void row_apply(uint c) {
 		// Exterior crossings book inflow-positive; a wrap partner is interior motion and books nothing.
 		if (inb < 0 || uint(inb) >= params.cell_count) {
 			bnd_amt[c] -= cross;
-			bnd_h[c] -= cross_h;
+			// What leaves takes its potential energy at the donor's own specific value, the same one the
+			// potential book weighs it at.
+			uint pd = cross > 0.0 ? c : uint(max(inb, 0));
+			float pe_kg = rho_bulk[pd] > 0.0 ? pe_j_m3[pd] / rho_bulk[pd] : 0.0;
+			bnd_h[c] -= cross_h + ke_cross + cross * kg_mol * pe_kg;
 			bnd_q[c] -= cross_q;
 			if (carries) {
 				uint donor = cross > 0.0 ? c : uint(max(inb, 0));
@@ -513,10 +539,21 @@ void row_apply(uint c) {
 	}
 	if (carries) {
 		charge[c] += d_q;
+		// MOTION IS BOOKED WITH THE MASS: the kinetic energy the merged momentum cannot hold is heat.
+		float rb0 = max(rho_bulk[c], 0.0);
+		vec3 m0 = vec3(mom_x[c], mom_y[c], mom_z[c]);
+		float ke0 = rb0 > 0.0 ? 0.5 * dot(m0, m0) / rb0 : 0.0;
 		mom_x[c] += d_m.x;
 		mom_y[c] += d_m.y;
 		mom_z[c] += d_m.z;
+		// The potential energy per volume follows the mass, so pe/rho stays the cell's own specific value.
+		float pe_kg_c = rb0 > 0.0 ? pe_j_m3[c] / rb0 : 0.0;
+		pe_j_m3[c] += d_amt * kg_mol * pe_kg_c;
 		rho_bulk[c] += d_amt * kg_mol;
+		float rb1 = max(rho_bulk[c], 0.0);
+		vec3 m1 = m0 + d_m;
+		float ke1 = rb1 > 0.0 ? 0.5 * dot(m1, m1) / rb1 : 0.0;
+		h[c] += ke0 + ke_ride - ke1;
 		h_carried[c] += d_h;
 		if (params.sub_cap_j_m3k > 0.0) {
 			cap_sensible[c] += d_amt * params.sub_cap_j_m3k;
@@ -614,24 +651,40 @@ void move_momentum(uint c) {
 			continue;
 		}
 		uint n = uint(inb);
-		if (solid[n] != 0.0 || tlevel[n] < params.level) {
+		if (solid[n] != 0.0 || tlevel[n] < params.level || !listed(n)) {
 			continue;
 		}
-		// VISCOSITY DIFFUSES VELOCITY: mu grad(v) across the face, one viscosity for the pair.
+		// VISCOSITY DIFFUSES VELOCITY: mu grad(v) across the face, one viscosity for the pair, integrated
+		// EXACTLY over the substep: the pair's velocity difference decays at the rate the two masses set,
+		// so a thin cell beside a dense one relaxes onto it instead of overshooting.
 		float nu = n < params.cell_count ? 0.5 * (nu_t[c] + nu_t[n]) : nu_t[c];
-		float mu = 0.5 * (max(rho_bulk[c], 0.0) + max(rho_bulk[n], 0.0)) * nu;
+		float rc = max(rho_bulk[c], 0.0);
+		float rn = max(rho_bulk[n], 0.0);
+		float mu = 0.5 * (rc + rn) * nu;
 		float dt_f = la_level_dt(min(tlevel[c], tlevel[n]));
-		dm += mu * (vel_at(n) - vel_at(c)) * div_f * dt_f / la_face_dist(c, inb);
+		float dist = la_face_dist(c, inb);
+		float k_c = mu * div_f / dist;
+		float k_n = mu * la_face_div(n, int(c)) / dist;
+		float rate = (rc > 0.0 ? k_c / rc : 0.0) + (rn > 0.0 ? k_n / rn : 0.0);
+		float t_eff = rate * dt_f > 1.0e-6 ? (1.0 - exp(-rate * dt_f)) / rate : dt_f;
+		dm += k_c * (vel_at(n) - vel_at(c)) * t_eff;
 	}
 	// This substep's share of the body impulse the stack does not already carry: state_derive booked
 	// the weight leg out of it wherever the cell's own faces state one.
 	float sf = exp2(-float(tlevel[c]));
+	vec3 v_old = vel_at(c);
 	mom_x[c] += dm.x + bodyf_x[c] * sf;
 	mom_y[c] += dm.y + bodyf_y[c] * sf;
 	mom_z[c] += dm.z + bodyf_z[c] * sf;
 	// v = p/rho off the momentum this pass settled, so the next substep's faces read the new field.
 	float rb = rho_bulk[c];
 	vec3 v = rb > 0.0 ? vec3(mom_x[c], mom_y[c], mom_z[c]) / rb : vec3(0.0);
+	// THE WORK THE FACES DID: what the pressure and viscous impulse gave to motion, the enthalpy
+	// loses (rho Dh/Dt = v.grad p). A stacked cell's departure impulse carries its weight, and that
+	// leg is the potential book's, so it is taken back out before the debit.
+	vec3 gv = g_at(c);
+	vec3 fg = (max(pressure[c], 0.0) > 0.0 && length(gv) > 0.0) ? rb * gv * la_level_dt(tlevel[c]) : vec3(0.0);
+	h[c] -= dot(0.5 * (v_old + v), dm - fg);
 	vel_x[c] = v.x;
 	vel_y[c] = v.y;
 	vel_z[c] = v.z;
@@ -705,6 +758,10 @@ void grain_state(uint g) {
 
 
 
+// The Courant number per substep the face solve, momentum close and record moves stay stable
+// under as a SEQUENCE, docs/MODEL_PARAMETERS.md.
+const float LA_COURANT_LIMIT = 0.5;
+
 // Substeps this record's stability asks of THIS cell, off the cell's own state: the acoustic signal,
 // the donor courant, the drift closure's own speed and the diffusive limit.
 float la_row_need(uint c) {
@@ -749,7 +806,7 @@ float la_row_need(uint c) {
 		need += 6.0 * nu * dt / (L * L);
 	}
 	// NO SIGNAL CROSSES A CELL FASTER THAN LIGHT: a state asking for a shorter step is not a timestep.
-	return min(need, params.dt_s * C_LIGHT / L);
+	return min(need / LA_COURANT_LIMIT, params.dt_s * C_LIGHT / L);
 }
 
 uint la_row_level(uint c) {
