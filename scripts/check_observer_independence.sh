@@ -18,8 +18,8 @@
 # heat landed moved with the view. Different shape, same violated principle. Mechanisms are many; the
 # property is one, so test the property.
 #
-# WHAT IT COMPARES. The same seed and the same length, once with the presentation layer and once with
-# `--bare`. Every conserved total must agree. Conservation totals are the right probe because they are
+# WHAT IT COMPARES. The same seed and the same length, once with the presentation layer (`--ui`) and
+# once without one. Every conserved total must agree. Conservation totals are the right probe because they are
 # sums over the whole field: a divergence anywhere in the substrate reaches them.
 #
 # EXIT CODES. 0 identical · 1 the sim depends on the observer · 2 could not run, never a silent pass.
@@ -57,8 +57,8 @@ run_arm() {  # $1 = out file, $2.. = extra scene args
 }
 
 echo "check_observer_independence: two arms, ${FRAMES} frames, seed ${SEED}" >&2
-run_arm "$A"
-run_arm "$B" --bare
+run_arm "$A" --ui
+run_arm "$B"
 
 python3 - "$A" "$B" "$TOL" <<'PY'
 import json, sys
@@ -72,7 +72,7 @@ def report(path):
 
 a, b, tol = report(sys.argv[1]), report(sys.argv[2]), float(sys.argv[3])
 if a is None or b is None:
-    which = "with presentation" if a is None else "--bare"
+    which = "with presentation" if a is None else "with none"
     print("ERROR: the %s arm produced no SIM_REPORT — refusing to report a pass on one arm." % which,
           file=sys.stderr)
     sys.exit(2)
@@ -106,7 +106,7 @@ if worst <= tol:
     sys.exit(0)
 print("\nTHE SIMULATION CHANGES WHEN IT IS OBSERVED, by %.4g%% at worst." % (worst * 100.0))
 print("Until this is 0, no number from this substrate can be attributed to physics rather than to the")
-print("presentation layer, and no --bare run may be quoted for conservation.")
+print("presentation layer, and no run may be quoted for conservation.")
 print("Look for: a gauge that calls request_channel and so changes which mirrors are fresh; a CPU mirror")
 print("read into a physics input; a branch conditioned on a camera, a viewport or a visibility test.")
 sys.exit(1)

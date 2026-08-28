@@ -48,7 +48,7 @@ func _ready() -> void:
 	_fill_groups()
 	_back_button.pressed.connect(_on_back)
 	_back_button.grab_focus()
-	add_child(LAMenuShooter.new())
+	add_child(LASceneShooter.new())
 
 
 func _fill_groups() -> void:

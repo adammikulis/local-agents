@@ -18,7 +18,7 @@ else
 	POLL=$!
 	LOG="$(mktemp -t la_focus_run)"
 	"$ROOT/scripts/run_sim_offscreen.sh" --path "$ROOT" addons/local_agents/game/VoxelWorld.tscn -- \
-		--sandbox --run-frames=2 --seed=1 --bare --planet-only --no-fauna > "$LOG" 2>&1
+		--sandbox --run-frames=2 --seed=1 --planet-only --no-fauna > "$LOG" 2>&1
 	rc=$?
 	kill "$POLL" 2>/dev/null; wait "$POLL" 2>/dev/null
 	if ! grep -q '^LA_RUN_COMPLETE=' "$LOG"; then

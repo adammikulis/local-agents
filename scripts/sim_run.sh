@@ -85,10 +85,10 @@ if [ "$NEED_IMPORT" -eq 1 ]; then
   "$(dirname "${BASH_SOURCE[0]}")/godot_import.sh" "$PROJ"
 fi
 
-# --bare BY DEFAULT. A measurement run has no use for the HUD, the audio director, the ocean plane, the
-# water particles, the vegetation renderer, the biome and sea-ice shaders, the drainage overlay or the
-# thought panel — those are `add_child` calls guarded by `if not _input.bare()`, so bare does not hide them,
-# it never builds them. Pass --with-ui to get them back for a look at the world.
+# NO PRESENTATION BY DEFAULT. A measurement run has no use for the HUD, the audio director, the ocean
+# plane, the water particles, the vegetation renderer, the biome and sea-ice shaders, the drainage overlay
+# or the thought panel. The UiLayer scene is instantiated only under --ui, so the default does not hide
+# them, it never builds them. Pass --with-ui to get them back for a look at the world.
 # --planet-only builds no life, so --fauna beside it is a no-op the run would report as success.
 if [ "$FAUNA" -eq 1 ] && [ "$FULL" -eq 0 ]; then
 	echo "sim_run: --fauna needs --full. Without it the arm is --planet-only, which builds no life," >&2
@@ -118,7 +118,7 @@ fi
 
 ARGS=(--sandbox "--run-frames=${FRAMES}" "--seed=${SEED}")
 [ -n "$RUNG" ] && ARGS+=("--rung=${RUNG}")
-[ "${WITH_UI:-0}" -eq 0 ] && ARGS+=(--bare)
+[ "${WITH_UI:-0}" -eq 1 ] && ARGS+=(--ui)
 [ "$FULL" -eq 0 ] && ARGS+=(--planet-only)
 [ "$FAUNA" -eq 0 ] && ARGS+=(--no-fauna)
 [ "${#EXTRA[@]}" -gt 0 ] && ARGS+=("${EXTRA[@]}")

@@ -154,3 +154,44 @@ static func sample_night(w) -> void:
 		return
 	LASimReport.gauge("night_frac", float(dark) / float(live))
 	LASimReport.gauge("resting_frac", float(resting) / float(live))
+
+
+const UI_DIR: String = "res://addons/local_agents/game/ui/"
+const MENU_DIR: String = "res://addons/local_agents/game/menu/"
+
+
+## Every presentation node in the tree, by path and by what made it one; a run with no --ui must have
+## none. Prints TREE_PRESENTATION={"scanned":N,"nodes":[...]} for check_presentation_absent.sh.
+static func emit_presentation_census(root: Node) -> int:
+	var found: PackedStringArray = PackedStringArray()
+	var scanned: int = _scan_presentation(root, found)
+	print("TREE_PRESENTATION={\"scanned\":%d,\"nodes\":%s}" % [scanned, JSON.stringify(found)])
+	return found.size()
+
+
+static func _scan_presentation(n: Node, found: PackedStringArray) -> int:
+	var seen: int = 1
+	var why: String = ""
+	if n is Control or n is CanvasLayer:
+		why = n.get_class()
+	else:
+		var scr: Script = n.get_script() as Script
+		if scr != null and (scr.resource_path.begins_with(UI_DIR) or scr.resource_path.begins_with(MENU_DIR)):
+			why = scr.resource_path
+	if why != "":
+		found.append("%s|%s" % [String(n.get_path()), why])
+	for ch in n.get_children():
+		seen += _scan_presentation(ch, found)
+	return seen
+
+
+## Appended to SHOT_SAVED: where the picture was taken from, so a shot says what it is looking at.
+static func shot_info(w) -> String:
+	var cam: Camera3D = w._camera
+	if cam == null:
+		return "cam=absent"
+	var up: Vector3 = w._body.up_at(cam.global_position)
+	var fwd: Vector3 = -cam.global_transform.basis.z
+	var mode: String = "fly" if cam.is_fly() else ("solar" if cam.is_solar_view() else "orbit")
+	return "cam=%s cam_alt_m=%.0f cam_pitch_deg=%.1f" % [mode,
+		w._sim.terrain().altitude_at(cam.global_position), rad_to_deg(asin(clampf(fwd.dot(up), -1.0, 1.0)))]

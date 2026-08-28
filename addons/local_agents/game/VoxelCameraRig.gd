@@ -19,9 +19,6 @@ const PITCH_MAX: float = deg_to_rad(85.0) # steepest (near top-down) tilt
 const RAY_LENGTH: float = 4000.0
 
 const RTS_ALT_MIN: float = 6.0       # closest zoom — down among the creatures
-const RTS_ALT_MAX: float = 220.0     # farthest zoom — a wide tactical view, still clearly on the surface
-# The most-constrained campaign ceiling (stage 1).
-const RTS_ALT_CEILING_MIN: float = 70.0
 # Where the view opens.
 const RTS_ALT_START: float = 95.0
 const RTS_ALT_START_CAMPAIGN: float = 40.0
@@ -262,17 +259,17 @@ func orient_toward(world_dir: Vector3) -> void:
 	_update_transform()
 
 
-func _effective_alt_max() -> float:
-	var m: float = clampf(LAGameProgression.zoom_ceiling_mult(),
-		LAGameProgression.BASELINE_ZOOM_MULT, ORBIT_MAX_DISTANCE_MULT)
-	var span: float = maxf(ORBIT_MAX_DISTANCE_MULT - LAGameProgression.BASELINE_ZOOM_MULT, 0.0001)
-	var f: float = (m - LAGameProgression.BASELINE_ZOOM_MULT) / span
-	return lerpf(RTS_ALT_CEILING_MIN, RTS_ALT_MAX, clampf(f, 0.0, 1.0))
-
-
-## The orbit max distance in world units — the RTS altitude ceiling measured from the planet centre.
+## THE CEILING IS A MULTIPLE OF THE BODY, WHICH IS WHAT A ZOOM MULTIPLIER MEANS. Read as an altitude in
+## metres it collapsed to a couple of hundred, so the widest view a sandbox could reach stood lower than
+## its own mountains and no camera could ever see the world it was on.
 func _effective_orbit_max() -> float:
-	return _orbit_radius + maxf(RTS_ALT_MIN, _effective_alt_max())
+	return _orbit_radius * clampf(LAGameProgression.zoom_ceiling_mult(),
+		LAGameProgression.BASELINE_ZOOM_MULT, ORBIT_MAX_DISTANCE_MULT)
+
+
+## The altitude ceiling that follows from it.
+func _effective_alt_max() -> float:
+	return maxf(RTS_ALT_MIN, _effective_orbit_max() - _orbit_radius)
 
 
 ## Altitude the view opens at: campaign starts close (working a curated patch).
@@ -309,6 +306,18 @@ func _update_transform() -> void:
 	far = clampf(_distance * 12.0, 4000.0, 20000.0)
 
 
+## HOW FAR AN EYE `h` ABOVE A SPHERE OF RADIUS R CAN SEE: the tangent length sqrt(h(2R + h)), which is
+## the horizon at the surface and the far limb from space. The near plane follows it, because a depth
+## buffer stretched from centimetres to the horizon resolves neither end.
+func _horizon_far(h: float) -> float:
+	return maxf(sqrt(h * (2.0 * _orbit_radius + h)), 4000.0)
+
+
+func _apply_depth_range(h: float) -> void:
+	far = _horizon_far(h)
+	near = clampf(far * 1.0e-5, 0.05, 2.0)
+
+
 ## Unit world radial (planet centre → camera) from the azimuth/elevation pair. This is the FREE-mode pose.
 func _radial_from_azel() -> Vector3:
 	var e: float = clampf(_orbit_elevation, -ORBIT_ELEVATION_LIMIT, ORBIT_ELEVATION_LIMIT)
@@ -316,11 +325,11 @@ func _radial_from_azel() -> Vector3:
 
 
 func _rts_altitude() -> float:
-	return clampf(_distance - _orbit_radius, RTS_ALT_MIN, RTS_ALT_MAX)
+	return clampf(_distance - _orbit_radius, RTS_ALT_MIN, _effective_alt_max())
 
 
 func _approach_t() -> float:
-	var span: float = maxf(RTS_ALT_MAX - RTS_ALT_MIN, 0.0001)
+	var span: float = maxf(_effective_alt_max() - RTS_ALT_MIN, 0.0001)
 	return clampf(1.0 - (_rts_altitude() - RTS_ALT_MIN) / span, 0.0, 1.0)
 
 
@@ -354,20 +363,20 @@ func _update_orbit_transform() -> void:
 	var rise: float = maxf(alt - ARC_LOOK_HEIGHT, 0.1)          # vertical run from the look target up to the eye
 	var eye_back: float = rise / maxf(tan(_rts_pitch), 0.0001)
 	var pos: Vector3 = look_pt + upn * rise + back * eye_back
-	# Anti-clip floor: never let the eye sit below the (eased) terrain beneath the view + clearance.
-	var min_r: float = base_r + MIN_EYE_CLEARANCE
+	# THE FLOOR IS THE GROUND UNDER THE EYE, NOT UNDER THE GAZE. Measured under the look point, a ridge
+	# standing between the two put the eye inside it.
 	var pos_off: Vector3 = pos - _orbit_center
+	var eye_dir: Vector3 = pos_off.normalized() if pos_off.length() > 0.001 else radial
+	var min_r: float = _surface_radius_at(eye_dir) + MIN_EYE_CLEARANCE
 	if pos_off.length() < min_r:
-		var pdir: Vector3 = pos_off.normalized() if pos_off.length() > 0.001 else radial
-		pos = _orbit_center + pdir * min_r
+		pos = _orbit_center + eye_dir * min_r
 	global_position = pos
 	look_at(look_pt, upn)
 	# FREE-LOOK aim offset (MMB drag): pivot the camera in place on top of the orbit pose, without moving the globe.
 	if not is_zero_approx(_aim_yaw) or not is_zero_approx(_aim_pitch):
 		rotate_object_local(Vector3.UP, _aim_yaw)
 		rotate_object_local(Vector3.RIGHT, _aim_pitch)
-	# Far plane scaled to the orbit distance so the whole planet stays inside the frustum when pulled out.
-	far = clampf(_distance * 4.0, 4000.0, 40000.0)
+	_apply_depth_range(maxf(pos.distance_to(_orbit_center) - base_r, 1.0))
 
 
 ## Wire the planet body (VoxelWorld's `_body`) so GEOSYNC can read its rotating frame.
@@ -485,7 +494,7 @@ func _update_fly_transform() -> void:
 	if absf(_fly_look.dot(up)) > 0.999:
 		up = Vector3.UP if absf(_fly_look.dot(Vector3.UP)) < 0.98 else Vector3.RIGHT
 	look_at(_fly_pos + _fly_look, up)
-	far = clampf(_fly_pos.distance_to(_orbit_center) * 4.0 + _orbit_radius * 2.0, 4000.0, 60000.0)
+	_apply_depth_range(maxf(_fly_pos.distance_to(_orbit_center) - _surface_radius_at(_fly_radial_up()), 1.0))
 
 
 ## Hold-drag mouse-look: yaw about the local radial up, pitch about the camera right, clamped off the poles.
@@ -656,12 +665,22 @@ func _zoom(factor: float) -> void:
 		_target_distance = clampf(_target_distance * factor, MIN_DISTANCE, MAX_DISTANCE)
 
 
-func _terrain_aware_radius(radial: Vector3) -> float:
+# WHAT THE EYE STANDS OVER: the solid surface, or the sea when the sea is higher. Flooring it at the
+# body's MEAN radius put the eye a kilometre inside a continent, because half a planet stands above its mean.
+func _surface_radius_at(radial: Vector3) -> float:
 	var r: float = _orbit_radius
 	if _geosync_body != null and is_instance_valid(_geosync_body) and _geosync_body.has_method("surface_radius"):
 		var tr: float = _geosync_body.surface_radius(radial)
 		if not is_nan(tr) and tr > 0.0:
-			r = maxf(r, tr)
+			r = tr
+		if _geosync_body.has_method("sea_radius"):
+			r = maxf(r, _geosync_body.sea_radius())
+	return r
+
+
+# The eased radius under the LOOK point; a ridge passing beneath the gaze must not jolt the frame.
+func _terrain_aware_radius(radial: Vector3) -> float:
+	var r: float = _surface_radius_at(radial)
 	if _smooth_surface_r <= 0.0:
 		_smooth_surface_r = r
 	else:
@@ -779,20 +798,11 @@ func _process(delta: float) -> void:
 	# FLY: drive the drone from the keyboard every frame (WASD/lift/descend/boost).
 	if _fly:
 		_fly_step(delta)
-	# GEOSYNC.
-	elif _geosync and not _solar_view and _geosync_body != null and is_instance_valid(_geosync_body):
+	# THE GROUND ARRIVES AFTER THE POSE DOES. Terrain streams in under a standing eye, so the pose is
+	# re-solved every frame and not only when the player moves; solved once, the eye ends up inside a hill.
+	elif _orbit_mode and not _solar_view:
 		_update_orbit_transform()
 	_apply_seismic_shake(delta)
-	var budget: float = _far_budget()
-	far = clampf(far, budget * 0.5, budget)
-
-
-const DRAW_BUDGET_MIN: float = 4000.0
-const DRAW_BUDGET_MAX: float = 80000.0
-
-func _far_budget() -> float:
-	var b: float = float(Engine.get_meta("la_draw_distance", 8000.0)) if Engine.has_meta("la_draw_distance") else 8000.0
-	return clampf(b, DRAW_BUDGET_MIN, DRAW_BUDGET_MAX)
 
 
 func _apply_seismic_shake(delta: float) -> void:

@@ -127,6 +127,17 @@ GDScript keeps bindings. `gdextensions/localagents/` already builds; a class is 
   burial march, `FieldEnthalpySeed3D`'s per-cell mixture walk and its dynamic `f.get("_" + name)` lookup.
 - The driver: `MaterialSphereGPU3D.gd` and `MaterialField3D.gd`. Last, after the pass seam settles.
 
+## 8. A --ui run with fauna never reports, and the opening view frames open ocean
+
+`LA_RUN_TIMEOUT=110 scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn --
+--sandbox --ui --run-frames=20` never prints a report and logs no error. The same arm with
+`--planet-only --no-fauna` reports in about twenty seconds.
+
+`scripts/check_ground_drawn.sh` passes and its picture is open sea: the eye stands 95 m over the water
+on a bearing the spawn controller framed, while `LAVoxelTerrainService.land_direction()` reports 59 of
+128 bearings carry land above the sea shell.
+
+
 ## 7. Build the binding registry
 
 SSBO binding numbers are a bare integer in GLSL and a second bare integer in one of fourteen uniform-set

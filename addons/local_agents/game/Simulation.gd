@@ -201,7 +201,7 @@ func _on_step(_step: int) -> void:
 		var centre: Vector3 = _body.center()
 		_ecology.set_sun((_star.global_position - centre).normalized(), centre)
 	var spin: float = _body.angular_velocity_rad_s()
-	if _spawn.is_spawned() and _terrain.is_planet() and is_finite(spin):
+	if _spawn.is_spawned() and is_finite(spin):
 		_body.rotate(_body.spin_axis(), spin * dt)
 	_spawn.try_spawn(_overview, _farview, _auto_meteor, _auto_select)
 

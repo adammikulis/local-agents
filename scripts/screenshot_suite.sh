@@ -18,7 +18,7 @@ shift 2>/dev/null || true
 while [ $# -gt 0 ]; do case "$1" in --path) DIR="$2"; shift 2;; --out) OUT="$2"; shift 2;; *) shift;; esac; done
 mkdir -p "$OUT"
 SCENE="addons/local_agents/game/VoxelWorld.tscn"
-RES="${LA_RES:-1280x800}"
+SHOT_SIZE="${LA_SHOT_SIZE:-1280x800}"   # the off-screen SubViewport each shot is read off
 
 # scenario = "name|extra-sim-flags|shoot-frames". The world-view flags frame the camera; --auto-meteor and
 # --auto-barrage fire ~shoot_frames-240, so give them >=520 frames to land + settle before the shot.
@@ -40,8 +40,8 @@ PASS=0; FAIL=0; SHOTS=()
 for row in "${SCENARIOS[@]}"; do
   IFS='|' read -r name flags frames <<<"$row"
   png="$OUT/$name.png"; log="$OUT/$name.log"
-  LA_SIM_SEED=1337 LA_RES="$RES" "$SELF/run_sim_offscreen.sh" --path "$DIR" "$SCENE" \
-    -- --sandbox $flags --shoot="$png" --shoot-frames="$frames" >"$log" 2>&1
+  LA_SIM_SEED=1337 "$SELF/run_sim_offscreen.sh" --path "$DIR" "$SCENE" \
+    -- --sandbox --ui $flags --shoot="$png" --shoot-frames="$frames" --shoot-size="$SHOT_SIZE" >"$log" 2>&1
   errs=$(grep 'SCRIPT ERROR' "$log" | grep -vc get_spirv)
   # a real render = the PNG exists and isn't trivially tiny (a blank/failed capture is a few hundred bytes)
   bytes=$(wc -c <"$png" 2>/dev/null || echo 0)

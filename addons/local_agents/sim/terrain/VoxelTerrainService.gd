@@ -5,26 +5,17 @@ extends RefCounted
 const SHADER_PATH: String = "res://addons/local_agents/sim/shaders/VoxelTerrainTriplanar.gdshader"
 const PlanetGenScript: GDScript = preload("res://addons/local_agents/sim/terrain/SpherePlanetGenerator.gd")
 
-const ISLAND_RADIUS: float = 180.0        # land core radius (world units); cave placement reads it
-const SEA_LEVEL_Y: float = 6.0            # world Y of the sea surface (default sea level)
+const MAX_LOD: int = 23                   # godot_voxel's cap: VoxelLodTerrain rejects lod_count >= 24
 
 var _terrain: VoxelLodTerrain = null
 var _generator: VoxelGeneratorGraph = null   # the planet's SDF, queryable before anything is meshed
 var _viewer: VoxelViewer = null
 var _query_tool: VoxelTool = null          # cached SDF sampler for is_solid / sdf_at (the 3D-field rock test)
-var _sea_level: float = SEA_LEVEL_Y
-var _island_radius: float = ISLAND_RADIUS
-
-var _shape: String = "island"
 var _gen_opts: Dictionary = {}             # the dict build_planet handed LASpherePlanetGenerator.build()
 var _center: Vector3 = Vector3.ZERO
 var _planet_radius: float = 0.0
 var _planet_relief: float = 0.0
 var _sea_radius: float = 0.0
-
-## True when this terrain is a spherical planet (radial up) rather than the flat island (+Y up).
-func is_planet() -> bool:
-	return _shape == "planet"
 
 ## Planet centre in world space (origin by default). Only meaningful in planet mode.
 func planet_center() -> Vector3:
@@ -43,18 +34,10 @@ func up_at(pos: Vector3) -> Vector3:
 	var r: Vector3 = pos - _center
 	return r.normalized() if r.length() > 0.001 else Vector3.UP
 
-## World Y of the sea surface this terrain was shaped around (the ocean plane / MaterialField sea_level).
-func sea_level() -> float:
-	return _sea_level
-
-## Land-core radius (world units) the island was shaped with; places caves/springs on land.
-func island_radius() -> float:
-	return _island_radius
 
 func build_planet(parent: Node3D, opts: Dictionary = {}) -> void:
 	if _terrain != null:
 		return
-	_shape = "planet"
 	_center = opts.get("center", Vector3.ZERO)
 	_planet_relief = float(opts.get("relief", 46.0))
 
@@ -86,7 +69,6 @@ func build_planet(parent: Node3D, opts: Dictionary = {}) -> void:
 	_generator = gen
 
 	var mesher: VoxelMesherTransvoxel = VoxelMesherTransvoxel.new()
-	mesher.texturing_mode = 0
 
 	var terrain: VoxelLodTerrain = VoxelLodTerrain.new()
 	terrain.name = "VoxelTerrain"
@@ -100,15 +82,21 @@ func build_planet(parent: Node3D, opts: Dictionary = {}) -> void:
 		tm.set_shader_parameter("planet_enabled", 1.0)
 		tm.set_shader_parameter("planet_center", _center)
 		tm.set_shader_parameter("planet_sea_radius", _sea_radius)
-	terrain.lod_count = int(opts.get("lod_count", 5))
-	terrain.lod_distance = float(opts.get("lod_distance", 56.0))
-	terrain.view_distance = int(opts.get("view_distance", 2000))
+	# THE LOD PYRAMID SPANS THE BODY OR ITS FAR SIDE IS NEVER MESHED. The coarsest level reaches
+	# lod_distance * 2^(lod_count-1) metres, and the body is metres of real radius, so the count is read
+	# off the radius rather than typed. A viewer sees the whole body: the far limb stands 2R away.
+	var lod_dist: float = float(opts.get("lod_distance", 56.0))
+	terrain.lod_distance = lod_dist
+	terrain.lod_count = clampi(int(ceil(log(maxf(_planet_radius, lod_dist) / lod_dist) / log(2.0))) + 1,
+		1, MAX_LOD)
+	terrain.view_distance = int(opts.get("view_distance", 8000))
 	terrain.generate_collisions = true
 	terrain.collision_layer = 1
 	terrain.collision_mask = 0
 	var rr: float = _planet_radius + _planet_relief + 80.0     # sphere-enclosing box (+ atmosphere headroom)
 	terrain.voxel_bounds = AABB(
 		_center - Vector3(rr, rr, rr), Vector3(rr * 2.0, rr * 2.0, rr * 2.0))
+	# The field's solid mask is a VoxelTool query; full load mode is what lets it answer away from a viewer.
 	terrain.full_load_mode_enabled = true
 	parent.add_child(terrain)
 	_terrain = terrain
@@ -132,11 +120,19 @@ func set_shader_param(param: String, value) -> void:
 	if _terrain != null and _terrain.material is ShaderMaterial:
 		(_terrain.material as ShaderMaterial).set_shader_parameter(param, value)
 
+## How far the terrain streams and draws around a viewer, in metres — the draw-distance setting.
+func set_view_distance(metres: float) -> void:
+	if _terrain != null:
+		_terrain.view_distance = int(maxf(1000.0, metres))
+		if _viewer != null:
+			_viewer.view_distance = _terrain.view_distance
+
+
 func attach_viewer(camera: Node3D, visuals: bool = true) -> void:
-	if camera == null:
+	if camera == null or _terrain == null:
 		return
 	var viewer: VoxelViewer = VoxelViewer.new()
-	viewer.view_distance = _terrain.view_distance if _terrain != null else 512
+	viewer.view_distance = _terrain.view_distance
 	viewer.requires_visuals = visuals
 	viewer.requires_collisions = visuals
 	camera.add_child(viewer)
@@ -145,10 +141,6 @@ func attach_viewer(camera: Node3D, visuals: bool = true) -> void:
 ## Destruction: remove SDF matter inside the sphere.
 func carve_sphere(world_pos: Vector3, radius: float) -> void:
 	_edit_sphere(world_pos, radius, VoxelTool.MODE_REMOVE)
-
-## Add SDF matter inside the sphere.
-func fill_sphere(world_pos: Vector3, radius: float) -> void:
-	_edit_sphere(world_pos, radius, VoxelTool.MODE_ADD)
 
 func _edit_sphere(world_pos: Vector3, radius: float, mode: int) -> void:
 	if _terrain == null:
@@ -184,19 +176,6 @@ func sdf_at(pos: Vector3) -> float:
 
 func is_solid(pos: Vector3) -> bool:
 	return sdf_at(pos) < 0.0
-
-
-func fill_box(world_pos: Vector3, half_extents: Vector3) -> void:
-	if _terrain == null:
-		return
-	var vt: VoxelTool = _terrain.get_voxel_tool()
-	if vt == null:
-		return
-	vt.set_channel(VoxelBuffer.CHANNEL_SDF)
-	vt.set_mode(VoxelTool.MODE_ADD)
-	# Local/voxel-space AABB (correct under a rotated/spinning body; no-op at identity).
-	var lp: Vector3 = _terrain.to_local(world_pos)
-	vt.do_box(lp - half_extents, lp + half_extents)
 
 
 # A low-poly rock baked to a VoxelMeshSDF once, reused for every polygon stamp (do_mesh).
@@ -281,12 +260,37 @@ func surface_radius(dir: Vector3) -> float:
 			return (_terrain.to_global(from_l + dir_l * hit.distance) - _center).length()
 	return _generated_surface_radius(d)
 
+# A ray from the relief ceiling to the sea shell hits rock only where the surface stands above sea level.
+const LAND_SAMPLES: int = 128
+
+
+## A direction from the centre where dry land stands above the sea shell, preferring the hemisphere
+## `prefer` points into. Vector3.UP when the sweep finds none: this world's surface is all ocean.
+func land_direction(prefer: Vector3 = Vector3.ZERO) -> Vector3:
+	if _generator == null:
+		return Vector3.UP
+	# A Fibonacci sphere: even coverage from one deterministic sequence, no clustering at the poles.
+	var golden: float = PI * (3.0 - sqrt(5.0))
+	var top: float = _planet_radius + _planet_relief + 60.0
+	var stride: float = maxf(1.0, _planet_relief * 0.01)
+	var found: Vector3 = Vector3.UP
+	for i in range(LAND_SAMPLES):
+		var y: float = 1.0 - 2.0 * (float(i) + 0.5) / float(LAND_SAMPLES)
+		var d: Vector3 = Vector3(cos(golden * i), 0.0, sin(golden * i)) * sqrt(maxf(0.0, 1.0 - y * y)) + Vector3.UP * y
+		if _generator.raycast_sdf_approx(_center + d * top, _center + d * _sea_radius, stride) < 0.0:
+			continue
+		found = d
+		if prefer.length() < 0.001 or d.dot(prefer.normalized()) > 0.4:
+			break
+	return found
+
+
 # Bracket the SDF crossing with a metre sweep, then refine across that bracket at 5 cm.
 const GEN_RAY_STRIDE: float = 1.0
 const GEN_RAY_REFINE: float = 0.05
 
 func _generated_surface_radius(dir: Vector3) -> float:
-	if _generator == null or _shape != "planet":
+	if _generator == null:
 		return NAN
 	var d: Vector3 = dir.normalized()
 	var r_top: float = _planet_radius + _planet_relief + 60.0

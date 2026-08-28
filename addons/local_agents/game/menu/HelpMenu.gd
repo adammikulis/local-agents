@@ -15,7 +15,7 @@ func _ready() -> void:
 	_tabs.add_child(LAHelpTabs.build(PANEL_WIDTH, CONTENT_HEIGHT, _start_tab_arg()))
 	_back_button.pressed.connect(_on_back)
 	_back_button.grab_focus()
-	add_child(LAMenuShooter.new())
+	add_child(LASceneShooter.new())
 
 
 ## Which tab to open on: `--help-tab=controls|codex|overview`, default overview.
