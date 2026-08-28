@@ -1,7 +1,14 @@
 # Engine launches one `scripts/agent_harness.sh lint` may perform, counted through LA_LAUNCH_LOG by
-# scripts/check_launch_count.sh; imports are cache state and are not counted. Two in
-# scripts/lint_capture.sh (shared sim arm, headless batch) and sixteen second arms: the device rigs of gravity, radiative, weathering, lifeless,
-# escape, boundary_momentum, boundary_books, active_rows, derive_fixed_point, driver_native and
-# stack_balance; the boundary_wrap, boundary_books and boundary_momentum REPLAY slices; the seeded-world
-# arms of derive_fixed_point and driver_native. May fall as an arm is collapsed. May not rise.
-18
+# scripts/check_launch_count.sh; imports are cache state and are not counted. THE NUMBER IS THE ROSTER'S
+# OWN COUNT, enumerated from the gates' source, never a measurement written back.
+#
+# Two in scripts/lint_capture.sh: the shared sim arm and the headless batch.
+# Eleven device rigs, one each: gravity_solve, radiative_row, weathering_rate_law, lifeless_planet,
+# escape_law, boundary_momentum_book, boundary_books, active_rows, derive_fixed_point, driver_native,
+# stack_balance.
+# Six second arms that need a world the capture is not: the boundary_wrap, boundary_books and
+# boundary_momentum REPLAY slices; derive_fixed_point's rung-1 world and driver_native's rung-2 world;
+# and rung_acoustic's rung-3 world.
+# A gate whose rung IS the capture's reads the capture and launches nothing.
+# May fall as an arm is collapsed. May not rise.
+19

@@ -6,22 +6,12 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_rung.sh"
-. "$ROOT/scripts/lib_capture.sh"
 
 FRAMES="${LA_HYDROSTATIC_FRAMES:-6}"
 KEYS="pressure_inversions,pressure_audited,pressure_empty,pressure_inv_open,pressure_inv_rock,pressure_inv_surface,pressure_aud_open,pressure_aud_rock,pressure_aud_surface"
 
-# THE SHARED ARM WHEN IT IS THIS RUNG'S OWN WORLD, and a launch of its own when it is not. A rung gate
-# may not read a capture recorded at another rung — that world holds other processes — but a capture
-# recorded at THIS one is the same world, and a second identical launch measures it twice.
-RUNG=2
-if [ "$(la_cap_rung 2>/dev/null || echo "")" = "$RUNG" ]; then
-	out="$(la_report "$KEYS" 2>&1)"
-	rc=$?
-else
-	out="$(la_rung_report "$RUNG" "$FRAMES" "$KEYS")"
-	rc=$?
-fi
+out="$(la_rung_report 2 "$FRAMES" "$KEYS")"
+rc=$?
 la_rung_require "$out" pressure_inversions pressure_audited pressure_empty || exit 2
 
 inv="$(la_rung_value "$out" pressure_inversions)"

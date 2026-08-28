@@ -37,27 +37,24 @@ An offset component of `surface` puts a box on the body without naming a radius.
 A slice's one basin cell is seeded brim full and reads back superheated. Reproduce:
 `LA_PASS_PROBE=h2o scripts/sim_run.sh --slice --rung 3 --frames 1`.
 
-## 1. THE SEED HANDS OVER PRESSURE THAT FALLS GOING DOWN, IN THE REFINED SHELL
-
-`bash scripts/check_hydrostatic_seed.sh` counts open-over-open pairs whose upper cell holds the higher
-pressure, and zero on the same box with the refinement mask empty. Both ends of every one of them hold
-matter above `rho_floor`, so the emptiness floor is not what they are; they are level-1 over level-1,
-never coarse-over-coarse and never across a 2:1 seam, and every one stands above the top band
-`HeatRows.ALT_BAND_FLOORS_M` declares. The ladder stops at rung 2 on them.
-**Reproduce:** `bash scripts/agent_harness.sh ladder`, and `scripts/agent_harness.sh sim --rung=2
---frames 4`, whose `PRESSURE_BROKEN` line carries the count beside the pairs the floor kept out.
-
-## 1a. TWO GATES READ THE SHARED CAPTURE DIFFERENTLY ON DIFFERENT LINT RUNS
+## 1. THE FIELD GOES NON-FINITE AT THE TOP RUNG, AND NOT REPRODUCIBLY
 
 `bash scripts/agent_harness.sh lint` fails `check_finite_channels.sh` on a null `energy_stock`, or
-`check_stack_balance.sh`, or neither, on the same tree. A run of that world by itself publishes a finite
-`energy_stock`. **Reproduce:** that command, twice.
+`check_stack_balance.sh`, or neither, on the same tree. The capture's own world reports non-finite cells
+on the runs that fail and none on the runs that pass. **Reproduce:** run `bash scripts/lint_capture.sh`
+five times and read nonfinite_cells and energy_stock out of each capture report it writes; or
+`scripts/sim_run.sh --path . --frames 20 --seed 4242 --rung 8 --from-seal --report
+nonfinite_cells,energy_stock`, which reports non-finite cells with a uniform grid too.
 
-## 1b. THE LINT LAUNCHES ONE ENGINE MORE THAN ITS CEILING
+The drain and the capture are not the race: `LAMaterialSphereGPU3D._drain_pending` syncs before
+`LAFieldDriver.gather_read`'s copies, and `scripts/lint_capture.sh` renames `report.raw` only after
+`sim_run.sh` has exited.
 
-`bash scripts/agent_harness.sh lint` reports 19 launches against `docs/LAUNCH_CEILING`'s 18. Its own
-breakdown names a rung-1 and a rung-3 world arm that the ceiling's roster does not.
-**Reproduce:** that command, and read `LAUNCH_COUNT=`.
+## 1a. TWO SLICE GATES CANNOT RUN
+
+`bash scripts/check_boundary_books.sh` and `bash scripts/check_boundary_momentum_book.sh` exit 2: their
+slice arms log `TransportPass: the h2o row's own cells carry a signal speed at or past light`, which is
+the substep budget `docs/UNRUNNABLE_GATES_CEILING` names. **Reproduce:** either command.
 
 ## 2. The open-boundary books do not close at run level
 
