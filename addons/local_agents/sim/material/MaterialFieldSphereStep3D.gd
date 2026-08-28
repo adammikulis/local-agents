@@ -10,7 +10,6 @@ static func real_seconds_per_step() -> float:
 	return SIM_SECONDS_PER_STEP
 
 
-const LakesScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldLakes3D.gd")
 const MineralProfileScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMineralProfile3D.gd")
 const AttributionScript: GDScript = preload("res://addons/local_agents/sim/material/FieldPassAttribution3D.gd")
 const ElementProbeScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldElementProbe3D.gd")
@@ -70,7 +69,6 @@ func seed_tick() -> bool:
 	if _f._terrain == null or not _f._terrain.has_method("is_solid"):
 		return false
 	_f.sample_solidity()          # solid mask -> the bedrock silicate + cement the gravity solve weighs
-	_f._seed_sea()                # fills the ocean basin with real, flowing water
 	_f.activate()                 # builds the GPU driver, which owns the solve the walks below read
 	if LAProcessSet.has_record("pass", GRAVITY_PASS):
 		_seed_under_gravity()
@@ -107,9 +105,8 @@ func _seed_under_gravity() -> void:
 		push_error("The regolith walk marked no cell permeable, so every rock cell has zero porosity, the "
 			+ "water table is unprimed and darcy_resistance() makes the groundwater row inert. The walk "
 			+ "reads `below` from solved gravity: it ran before the solve was dispatched and drained.")
-	LakesScript.new().seed(_f)    # priority-flood standing lakes in enclosed land basins
-	# The lakes poured water into already-seeded cells: displace the gas it occupies, and re-derive
-	# the enthalpy so the water arrives WITH its heat.
+	LAFieldHydrosphereSeed.seed(_f)   # the body's own water, priority-flooded into its basins
+	# The water landed in already-seeded cells: displace the gas it occupies.
 	LAFieldLithostaticSeed.displace_gas_from_water(_f)
 
 

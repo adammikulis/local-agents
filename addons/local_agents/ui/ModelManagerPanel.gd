@@ -15,10 +15,7 @@ var _inventory: LocalAgentModelInventory = null
 @onready var _inference_tab: LAInferenceSettingsTab = $"Background/Margin/Body/Tabs/Inference settings"
 
 # Self-harness state.
-var _shoot_path: String = ""
-var _shoot_frames: int = 14
 var _shoot_tab: int = 1
-var _shoot_counter: int = 0
 
 func _ready() -> void:
 	var is_scene_root: bool = get_tree() != null and get_tree().current_scene == self
@@ -44,12 +41,11 @@ func _ready() -> void:
 	_wire()
 	refresh()
 
-	if is_scene_root and (_shoot_path != "" or OS.has_environment("LA_OFFSCREEN")):
-		LAQuietWindow.apply()
-	if is_scene_root and _shoot_path != "":
+	if is_scene_root:
+		LAQuietWindow.apply_if_automated()
 		if _tabs != null and _shoot_tab >= 0 and _shoot_tab < _tabs.get_tab_count():
 			_tabs.current_tab = _shoot_tab
-		set_process(true)
+		add_child(LASceneShooter.new())
 
 func _wire() -> void:
 	_detected_tab.setup(_inventory, _store)
@@ -130,23 +126,9 @@ func _run_selftest_if_requested() -> bool:
 
 func _parse_cmdline() -> void:
 	for arg: String in OS.get_cmdline_user_args():
-		if arg.begins_with("--shoot="):
-			_shoot_path = arg.substr("--shoot=".length())
-		elif arg.begins_with("--shoot-frames="):
-			_shoot_frames = int(arg.substr("--shoot-frames=".length()))
-		elif arg.begins_with("--shoot-tab="):
+		if arg.begins_with("--shoot-tab="):
 			_shoot_tab = int(arg.substr("--shoot-tab=".length()))
 		elif arg.begins_with("--fake-hf-cache="):
 			_fake_hf_cache = arg.substr("--fake-hf-cache=".length())
 		elif arg.begins_with("--demo-register="):
 			_demo_register = arg.substr("--demo-register=".length())
-
-func _process(_delta: float) -> void:
-	if _shoot_path == "":
-		return
-	_shoot_counter += 1
-	if _shoot_counter == _shoot_frames:
-		var img: Image = get_viewport().get_texture().get_image()
-		img.save_png(_shoot_path)
-		print("SHOT_SAVED=%s size=%dx%d" % [_shoot_path, img.get_width(), img.get_height()])
-		get_tree().quit(0)

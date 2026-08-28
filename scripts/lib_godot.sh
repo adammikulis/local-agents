@@ -3,9 +3,20 @@
 # LA_GODOT_TIMEOUT=<seconds> wraps the run; `timeout` cannot run a shell function.
 
 
-# 1x1 at creation: macOS clamps an off-screen position back on, and _ready is too late to shrink.
+# 1x1 AT CREATION. macOS clamps an off-screen position back on, so a window with pixels in it lands on
+# the user's monitor and _ready is too late to shrink it. A screenshot and a perf frame are read off a
+# SubViewport, so nothing else needs a window with pixels.
 LA_OFFSCREEN_POS="${LA_WIN_POS:-99999,99999}"
-LA_OFFSCREEN_RES="${LA_RES:-1x1}"
+
+# THE ONE EXEMPTION, AND IT IS THE ENGINE'S: Godot's movie maker records the ROOT viewport, so footage
+# needs a window the size of the footage. No other run may ask.
+la_window_res() {
+	local a
+	for a in "$@"; do
+		if [ "$a" = "--write-movie" ]; then printf '%s' "${LA_MOVIE_RES:-1280x720}"; return; fi
+	done
+	printf '1x1'
+}
 
 # Godot sets its own activation policy to Regular at startup, over any plist, and activates itself when
 # the main window shows. The extension sets the policy to Prohibited at CORE init under LA_OFFSCREEN;
@@ -89,5 +100,5 @@ la_godot() {
 	done
 	# This branch creates a WINDOW, and the extension reads LA_OFFSCREEN at CORE to make it unfocusable.
 	LA_OFFSCREEN="${LA_OFFSCREEN:-1}" command ${pre[@]+"${pre[@]}"} "$binary" \
-		--position "$LA_OFFSCREEN_POS" --resolution "$LA_OFFSCREEN_RES" "$@"
+		--position "$LA_OFFSCREEN_POS" --resolution "$(la_window_res "$@")" "$@"
 }

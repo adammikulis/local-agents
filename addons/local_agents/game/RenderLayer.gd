@@ -46,6 +46,13 @@ func _build_sky() -> void:
 		_sim.orbits().set_sky_controller(_sky_ctrl)
 	if _camera != null and _camera.has_method("face_sun_on_start"):
 		_camera.face_sun_on_start(_sky_ctrl.sun())
+	# OPEN OVER DAYLIT LAND. The sea shell sits at the mean radius, so most of the sphere is open ocean
+	# and a view that opens on an arbitrary bearing opens on water.
+	var terrain = _sim.terrain()
+	if terrain != null and terrain.has_method("land_direction") and _camera.has_method("orient_toward"):
+		var sun: Node3D = _sky_ctrl.sun()
+		var sunward: Vector3 = sun.global_transform.basis.z if sun != null else Vector3.ZERO
+		_camera.orient_toward(terrain.land_direction(sunward))
 
 
 func _build_world_visuals() -> void:
@@ -57,11 +64,8 @@ func _build_world_visuals() -> void:
 	if _sim.ecology().has_method("set_vegetation_renderer"):
 		_sim.ecology().set_vegetation_renderer(_veg_renderer)
 
-	# The calm sea: ONE GPU plane at sea level — a finite spherical shell at sea_radius.
-	if terrain.is_planet():
-		_ocean.setup_sphere(body.center(), body.sea_radius(), bool(_render_opts.get("ocean_transparent", true)))
-	else:
-		_ocean.setup(terrain.sea_level(), _camera)
+	# The calm sea: ONE GPU shell at sea_radius.
+	_ocean.setup_sphere(body.center(), body.sea_radius(), bool(_render_opts.get("ocean_transparent", true)))
 
 	# The field's condensate as ONE GPU particle system; phase is per-particle, off the cover texture.
 	_water.setup(material, _camera, _sky_ctrl.sun(), body.center(), body.sea_radius())

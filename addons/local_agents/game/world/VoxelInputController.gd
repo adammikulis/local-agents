@@ -35,6 +35,7 @@ var _lunar_phase: float = 0.15
 # Optional self-screenshot / smoke harness: pass `-- --shoot=<path> [--shoot-frames=N]`
 var _shoot_path: String = ""
 var _shoot_frames: int = 150
+var _shoot_size: Vector2i = Vector2i(1280, 800)   # --shoot-size=WxH: the SubViewport the shot is read off
 var _run_frames: int = 0
 var _perf_frames: int = 0               # --perf-frames=N: GPU-timed fps bench (see parse_cmdline + VoxelWorld._process)
 var _smoke: bool = false                # --smoke: boot the MINIMAL (Potato/Low) config for fast parse+run checks
@@ -103,13 +104,17 @@ var _start_mode_applied: bool = false
 
 func parse_cmdline() -> void:
 	# PARSING ONLY. This node builds no UI: it runs in every run, including runs with no presentation layer,
-	# and the Esc menu + view-controls bar are Controls. LAPresentation calls build_ui() when there is a
+	# and the Esc menu + view-controls bar are Controls. LAUiLayer calls build_ui() when there is a
 	# screen to put them on.
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--shoot="):
+			# A photograph is of the WORLD, so the render layer comes with it.
 			_shoot_path = arg.substr("--shoot=".length())
+			_render = true
 		elif arg.begins_with("--shoot-frames="):
 			_shoot_frames = int(arg.substr("--shoot-frames=".length()))
+		elif arg.begins_with(LocalAgentDemoHarness.ARG_SHOOT_SIZE):
+			_shoot_size = LocalAgentDemoHarness.parse_shoot_size(_shoot_size)
 		elif arg.begins_with(LocalAgentDemoHarness.ARG_RUN_FRAMES):
 			# One owner for this flag's spelling. This scene cannot use LocalAgentDemoHarness itself,
 			# because it also needs --perf-frames, the --bench timelines and the framerate uncap below,
@@ -123,6 +128,8 @@ func parse_cmdline() -> void:
 		elif arg.begins_with("--trailer-shot="):
 			# Cinematic capture: LATrailerDirector drives a scripted shot; run with --write-movie to record it.
 			_trailer_shot = arg.substr("--trailer-shot=".length())
+			# Footage of the WORLD: the render layer, and no UI unless --ui asks for one.
+			_render = true
 			_streamer_enabled = false
 		elif arg == "--smoke":
 			# Fast minimal-config boot: streamer off here + an Engine meta the settings applier reads to force the
@@ -374,6 +381,11 @@ func _apply_solar_view() -> void:
 	_camera.set_solar_view(pos, midpoint, pos.distance_to(center))
 
 
+const FLY_ALTITUDE_M: float = 900.0        # drone height above the ground it was placed over
+const FLY_STANDOFF_M: float = 2500.0       # how far back along the tangent it starts
+const FLY_LOOK_AHEAD_M: float = 6000.0     # how far ahead the ground it looks at lies
+
+
 ## Position the drone low over the surface, looking across the terrain (creatures/trees in view). Verification
 ## framing for --fly; also a sensible default place to drop into flight.
 func _apply_fly_view() -> void:
@@ -382,18 +394,27 @@ func _apply_fly_view() -> void:
 		return
 	set_fly(true)
 	var center: Vector3 = _body.center()
-	var sp: Vector3 = _terrain.surface_point(Vector3.UP) if _terrain.has_method("surface_point") else (center + Vector3.UP * 200.0)
+	# LAND, NOT THE +Y POLE. The sea shell sits at the mean radius, so most directions are open ocean and
+	# a fixed pole framed the demo over water.
+	var sunward: Vector3 = (_star.global_position - center).normalized() if _star != null else Vector3.ZERO
+	var toward: Vector3 = _terrain.land_direction(sunward) if _terrain.has_method("land_direction") else Vector3.UP
+	var sp: Vector3 = _terrain.surface_point(toward) if _terrain.has_method("surface_point") else (center + toward * 200.0)
 	if is_nan(sp.x):
 		return
 	var radial: Vector3 = (sp - center).normalized()
-	var radius: float = _body.radius() if _body.has_method("radius") else sp.distance_to(center)
 	var tangent: Vector3 = radial.cross(Vector3.UP)
 	if tangent.length() < 0.01:
 		tangent = radial.cross(Vector3.RIGHT)
 	tangent = tangent.normalized()
-	# Sit a little above the surface and back along the tangent, looking forward + slightly down at the ground.
-	var pos: Vector3 = sp + radial * (radius * 0.05) - tangent * (radius * 0.10)
-	var look_target: Vector3 = sp + tangent * (radius * 0.12) - radial * (radius * 0.02)
+	# A DRONE'S FRAMING, IN METRES. Fractions of the radius put the camera 325 km up on a body of real
+	# size, which is a spacecraft, not a drone. These are camera-framing decisions, not physics.
+	var pos: Vector3 = sp + radial * FLY_ALTITUDE_M - tangent * FLY_STANDOFF_M
+	# AIM AT GROUND, NOT AT A GUESSED DEPTH. The look point is the terrain's own surface ahead, so relief
+	# under the drone cannot tip the gaze into the sky.
+	var ahead: Vector3 = (sp + tangent * FLY_LOOK_AHEAD_M - center).normalized()
+	var look_target: Vector3 = _terrain.surface_point(ahead)
+	if is_nan(look_target.x):
+		return
 	_camera.place_fly(pos, look_target)
 
 
@@ -418,16 +439,15 @@ func bind(terrain, camera: Camera3D, body: Node3D, star: Node3D, material: Node,
 	_refresh_view_controls()
 
 
-## Build this controller's on-screen surfaces: the Esc pause menu and the
-## [Planet | Solar System] · [Free | Geosync] · [Auto-spin] cluster. Called ONLY by LAPresentation, so a run
-## without --ui has neither. Every reader of _pause_menu / _view_controls null-guards.
-func build_ui() -> void:
+## The Esc pause menu and the [Planet | Solar] · [Free | Geosync] · [Auto-spin] cluster, parented to the
+## presentation root. Called ONLY by LAUiLayer, so a run with no --ui has neither and every reader guards.
+func build_ui(parent: Node) -> void:
 	_pause_menu = PauseMenuScene.instantiate() as LAPauseMenu
 	_pause_menu.name = "PauseMenu"
-	add_child(_pause_menu)
+	parent.add_child(_pause_menu)
 	_view_controls = ViewControlsScript.new()
 	_view_controls.name = "ViewControls"
-	add_child(_view_controls)
+	parent.add_child(_view_controls)
 	_view_controls.call("setup", self, _camera, _body)
 	_refresh_view_controls()
 
@@ -775,6 +795,7 @@ func time_of_day_seed() -> float: return _time_of_day
 func lunar_seed() -> float: return _lunar_phase
 func shoot_path() -> String: return _shoot_path
 func shoot_frames() -> int: return _shoot_frames
+func shoot_size() -> Vector2i: return _shoot_size
 func run_frames() -> int: return _run_frames
 func perf_frames() -> int: return _perf_frames
 func smoke() -> bool: return _smoke

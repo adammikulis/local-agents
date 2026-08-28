@@ -24,7 +24,7 @@ general/text_to_speech=true
 [autoload]
 
 AgentManager="*res://addons/local_agents/agent_manager/AgentManager.gd"
-GameMode="*res://addons/local_agents/game/menu/GameMode.gd"
+GameMode="*res://addons/local_agents/game/GameMode.gd"
 AppExit="*res://addons/local_agents/game/AppExit.gd"
 
 [display]

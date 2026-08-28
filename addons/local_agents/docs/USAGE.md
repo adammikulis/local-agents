@@ -104,7 +104,7 @@ Nine node scripts have no `class_name`, and none of them are meant to be picked 
 Seven are the scripts already attached to a demo scene: `examples/TutorialDemo.gd`,
 `examples/AgentActionsDemo.gd`, `examples/SimWorldPlanetDemo.gd`, `examples/CoreCreatureSmoke.gd`,
 `examples/AgentConversationDemo.gd`, `examples/ThinkingCreatureDemo.gd` and `examples/ChatExample.gd`.
-The other two are game-only: `game/world/VoxelViewControls.gd` and `game/menu/GameMode.gd`.
+The other two are game-only: `game/world/VoxelViewControls.gd` and `game/GameMode.gd`.
 
 `project.godot` in this repo also registers `GameMode` and `AppExit`. Both live under `game/` and are
 game-only. Do not register them in a project that deletes `game/`.
