@@ -21,7 +21,7 @@ static func rows() -> Array:
 		out.append(base.merged({"key": "pressure_worst_" + name, "op": Rec.Op.MAX}, true))
 	# The WORST open cell's relative departure from its seeded pressure, gated on holding matter.
 	var rest: Dictionary = {"source": "pressure", "ref": "pressure_ref", "mask": Rec.Mask.OPEN,
-		"gate": "rho_bulk", "gate_lo": TransportPassScript.EMPTY_RHO_KG_M3, "gate_strict_lo": true}
+		"gate": "rho_bulk", "gate_lo": 0.0, "gate_strict_lo": true}
 	out.append(rest.merged({"key": "pressure_seed_latch", "op": Rec.Op.LATCH}, true))
 	out.append(rest.merged({"key": "pressure_rest_rel", "op": Rec.Op.MAX_REL_DIFF}, true))
 	return out

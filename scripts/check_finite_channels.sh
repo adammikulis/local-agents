@@ -21,6 +21,7 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
+la_examined "$(basename "$0")" || exit $?
 command -v python3 >/dev/null 2>&1 || { echo "check_finite_channels: python3 absent." >&2; exit 2; }
 [ -x "$ROOT/scripts/sim_run.sh" ] || { echo "check_finite_channels: no scripts/sim_run.sh." >&2; exit 2; }
 

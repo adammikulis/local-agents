@@ -9,6 +9,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh"
 require_tool rg
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
+la_examined "$(basename "$0")" || exit $?
 
 # ARM ONE, ON THE KERNEL. The face scratch is one buffer for every row, so a gather that trusts a
 # neighbour's slot without knowing whose dispatch wrote it reads another row's units as its own: that is

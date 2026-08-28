@@ -8,6 +8,15 @@ const WATER_BOIL_C: float = 100.0
 const WATER_DENSITY_KG_M3: float = 997.0    # liquid water at 25 C
 ## Volumetric thermal expansivity of liquid water at 25 °C, 1/K (Kell 1975, J. Chem. Eng. Data 20:97).
 const WATER_VOLUME_EXPANSION_PER_K: float = 2.57e-4
+## Liquid water density 0-150 C at 1 atm, kg/m^3 = (A0 + A1 t + ... + A5 t^5) / (1 + B1 t), t in C
+## (Kell 1975, J. Chem. Eng. Data 20:97). Carries the 4 C maximum a linear expansivity cannot.
+const KELL_A0: float = 999.83952
+const KELL_A1: float = 16.945176      # Kell 1975
+const KELL_A2: float = -7.9870401e-3  # Kell 1975
+const KELL_A3: float = -46.170461e-6  # Kell 1975
+const KELL_A4: float = 105.56302e-9   # Kell 1975
+const KELL_A5: float = -280.54253e-12 # Kell 1975
+const KELL_B1: float = 16.879850e-3   # Kell 1975
 ## Isothermal compressibility of liquid water at 25 °C, 1/Pa (Kell 1975), and its reciprocal.
 const WATER_ISOTHERMAL_COMPRESSIBILITY_PER_PA: float = 4.525e-10
 const WATER_BULK_MODULUS_PA: float = 1.0 / WATER_ISOTHERMAL_COMPRESSIBILITY_PER_PA
@@ -166,8 +175,10 @@ const ICE_BULK_MODULUS_PA: float = 8.4e9
 
 const ROCK_POROSITY_NEAR_SURFACE: float = 0.05
 
-## Silicate dissolution activation energy, J/mol; basalt sits mid-range of a measured 50-90 kJ/mol.
-const SILICATE_DISSOLUTION_EA_J_MOL: float = 60000.0
+## Wollastonite dissolution, neutral mechanism at 25 C: log10 k in mol/m^2/s and its activation energy
+## (Palandri & Kharaka 2004, USGS Open-File Report 2004-1068).
+const WOLLASTONITE_DISSOLUTION_LOG10_K: float = -8.88
+const SILICATE_DISSOLUTION_EA_J_MOL: float = 54700.0
 const SILICATE_DISSOLUTION_EA_OVER_R_K: float = SILICATE_DISSOLUTION_EA_J_MOL / GAS_CONSTANT_J_MOL_K
 ## Temperature laboratory dissolution rates are quoted at.
 const LAB_REFERENCE_TEMP_C: float = 25.0
@@ -283,9 +294,10 @@ const EMISSIVITY_WATER: float = 0.96
 const DRY_WOOD_DENSITY_KG_M3: float = 500.0
 const DRY_WOOD_SPECIFIC_HEAT_J_KGK: float = 1500.0
 
-## Cellulose pyrolysis activation energy, J/mol; 200-250 kJ/mol by thermogravimetry
-## (Antal & Varhegyi 1995).
-const CELLULOSE_PYROLYSIS_EA_J_MOL: float = 2.30e5
+## Cellulose pyrolysis, first-order Arrhenius pair from one fit of ten Avicel TG runs
+## (Antal, Varhegyi & Jakab 1998, Ind. Eng. Chem. Res. 37:1267): E = 237 kJ/mol, log10 A/s^-1 = 18.0.
+const CELLULOSE_PYROLYSIS_EA_J_MOL: float = 2.37e5
+const CELLULOSE_PYROLYSIS_A_PER_S: float = 1.0e18   # Antal, Varhegyi & Jakab 1998
 const CELLULOSE_PYROLYSIS_EA_OVER_R_K: float = CELLULOSE_PYROLYSIS_EA_J_MOL / GAS_CONSTANT_J_MOL_K
 
 const ALBEDO_VEGETATION: float = 0.12
@@ -545,3 +557,13 @@ const TOPOGRAPHY_SHORT_HURST: float = 0.5
 const TOPOGRAPHY_SELF_AFFINE_CROSSOVER_M: float = 1.0e5
 ## The continent-ocean dichotomy is a degree-2 pattern (Wieczorek 2007).
 const TOPOGRAPHY_DOMINANT_HARMONIC_DEGREE: int = 2
+
+## Mantle potential temperature, K: 1280 C (McKenzie & Bickle 1988, J. Petrol. 29:625).
+const MANTLE_POTENTIAL_TEMP_K: float = 1553.15
+## Core-mantle boundary temperature, K (Lay, Hernlund & Buffett 2008, Nature Geosci. 1:25).
+const CORE_MANTLE_BOUNDARY_TEMP_K: float = 4000.0
+## Continental surface heat flow, W/m^2 (Pollack, Hurter & Johnson 1993, Rev. Geophys. 31:267).
+const SURFACE_HEAT_FLOW_W_M2: float = 0.065
+
+## Temperature at which a solid first glows visibly, C (Draper 1847: 798 K).
+const DRAPER_POINT_C: float = 525.0

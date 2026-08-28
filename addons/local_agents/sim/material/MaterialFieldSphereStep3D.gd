@@ -84,7 +84,7 @@ func seed_tick() -> bool:
 	var g_solved: PackedFloat32Array = LAFieldLithostaticSeed.vertical(_f, _f._gpu.read_raw("g_rest"))
 	LAFieldLithostaticSeed.shape_atmosphere(_f, LAMaterialField3D.INITIAL_TEMP, _f._body_measure, g_solved)
 	var p_marched: PackedFloat32Array = LAFieldLithostaticSeed.compress(_f, g_solved)
-	LAFieldEnthalpySeed.seed(_f, LAMaterialField3D.INITIAL_TEMP, p_marched)
+	LAFieldEnthalpySeed.seed(_f, LAFieldGeothermSeed.profile(_f, LAMaterialField3D.INITIAL_TEMP), p_marched)
 	# WEIGH THE BODY once the march has compressed the rock it stands on.
 	_f._body_measure.measure(_f, LABodySeeds.spin_axis_of(_f._body_key))
 	if _f._gpu != null:                                # hand the device what those walks produced
@@ -99,7 +99,7 @@ func seed_tick() -> bool:
 			_f._gpu.seed_field(String(name), _f.get("_" + String(name)), _f._seal)
 		_f._gpu.mark_h_dirty()
 	if LAProcessSet.has_record("pass", GRAVITY_PASS):
-		_f._gravity.solve_seed()  # the ocean just landed: relax the potential over the WHOLE seeded mass
+		_f._gravity.solve()  # the ocean just landed: relax the potential over the WHOLE seeded mass
 	if _f._gpu != null:
 		_f._gpu.derive_seeded()   # the world's own bulk state, before the first step is budgeted on it
 	_store_seeded(bake)
@@ -121,7 +121,7 @@ func _load_seeded(k: String) -> bool:
 	if _f._seal != null:
 		_f._seal.restore(data.get("created", {}))
 	if LAProcessSet.has_record("pass", GRAVITY_PASS):
-		_f._gravity.solve_seed()
+		_f._gravity.solve()
 	_f._gpu.derive_seeded()
 	# The body is the matter it is made of, so a world that was LOADED is weighed like one that was walked.
 	_f._body_measure.measure(_f, LABodySeeds.spin_axis_of(_f._body_key))
@@ -142,7 +142,7 @@ func _store_seeded(k: String) -> void:
 ## The seed steps that need a vertical, and so need the solve. A world with no gravity solve has no
 ## "below": no water table, no basins to flood, and no gas for water to displace out of.
 func _seed_under_gravity() -> void:
-	_f._gravity.solve_seed()      # g FIRST: every "below"/"above" below here is a slot chosen from it
+	_f._gravity.solve()      # g FIRST: every "below"/"above" below here is a slot chosen from it
 	_f._compute_regolith()        # the permeable aquifer band (+ initial water table) for groundwater flow
 	if not _f._regolith.has(1):
 		push_error("The regolith walk marked no cell permeable, so every rock cell has zero porosity, the "
@@ -163,6 +163,8 @@ func step() -> void:
 	var t0: int = Time.get_ticks_usec()
 	var t_begin: int = t0
 	_f._gpu.begin_frame(_f._h, _f._h2o)      # drains prev step (sync+readback) + uploads
+	if LAProcessSet.has_record("pass", GRAVITY_PASS):
+		_f._gravity.solve_step(_f._gpu._step_index)   # the potential of the mass that moved, converged; the device is idle here
 	LASimReport.gauge("field_begin_ms", float(Time.get_ticks_usec() - t_begin) / 1000.0)
 	# Per-cell solar terminator + marine cooling need the world-space sun direction and the sea shell radius.
 	if _f._sun_light != null and _f._gpu.has_method("set_sun_flux") \

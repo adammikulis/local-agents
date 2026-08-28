@@ -37,7 +37,7 @@ const char *const STATE_PASSES[] = { "StateDerivePass.gd", nullptr };
 const char *const GRAVITY_GATES[] = { "check_gravity_solve.sh", "check_hydrosphere_mass.sh", nullptr };
 const char *const GRAVITY_PASSES[] = { "GravityPass.gd", "ReducePass.gd", nullptr };
 const char *const GRAVITY_REDUCE[] = { "@amounts", "energy_stock", "energy_kinetic",
-	"energy_potential",
+	"energy_potential", "energy_pv",
 	"solid_cells", "carbonate_cells",
 	"snow_cells", "ice_cells", "crust_latch", "crust_moved", "nonfinite_cells", "nonfinite_*",
 	"bodyf_*",
@@ -58,6 +58,7 @@ const char *const HYDRO_REDUCE[] = { "pressure_*", nullptr };
 // A column at rest stays at rest only where there is momentum to move it, so the rest gate is this
 // rung's and not the one below's.
 const char *const ACOUSTIC_GATES[] = { "check_rung_acoustic.sh", "check_atmosphere_at_rest.sh",
+	"check_stack_balance.sh", "check_momentum_orphans.sh", "check_boundary_momentum_book.sh",
 	nullptr };
 const char *const ACOUSTIC_PASSES[] = { "TransportPass.gd", nullptr };
 const char *const ACOUSTIC_TRANSPORT[] = { "h2o_liquid_advect", "h2o_vapour_eddy", "o2_eddy", "co2_eddy",
@@ -71,7 +72,8 @@ const char *const CONDUCTION_GATES[] = { "check_rung_conduction.sh", nullptr };
 const char *const CONDUCTION_TRANSPORT[] = { "heat_conduct", nullptr };
 const char *const CONDUCTION_REDUCE[] = { "radiogenic", nullptr };
 
-const char *const ADVECT_GATES[] = { "check_rung_advect.sh", nullptr };
+const char *const ADVECT_GATES[] = { "check_rung_advect.sh", "check_boundary_books.sh", "check_active_rows.sh",
+	nullptr };
 const char *const ADVECT_TRANSPORT[] = { "h2o_surface", "h2o_groundwater", "silicate_melt_film",
 	"silicate_susp_water", "silicate_susp_air", "silicate_bed",
 	"fungus_wind", "fert_soil", nullptr };
@@ -89,7 +91,8 @@ const char *const RADIATION_TRANSPORT[] = { "heat_radiate", nullptr };
 const char *const RADIATION_REDUCE[] = { "rad_absorbed", "rad_emitted", "sw_reflected",
 	"rad_sb_rel_max", nullptr };
 
-const char *const CHEMISTRY_GATES[] = { "check_reaction_balance.sh", "check_conservation.sh", nullptr };
+const char *const CHEMISTRY_GATES[] = { "check_reaction_balance.sh", "check_conservation.sh",
+	"check_weathering_rate_law.sh", "check_escape_law.sh", nullptr };
 const char *const CHEMISTRY_REACTIONS[] = { "BioRecords.gd", "GeoRecords.gd", "CombustionRecords.gd",
 	"LightningRecords.gd", nullptr };
 const char *const CHEMISTRY_TRANSPORT[] = { "escape_*", nullptr };

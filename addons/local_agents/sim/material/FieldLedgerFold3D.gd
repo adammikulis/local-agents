@@ -51,7 +51,7 @@ func fold() -> Dictionary:
 	# The three stores the world's energy is the sum of, then the joules over one step that move it,
 	# volume-weighted. One the device did not deliver is NAMED, never skipped: a total short one of its
 	# stores is not a total, and skipping a book reads UNMEASURED instead of red.
-	var want: PackedStringArray = PackedStringArray(["energy_stock", "energy_kinetic", "energy_potential"])
+	var want: PackedStringArray = PackedStringArray(["energy_stock", "energy_kinetic", "energy_potential", "energy_pv"])
 	for row: Dictionary in LAProcessSet.reduce_rows():
 		if bool(row.get("energy_book", false)):
 			want.append(String(row["key"]))

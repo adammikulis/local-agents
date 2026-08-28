@@ -47,6 +47,7 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	var vel_z: RID = _single(bufs, "vel_z")
 	var silicate: RID = _single(bufs, "silicate")
 	var regolith: RID = _single(bufs, "regolith")   # aquifer mask — the column SOIL_ROOT walks
+	var grain: RID = _single(bufs, "grain")         # grain diameter: the bedrock surface the dissolution wets
 	var fuel: RID = _single(bufs, "fuel")
 	var fire: RID = _single(bufs, "fire")   # derived: the burn instrument, not a stock
 	# The two non-silicate mineral species (slots 24/25, bindings 28/29).
@@ -70,6 +71,7 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	# is what transport left. A reaction is same-cell, so it edits that amount in place.
 	_set = _uset(_pipe, [
 		[0, temp],
+		[41, grain],
 		[19, h],                # enthalpy, the one this pass adds reaction heat to
 		[1, h2o],               # ONE channel, every phase
 		[3, o2],                # sky refill / decompose draw

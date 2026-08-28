@@ -585,12 +585,20 @@ double bm_strain(double p_p_pa, double p_k0_pa, double p_kprime) {
 }
 
 // LA_APPROX: second_order_birch_murnaghan
+// Liquid water, kg/m^3, over Kell's 0-150 C range: the density maximum near 4 C is in the polynomial.
+double water_liquid_density(double p_t_c) {
+	const double t = std::min(std::max(p_t_c, 0.0), 150.0);
+	return (pc("KELL_A0") + t * (pc("KELL_A1") + t * (pc("KELL_A2") + t * (pc("KELL_A3")
+			+ t * (pc("KELL_A4") + t * pc("KELL_A5")))))) / (1.0 + pc("KELL_B1") * t);
+}
+
 double specific_volume(double p_rho_ref, double p_t_ref_c, double p_alpha_per_k, double p_bulk_pa,
-		double p_kprime, double p_t_c, double p_p_pa) {
+		double p_kprime, double p_t_c, double p_p_pa, bool p_kell = false) {
 	if (p_rho_ref <= 0.0) {
 		return 0.0;
 	}
-	double v = (1.0 + p_alpha_per_k * (p_t_c - p_t_ref_c)) / p_rho_ref;
+	double v = p_kell ? 1.0 / water_liquid_density(p_t_c)
+			: (1.0 + p_alpha_per_k * (p_t_c - p_t_ref_c)) / p_rho_ref;
 	if (p_bulk_pa > 0.0 && p_p_pa > 0.0) {
 		const double f = bm_strain(p_p_pa - pc("STANDARD_PRESSURE_PA"), p_bulk_pa, p_kprime);
 		v *= std::pow(1.0 + 2.0 * f, -1.5);
@@ -803,7 +811,7 @@ double LASubstances::density(const String &p_id, double p_t_c, double p_p_pa) {
 	const double rho_liq = dget(s, "density", 0.0);
 	const double v_liq = specific_volume(rho_liq, dget(s, "density_ref_t_c", lab_t),
 			dget(s, "expansion_per_k", 0.0), dget(s, "bulk_modulus_pa", 0.0),
-			dget(s, "bulk_modulus_deriv", 4.0), p_t_c, p_p_pa);
+			dget(s, "bulk_modulus_deriv", 4.0), p_t_c, p_p_pa, p_id == "h2o");
 	if (!s.has("density_solid")) {
 		return v_liq > 0.0 ? 1.0 / v_liq : 0.0;
 	}

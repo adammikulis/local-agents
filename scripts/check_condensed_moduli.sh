@@ -8,6 +8,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_godot.sh"
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
+la_examined "$(basename "$0")" || exit $?
 
 PROBE_REL="addons/local_agents/tests/gate_condensed_moduli.gd"
 [ -f "$ROOT/$PROBE_REL" ] || { echo "check_condensed_moduli: MISSING $PROBE_REL." >&2; exit 2; }

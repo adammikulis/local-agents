@@ -10,6 +10,7 @@ set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
+la_examined "$(basename "$0")" || exit $?
 GODOT="${GODOT:-godot}"
 command -v "$GODOT" >/dev/null 2>&1 || { echo "ERROR: godot not on PATH — a gate that cannot run FAILS." >&2; exit 2; }
 KERNEL="$REPO_ROOT/addons/local_agents/sim/material/kernels3d/reactions_sphere3d.glsl"
@@ -139,6 +140,7 @@ func _chem(t_c: float) -> Dictionary:
 	var out: Dictionary = _run({
 		"solid": {_bottom: 1.0},
 		"silicate": {_bottom: bedrock},
+		"grain": {_bottom: LAPhysical.GRAIN_D_LOWLAND_M},
 		"temp": {_bottom: t_c, _mid: t_c, _grid.index(0, 2, 0): t_c},
 		"pressure": {_bottom: LAPhysical.STANDARD_PRESSURE_PA, _mid: LAPhysical.STANDARD_PRESSURE_PA,
 			_grid.index(0, 2, 0): LAPhysical.STANDARD_PRESSURE_PA},
@@ -159,6 +161,7 @@ func _frost(surface_c: float, ground_c: float) -> Dictionary:
 	var out: Dictionary = _run({
 		"solid": {_bottom: 1.0},
 		"silicate": {_bottom: bedrock},
+		"grain": {_bottom: LAPhysical.GRAIN_D_LOWLAND_M},
 		"regolith": {_bottom: 1.0},
 		"h2o": {_bottom: PORE_WATER},
 		"h2o_liquid": {_bottom: liq},

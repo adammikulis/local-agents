@@ -165,7 +165,6 @@ layout(push_constant, std430) uniform Params {
 	float cell_m;         // cell edge, metres. One number: the grid is uniform.
 	float dt_s;
 	float repose_tan;     // 0 = a fluid, which levels freely
-	float rho_floor;      // kg/m^3 below which a cell is empty: it neither donates nor holds velocity
 	float density;        // kg/m^3 of the substance this record carries
 	float max_fill;       // mol/m^3 at which a cell is full of it; +inf for a row carrying no matter
 	float fluid_rho;      // kg/m^3 of the fluid the row moves THROUGH
@@ -334,9 +333,9 @@ float sub_kg_mol() {
 	return params.max_fill > 0.0 ? params.density / params.max_fill : 0.0;
 }
 
-// THE ONE EMPTINESS TEST, the floor state_derive.glsl empties a cell on: no bulk state of any kind.
+// THE ONE EMPTINESS TEST, the same one state_derive.glsl empties a cell on: no matter at all.
 bool no_matter(uint c) {
-	return !(rho_bulk[c] >= params.rho_floor);
+	return !(rho_bulk[c] > 0.0);
 }
 
 // The cell's h2o split by the shares the enthalpy ladder derived, mol/m^3.
@@ -1155,10 +1154,9 @@ void main() {
 		// A TF_FRACTION row moves only the phase share `frac` names; the rest of the channel stays put.
 		float share = (params.flags & TF_FRACTION) != 0u ? clamp(frac[gidx], 0.0, 1.0) : 1.0;
 		float remaining = amount[gidx] * share;
-		// The one floor in this row's own unit. None on a SIGNED row: it could never start moving.
+		// A donor with nothing of this row's substance sends nothing. None on a SIGNED row: it could never start moving.
 		float kg_mol = sub_kg_mol();
-		float donor_floor = kg_mol > 0.0 ? params.rho_floor / kg_mol : 0.0;
-		if (!is_signed && remaining <= donor_floor) {
+		if (!is_signed && remaining <= 0.0) {
 			return;
 		}
 		// MASS CARRIES ITS HEAT, ITS CHARGE AND ITS MOMENTUM, however thin the cell it leaves.
@@ -1183,7 +1181,7 @@ void main() {
 		float amt0 = abs(remaining);
 
 		for (uint d = 0u; d < N_SLOTS; ++d) {
-			if (!is_signed && remaining <= donor_floor) {
+			if (!is_signed && remaining <= 0.0) {
 				break;
 			}
 			int inb = nbr[base + d];
@@ -1423,6 +1421,11 @@ void main() {
 			? absorptivity * longwave_incident(gidx, d)
 			: send[nb * N_SLOTS + (d ^ 1u)];
 		gained_h += send_h[nb * N_SLOTS + (d ^ 1u)];
+		// Matter a potential gradient carried here arrives with the potential it lost as heat; the potential
+		// store falls by the same joules. A momentum-driven parcel arrives with motion instead (bodyf).
+		if (params.mode == MODE_POTENTIAL && !is_signed && params.density > 0.0 && nb < params.cell_count) {
+			gained_h += send[nb * N_SLOTS + (d ^ 1u)] * sub_kg_mol() * (grav_phi[nb] - grav_phi[gidx]);
+		}
 		gained_q += send_q[nb * N_SLOTS + (d ^ 1u)];
 		gained_m += vec3(send_mx[nb * N_SLOTS + (d ^ 1u)], send_my[nb * N_SLOTS + (d ^ 1u)],
 			send_mz[nb * N_SLOTS + (d ^ 1u)]);
@@ -1511,10 +1514,9 @@ void main() {
 	// v = p/rho off the momentum this gather settled, rim nudge included, so the next substep advects
 	// the new field.
 	if ((params.flags & TF_VEL) != 0u) {
-		// Below the donation floor the cell is empty and at rest: a momentum residue over vanishing
-		// mass is any velocity at all.
+		// A cell with no matter holds no velocity; momentum left in one is counted by state_derive as an orphan.
 		float rb = rho_bulk[gidx];
-		float vc = rb > params.rho_floor ? amount[gidx] / rb : 0.0;
+		float vc = rb > 0.0 ? amount[gidx] / rb : 0.0;
 		if (params.axis == 0u) {
 			vel_x[gidx] = vc;
 		} else if (params.axis == 1u) {

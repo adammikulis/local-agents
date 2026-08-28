@@ -20,6 +20,7 @@
 set -uo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
+la_examined "$(basename "$0")" || exit $?
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GODOT="${GODOT:-godot}"
@@ -102,8 +103,8 @@ func _solve(grid, fill: PackedFloat32Array) -> Array:
 	p.grid_dims = Vector3i(N, N, N)
 	p.setup(_rd, bufs, cc)
 	var groups: int = int(ceil(float(cc) / 64.0))
-	var ctx: Dictionary = {"cell_size": CELL, "step_index": 0.0}
-	var rounds: int = int(ceil(float(SWEEP_BUDGET) / float(scr.SWEEPS)))
+	var ctx: Dictionary = {"cell_size": CELL, "step_index": 0.0, "gravity_solve": true}
+	var rounds: int = int(ceil(float(SWEEP_BUDGET) / float(scr.SWEEPS_PER_DISPATCH)))
 	for _i in rounds:
 		var cl: int = _rd.compute_list_begin()
 		p.dispatch(_rd, cl, ctx, cc, groups)
