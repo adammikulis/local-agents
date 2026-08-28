@@ -551,6 +551,7 @@ func add_field_sparse(name: String, cells: PackedInt32Array, deltas: PackedFloat
 	var span: PackedFloat32Array = arr.slice(lo, hi + 1)
 	var bytes: PackedByteArray = span.to_byte_array()
 	_rd.buffer_update(buf, lo * 4, bytes.size(), bytes)
+	_wake_field()
 	return applied
 
 
@@ -615,6 +616,7 @@ func move_field_sparse(src: String, src_cells: PackedInt32Array, amounts: Packed
 	if not same and dhi >= dlo:
 		var dspan: PackedByteArray = darr.slice(dlo, dhi + 1).to_byte_array()
 		_rd.buffer_update(dbuf, dlo * 4, dspan.size(), dspan)
+	_wake_field()
 	return moved
 
 
@@ -655,6 +657,7 @@ func restore_channels(data: Dictionary) -> void:
 			continue
 		var bytes: PackedByteArray = arr.to_byte_array()
 		_rd.buffer_update(_bufs[key], 0, bytes.size(), bytes)
+		_wake_field()
 
 
 func dispose() -> void:
@@ -738,6 +741,14 @@ func _upload_f(buf: RID, arr: PackedFloat32Array) -> void:
 	if arr.size() == _cc:
 		var b: PackedByteArray = arr.to_byte_array()
 		_rd.buffer_update(buf, 0, b.size(), b)
+		_wake_field()
+
+
+## A CPU write is a change no kernel saw, so every cell is awake again and the bubbles regrow.
+func _wake_field() -> void:
+	for p in _passes:
+		if p.has_method("wake_all"):
+			p.wake_all()
 
 func _zeros(n: int) -> PackedByteArray:
 	var a: PackedFloat32Array = PackedFloat32Array()

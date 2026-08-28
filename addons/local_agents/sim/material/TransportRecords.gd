@@ -13,8 +13,8 @@ enum Law { NONE, SHALLOW, FILM, DARCY, EDDY, SOUND, OHMIC, PGF, ESCAPE }
 enum Fluid { VACUUM, WATER, AIR }
 
 ## Per-row switches, packed into the kernel's `flags`. Matches the TF_* constants in transport.glsl.
-enum Flag { SIGNED = 1, SETTLE = 2, EFIELD = 4, DRIVEN = 8, FRACTION = 16, DILUTE = 32, LISTED = 64,
-	RADIOGENIC = 128, ENTHALPY = 256, LIST_HALO = 512, RELAX = 1024, VEL = 2048, LEVEL = 4096 }
+enum Flag { SIGNED = 1, SETTLE = 2, EFIELD = 4, DRIVEN = 8, FRACTION = 16, DILUTE = 32,
+	RADIOGENIC = 64, ENTHALPY = 128, RELAX = 256, VEL = 512, LEVEL = 1024 }
 
 
 ## `settle` adds the grain's terminal velocity to the advecting fluid; `frac` is the derived share moved.
@@ -33,9 +33,8 @@ static func rows() -> Array:
 			"law": Law.DARCY, "fluid": Fluid.WATER, "frac": "h2o_liquid"},
 
 		# One silicate channel, four laws. Cemented rock has no row: that is what being rock means.
-		# `list` dispatches this row over the compacted melt list — O(molten) rather than O(grid).
 		{"label": "silicate_melt_film", "channel": "silicate", "substance": "silicate", "mode": POTENTIAL,
-			"law": Law.FILM, "frac": "silicate_melt", "dilute": true, "list": "melt"},
+			"law": Law.FILM, "frac": "silicate_melt", "dilute": true},
 
 		{"label": "silicate_susp_water", "channel": "silicate", "substance": "silicate", "mode": ADVECT,
 			"fluid": Fluid.WATER, "settle": true, "frac": "silicate_susp_water", "dilute": true},
@@ -120,27 +119,21 @@ static func escape_rows() -> Array:
 	return out
 
 
-## Compacted cell lists, built by transport.glsl's PASS_LIST_* dispatches before any listed row runs.
-## `prim` is the channel the append's predicate reads; `halo` adds the receivers of a listed cell's
-## outflow; `emit_idx` reads the indices back at the drain.
+## DETECTORS, not dispatch lists: what a row runs over is its group's active cells. Each compacts the
+## cells where `prim` is positive so the drain can read WHERE, without a CPU walk of the grid.
 static func lists() -> Array:
 	return [
-		# MELT reproduces the FILM row's own no-op: no melt share, or cemented into rock, and it moves nothing.
-		{"label": "melt", "prim": "silicate_melt", "halo": true},
-		# STRIKE gives a bolt its position without anything walking the grid. No halo: a flash is where it
-		# struck. Built before the rows run, so the list carries the previous step's strikes.
-		{"label": "strike", "prim": "strike", "halo": false, "emit_idx": true},
-		# WHERE the non-finite conserved values sit, as indices: the finite gate's localizer.
-		{"label": "nonfinite", "prim": "nonfinite", "halo": false, "emit_idx": true},
+		# STRIKE gives a bolt its position. Built before the rows run, so the list carries the
+		# previous step's strikes.
+		{"label": "strike", "prim": "strike", "emit_idx": true},
 	]
 
 
-## The compacted-index / dispatch-args / membership-flag buffer keys of one list; empty for no such label.
+## The compacted-index and dispatch-args buffer keys of one detector list; empty for no such label.
 static func list_buffers(label: String) -> Dictionary:
 	for row: Dictionary in lists():
 		if String(row["label"]) == label:
-			return {"idx": label + "_list_idx", "args": label + "_list_args",
-				"flag": label + "_list_flag"}
+			return {"idx": label + "_list_idx", "args": label + "_list_args"}
 	return {}
 
 

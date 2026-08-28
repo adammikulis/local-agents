@@ -34,7 +34,10 @@ if len(channels) < 10:
           % len(channels), file=sys.stderr)
     sys.exit(2)
 
-bound = re.findall(r'\[\s*(\d+)\s*,\s*_single\(bufs,\s*"(\w+)"\)', read(PASS))
+src = read(PASS)
+# The pass names its plain bindings once, as `"<buffer>": <binding>`; the rest are inline pairs.
+bound = [(b, n) for n, b in re.findall(r'"(\w+)"\s*:\s*(\d+)', src)]
+bound += re.findall(r'\[\s*(\d+)\s*,\s*_single\(bufs,\s*"(\w+)"\)', src)
 if len(bound) < 20:
     print("check_transport_alias: read %d bindings out of TransportPass — the gate's scope collapsed."
           % len(bound), file=sys.stderr)

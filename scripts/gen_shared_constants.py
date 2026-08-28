@@ -18,6 +18,8 @@ TRANSPORT_RECORDS = os.path.join(ROOT, "addons/local_agents/sim/material/Transpo
 REDUCE_RECORDS = os.path.join(ROOT, "addons/local_agents/sim/material/ReduceRecords.gd")
 REGOLITH = os.path.join(SIM, "material", "MaterialFieldRegolith3D.gd")
 RENDER = os.path.join(ROOT, "addons/local_agents/game/render/MaterialFieldRender3D.gd")
+ACTIVE_CELLS = os.path.join(SIM, "material", "sphere_passes", "ActiveCells.gd")
+TEMPORAL_LEVELS = os.path.join(SIM, "material", "sphere_passes", "TemporalLevels.gd")
 
 # Outward normal and the two in-plane axes of each face of an axis-aligned cube, order [+X,-X,+Y,-Y,+Z,-Z].
 # Pure cube geometry, declared once here and emitted into the shader include; no GDScript reads it.
@@ -192,6 +194,10 @@ def glsli_text():
     lines.append("// ReduceRecords.gd Nbr enum")
     for value, name in reduce_enum("Nbr"):
         lines.append("#define NBR_%s %du" % (name, value))
+    lines.append("")
+    lines.append("// sphere_passes/ActiveCells.gd, sphere_passes/TemporalLevels.gd")
+    lines.append("#define ACT_QUIET_SUBSTEPS %du" % const_int(ACTIVE_CELLS, "QUIET_SUBSTEPS"))
+    lines.append("#define ACT_BINS %du" % const_int(TEMPORAL_LEVELS, "BINS"))
     lines.append("")
     lines.append("// MaterialFieldRegolith3D.gd, reactions/ReactionThermo.gd")
     lines.append("#define REGOLITH_CELLS %d" % const_int(REGOLITH, "REGOLITH_CELLS"))
