@@ -269,6 +269,10 @@ func demo_shot_info() -> String:
 	return LAVoxelHarness.shot_info(self)
 
 
+func demo_shot_ready() -> bool:
+	return LAVoxelHarness.shot_ready(self)
+
+
 func demo_report() -> Dictionary:
 	var report: Dictionary = LAVoxelHarness.build_report(self)
 	report["ui_nodes"] = LAVoxelHarness.emit_presentation_census(get_tree().root)

@@ -76,9 +76,8 @@ func set_spawn_scale(scale: float) -> void:
 func try_spawn(_overview: bool, _farview: bool, _auto_meteor: bool, _auto_select: bool) -> void:
 	if _spawned_initial or _body == null:
 		return
-	# Gate on the surface being meshed. On a planet, "ready" = the top-of-planet patch has collided.
-	var ready_probe: Vector3 = _body.center() + Vector3.UP * (_body.radius() + 30.0)
-	if not _body.is_ready_at(ready_probe):
+	# Gate on the body being built; the ground under a spawn is the SDF's, drawn or not.
+	if _body.radius() <= 0.0:
 		return
 	_ready_wait_ticks += 1
 	if _ready_wait_ticks <= 6:
