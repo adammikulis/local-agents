@@ -118,7 +118,7 @@ func _build(owned: Array[RID]) -> Dictionary:
 	bufs["g_rest"] = _f32(_filled(cc * 3, 0.0), owned)
 	bufs["nbr"] = _i32(grid.neighbours, owned)
 	var ghost_tbl: PackedInt32Array = PackedInt32Array()
-	ghost_tbl.resize(cc * LAVoxelGrid.SLOTS)
+	ghost_tbl.resize(grid.neighbours.size())
 	ghost_tbl.fill(-1)
 	bufs["ghost"] = _i32(ghost_tbl, owned)
 	_write(bufs, "rho_bulk", _filled(cc, RHO_BULK))
@@ -165,7 +165,7 @@ func _seam() -> void:
 	bufs["g_rest"] = _f32(_filled(cc * 3, 0.0), owned)
 	bufs["nbr"] = _i32(grid.neighbours, owned)
 	var ghost_tbl: PackedInt32Array = PackedInt32Array()
-	ghost_tbl.resize(cc * LAVoxelGrid.SLOTS)
+	ghost_tbl.resize(grid.neighbours.size())
 	ghost_tbl.fill(-1)
 	bufs["ghost"] = _i32(ghost_tbl, owned)
 

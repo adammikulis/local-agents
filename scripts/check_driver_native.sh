@@ -98,7 +98,7 @@ func _build() -> Dictionary:
 	bufs["gravity"] = _f32(_filled(cc * 3, 0.0))
 	bufs["nbr"] = _i32(grid.neighbours)
 	var ghost_tbl: PackedInt32Array = PackedInt32Array()
-	ghost_tbl.resize(cc * LAVoxelGrid.SLOTS)
+	ghost_tbl.resize(grid.neighbours.size())
 	ghost_tbl.fill(-1)
 	bufs["ghost"] = _i32(ghost_tbl)
 

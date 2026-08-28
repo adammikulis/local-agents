@@ -294,7 +294,7 @@ func _alloc_channels() -> void:
 
 
 func cell_world_pos(ix: int, iy: int, iz: int) -> Vector3:
-	return _grid.cell_world_pos(_grid.index(ix, iy, iz))
+	return _grid.cell_world_pos(_grid.leaf_at(ix, iy, iz))
 
 
 

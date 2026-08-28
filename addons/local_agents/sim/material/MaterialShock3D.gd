@@ -26,10 +26,10 @@ func emit_shock(world_pos: Vector3, magnitude: float) -> void:
 	var deltas: PackedFloat32Array = PackedFloat32Array([magnitude])
 	_f._shock[c] = _f._shock[c] + magnitude
 	if _f._grid != null:
-		var nbr: PackedInt32Array = _f._grid.neighbours
+		var grid: LAVoxelGrid = _f._grid
 		var spill: float = magnitude * SEED_NEIGHBOUR_FRACTION
-		for d in range(6):
-			var nb: int = nbr[c * 6 + d]
+		for f in range(grid.face_begin(c), grid.face_end(c)):
+			var nb: int = grid.neighbours[f]
 			if nb >= 0 and _f._solid[nb] == 0:
 				_f._shock[nb] = _f._shock[nb] + spill
 				cells.append(nb)

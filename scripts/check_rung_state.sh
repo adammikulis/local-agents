@@ -109,7 +109,7 @@ func _init() -> void:
 	bufs["gravity"] = _f32(cc * 3)
 	bufs["g_rest"] = _f32(cc * 3)
 	bufs["pos"] = _f32(cc * 3)
-	bufs["cell_vol"] = _f32(cc, CELL * CELL * CELL)
+	bufs["cell_edge"] = _f32(grid.cell_edges())
 
 	var amounts: PackedFloat32Array = PackedFloat32Array()
 	amounts.resize(cc)

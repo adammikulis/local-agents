@@ -70,7 +70,7 @@ func _one(field: String, key: String, what: String) -> void:
 ## Buffer names the driver and the rung's own passes allocate.
 func _buffers_at(rung: int) -> PackedStringArray:
 	LAProcessSet.declare(rung)
-	var out: PackedStringArray = PackedStringArray(["nbr", "ghost", "pos", "gravity", "cell_vol"])
+	var out: PackedStringArray = PackedStringArray(["nbr", "ghost", "pos", "gravity", "cell_edge", "slot_off", "face_partner"])
 	out.append_array(LAChannels.channels())
 	out.append_array(LAChannels.derived_buffers())
 	for path in LAProcessSet.pass_paths(DriverScript.PASS_SCRIPTS, rung):

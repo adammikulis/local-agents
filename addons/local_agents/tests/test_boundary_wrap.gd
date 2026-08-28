@@ -76,7 +76,7 @@ func _constant_ghosts() -> bool:
 		var r: int = b.redirect(int(c), 0)
 		if r < cc or r >= cc + NY * NZ:
 			return _fault("face cell %d redirects to %d, not a ghost tail cell" % [int(c), r])
-		if int(grid.neighbours[r * 6 + 1]) != int(c):
+		if int(grid.neighbours[grid.slot_begin(r, 1)]) != int(c):
 			return _fault("ghost %d does not partner cell %d in its opposite slot" % [r, int(c)])
 	return true
 

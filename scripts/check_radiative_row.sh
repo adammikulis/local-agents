@@ -163,7 +163,7 @@ func _interior(grid) -> PackedInt32Array:
 	for c in grid.cell_count:
 		var all_in: bool = true
 		for d in 6:
-			if grid.neighbours[c * 6 + d] < 0:
+			if grid.neighbours[grid.slot_begin(c, d)] < 0:
 				all_in = false
 				break
 		if all_in:
@@ -175,10 +175,10 @@ func _interior(grid) -> PackedInt32Array:
 ## is a loop guard on a finite graph and not a physical number.
 func _depth(grid, c: int, d: int) -> int:
 	var n: int = 0
-	var at: int = grid.neighbours[c * 6 + d]
+	var at: int = grid.neighbours[grid.slot_begin(c, d)]
 	while at >= 0 and n < grid.cell_count:
 		n += 1
-		at = grid.neighbours[at * 6 + d]
+		at = grid.neighbours[grid.slot_begin(at, d)]
 	return n
 
 
@@ -194,10 +194,10 @@ func _transmission(grid) -> Array:
 	var clear: int = -1
 	var emitter: int = -1
 	for c in cc:
-		var mid: int = grid.neighbours[c * 6]
+		var mid: int = grid.neighbours[grid.slot_begin(c, 0)]
 		if mid < 0:
 			continue
-		var far: int = grid.neighbours[mid * 6]
+		var far: int = grid.neighbours[grid.slot_begin(mid, 0)]
 		if far < 0:
 			continue
 		absorber = c

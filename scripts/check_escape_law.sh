@@ -137,7 +137,7 @@ func _init() -> void:
 	_bufs["g_rest"] = _f32(grav, owned)
 	_bufs["nbr"] = _i32(grid.neighbours, owned)
 	var ghost_tbl: PackedInt32Array = PackedInt32Array()
-	ghost_tbl.resize(_cc * LAVoxelGrid.SLOTS)
+	ghost_tbl.resize(grid.neighbours.size())
 	ghost_tbl.fill(-1)
 	_bufs["ghost"] = _i32(ghost_tbl, owned)
 	# The +x face is SPACE by the provider's own record; every other face is a wall.

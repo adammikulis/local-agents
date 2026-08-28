@@ -131,7 +131,7 @@ static func _slab_weights(grid: LAVoxelGrid, s_lo: Vector3, s_hi: Vector3) -> Di
 					w *= maxf(0.0, minf(c + g, s_hi[i]) - maxf(c, s_lo[i]))
 				if w <= 0.0:
 					continue
-				cells.append(grid.index(x, y, z))
+				cells.append(grid.leaf_at(x, y, z))
 				weights.append(w)
 				total += w
 	var sig: PackedStringArray = PackedStringArray()

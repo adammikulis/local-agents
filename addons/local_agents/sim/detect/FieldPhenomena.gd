@@ -51,9 +51,8 @@ func _eruptions() -> Array:
 		if _f._solid[c] != 0 or _f._queries.melt_at(c) < MELT_PRESENT:
 			continue
 		var peak: bool = true
-		var base: int = c * LAVoxelGrid.SLOTS
-		for d in LAVoxelGrid.SLOTS:
-			var n: int = grid.neighbours[base + d]
+		for f in range(grid.face_begin(c), grid.face_end(c)):
+			var n: int = grid.neighbours[f]
 			if n >= 0 and _f._queries.melt_at(n) > _f._queries.melt_at(c):
 				peak = false
 				break

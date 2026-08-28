@@ -68,7 +68,7 @@ func _run(cond: Dictionary) -> Dictionary:
 	for key in act:
 		var spec: Variant = act[key]
 		bufs[String(key)] = _f32(_filled(int(spec["n"]) if spec is Dictionary else int(spec), 0.0), owned)
-	bufs["cell_vol"] = _f32(_filled(cc, CELL * CELL * CELL), owned)
+	bufs["cell_edge"] = _f32(_grid.cell_edges(), owned)
 	var grav: PackedFloat32Array = PackedFloat32Array()
 	grav.resize(cc * 3)
 	for c in cc:
@@ -87,7 +87,7 @@ func _run(cond: Dictionary) -> Dictionary:
 	vdn.resize(cc)
 	vdn.fill(-1)
 	for c in cc:
-		vup[c] = _grid.neighbours[c * LAVoxelGrid.SLOTS + LAVoxelGrid.S_POS_Y]
+		vup[c] = _grid.neighbours[_grid.slot_begin(c, LAVoxelGrid.S_POS_Y)]
 	for c in cc:
 		var u: int = vup[c]
 		if u >= 0 and (vdn[u] < 0 or c < vdn[u]):

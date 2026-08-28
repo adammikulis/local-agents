@@ -83,7 +83,7 @@ func _run() -> void:
 	bufs["gravity"] = _f32(cc * 3)
 	bufs["g_rest"] = _f32(cc * 3)
 	bufs["pos"] = _f32(cc * 3)
-	bufs["cell_vol"] = _f32(cc, CELL * CELL * CELL)
+	bufs["cell_edge"] = _f32(grid.cell_edges())
 
 	var full_h2o: float = LASubstances.full_mol_m3("h2o")
 	var h2o: PackedFloat32Array = PackedFloat32Array()
