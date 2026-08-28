@@ -43,7 +43,14 @@ const DEFAULT_SHOOT_SIZE: Vector2i = Vector2i(1280, 800)
 
 var _frame: int = 0          # run length, in SIM STEPS when a LASimLoop is running; physics ticks otherwise.
 var _render_frame: int = 0   # render frames only; drives shoot_frames
+var _ready_frames: int = 0   # consecutive frames the host has called the picture worth taking
 var _done: bool = false
+
+# The image read out is the one drawn BEFORE this frame, so readiness must have held through that draw.
+const SHOT_SETTLE_FRAMES: int = 2
+# A host that can say whether the picture is worth taking gets as long again to say so, then is shot anyway
+# and the shot says what state it was in.
+const SHOT_WAIT_MULT: int = 2
 
 
 func _ready() -> void:
@@ -81,11 +88,21 @@ func _physics_process(_delta: float) -> void:
 func _process(_delta: float) -> void:
 	_render_frame += 1
 	# Screenshot first: a scene given both flags is being photographed, not measured.
-	if not _done and shoot_path != "" and _render_frame >= shoot_frames:
-		_done = true
-		_capture(shoot_path)
-		_quit(0)
+	if _done or shoot_path == "" or _render_frame < shoot_frames:
 		return
+	if _has_shot_ready_hook():
+		_ready_frames = _ready_frames + 1 if bool(report_source.call("demo_shot_ready")) else 0
+		if _ready_frames < SHOT_SETTLE_FRAMES and _render_frame < shoot_frames * SHOT_WAIT_MULT:
+			return
+	_done = true
+	_capture(shoot_path)
+	_quit(0)
+
+
+## A host that can say whether the picture is worth taking (e.g. the ground under its camera is drawn at
+## the detail the camera stands at) is waited on past `shoot_frames`; one that cannot is shot on the frame.
+func _has_shot_ready_hook() -> bool:
+	return report_source != null and report_source.has_method("demo_shot_ready")
 
 
 ## A scene carrying a LASimLoop is measured on ITS clock: the run is N simulated steps, and a slow frame

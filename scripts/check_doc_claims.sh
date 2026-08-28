@@ -27,7 +27,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 command -v rg >/dev/null 2>&1 || { echo "check_doc_claims: rg absent." >&2; exit 2; }
 
 DOCS=()
-for d in HANDOFF.md CLAUDE.md docs/PHYSICS_TODO.md; do
+for d in HANDOFF.md CLAUDE.md GODOT_BEST_PRACTICES.md docs/PHYSICS_TODO.md docs/PERFORMANCE_TODO.md; do
 	[ -f "$ROOT/$d" ] && DOCS+=("$ROOT/$d")
 done
 [ "${#DOCS[@]}" -gt 0 ] || { echo "check_doc_claims: no doc to read." >&2; exit 2; }

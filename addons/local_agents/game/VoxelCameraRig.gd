@@ -75,6 +75,9 @@ var _orbit_max_distance: float = 0.0
 # Constant RTS view pitch, radians.
 var _rts_pitch: float = deg_to_rad(RTS_PITCH_DEG)
 var _smooth_surface_r: float = 0.0
+var _ground_ready: bool = false
+var _ground_res: float = INF     # metres of voxel edge of the drawn ground under the eye and the gaze
+var _aim_distance: float = 0.0   # eye to look point, metres
 
 var _geosync: bool = false
 var _geosync_body: Node3D = null
@@ -236,8 +239,6 @@ func set_orbit_target(center: Vector3, radius: float) -> void:
 	_distance = clampf(_orbit_radius + _start_altitude(), _orbit_min_distance, _orbit_max_distance)
 	_target_distance = _distance                 # keep the smooth-zoom goal in sync with this framing jump
 	_zoom_vel = 0.0
-	_orbit_azimuth = 0.0
-	_orbit_elevation = deg_to_rad(20.0)
 	stop_tracking()          # storm-follow is a flat-world concept; drop it on entering orbit
 	_update_transform()
 
@@ -352,7 +353,18 @@ func _update_orbit_transform() -> void:
 		radial = _radial_from_azel()
 	var up: Vector3 = Vector3.UP if absf(radial.dot(Vector3.UP)) < 0.985 else Vector3.RIGHT
 	var upn: Vector3 = radial                                   # radial normal at the ground point
-	var base_r: float = _terrain_aware_radius(radial)
+	var ceiling: float = _ceiling_radius()
+	if is_nan(ceiling):
+		_ground_ready = false
+		return
+	# THE POSE IS A FUNCTION OF GROUND THAT EXISTS. While the body cannot say where its surface is, the
+	# eye waits over the ceiling, above every hill this body can have.
+	var look_r: float = _surface_radius_at(radial)
+	var look_known: bool = not is_nan(look_r)
+	var look_res: float = INF if not look_known else _ground_resolution_at(_orbit_center + radial * look_r)
+	if look_known and not _ground_ready:
+		_smooth_surface_r = 0.0                                 # the ease smooths ridges, not the drop off the hold
+	var base_r: float = _eased_surface_radius(look_r if look_known else ceiling)
 	var surface_pt: Vector3 = _orbit_center + radial * base_r
 	var back: Vector3 = up - radial * up.dot(radial)            # a tangent "behind" the eye
 	if back.length() < 0.01:
@@ -367,10 +379,15 @@ func _update_orbit_transform() -> void:
 	# standing between the two put the eye inside it.
 	var pos_off: Vector3 = pos - _orbit_center
 	var eye_dir: Vector3 = pos_off.normalized() if pos_off.length() > 0.001 else radial
-	var min_r: float = _surface_radius_at(eye_dir) + MIN_EYE_CLEARANCE
+	var eye_r: float = _surface_radius_at(eye_dir)
+	_ground_res = maxf(look_res,
+		INF if is_nan(eye_r) else _ground_resolution_at(_orbit_center + eye_dir * eye_r))
+	var min_r: float = (ceiling if is_nan(eye_r) else eye_r) + MIN_EYE_CLEARANCE
 	if pos_off.length() < min_r:
 		pos = _orbit_center + eye_dir * min_r
+	_ground_ready = look_known and not is_nan(eye_r)
 	global_position = pos
+	_aim_distance = pos.distance_to(look_pt)
 	look_at(look_pt, upn)
 	# FREE-LOOK aim offset (MMB drag): pivot the camera in place on top of the orbit pose, without moving the globe.
 	if not is_zero_approx(_aim_yaw) or not is_zero_approx(_aim_pitch):
@@ -665,22 +682,61 @@ func _zoom(factor: float) -> void:
 		_target_distance = clampf(_target_distance * factor, MIN_DISTANCE, MAX_DISTANCE)
 
 
-# WHAT THE EYE STANDS OVER: the solid surface, or the sea when the sea is higher. Flooring it at the
-# body's MEAN radius put the eye a kilometre inside a continent, because half a planet stands above its mean.
+# WHAT THE EYE STANDS OVER: the solid surface, or the sea when the sea is higher. NAN when the body cannot
+# say — a missing measurement is missing, and the pose then waits above the terrain's ceiling.
 func _surface_radius_at(radial: Vector3) -> float:
-	var r: float = _orbit_radius
-	if _geosync_body != null and is_instance_valid(_geosync_body) and _geosync_body.has_method("surface_radius"):
-		var tr: float = _geosync_body.surface_radius(radial)
-		if not is_nan(tr) and tr > 0.0:
-			r = tr
-		if _geosync_body.has_method("sea_radius"):
-			r = maxf(r, _geosync_body.sea_radius())
+	if not _body_answers("surface_radius"):
+		return NAN
+	var r: float = _geosync_body.surface_radius(radial)
+	if is_nan(r) or r <= 0.0:
+		return NAN
+	if _geosync_body.has_method("sea_radius"):
+		r = maxf(r, _geosync_body.sea_radius())
 	return r
 
 
+func _body_answers(method: String) -> bool:
+	return _geosync_body != null and is_instance_valid(_geosync_body) and _geosync_body.has_method(method)
+
+
+# ABOVE EVERY HILL THE BODY HAS: the terrain's own ceiling, where the eye stands while the ground under it
+# has not been built yet. NAN when the body cannot say, and then the rig does not move the camera at all.
+func _ceiling_radius() -> float:
+	if not _body_answers("max_surface_radius"):
+		return NAN
+	var r: float = _geosync_body.max_surface_radius()
+	if is_nan(r) or r <= 0.0:
+		return NAN
+	if _geosync_body.has_method("sea_radius"):
+		r = maxf(r, _geosync_body.sea_radius())
+	return r
+
+
+# HOW FINELY THE GROUND UNDER A POINT IS DRAWN, in metres of voxel edge. INF where none is drawn yet.
+func _ground_resolution_at(surface_pt: Vector3) -> float:
+	if not _body_answers("meshed_resolution_at"):
+		return INF
+	return _geosync_body.meshed_resolution_at(surface_pt)
+
+
+## True while the pose is solved from ground the terrain has actually built under the eye.
+func ground_ready() -> bool:
+	return _ground_ready
+
+
+## THE DRAWN GROUND IS RESOLVED FINER THAN THE EYE STANDS ABOVE IT, under the eye and under the gaze both,
+## so what the camera sees is the real surface and not a coarse stand-in that can swallow the eye.
+func ground_resolved() -> bool:
+	return _ground_ready and _ground_res <= maxf(_rts_altitude(), MIN_EYE_CLEARANCE)
+
+
+## How far down the view axis the pose put its look point: the ground the frame was composed around.
+func aim_distance() -> float:
+	return _aim_distance
+
+
 # The eased radius under the LOOK point; a ridge passing beneath the gaze must not jolt the frame.
-func _terrain_aware_radius(radial: Vector3) -> float:
-	var r: float = _surface_radius_at(radial)
+func _eased_surface_radius(r: float) -> float:
 	if _smooth_surface_r <= 0.0:
 		_smooth_surface_r = r
 	else:
@@ -716,6 +772,12 @@ func _pan_ground(right: float, forward: float) -> void:
 	_clamp_focus()
 
 
+# True while this window holds keyboard/pointer focus: the only state in which a pointer is over it.
+func _window_focused() -> bool:
+	var w: Window = get_window()
+	return w != null and w.has_focus()
+
+
 func _surface_walk(delta: float) -> void:
 	if not _orbit_mode or _fly or _solar_view:
 		return
@@ -729,9 +791,11 @@ func _surface_walk(delta: float) -> void:
 		right_in += 1.0
 	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT):
 		right_in -= 1.0
-	# Edge-scroll.
+	# EDGE-SCROLL IS A POINTER AT THE EDGE OF A FOCUSED WINDOW. Without focus there is no pointer over the
+	# window, and the last-known position an automated run reports is the corner: a standing scroll command
+	# that walked the camera across the planet for the whole run.
 	var vp: Viewport = get_viewport()
-	if vp != null and Input.mouse_mode == Input.MOUSE_MODE_VISIBLE:
+	if vp != null and Input.mouse_mode == Input.MOUSE_MODE_VISIBLE and _window_focused():
 		var mp: Vector2 = vp.get_mouse_position()
 		var sz: Vector2 = vp.get_visible_rect().size
 		if mp.x >= 0.0 and mp.y >= 0.0 and mp.x <= sz.x and mp.y <= sz.y:

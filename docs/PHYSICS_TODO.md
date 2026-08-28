@@ -140,17 +140,16 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
 ## B. The substrate's state
 
 - [ ] **The interesting geology is slower than the clock by ten orders of magnitude.** Mantle convection,
-      ore concentration and atmospheric evolution run over 10^6–10^9 years against a 43.2 s step. Real Earth
-      system models split the timescales — atmosphere and ocean on a short step, ice and geology on a long
-      one, coupled asynchronously — which keeps every equation and dependency intact and changes only the
-      cadence. That is the same seam as "the field's `dt` is the presentation clock" in F, and it is what
-      makes any slow process observable at all.
+      ore concentration and atmospheric evolution run over 10^6–10^9 years against one
+      `SIM_SECONDS_PER_STEP`. Real Earth system models split the timescales — atmosphere and ocean on a
+      short step, ice and geology on a long one, coupled asynchronously — which keeps every equation and
+      dependency intact and changes only the cadence. `LATemporalLevels` subdivides a cell's own timestep
+      DOWNWARD; the long band is the other direction and nothing carries it.
       **STEPPING A SLOW PROCESS WITH A LONGER dt IS THE FIX; SKIPPING ITS STEP IS NOT, AND THE DIFFERENCE
-      IS THE WHOLE ITEM.** `docs/PERFORMANCE_TODO.md` records the attempt that gated inside full-grid
-      dispatches and moved a reservoir total by 18%: a skipped step of an integrating quantity is a
-      permanent offset, not a transient. A band that runs every N steps must integrate `N * dt` and book
-      what it moved over that interval, so the conservation rows read the same as they would unsplit —
-      which is also the gate. A row's band is a declared property of the row, never a global switch.
+      IS THE WHOLE ITEM.** A skipped step of an integrating quantity is a permanent offset, not a
+      transient. A band that runs every N steps must integrate `N * dt` and book what it moved over that
+      interval, so the conservation rows read the same as they would unsplit — which is also the gate.
+      A row's band is a declared property of the row, never a global switch.
 - [ ] **Conserve elements, derive species.** The runtime state is channel amounts, so the inventory
       RECONSTRUCTS moles (`mol_per_unit`). If the conserved state were moles of element per cell, no kernel
       could change total carbon, because no kernel would write it.
@@ -207,8 +206,9 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       any scale height this planet can have, and `MODELLED_ATMOSPHERE_HEIGHT_M` is itself under one cell.
       There is no lapse rate, no vertical structure and no honest pressure gradient for the momentum
       equation to work against, and the open cells that remain are mostly the cube's corners.
-      **Reproduce:** `scripts/sim_run.sh --rung 2 --frames 6 --report alt_band_temp_min` against
-      `bash scripts/check_alt_bands.sh` — every populated altitude band reads one temperature.
+      **Reproduce:** `scripts/sim_run.sh --rung 2 --frames 6 --report
+      clim_alt0_n,clim_alt1_n,clim_alt2_n,clim_alt3_n` and read how many open cells stand below the
+      first band floor `HeatRows.ALT_BAND_FLOORS_M` declares.
 - [ ] **An open cell leaves the pressure it was seeded at as soon as the world is stepped.** The seed
       publishes a pressure field and `state_derive.glsl` states its own from the matter in the cell; on the
       default box the two are not the same field, and nothing has moved.
@@ -297,11 +297,6 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       geotherm.
 - [ ] **Rock has three compositions and no stratigraphy.** `carbonate` and `silica` are channels with no
       transport row and no lithification leg, so there is no limestone and no sandstone.
-- [ ] **The field's `dt` is the presentation clock.** One rotation is stated once
-      (`LAPhysical.PLANET_ANGULAR_VELOCITY_RAD_S`) and the compression once
-      (`LASimClock.REAL_SECONDS_PER_SIM_SECOND`), but `real_seconds_per_step()` is still
-      `STEP_DT * compression`, so how fast the player watches sets every transport kernel's timestep. A
-      substep budget separates them.
 - [ ] **The planet is pinned at the world origin** and the star orbits it. A deliberate moving-frame choice;
       making it literal is the 0.6 headline.
 

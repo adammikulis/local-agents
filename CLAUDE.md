@@ -344,14 +344,8 @@ things you already have your hands on.
   - **The two stated exemptions are the opposite of a fan-out.** The rule below exempts "trivial single-file
     edits (docs)" and "when you have confirmed you are the sole writer". Launching concurrent writers is the
     precise inverse of the second one, so a fan-out can never qualify.
-  - **What it costs, measured 2026-08-12 when nine lanes were run in ONE shared tree.** Every lane reported
-    it independently and none of them could fix it: the planning agent found the substance table had grown
-    38 lines between two of its own commands and three of its `file:line` citations had rotted before it
-    finished; the wind lane lost BOTH acceptance runs to another lane's missing preload; the element-probe
-    lane lost three runs to a 36-byte push constant meeting a 32-byte kernel and watched `check_parse_all`
-    flip red and green repeatedly; the erosion lane's clean 200-frame runs were invalidated the same way.
-    Four lanes' verification, thrown away, plus every lane spending tokens reporting "lint is red on files
-    I do not own".
+  - **What it costs.** Nine lanes in one shared tree cost four of them their acceptance runs, and rotted
+    a fifth's `file:line` citations between two of its own commands.
   - **And it manufactures the excuse for the NEXT failure.** Once the lanes collide, "another lane owns
     that file" starts appearing as a reason not to do work — which is RULE 1d, caused by this.
   - **INTEGRATION IS A COMMAND, NOT A HABIT: `scripts/integrate.sh <branch>`.** It refuses a worktree on a
@@ -393,9 +387,11 @@ things you already have your hands on.
   standard because another session/agent running git ops (checkout/reset/merge) on the shared
   checkout has corrupted and wiped untracked in-progress work here before — an isolated worktree
   makes your files immune to another writer's branch switches.
-- The compiled GDExtension `bin/` is a gitignored build artifact absent from a fresh worktree —
-  symlink it from the primary checkout so the extension loads:
-  `ln -s <primary>/addons/local_agents/gdextensions/localagents/bin <worktree>/addons/local_agents/gdextensions/localagents/bin`
+- **`bin/` IS COPIED PER WORKTREE AND `thirdparty/` IS A SYMLINK.** `scripts/new_worktree.sh` copies the
+  primary's compiled `bin/` and links its fetched `thirdparty/`. A lane that changes extension sources
+  replaces that link with its own fetched copy and rebuilds: `la_godot` refuses a `bin/` whose
+  `SOURCE_HASH` does not match the sources it launches against, so an unrebuilt lane loses every GPU gate
+  at once. `scripts/integrate.sh` copies the landed lane's `bin/` over the primary's.
 - When a feature is verified, merge it into the current dev branch, then prune: `git worktree remove <dir>`
   and `git branch -d feature/<name>` (delete the pushed remote branch too once merged). At release, the dev
   branch merges to `main` and is tagged.
@@ -493,6 +489,17 @@ When removing files:
   the race is over the GPU rather than over one project's `.godot`. Twelve lanes launching runs at once put
   the machine under a load where every one of them timed out, and each then blamed its own change for what
   was contention.
+- **A LANE RUNS `LA_NO_GPU=1 scripts/agent_harness.sh lint` PLUS ITS OWN GATES.** The full lint belongs to
+  `scripts/integrate.sh`, one landing at a time: every GPU gate takes the machine-wide lock, so a lane
+  running the full arm serialises every other lane behind it. The pre-commit hook runs the GPU-less arm.
+- **NEVER `pkill` OR `killall` BY PROGRAM NAME.** Every lane's sim is the same binary, so a bare pattern
+  kills runs belonging to lanes you cannot see. Kill by the PID your own task recorded, or by a pattern
+  anchored on your own worktree path. Never remove `la_sim_gpu.lock` by hand: the holder releases it, and
+  deleting it hands one GPU to two runs.
+- **A LAUNCH THAT SHOWS A WINDOW IS A BUG.** `la_godot` launches every Godot through a background-only
+  bundle macOS cannot activate, sizes the window 1x1 with no override, and `--shoot` renders into a
+  SubViewport. `scripts/check_godot_launcher.sh` holds all three and `scripts/check_no_focus_theft.sh`
+  samples the frontmost app for a whole run. Do not add a second launch path or a second window size.
 - **ITERATE AS FAST AS POSSIBLE.** Short runs while iterating; long runs and screenshots only at the final
   gate. For anything slow-emergent — geology, succession, erosion, climate — use the fast-forward time scale
   rather than waiting. Pick the cheapest run that proves the point.

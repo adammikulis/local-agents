@@ -26,9 +26,6 @@ FRAMES="${FRAMES:-240}"
 SUITE="${1:-standard}"
 ALL_SYS="creatures,anim,plants,trees,fish,ecology,water,field"
 
-# Nothing else may be running, or the numbers are contended — kill any stray off-screen sim first.
-pkill -f "run_sim_offscreen" 2>/dev/null; pkill -f "rendering-driver metal" 2>/dev/null && sleep 1
-
 # NOTE: process_ms (Performance.TIME_PROCESS) is deliberately NOT shown — it reads ~constant regardless of
 # what is ablated (it does not track the actual frame cost on this build), so it is misleading. frame_ms is
 # the ground truth (summed _process delta). cpuR_ms is CPU draw submission (viewport render-time-cpu).

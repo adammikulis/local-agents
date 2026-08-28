@@ -2,7 +2,7 @@
 # A SLICE'S EXTERIOR IS OUTSIDE THE SLICE. Arm one is the geometry: the global cells each face resolves
 # to, over a coarse grid, a grid finer than the box, and one so coarse it cannot tell the faces apart
 # (which must be NAMED, never duplicated). Arm two is a real capture off a short global run: no two faces
-# may read alike, and the column under the box must stand under more pressure than the column over it.
+# may read one place's state, and the column under the box must stand under more pressure than the one over.
 # EXIT 0 clean · 1 a face reads another face's exterior · 2 could not run.
 set -uo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
@@ -73,8 +73,10 @@ if len(faces) < 2:
     raise SystemExit(2)
 
 
+# A FACE'S EXTERIOR IS A PLACE. The scalars are a function of radius, so two faces at equal depth read
+# alike; gravity points at the centre from each one's own place, and a copied cell brings one place's.
 def key(st):
-    return (st["temp_c"], st["pressure_pa"], tuple(sorted(st["amounts"].items())))
+    return (st["temp_c"], st["pressure_pa"], tuple(st["gravity"]), tuple(sorted(st["amounts"].items())))
 
 
 fail = 0
@@ -82,7 +84,7 @@ seen = {}
 for k, st in faces.items():
     sig = key(st)
     if sig in seen:
-        print("FAIL: faces %s and %s recorded an identical exterior — one cell copied onto both."
+        print("FAIL: faces %s and %s recorded one place's exterior, gravity included — one cell on both."
               % (seen[sig], k), file=sys.stderr)
         fail = 1
     seen[sig] = k
