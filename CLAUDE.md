@@ -478,6 +478,10 @@ When removing files:
   never allocated, dispatched, reduced or booked. A rung is enabled only when the rung below it is green.
   Reproduce a defect at the LOWEST rung that shows it and fix it there. `scripts/check_process_ladder.sh`
   climbs them and names the first red one; the demo world runs at `docs/PLAYABLE_RUNG`.
+  **NOTHING ABOVE THE FIRST RED RUNG IS MEASURED.** A run at a higher rung that completes is a smoke test,
+  never an acceptance, and no number from it is read: a reading over a broken rung is the interaction of
+  defects. Lint's shared capture runs at the highest green rung; a gate that needs a process above it reads
+  "not examined". A contract may not ask a lane for a reading, a gate verdict or a run above the first red rung.
 - **A VERIFICATION RUN IS SHORT, AND A LONG ONE IS A DECLARED SOAK NOBODY BLOCKS ON.** The arm a lane waits
   on to learn whether its change is good must answer inside `docs/RUN_TIMEOUT_CEILING`. A run that needs
   longer is a real long-running sim — a conservation audit, a determinism pair, the score — and it says so
