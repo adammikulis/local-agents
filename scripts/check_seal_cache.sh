@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # THE BAKED WORLD IS THE SEEDED WORLD. A run that loads the bake must be handed the same planet the run
 # that wrote it seeded: the same seal manifest, the same declared creations, nothing created after the
-# seal, and the same conservation stock on the sealing step. If it is not, every book downstream of it is
-# measuring a different planet from the one the walks built.
+# seal, the same conservation stock on the sealing step, and the same body measured off the matter.
 #
-# Three arms at the rung the sandbox declares, so this reads a run that completes:
+# Four arms at the rung the sandbox declares, so this reads a run that completes:
+#   K  the key covers the seed's own source: edit a line of it and the content address moves
 #   A  a guaranteed miss: seeds the world and writes the bake
 #   B  a hit: loads it. Every compared row must equal A's, and world_seal_origin must say "restored"
 #   C  the positive control: one channel of the bake is scaled, and B's comparison must SEE it
@@ -27,10 +27,44 @@ probe() {  # probe <mode> [channel]
 	LA_GODOT_TIMEOUT=60 la_godot --headless --path "$ROOT" -s "res://scripts/seal_cache_probe.gd" -- "$@"
 }
 
+# A PHYSICS VERDICT IS NOT A FAILED RUN. 122/123/126 are run_sim_offscreen's readings off a run that
+# completed and published its report; this gate compares two such reports and owns none of those rows.
+# A run that published nothing is caught where the reports are parsed.
 arm() {  # arm <name>
 	LA_SEAL_KEY="seal-cache-gate" "$SCRIPT_DIR/sim_run.sh" --path "$ROOT" --frames "$FRAMES" \
 		--seed "$SEED" --rung "$RUNG" --raw > "$WORK/$1.json" 2> "$WORK/$1.err"
-	return $?
+	case "$?" in
+		0|122|123|126) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+# ARM K, BEFORE ANY ENGINE RUNS. The bake is content-addressed, so the address must move when the code
+# that seeds the world does. Its own bytes are put back from $WORK, never from git: a lane's uncommitted
+# work is not this gate's to discard.
+SEED_SRC="$ROOT/addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd"
+[ -f "$SEED_SRC" ] || { echo "check_seal_cache: MISSING ${SEED_SRC#"$ROOT"/}" >&2; exit 2; }
+key_now() {
+	"$SCRIPT_DIR/cache_key.sh" capture --path "$ROOT" "seed=$SEED" "rung=$RUNG" \
+		"full=0" "fauna=0" "slice=0" "box=" 2>/dev/null
+}
+cp "$SEED_SRC" "$WORK/seed_src.orig" || { echo "check_seal_cache: cannot copy the seed source." >&2; exit 2; }
+KEY_BEFORE="$(key_now)"
+printf '\n' >> "$SEED_SRC"
+KEY_AFTER="$(key_now)"
+cp "$WORK/seed_src.orig" "$SEED_SRC"
+KEY_BACK="$(key_now)"
+{ [ -n "$KEY_BEFORE" ] && [ -n "$KEY_AFTER" ]; } || {
+	echo "check_seal_cache: no content key describes this tree, so no bake can be addressed." >&2; exit 2; }
+[ "$KEY_BEFORE" != "$KEY_AFTER" ] || {
+	echo "check_seal_cache: editing the seed's own source did not move the bake's content address, so a" >&2
+	echo "                  world baked by older seed code is served to newer code as if it were fresh." >&2
+	exit 1
+}
+[ "$KEY_BEFORE" = "$KEY_BACK" ] || {
+	echo "check_seal_cache: the key did not return to its own value, so it reads something other than" >&2
+	echo "                  the tree's content and no bake is addressable at all." >&2
+	exit 1
 }
 
 probe --clear > "$WORK/clear.log" 2>&1 || { echo "check_seal_cache: the bake store could not be cleared." >&2
@@ -64,8 +98,12 @@ except Exception as exc:
 	sys.exit(2)
 
 # What the seal says the world was handed, and what a stock reads on the step every baseline is taken on.
+# THE BODY IS IN HERE because it is MEASURED, not stored: a load path that skips a measurement hands
+# the next arm a planet weighed off a world it no longer holds.
 ROWS = ["world_seed", "world_created", "creation_after_seal", "world_seal_step", "world_baseline_step",
-	"energy_stock_first", "mineral_first", "h2o_first", "o2_first", "element_C_total_first"]
+	"energy_stock_first", "mineral_first", "h2o_first", "o2_first", "element_C_total_first",
+	"body_measured", "body_mass_kg", "body_radius_m", "body_inertia_kg_m2", "body_surface_g_m_s2",
+	"body_day_s"]
 
 def close(a, b):
 	if isinstance(a, float) and isinstance(b, float):
