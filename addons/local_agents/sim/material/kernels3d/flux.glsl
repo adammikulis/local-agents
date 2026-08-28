@@ -258,9 +258,9 @@ float drift_at(uint c, uint n, uint d, float dist) {
 	return 0.0;
 }
 
-// The DIFFUSIVE flux across the face, in this row's own units per m^2 per second, positive out of
-// `c`. Turbulent mixing homogenises the MIXING RATIO, so a stratified column at rest carries none.
-float diffusive_at(uint c, uint n, float dist) {
+// The DIFFUSIVE crossing per unit face area over THIS SUBSTEP, positive out of `c`. Eddy mixing
+// homogenises the MIXING RATIO, relaxed exactly over the substep at the rate the pair's masses set.
+float diffusive_at(uint c, uint n, float dist, float open) {
 	if (params.law == LAW_EDDY) {
 		float rc = max(rho_bulk[c], 0.0);
 		float rn = max(rho_bulk[n], 0.0);
@@ -271,26 +271,28 @@ float diffusive_at(uint c, uint n, float dist) {
 		if (kg_mol <= 0.0) {
 			return 0.0;
 		}
-		// Mass fraction of this row's matter in each cell, and the eddy diffusivity of the pair.
 		float yc = row_amount(c) * kg_mol / rc;
 		float yn = row_amount(n) * kg_mol / rn;
 		float rho_face = 0.5 * (rc + rn);
 		float nu = 0.5 * (nu_t[c] + nu_t[n]);
-		return rho_face * nu * (yc - yn) / (dist * kg_mol);
+		float k = rho_face * nu / dist;
+		float rate = k * open * (la_face_div(c, int(n)) / rc + la_face_div(n, int(c)) / rn);
+		float t_eff = rate * la_dt > 1.0e-6 ? (1.0 - exp(-rate * la_dt)) / rate : la_dt;
+		return k * (yc - yn) * t_eff / kg_mol;
 	}
 	if (params.mode == MODE_CONDUCT) {
 		// Series half-cells, so the interface conductivity is the harmonic mean of the two.
 		float a = aux[c];
 		float b = aux[n];
 		float lam = 2.0 * a * b / max(a + b, 1.0e-12);
-		return lam * (drive[c] - drive[n]) / dist;
+		return lam * (drive[c] - drive[n]) * la_dt / dist;
 	}
 	if (params.law == LAW_OHMIC) {
 		// Ohmic relaxation of a space charge, carried between neighbours so the charge is conserved.
 		float e_face = 0.5 * (column_field(c) + column_field(n));
 		float sigma = 0.5 * (ohmic_conductivity_at(c, e_face) + ohmic_conductivity_at(n, e_face));
 		float edge = 0.5 * (cell_edge[c] + cell_edge[n]);
-		return sigma * edge * edge * (drive[c] - drive[n]) / (EPS0 * dist);
+		return sigma * edge * edge * (drive[c] - drive[n]) * la_dt / (EPS0 * dist);
 	}
 	return 0.0;
 }
@@ -448,7 +450,7 @@ void row_flux(uint c) {
 		if (u != 0.0) {
 			cross = row_amount(u > 0.0 ? c : n) * u * open * la_dt * div_f;
 		}
-		cross += diffusive_at(c, n, dist_f) * open * la_dt * div_f;
+		cross += diffusive_at(c, n, dist_f, open) * open * div_f;
 		if (cross == 0.0) {
 			continue;
 		}
@@ -768,6 +770,9 @@ float la_row_need(uint c) {
 	float L = cell_edge[c];
 	float dt = params.dt_s;
 	float need = 0.0;
+	if (no_matter(c)) {
+		return 0.0;   // nothing here moves, so nothing here asks for time
+	}
 	// The fastest signal any of this cell's faces carries: |v.n| + c of the layer touching it.
 	if ((params.flags & TF_VEL) != 0u && solid[c] == 0.0) {
 		float w = 0.0;
@@ -794,16 +799,9 @@ float la_row_need(uint c) {
 		}
 	}
 	need += v * dt / L;
-	if (params.law == LAW_EDDY || params.mode == MODE_CONDUCT || params.law == LAW_OHMIC) {
-		// The Smagorinsky term off the cell's own strain scale, which |v|/L bounds.
-		float mix_l = SMAGORINSKY_COEFF * L;
-		float rb = max(rho_bulk[c], 0.0);
-		float nu = (rb > 0.0 ? mix(params.mu_air, params.mu_water, condensed_frac(c)) / rb : 0.0)
-			+ mix_l * mix_l * sqrt(18.0) * max(speed[c], 0.0) / L;
-		if (params.mode == MODE_CONDUCT) {
-			nu = max(aux[c], 0.0) / max(cap_sensible[c], 1.0e-12);
-		}
-		need += 6.0 * nu * dt / (L * L);
+	// Eddy mixing relaxes each pair exactly and asks no step; conduction and charge still march.
+	if (params.mode == MODE_CONDUCT && cap_sensible[c] > 0.0) {
+		need += 6.0 * max(aux[c], 0.0) / cap_sensible[c] * dt / (L * L);
 	}
 	// NO SIGNAL CROSSES A CELL FASTER THAN LIGHT: a state asking for a shorter step is not a timestep.
 	return min(need / LA_COURANT_LIMIT, params.dt_s * C_LIGHT / L);

@@ -337,7 +337,8 @@ void main() {
 			b0 += is_water ? 0.0 : w0;
 			b1 += is_water ? 0.0 : w1;
 			b2 += is_water ? 0.0 : w1 * tr;
-			if (kk > 0.0 && !is_water) {
+			// LOOSE GRAINS PRESS NOTHING: they take volume; the fluid alone is compressed in the rest.
+			if (kk > 0.0 && !is_water && props[base + PROP_LITHIC] <= 0.0) {
 				float q0 = w0 / kk;
 				float q1 = w1 / kk;
 				c0 += q0;
@@ -414,7 +415,6 @@ void main() {
 	float m_h2o = mass[E_H2O];
 	float t_c = temp[g];
 	float p_pa = max(pressure[g], 0.0);
-	// THE SUBSTEP'S OWN Dp/Dt: an open cell's enthalpy moves with the pressure this solve lands on.
 	bool dpdt = params.restate != 0u && solid[g] == 0.0;
 	float p_prev = p_pa;
 	float f_solid = 0.0;
@@ -423,6 +423,7 @@ void main() {
 	float b_vol = 0.0;
 	float c_comp = 0.0;
 	// ONE STATE: the ladder gives T(h, p) and the EOS p(T) off the same matter, so they solve together.
+	float p_hist[3] = float[3](p_pa, p_pa, p_pa);
 	for (int it = 0; it < LA_STATE_STEPS; ++it) {
 		// CONDENSED PHASE IS PRESENT when the cell holds more h2o than saturated vapour would fill it.
 		p_sat = 0.0;
@@ -492,6 +493,19 @@ void main() {
 			break;
 		}
 		p_pa += LA_STATE_RELAX * (p_next - p_pa);
+		// Aitken's delta-squared on the relaxed iterates: the same fixed point, sooner.
+		p_hist[it % 3] = p_pa;
+		if (it % 3 == 2) {
+			float d2 = p_hist[2] - 2.0 * p_hist[1] + p_hist[0];
+			if (abs(d2) > 1.0e-30 * max(p_pa, 1.0)) {
+				float p_x = p_hist[2] - (p_hist[2] - p_hist[1]) * (p_hist[2] - p_hist[1]) / d2;
+				float lo = min(p_hist[0], min(p_hist[1], p_hist[2]));
+				float hi = max(p_hist[0], max(p_hist[1], p_hist[2]));
+				if (p_x > lo && p_x < hi) {
+					p_pa = p_x;
+				}
+			}
+		}
 	}
 	temp[g] = t_c;
 	if (solid[g] == 0.0) {

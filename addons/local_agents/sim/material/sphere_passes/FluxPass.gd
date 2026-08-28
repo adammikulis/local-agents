@@ -34,9 +34,9 @@ const MOMENTUM_BOOKS: PackedStringArray = ["mom_x", "mom_y", "mom_z"]
 
 var _pipe: RID = RID()
 
-## Dispatches one submit may hold. The device waits on a fence to read a buffer back, and a submit
-## longer than that wait fails; splitting the recording changes nothing dispatched, only when.
-const FLUSH_EVERY: int = 4096
+## One submit holds ONE substep: the device's fence wait is finite, and a planet-size frame in one
+## submit outran it. A substep over the whole grid is the largest thing a submit may hold.
+const FLUSH_EVERY: int = 0
 
 ## Byte offsets of the level, substep index and substep count in the Params block below: the three the
 ## driver rewrites per substep.
