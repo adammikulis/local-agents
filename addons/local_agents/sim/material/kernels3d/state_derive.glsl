@@ -132,7 +132,6 @@ const int PROP_STRIDE = 12;        // StateDerivePass.PROP_STRIDE
 // The (T, p) solve's budget: under-relaxed, so a pair on a latent plateau converges onto it.
 const int LA_STATE_STEPS = 64;
 const float LA_STATE_TOL = 1.0e-6;
-const float LA_STATE_RELAX = 0.5;
 const int PROP_M = 0;              // kg/mol
 const int PROP_C = 1;              // J/kg/K, sensible-heat entry only
 const int PROP_MOL_PER_KG = 2;     // mol/kg, non-condensable gases only
@@ -415,6 +414,7 @@ void main() {
 	float m_h2o = mass[E_H2O];
 	float t_c = temp[g];
 	float p_pa = max(pressure[g], 0.0);
+	// rho Dh/Dt = Dp/Dt, the Eulerian leg: the enthalpy takes this restate's pressure change.
 	bool dpdt = params.restate != 0u && solid[g] == 0.0;
 	float p_prev = p_pa;
 	float f_solid = 0.0;
@@ -423,7 +423,12 @@ void main() {
 	float b_vol = 0.0;
 	float c_comp = 0.0;
 	// ONE STATE: the ladder gives T(h, p) and the EOS p(T) off the same matter, so they solve together.
-	float p_hist[3] = float[3](p_pa, p_pa, p_pa);
+	float p_lo = 0.0;
+	float p_hi = 0.0;
+	bool has_lo = false;
+	bool has_hi = false;
+	float p_prev_it = p_pa;
+	float f_prev = 0.0;
 	for (int it = 0; it < LA_STATE_STEPS; ++it) {
 		// CONDENSED PHASE IS PRESENT when the cell holds more h2o than saturated vapour would fill it.
 		p_sat = 0.0;
@@ -441,8 +446,8 @@ void main() {
 		p_pa = max(p_pa, p_sat);
 		pinned = false;
 		progress = 0.0;
-		t_c = la_mix_state(subs, mass, N_ENTRIES, (h_j_m3[g] + (dpdt ? p_pa - p_prev : 0.0)) * vol, p_pa,
-			n_gas_mol, 0.0, pinned, progress);
+		t_c = la_mix_state(subs, mass, N_ENTRIES, h_j_m3[g] * vol, p_pa, n_gas_mol, 0.0,
+			pinned, progress);
 
 		// THE PHASE SPLIT OF THIS CELL'S H2O, off the SAME ladder. `progress` is where inside a latent
 		// plateau the enthalpy landed, so a cell at the melting point reports a partial solid share.
@@ -489,23 +494,24 @@ void main() {
 			break;
 		}
 		float p_next = la_eos_p(vol, n_gas * LA_R_J_MOL_K * tk, b_vol, c_comp, LA_P_STD, p_sat);
-		if (abs(p_next - p_pa) <= LA_STATE_TOL * max(p_pa, 1.0)) {
+		float f = p_next - p_pa;
+		if (abs(f) <= LA_STATE_TOL * max(p_pa, 1.0)) {
 			break;
 		}
-		p_pa += LA_STATE_RELAX * (p_next - p_pa);
-		// Aitken's delta-squared on the relaxed iterates: the same fixed point, sooner.
-		p_hist[it % 3] = p_pa;
-		if (it % 3 == 2) {
-			float d2 = p_hist[2] - 2.0 * p_hist[1] + p_hist[0];
-			if (abs(d2) > 1.0e-30 * max(p_pa, 1.0)) {
-				float p_x = p_hist[2] - (p_hist[2] - p_hist[1]) * (p_hist[2] - p_hist[1]) / d2;
-				float lo = min(p_hist[0], min(p_hist[1], p_hist[2]));
-				float hi = max(p_hist[0], max(p_hist[1], p_hist[2]));
-				if (p_x > lo && p_x < hi) {
-					p_pa = p_x;
-				}
+		// Full steps of p_eos(T(h, p)) until the residual changes sign, then secant inside the bracket.
+		if (f > 0.0) { p_lo = p_pa; has_lo = true; } else { p_hi = p_pa; has_hi = true; }
+		float p_step = p_next;
+		if (has_lo && has_hi) {
+			if (abs(f - f_prev) > 1.0e-30 * max(p_pa, 1.0)) {
+				p_step = p_pa - f * (p_pa - p_prev_it) / (f - f_prev);
+			}
+			if (!(p_step > p_lo && p_step < p_hi)) {
+				p_step = 0.5 * (p_lo + p_hi);
 			}
 		}
+		p_prev_it = p_pa;
+		f_prev = f;
+		p_pa = max(p_step, 0.0);
 	}
 	temp[g] = t_c;
 	if (solid[g] == 0.0) {
