@@ -1421,6 +1421,11 @@ void main() {
 			? absorptivity * longwave_incident(gidx, d)
 			: send[nb * N_SLOTS + (d ^ 1u)];
 		gained_h += send_h[nb * N_SLOTS + (d ^ 1u)];
+		// Matter a potential gradient carried here arrives with the potential it lost as heat; the potential
+		// store falls by the same joules. A momentum-driven parcel arrives with motion instead (bodyf).
+		if (params.mode == MODE_POTENTIAL && !is_signed && params.density > 0.0 && nb < params.cell_count) {
+			gained_h += send[nb * N_SLOTS + (d ^ 1u)] * sub_kg_mol() * (grav_phi[nb] - grav_phi[gidx]);
+		}
 		gained_q += send_q[nb * N_SLOTS + (d ^ 1u)];
 		gained_m += vec3(send_mx[nb * N_SLOTS + (d ^ 1u)], send_my[nb * N_SLOTS + (d ^ 1u)],
 			send_mz[nb * N_SLOTS + (d ^ 1u)]);

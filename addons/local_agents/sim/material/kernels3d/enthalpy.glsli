@@ -176,6 +176,21 @@ precise float la_boil_c_at(SubstanceTh s, float p_pa) {
 }
 
 // la_boil_c_at read the other way: the liquid-vapour boundary as a PRESSURE. One curve, two ends.
+// Liquid water's specific volume, m^3/kg, off Kell's density polynomial over its 0-150 C range.
+const float KELL_A0 = 999.83952;         // LAPhysical.KELL_A0
+const float KELL_A1 = 16.945176;         // LAPhysical.KELL_A1
+const float KELL_A2 = -7.9870401e-3;     // LAPhysical.KELL_A2
+const float KELL_A3 = -46.170461e-6;     // LAPhysical.KELL_A3
+const float KELL_A4 = 105.56302e-9;      // LAPhysical.KELL_A4
+const float KELL_A5 = -280.54253e-12;    // LAPhysical.KELL_A5
+const float KELL_B1 = 16.879850e-3;      // LAPhysical.KELL_B1
+float la_water_liquid_v_m3_kg(float t_c) {
+	float t = clamp(t_c, 0.0, 150.0);
+	float rho = (KELL_A0 + t * (KELL_A1 + t * (KELL_A2 + t * (KELL_A3 + t * (KELL_A4 + t * KELL_A5)))))
+		/ (1.0 + KELL_B1 * t);
+	return 1.0 / rho;
+}
+
 float la_saturation_p_at(SubstanceTh s, float t_c) {
 	if (!s.has_boil) { return 0.0; }
 	if (t_c >= s.crit_t_c) { return s.crit_p_pa; }

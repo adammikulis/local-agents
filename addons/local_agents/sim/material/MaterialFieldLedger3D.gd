@@ -233,11 +233,10 @@ func _publish_energy(out: Dictionary, f: Dictionary, step: int) -> void:
 	if missing.size() > 0 or not f.has("energy_stock"):
 		out["energy_stock"] = null
 		return
-	# THE TWO STORES THE FIRST LAW TRADES BETWEEN: heat expands into motion, so a book kept on the
-	# enthalpy alone reads a real exchange as drift. The potential is gauged beside them and not booked —
-	# it is a relaxed field, and a world reloaded from the bake does not land on the same one.
+	# THE FIRST LAW'S TOTAL: internal energy (the stored enthalpy less its pV) plus motion plus potential.
 	out["energy_stock"] = float(f["energy_stock"])
-	out["energy_held"] = float(f["energy_stock"]) + float(f["energy_kinetic"])
+	out["energy_held"] = float(f["energy_stock"]) - float(f["energy_pv"]) + float(f["energy_kinetic"]) \
+		+ float(f["energy_potential"])
 
 	# WATTS, off the device. transport.glsl's RADIATE row writes what each cell took in and sent out as
 	# J/m^3 for one step; the two reduce rows weight those by cell volume, so the pair arrives in joules

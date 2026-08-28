@@ -120,6 +120,10 @@ layout(push_constant, std430) uniform Params {
 } params;
 
 const float SOLID_IN = 0.6;    // LAPhysical.RHEOLOGICAL_LOCKUP_CRYSTAL_FRAC
+const float ICE_ALPHA = 1.6e-4;        // LAPhysical.ICE_VOLUME_EXPANSION_PER_K
+const float ICE_T_REF_C = 0.0;         // LAPhysical.WATER_FREEZE_C
+const float WATER_COMPRESS = 4.525e-10;     // LAPhysical.WATER_ISOTHERMAL_COMPRESSIBILITY_PER_PA
+const float ICE_BULK = 8.4e9;          // LAPhysical.ICE_BULK_MODULUS_PA
 const float SOLID_OUT = 0.4;   // LAPhysical.RHEOLOGICAL_MOBILE_CRYSTAL_FRAC
 
 // One row of `props` per channel, built from LASubstances by StateDerivePass. A channel amount is mol/m^3.
@@ -289,11 +293,9 @@ void main() {
 	float v_used = 0.0;
 	float v_lithic = 0.0;    // volume fraction of rock and metal phases: what the solid flag reads
 	float rad_w = 0.0;       // radiogenic power of the cell's matter, W/m^3
-	// EOS sums: b* the unstressed condensed volume, c* its compressibility, h* the same for h2o alone.
+	// EOS sums: b* the unstressed condensed volume of everything but h2o, c* its compressibility.
 	float b0 = 0.0; float b1 = 0.0; float b2 = 0.0;
 	float c0 = 0.0; float c1 = 0.0; float c2 = 0.0;
-	float hb0 = 0.0; float hb1 = 0.0; float hb2 = 0.0;
-	float hc0 = 0.0; float hc1 = 0.0; float hc2 = 0.0;
 	float mol_h2o = 0.0;
 
 	for (int i = 0; i < LA_CHANNEL_SLOTS; ++i) {
@@ -326,23 +328,18 @@ void main() {
 			// The channel's unstressed condensed volume: its volume fraction of the cell, times the cell.
 			float w0 = vf * vol;
 			float w1 = w0 * al;
+			// h2o's volume is taken off its own phase split below, from Kell's liquid and the ice's density.
 			bool is_water = entry == E_H2O;
 			mol_h2o = is_water ? mol_h2o + f * vol : mol_h2o;
 			b0 += is_water ? 0.0 : w0;
 			b1 += is_water ? 0.0 : w1;
 			b2 += is_water ? 0.0 : w1 * tr;
-			hb0 += is_water ? w0 : 0.0;
-			hb1 += is_water ? w1 : 0.0;
-			hb2 += is_water ? w1 * tr : 0.0;
-			if (kk > 0.0) {
+			if (kk > 0.0 && !is_water) {
 				float q0 = w0 / kk;
 				float q1 = w1 / kk;
-				c0 += is_water ? 0.0 : q0;
-				c1 += is_water ? 0.0 : q1;
-				c2 += is_water ? 0.0 : q1 * tr;
-				hc0 += is_water ? q0 : 0.0;
-				hc1 += is_water ? q1 : 0.0;
-				hc2 += is_water ? q1 * tr : 0.0;
+				c0 += q0;
+				c1 += q1;
+				c2 += q1 * tr;
 			}
 		}
 	}
@@ -466,10 +463,18 @@ void main() {
 			f_liquid = condensed * molten;
 		}
 
-		// The vapour share joins the gas term and what is left of the water is condensed.
-		float f_cond = max(1.0 - f_vapour, 0.0);
-		b_vol = (b0 + t_c * b1 - b2) + f_cond * (hb0 + t_c * hb1 - hb2);
-		c_comp = (c0 + t_c * c1 - c2) + f_cond * (hc0 + t_c * hc1 - hc2);
+		// The vapour share joins the gas term; the condensed water fills the liquid's volume off Kell's
+		// curve and the ice its own, each squeezed on its own bulk modulus.
+		float vw = 0.0;
+		float cw = 0.0;
+		if (m_h2o > 0.0) {
+			float v_liq = la_water_liquid_v_m3_kg(t_c);
+			float v_ice = (1.0 + ICE_ALPHA * (t_c - ICE_T_REF_C)) / subs[E_H2O].rho_sol;
+			vw = m_h2o * (f_liquid * v_liq + f_solid * v_ice);
+			cw = m_h2o * (f_liquid * v_liq * WATER_COMPRESS + f_solid * v_ice / ICE_BULK);
+		}
+		b_vol = (b0 + t_c * b1 - b2) + vw;
+		c_comp = (c0 + t_c * c1 - c2) + cw;
 		float n_gas = n_gas_mol + f_vapour * mol_h2o;
 		float tk = max(t_c + LA_KELVIN_OFFSET, 1.0);
 		// Rock's pressure is PressurePass's: its T is read at that column and nothing here iterates.

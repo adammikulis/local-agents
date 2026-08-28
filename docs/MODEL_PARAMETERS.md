@@ -15,7 +15,7 @@ question, which nothing could previously ask: should this be a number at all, an
 Every row names what would have to exist for the number to stop being needed. A row that never acquires
 that field is a value nobody intends to fix.
 
-**MAX_DECLARED: 254**
+**MAX_DECLARED: 253**
 
 The gate fails if the table grows past that ceiling. To add a number, derive it, bind it, or raise the
 ceiling in the same commit and argue for it in the message. When the count drops, lower the ceiling to bank
@@ -226,7 +226,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MaterialFieldMineralProfile3D.gd` | `SAMPLE_EVERY` | 100 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `VAPOUR_TRANSFER_COEFF` | 1.2e-3 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `SOIL_SURFACE_RESISTANCE_S_M` | 1000.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/reactions/GeoRecords.gd` | `DISSOLUTION_K_PER_VF` | 2.0e-5 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/PhysicalConstants.gd` | `LITHIFICATION_RATE_PER_PA` | 1.0e-9 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `TEMP` | 0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `H2O` | 1 | slot id, not a measured quantity | — |
@@ -308,9 +307,9 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MaterialField3D.gd` | `SEA_WAVE_EPS` | 0.6 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/runtime/FieldPassProbe3D.gd` | `DEFAULT_STEPS` | 3 | how many steps `LA_PASS_PROBE` samples before it disarms; a diagnostic default, not a property of the world | delete when the probe is cheap enough to leave armed for a whole run |
 | `addons/local_agents/sim/material/sphere_passes/GravityPass.gd` | `SOLVE_EVERY` | 2 | how often the Poisson solve re-runs; mass moves slowly next to a step and the solve warm-starts | the residual between solves is published and stops being reported as small |
-| `addons/local_agents/sim/material/sphere_passes/GravityPass.gd` | `SWEEPS` | 128 | red-black Gauss-Seidel sweeps per dispatch; the seeding solve loops on the measured residual, so this only sizes the per-step tracking | a solver whose work does not scale with the box edge, so one dispatch converges |
-| `addons/local_agents/sim/material/MaterialFieldGravity3D.gd` | `SEED_RESIDUAL_TOLERANCE` | 1.0e-4 | how well the seeding solve must satisfy the discrete Poisson equation, as a fraction of its own source, before any walk reads `down` | a direct solve, which has no residual to tolerate |
-| `addons/local_agents/sim/material/MaterialFieldGravity3D.gd` | `SEED_DISPATCH_CAP` | 2048 | dispatches the seeding solve may take before it reports that it did not converge; Gauss-Seidel carries information one cell per sweep | the same direct solve |
+| `addons/local_agents/sim/material/sphere_passes/GravityPass.gd` | `SWEEPS_PER_DISPATCH` | 128 | red-black Gauss-Seidel sweeps one dispatch relaxes before the residual is read back; every solve loops until it falls, so this is a batch size, a DISCRETISATION of the loop | a solver whose work does not scale with the box edge, so one dispatch converges |
+| `addons/local_agents/sim/material/MaterialFieldGravity3D.gd` | `RESIDUAL_TOLERANCE` | 1.0e-4 | how well every solve must satisfy the discrete Poisson equation, as a fraction of its own source, before any walk reads `down` | a direct solve, which has no residual to tolerate |
+| `addons/local_agents/sim/material/MaterialFieldGravity3D.gd` | `DISPATCH_CAP` | 2048 | dispatches one solve may take before it reports that it did not converge; Gauss-Seidel carries information one cell per sweep | the same direct solve |
 | `addons/local_agents/sim/material/kernels3d/neighbours.glsli` | `N_SLOTS` | 6 | faces of a cube; it is geometry, not a choice | never — a box has six faces |
 | `addons/local_agents/sim/material/kernels3d/generated.glsli` | `EXP_LIMIT` | 60.0 | generated from ReactionThermo.EXP_LIMIT; the exponent bound where exp() overflows float32 | deleted with its source row |
 | `addons/local_agents/sim/terrain/VoxelTerrainService.gd` | `GEN_RAY_COARSE` | 32.0 | first sweep of the same search, metres. Brackets the crossing over the whole relief band before the metre and centimetre passes refine it; a DISCRETISATION | an analytic surface intersection, which needs no sweep at all |

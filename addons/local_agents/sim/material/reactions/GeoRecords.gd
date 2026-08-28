@@ -2,13 +2,9 @@ class_name LAGeoRecords
 extends "res://addons/local_agents/sim/material/reactions/ReactionDefs.gd"
 
 
-# Urey, both ways: CaSiO3 + CO2 <-> CaCO3 + SiO2. Arrhenius, first order in the liquid h2o volume share.
-const DISSOLUTION_K_PER_VF: float = 2.0e-5
-
-
-## The quoted k is per liquid VOLUME SHARE; the H2O_LIQUID driver is mol/m^3, so divide by a full cell's.
+# Urey, both ways: CaSiO3 + CO2 <-> CaCO3 + SiO2. An areal rate on the wetted bedrock surface, mol/m^2/s.
 static func _dissolution_k() -> float:
-	return DISSOLUTION_K_PER_VF / LASubstances.full_mol_m3("h2o")
+	return pow(10.0, LAPhysical.WOLLASTONITE_DISSOLUTION_LOG10_K)
 
 
 static func _rate_k_per_s(ea_over_r_k: float) -> float:
@@ -73,11 +69,11 @@ static func records() -> Array:
 			-1, 0.0, 0.0, _coal_enthalpy_j_mol(1.0, 0.0, 2.0)),
 
 		# Reversible: direction is dG(T, p_CO2), not a threshold. CO2 is the one varying activity.
-		LAReactionThermo.reversible(rec(TB_PER_STEP, "mol m^-3 driver^-1 driver2^-1 step^-1",
-			RM_ARRHENIUS, _dissolution_k(), H2O_LIQUID,
+		LAReactionThermo.reversible(rec(TB_PER_SECOND, "mol m^-3 driver^-1 s^-1",
+			RM_ARRHENIUS, _dissolution_k(), ROCK_SURFACE_WET,
 			[[BEDROCK_BELOW, 1.0], [CO2, 1.0]],
 			[[CARBONATE, 1.0], [SILICA, 1.0]],
-			GATE_NEAR_GROUND, LAPhysical.SILICATE_DISSOLUTION_EA_OVER_R_K, CO2,
+			GATE_NEAR_GROUND, LAPhysical.SILICATE_DISSOLUTION_EA_OVER_R_K, -1,
 			LAPhysical.LAB_REFERENCE_TEMP_C + LAPhysical.KELVIN_OFFSET,
 			-1, 0.0, LAPhysical.WATER_BOIL_C + LAPhysical.KELVIN_OFFSET), CO2),
 

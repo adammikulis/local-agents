@@ -45,6 +45,8 @@ const CO: int = H2 + 1
 const SO2: int = CO + 1
 const H2S: int = SO2 + 1
 const CH4: int = H2S + 1
+# Derived driver only: the bedrock surface under an open cell that its liquid wets, m^2 per m^3 of cell.
+const ROCK_SURFACE_WET: int = CH4 + 1
 
 # --- Rate models
 const RM_CONST_FRAC: int = 0             # x = k * driver

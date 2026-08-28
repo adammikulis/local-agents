@@ -40,6 +40,7 @@
 #define SO2 40
 #define H2S 41
 #define CH4 42
+#define ROCK_SURFACE_WET 43
 #define RM_CONST_FRAC 0
 #define RM_BILINEAR 1
 #define RM_EXCESS_OVER_THRESHOLD 2

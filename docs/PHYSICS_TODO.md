@@ -112,12 +112,8 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       dissolution leg from the halite channel into a dissolved amount the enthalpy ladder's molality reads
       (CPU and `enthalpy.glsli` twin together), and either accept the ideal van 't Hoff law or carry an
       osmotic coefficient — ideal gives −2.16 °C for sea water against the measured −1.86.
-- [ ] **Density is rho(T, p) on the CPU only, and water has no 4 °C maximum.** `LASubstances.density` gives
-      a gas the ideal gas law and a condensed phase a thermal expansivity over a Birch-Murnaghan
-      compression. Three gaps: `kernels3d/enthalpy.glsli` has no twin, so every kernel still multiplies by
-      a scalar; a LINEAR expansivity cannot produce the density maximum near 4 °C, which is why deep water
-      sits at 4 °C and a lake freezes from the top (Kell 1975, J. Chem. Eng. Data 20:97); `carbonate` has
-      an expansivity and no bulk modulus, and `cellulose` has neither.
+- [ ] **`carbonate` has an expansivity and no bulk modulus, and `cellulose` has neither,** so their
+      cells report an incompressible volume in the equation of state. Cite both moduli in `LASubstances`.
 - [ ] **No phase carries a measured `bulk_modulus_deriv`,** so every one of them compresses on `K0' = 4` —
       the value at which third-order Birch-Murnaghan collapses to second order. That is the standard
       treatment where `K0'` is unmeasured rather than an invented number, and it is declared as
@@ -127,9 +123,6 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       carries `density_solid`, so silicate's fusion volume change — the larger half of why a melt rises — is
       absent. Adding it also moves `melt_c_at`'s Clapeyron slope off zero, which is real (decompression
       melting) and which `enthalpy.glsli` must move with, or the two phase curves are no longer one curve.
-- [ ] **The momentum ledger's atmosphere weighs the same at every altitude.** `LAMaterialFieldMomentumLedger3D`
-      makes cell mass `air * AIR_DENSITY_KG_M3 * V`, a fixed ISA sea-level conversion, and its buoyancy leg is
-      the ideal-gas Boussinesq `a = g dT/T` gated on `d_t > 0.0`, so cold air never sinks.
 - [ ] **Solid polymorphs** — ice I…VII, and olivine → wadsleyite → perovskite with depth. A planet's mantle
       structure IS these transitions, each with its own enthalpy and density jump. Maintainer asked for the
       structure to be built.
@@ -191,9 +184,6 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       bone dry, while photosynthesis carries `RM_OPTIMUM_BAND`. Michaelis–Menten and a Q₁₀ (or the
       Arrhenius the engine already has) are what the two uptake reactions want. The whole temperature
       feedback of the carbon cycle is this asymmetry.
-- [ ] **`DISSOLUTION_K` is the one per-step rate left** (its `MODEL_PARAMETERS.md` row). A cited areal rate
-      law (wollastonite, mol/m²/s) times a reactive surface area the grid can defend replaces it, and its
-      `k_timebase` flips to per_real_second.
 
 ## D. Transport and geometry
 
@@ -227,19 +217,6 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       element_C — and the energy row reads UNMEASURED rather than conserved. **Reproduce:**
       `scripts/check_conservation.sh`.
 
-- [ ] **THE ENERGY BOOK WEIGHS ENTHALPY WHERE IT SHOULD WEIGH INTERNAL ENERGY.** `h_j_m3` is a specific
-      enthalpy, so the conserved sum is `energy_stock` MINUS the pressure's own pV over the box, plus the
-      kinetic and potential stores; no row publishes that pV. **Reproduce:** `scripts/sim_run.sh --rung 3
-      --frames 8 --report energy_stock,energy_kinetic,energy_potential,energy_run_drift_rel` and read what
-      the book calls a total against what the first law says one is.
-- [ ] **THE POTENTIAL STORE IS NOT BOOKED, AND A RELOADED WORLD DOES NOT REPRODUCE IT.** `energy_potential`
-      is gauged and left out of the run book: the same mass in the same cells reads a different potential
-      after a load than after a walk. **Reproduce:** `bash scripts/check_seal_cache.sh` with
-      `energy_potential` added to the ledger's `energy_held`.
-
-- [ ] **`LA_PASS_PROBE` sums bare fill fractions**, which a kernel moving fill fractions conserves by
-      construction, so it cannot see a volume-weighted loss and its silence is not evidence. Every
-      per-pass probe wants the same volume weight the reduce rows carry.
 - [ ] **The wind is supersonic and always has been**, against a real jet stream of ~70 m/s. `MAX_WIND` was
       deleted on purpose (wind speed is an output), so this is the momentum equation, not a missing clamp.
       **THIS IS WHAT DENIES THE TRANSPORT SUBSTEP BUDGET**, so it is upstream of every number the substrate
@@ -264,17 +241,7 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       not computable). What remains for the core to LIVE rather than sit: **the six new phases are
       sensible-heat entries**, so metal, olivine, pyroxene, plagioclase, halite and apatite never melt in
       `state_derive.glsl` — no liquid outer core, no mantle melt beyond the wollastonite share — and
-      **none has a transport row**, so none of them erodes, slumps or percolates. The residual-descent
-      physics is still open: **a dense phase descending under the solved potential releases NOTHING** —
-      pass 0 carries enthalpy unchanged as `send_h[base+d] = flow * h_per_unit`, no term adds m·g·dz, and
-      `MODE_POTENTIAL` is a relaxation rather than a momentum equation. The mechanism is viscous
-      dissipation — metal percolating at terminal velocity heats what it passes through — deposited on the
-      row and debited against a potential store.
-- [ ] **The interior is seeded at the surface temperature.** `LAFieldEnthalpySeed.seed` hands every cell
-      `INITIAL_TEMP`, so the core starts at 15 C against a real ~4,000-5,000 K and the geotherm must build
-      from radiogenic decay alone. **Reproduce:** `scripts/agent_harness.sh sim --frames 20`, read `temp`
-      at depth. Blocked in honesty by the phase ladders above: a hot interior needs the seeded phases to
-      hold molten states.
+      **none has a transport row**, so none of them erodes, slumps or percolates.
 - [ ] **Trace elements ride their host phase uniformly, and nothing can ever concentrate them.** Each
       shell mineral carries the registry's traces as fixed kg/kg. Real ore bodies form when partition
       coefficients move trace mass between silicate melt, sulfide melt and aqueous brine; that needs the

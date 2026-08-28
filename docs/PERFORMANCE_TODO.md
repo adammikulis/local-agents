@@ -90,13 +90,13 @@ not, so an active rock cell runs every row to add zero. And every row's pass 0 c
 
 ## 2f. The gravity solve is a fixed iteration count, not a convergence test
 
-`SWEEPS` is a literal loop of 8 red-black pairs. `mode_residual` computes the residual and publishes it as
+`SWEEPS_PER_DISPATCH` is a literal loop of red-black pairs. `mode_residual` computes the residual and publishes it as
 a gauge, and nothing reads it back to decide whether to sweep again. Error propagates one cell per sweep,
 so eight cells per solve and one cell per simulation step — after a large sudden mass change the potential
 is not the potential of the mass that is there, for tens of steps. **A geometric multigrid V-cycle is the
 correct answer**: same discrete operator, same fixed point, O(N) per cycle, whole-grid propagation.
 `check_gravity_solve.sh` is the gate to measure any replacement against. Raising `SOLVE_EVERY` or lowering
-`SWEEPS` is FORBIDDEN — the published potential is an unconverged iterate, so both change the answer.
+`SWEEPS_PER_DISPATCH` is FORBIDDEN — the published potential is an unconverged iterate, so both change the answer.
 
 **And solve the CORRECTION, not the field.** Mass barely moves in a step, and `lap(dphi) = 4 pi G drho`
 with `drho` sparse — only the cells whose mass actually changed. Same operator, same fixed point, a far
