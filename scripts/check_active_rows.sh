@@ -390,7 +390,7 @@ if la_cap_dir >/dev/null; then
   out2="$(la_report active_cells,transport_levels 2>&1)"
   rc2=$?
 else
-  out2="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --frames "${LA_ACTIVE_FRAMES:-2}" \
+  out2="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --from-seal --frames "${LA_ACTIVE_FRAMES:-2}" \
     --rung "${LA_ACTIVE_RUNG:-5}" --report active_cells,transport_levels 2>&1)"
   rc2=$?
   case "$rc2" in 0|122|123|126) ;; *) out2="" ;; esac

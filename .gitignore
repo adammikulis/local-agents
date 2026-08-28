@@ -62,3 +62,4 @@ scripts/*_lines.csv
 scripts/*.cia
 scripts/bands.npz
 scripts/o3_uv_serdyuchenko.dat
+addons/local_agents/gdextensions/localagents/compile_commands.json

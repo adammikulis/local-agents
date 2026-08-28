@@ -286,7 +286,7 @@ if la_cap_dir >/dev/null; then
 else
   CAP="${LA_BND_MOM_CAP:-$(mktemp "${TMPDIR:-/tmp}/bnd_mom_cap.XXXXXX")}"
   OWN_CAP=1
-  sim_out="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --frames "$SIM_FRAMES" \
+  sim_out="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --from-seal --frames "$SIM_FRAMES" \
     --slice-capture "$CAP" --report momentum_book_bnd 2>&1)"
   sim_rc=$?
 fi

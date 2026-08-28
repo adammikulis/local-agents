@@ -49,7 +49,7 @@ PLIST
 # Hash of the extension sources; build_extension.sh writes it beside the dylib.
 la_extension_hash() {
 	local ext="$1/addons/local_agents/gdextensions/localagents"
-	(cd "$ext" && cat CMakeLists.txt $(ls src/* include/* | sort) | md5 -q)
+	(cd "$ext" && cat CMakeLists.txt cmake/deps/CMakeLists.txt $(ls src/* include/* | sort) | md5 -q)
 }
 
 # A dylib built from other sources is a stale binary: refuse, never run it.
