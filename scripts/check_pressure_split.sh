@@ -55,11 +55,26 @@ rg -qU 'if \(!wall[^{]*\) \{\s*\n[^}]*p_face = p_face' "$TRANSPORT" || {
 	fail=1
 }
 
-# 4. The decision is declared, or it is not a decision.
+# 5. AND ONE WRITER, NOT THREE. Transport moves matter; the equation of state says what pressure that
+#    matter is at. A linearised increment beside it is a second account of a compression the mass flux
+#    across the face already performed, and counted twice it does work on the gas every step.
+if rg -N -q -e 'pressure\[[A-Za-z_][A-Za-z_0-9]*\][[:space:]]*[-+*/]?=' "$TRANSPORT"; then
+	echo "FAIL  transport.glsl writes pressure[]. An open cell's pressure is state_derive.glsl's" >&2
+	echo "      equation of state and nothing else's; transport moves the matter it is derived from." >&2
+	rg -N -n -e 'pressure\[[A-Za-z_][A-Za-z_0-9]*\][[:space:]]*[-+*/]?=' "$TRANSPORT" >&2
+	fail=1
+fi
+rg -q 'readonly buffer PressureBuf' "$TRANSPORT" || {
+	echo "FAIL  transport.glsl no longer binds the pressure buffer readonly, so a write to it is one" >&2
+	echo "      edit away and nothing but this gate stands between." >&2
+	fail=1
+}
+
+# 6. The decision is declared, or it is not a decision.
 rg -q 'quasi_static_solid_pressure' "$ROOT/docs/APPROXIMATIONS.md" || {
 	echo "FAIL  docs/APPROXIMATIONS.md no longer declares quasi_static_solid_pressure." >&2
 	fail=1
 }
 
 [ "$fail" -eq 0 ] || exit 1
-echo "check_pressure_split: OK (one writer per cell class, and the wall takes the fluid's own pressure)"
+echo "check_pressure_split: OK (one writer per cell class, transport is not one, and the wall takes the fluid's own pressure)"

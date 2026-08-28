@@ -23,17 +23,13 @@ Deleting that refusal reads zero inversions and seeds tens of atmospheres into o
 under the datum, which the sky flood reaches through the box's own outside; the wind then reads eight
 figures. Reproduce either way by flipping the `surf[c] < datum` test.
 
-Above it, `bash scripts/check_rung_acoustic.sh` reads a cell moving faster than its own sound speed, and
-the speed MULTIPLIES from one step to the next until the field goes non-finite. Nothing drives this world
-but pressure and gravity, which cancel at balance, so something does work on the gas every step. The peak
-cell's stored pressure is an order of magnitude above what its own matter and temperature state.
-**Reproduce:** `for n in 2 4 6 8; do scripts/sim_run.sh --rung 3 --frames $n --report
-wind_speed_max,nonfinite_cells; done` and read each against the next. An open cell's pressure has three
-writers inside one step: `state_derive.glsl`'s equation of state, `transport.glsl`'s PASS_ACOUSTIC_APPLY
-`pressure += send`, and the same file's gather `dp = K_s da`.
+Above it, `bash scripts/check_rung_acoustic.sh` reads a cell moving faster than its own sound speed. The
+peak stops climbing and holds, and it holds far past the ~70 m/s of a real jet stream, on a world nothing
+drives but pressure and gravity, which cancel at balance. **Reproduce:**
+`for n in 4 8 16; do scripts/sim_run.sh --rung 3 --frames $n --report wind_speed_max; done`.
 
-`bash scripts/check_wind_subsonic.sh` refuses its twelve-frame arm: the field is non-finite by then, so
-neither the wind nor the sound speed is a reading.
+`bash scripts/check_wind_subsonic.sh` reads that same peak against the sound speed the substrate states
+for it.
 
 `bash scripts/check_atmosphere_at_rest.sh` is rung 3's other gate: its sealed column moves. Its vented
 control opens the column's side and reads past it, so the gate has a control.

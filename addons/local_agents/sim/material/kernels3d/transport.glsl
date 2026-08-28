@@ -30,14 +30,14 @@ layout(set = 0, binding = 14, std430) restrict buffer SendQ  { float send_q[]; }
 // Flow resistance 0..1 per cell.
 layout(set = 0, binding = 10, std430) restrict readonly buffer Resist { float resist[]; };
 // What the flux runs down; `amount` when a record has no separate potential. No `restrict`: the PGF
-// rows bind the pressure buffer here, which PASS_ACOUSTIC writes through binding 16.
+// rows bind the pressure buffer here as well, through binding 16.
 layout(set = 0, binding = 11, std430) readonly buffer Drive { float drive[]; };
 // Whatever else the row's law reads per cell: conductivity for MODE_CONDUCT, cloud water for LAW_OHMIC.
 layout(set = 0, binding = 12, std430) restrict readonly buffer Aux { float aux[]; };
 
 layout(set = 0, binding = 15, std430) restrict readonly buffer TempBuf     { float temp[]; };
-// Writable: PASS_ACOUSTIC advances it between substeps. Aliases Drive on the PGF rows.
-layout(set = 0, binding = 16, std430) buffer PressureBuf { float pressure[]; };
+// READ ONLY. An open cell's pressure is state_derive.glsl's equation of state and nothing else's.
+layout(set = 0, binding = 16, std430) readonly buffer PressureBuf { float pressure[]; };
 layout(set = 0, binding = 17, std430) restrict readonly buffer PorosityBuf { float porosity[]; };
 layout(set = 0, binding = 18, std430) restrict readonly buffer GrainBuf    { float grain[]; };
 layout(set = 0, binding = 19, std430) readonly buffer CO2Buf      { float co2[]; };
@@ -402,11 +402,23 @@ float face_p(uint c, uint d) {
 		max(rho_bulk[c], 0.0), max(pressure[c], 0.0));
 }
 
-// The layer this cell presents at face d. The gas takes the cell's own p and the density that p and its
-// temperature state, never a bulk sum less a bulk sum.
+// The GAS alone at face d, Pa: the same reconstruction with the condensed head left off.
+float face_p_gas(uint c, uint d) {
+	vec3 gv = g_at(c);
+	float gm = length(gv);
+	if (gm <= 0.0) {
+		return pressure[c];
+	}
+	float m_gas = max(max(rho_bulk[c], 0.0) - cond_kg_m3(c), 0.0);
+	return la_stack_face_p(face_cos(c, d), params.cell_m, gm, 0.0, m_gas, max(pressure[c], 0.0));
+}
+
+// The layer this cell presents at face d, stated AT THAT FACE: a gas held at the cell's mean pressure
+// has an impedance the matter at the face does not, and p/Z is then an expansion faster than its sound.
 vec2 face_layer(uint c, uint d) {
+	float pg = max(face_p_gas(c, d), 0.0);
 	return la_stack_layer(face_z(c, d), params.cell_m, condensed_frac(c), cond_kg_m3(c),
-		air_rho(c), max(pressure[c], 0.0), max(k_cond[c], 0.0), AIR_GAMMA);
+		pg / (DRY_AIR_R * t_k(c)), pg, max(k_cond[c], 0.0), AIR_GAMMA);
 }
 
 // Signal speed of the layer at face d, m/s: sqrt(K/rho) of what touches it, never a mixture mean.
@@ -420,17 +432,6 @@ float impedance(uint c, uint d) {
 	vec2 lay = face_layer(c, d);
 	return (lay.x > 0.0 && lay.y > 0.0) ? sqrt(lay.x * lay.y) : 0.0;
 }
-
-// The CELL's bulk modulus, Pa (Wood 1930): compliances add by volume fraction. Its response to a
-// uniform dp, and nothing else: no face and no clock takes a signal speed out of it.
-float bulk_mod(uint c) {
-	float fc = clamp(condensed_frac(c), 0.0, 1.0);
-	float kc = max(k_cond[c], 0.0);
-	float kg = AIR_GAMMA * max(pressure[c], 0.0);
-	float comp = (kc > 0.0 ? fc / kc : 0.0) + (kg > 0.0 ? (1.0 - fc) / kg : 0.0);
-	return comp > 0.0 ? 1.0 / comp : 0.0;
-}
-
 
 // Magnitude of the resolved strain-rate tensor, 1/s: |S| = sqrt(2 S_ij S_ij).
 float strain_rate(uint c) {
@@ -1030,61 +1031,27 @@ void main() {
 		}
 		gidx = level_idx[act_base() + level_args[la_b0 + params.level * LEVEL_SLOTS + 4u] + gidx];
 	}
-	// Acoustic half-step per momentum substep: dp = -rho c^2 div(u*) dt, in two passes.
-	// LA_APPROX: split_explicit_acoustics
+	// A DETECTOR: the fastest signal any of this cell's faces carries, which the clock sizes its
+	// substep against. The compression itself is the mass the rows move across those faces.
 	if (params.pass_id == PASS_ACOUSTIC) {
 		if (gidx >= params.cell_count) {
 			return;
 		}
-		la_dt = la_level_dt(tlevel[gidx]);
-		uint abase = gidx * N_SLOTS;
-		send[abase] = 0.0;
 		cel_m_s[gidx] = 0.0;
-		// A cell with no bulk state carries no acoustic signal, and its impedance is rho c over a mass
-		// that is not there. Asked FIRST, so nothing downstream evaluates it.
+		// A cell with no bulk state carries no acoustic signal, and its celerity is over a mass that
+		// is not there. Asked FIRST, so nothing downstream evaluates it.
 		if (solid[gidx] != 0.0 || no_matter(gidx)) {
 			return;
 		}
-		float ks = bulk_mod(gidx);
-		if (!(ks > 0.0)) {
-			return;
-		}
-		float div_u = 0.0;
 		float cel_top = 0.0;
 		for (uint d = 0u; d < N_SLOTS; ++d) {
-			int inb = nbr[abase + d];
-			if (inb < 0) { inb = ghost[abase + d]; }
-			vec3 nrm = face_normal(d);
-			float ua = dot(vel_at(gidx), nrm);
-			float za = impedance(gidx, d);
 			cel_top = max(cel_top, face_c(gidx, d));
-			// A FACE ONTO NOTHING IS A FREE SURFACE: vacuum presents no pressure, so the outgoing
-			// characteristic alone sets the face velocity and the matter expands into it.
-			if (inb == GHOST_SPACE
-					|| (inb >= 0 && solid[inb] == 0.0 && no_matter(uint(inb)))) {
-				div_u += za > 0.0 ? ua + face_p(gidx, d) / za : ua;
-				continue;
-			}
-			if (inb < 0 || solid[inb] != 0.0) {
-				continue;
-			}
-			uint nb = uint(inb);
-			float zb = impedance(nb, d ^ 1u);
-			float zs = za + zb;
-			if (zs <= 0.0) {
-				continue;
-			}
-			float ub = dot(vel_at(nb), nrm);
-			// Subtractive form of the same average: exact at equilibrium for any impedance pair.
-			div_u += ua + (zb * (ub - ua) + (face_p(gidx, d) - face_p(nb, d ^ 1u))) / zs;
 		}
 		cel_m_s[gidx] = cel_top;
-		send[abase] = -ks * div_u * la_dt / params.cell_m;
 		return;
 	}
 	if (params.pass_id == PASS_ACOUSTIC_APPLY) {
 		if (gidx < params.cell_count) {
-			pressure[gidx] = pressure[gidx] + send[gidx * N_SLOTS];
 			// This substep's share of the body impulse, beside the pressure gradient it stands against.
 			float sf = exp2(-float(tlevel[gidx]));
 			mom_x[gidx] += bodyf_x[gidx] * sf;
@@ -1485,19 +1452,13 @@ void main() {
 		mom_y[gidx] = mom_y[gidx] - lost_m.y + gained_m.y;
 		mom_z[gidx] = mom_z[gidx] - lost_m.z + gained_m.z;
 		// The derived sums follow their inputs: moved matter takes its mass, entry heat and sensible
-		// capacity with it, and the pressure answers the arrived mass at once (dp = K_s da).
+		// capacity with it. The pressure it arrives at is the equation of state's, next derive.
 		if (params.density > 0.0) {
 			float da = gained - lost;
 			rho_bulk[gidx] = max(rho_bulk[gidx] + da * sub_kg_mol(), 0.0);
 			h_carried[gidx] += gained_h - lost_h;
 			if (params.sub_cap_j_m3k > 0.0) {
 				cap_sensible[gidx] = max(cap_sensible[gidx] + da * params.sub_cap_j_m3k, 0.0);
-			}
-			// dp = K_s da: the mixture's bulk modulus times the VOLUME SHARE that arrived. A row whose
-			// substance declares no full amount has no volume share, and 0/0 is not a pressure.
-			if (solid[gidx] == 0.0 && params.max_fill > 0.0 && !isinf(params.max_fill)) {
-				pressure[gidx] = pressure[gidx]
-					+ bulk_mod(gidx) * (da / params.max_fill);
 			}
 		}
 	}
