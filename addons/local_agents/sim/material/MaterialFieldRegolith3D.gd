@@ -23,7 +23,7 @@ static func porosity_at(shells: int) -> float:
 
 
 ## Compute the permeability mask, the grain-size field and the pore fraction. The water that stands in
-## those pores is the body's own, and LAMaterialFieldHydrosphere3D lays it.
+## those pores is the body's own, and LAFieldHydrosphereSeed lays it.
 func compute() -> void:
 	if _f._grid == null or _f._solid.size() != _f._cell_count:
 		return

@@ -35,7 +35,6 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
 - Decompose concerns with clear ownership; avoid deep inheritance chains.
 - Use scenes/Resources/graphs before ad-hoc dictionary state.
 - Plugin boundary is `addons/local_agents/`.
-- Use `hex_pointy` grid defaults unless explicitly required otherwise.
 - Centralize partitioning/grid configuration in shared resources.
 - Keep editor code under `addons/local_agents/editor/`; use `@tool` only where required.
 - Keep runtime logic outside editor UI controllers.
@@ -134,14 +133,22 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
 
 ## Headless Harness Invocation (Mandatory)
 
-- Preferred entrypoint: `scripts/agent_harness.sh <fast|all|bounded|single|smoke|demo|extension|lint>`
+- Preferred entrypoint:
+  `scripts/agent_harness.sh <fast|all|bounded|single|smoke|demo|extension|dropin|ladder|sim|score|lint>`
   wraps the canonical runners, tees a log, and prints one `AGENT_HARNESS_RESULT={...}` line.
+- **`sim` is the one way to run the planet**, off-screen with the streamer off, re-importing first:
+  `scripts/agent_harness.sh sim [--frames N] [--seed N] [--rung=N] [--path DIR] [--fauna] [--full] [--raw]`.
+  `--rung=N` picks which processes the world contains (`LAProcessSet`); without it the world runs at
+  `docs/PLAYABLE_RUNG`. `ladder` climbs every rung and stops at the first red one.
+- **`lint` is the gate CI runs.** A lane runs `LA_NO_GPU=1 scripts/agent_harness.sh lint`, which skips the
+  gates that need a real GPU and names each one it skipped. Exit 0 clean · 1 a violation · 2 a gate could
+  not run.
 - Always run SceneTree harness scripts via `godot --headless --no-window -s <script>`.
 - Canonical harness scripts:
   - `addons/local_agents/tests/run_all_tests.gd`
   - `addons/local_agents/tests/run_runtime_tests_bounded.gd`
   - `addons/local_agents/tests/run_single_test.gd`
-- `addons/local_agents/tests/test_*.gd` modules are usually `RefCounted` test definitions, not SceneTree entrypoints; never launch directly with `godot -s test_x.gd`.
+- `addons/local_agents/tests/test_*.gd` modules are usually `RefCounted` test definitions, not SceneTree entrypoints; never launch one directly with `godot -s <the module>`.
 - Canonical helper for single-test execution: `scripts/run_single_test.sh test_agent_integration.gd` (defaults to `--timeout=120`).
 - Execute `test_*.gd` modules through `addons/local_agents/tests/run_single_test.gd` and pass the test path with `-- --test=res://...` and explicit timeout.
 - Correct example: `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
@@ -151,16 +158,12 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
 - **Which scenes need a window, and which do not.** Measure rather than assume.
   - **Example scenes (`addons/local_agents/examples/`) do not need a window.** Run them with
     `scripts/run_demo.sh <name> [frames]`, or `scripts/agent_harness.sh demo --all` for the set — both
-    are bare `godot --headless`. The whole set takes **3.8s**: BoxFieldDemo 0.79s, CoreCreatureSmoke
-    0.59s, SimWorldPlanetDemo 1.11s, ThinkingCreatureDemo 0.58s, TutorialDemo 0.48s, all exit code 0.
-    (Windowed, the same four measurable scenes take 1.0-1.9s, so the window buys nothing here.)
-  - **`game/VoxelWorld.tscn` needs a window.** `scripts/run_sim_offscreen.sh --path .
-    addons/local_agents/game/VoxelWorld.tscn -- --run-frames=40` takes 7-9s and exits 0. It also *boots*
-    headless and exits 0 in 5.3s, but with no compute device the field never runs and `SIM_REPORT` comes
-    back empty: `biomass_total` 0, `heat_cells` 0, `sediment_total` 0.00, temperatures flat at the seed
-    value, and no `field_*` gauges at all, where the same run windowed reports `sediment_total` ~980. That
-    is a silent empty pass, not a loud failure, so never read a headless voxel `SIM_REPORT` as evidence
-    the simulation ran.
+    are bare headless.
+  - **`game/VoxelWorld.tscn` needs a window**, so run it through `scripts/run_sim_offscreen.sh` or
+    `scripts/agent_harness.sh sim`. It boots headless and exits 0, but `create_local_rendering_device()`
+    is null there, so the field never runs and `SIM_REPORT` comes back with its totals at zero and no
+    `field_*` gauges. That is a silent empty pass, not a loud failure: never read a headless voxel
+    `SIM_REPORT` as evidence the simulation ran.
 - **`--run-frames` and `--shoot` are a scene contract, not engine flags.** They are implemented by
   `LocalAgentDemoHarness` (`addons/local_agents/runtime/DemoHarness.gd`). A scene without that node
   ignores them and runs until something kills it. `scripts/run_demo.sh --list` reports which example
@@ -170,10 +173,10 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
   prints `SIM_REPORT={...}`, `--shoot=<png> --shoot-frames=N` screenshots, `--overview` frames a wide
   island vista, `--time=<0..1>` sets time of day, and `--auto-meteor`/`--auto-barrage` aim an impact
   (the only cause the player has). Run all of them windowed through `scripts/run_sim_offscreen.sh` for the reason
-  above. A NEW `class_name`/`.gdextension` needs one editor scan first
-  (`godot --headless --editor --quit-after 400`).
+  above. A NEW `class_name`/`.gdextension` needs one editor scan first — `scripts/editor_scan.sh`, never
+  a bare `godot --headless --editor`: two concurrent scans segfault and the wrapper takes the lock.
 - **`run_sim_offscreen.sh` names its failures instead of waiting them out.** The default
-  `LA_RUN_TIMEOUT` is 60s (was 240s), and the script watches the child's output through godot's own
+  `LA_RUN_TIMEOUT` is 60s, and the script watches the child's output through godot's own
   `--log-file`, leaving stdout untouched. It exits **124** when the scene never printed a completion
   marker (`RUN_TIMEOUT` — usually a scene with no harness) and **125** when the marker printed but the
   process would not exit (`RUN_HUNG_AFTER_REPORT` — the exit path itself is broken), each with an
@@ -182,10 +185,6 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
 - When forwarding arguments to harnesses, keep the `--` separator.
 - Keep README command templates synchronized with this file.
 - For scene/playability validation, do not rely only on editor/manual launch; use harness-driven headless execution to surface parse/runtime failures.
-- Historical note: the native projectile-voxel-destruction path (and its `run_destruction_tests.sh` /
-  `benchmark_voxel_pipeline.gd` / `test_native_voxel_op_*` harnesses) was removed with the C++ voxel/sim
-  sources; the destruction-specific invariants and error-log entries below are retained as native/GPU
-  policy and history, not as current commands.
 
 ## Plugin UX and Documentation Process
 
@@ -200,15 +199,18 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
 - **`buffer_get_data_async` returns STALE data** for compute-written buffers on Godot 4.4+ (engine bug
   [#105256](https://github.com/godotengine/godot/issues/105256)). Forking was considered and rejected.
 - **Reading the device from the REPORT path CORRUPTS THE SIM.** With a `step()` submit in flight,
-  `buffer_get_data` flushes outside the driver's one-submit-per-sync discipline: `h2o_total` 5062 → 9803,
-  `temp_mean` 39.8 → 44.6. Defer the sample into `_drain_pending()`, after `_rd.sync()`.
+  `buffer_get_data` flushes outside the driver's one-submit-per-sync discipline and the totals move.
+  Defer the sample into `_drain_pending()`, after `_rd.sync()`.
 - **`request_channel()` is NOT read-only.** It decides which channels get mirrored, and the field's *write*
   paths read those mirrors. This is how impact winter was found to be alive only because a diagnostic
   happened to request `dust`.
-- **CPU writes to `_f._o2` / `_f._co2` / `_f._detritus` are silently discarded** —
-  `MaterialFieldSphereStep3D.gd:282-306` overwrites them wholesale from the GPU readback every drain. Park
-  transactions on the device injection queue instead. Every breath an animal took once debited nothing.
-- **No GPU-side execution timer in this build.** `gpu_dispatch_ms` reads 0.00 on Metal.
+- **CPU writes to a channel mirror are silently discarded** — `MaterialFieldSphereStep3D`'s `MIRRORS`
+  overwrites every one of them wholesale from the GPU readback on each drain. Park transactions on
+  `LAMaterialFieldInjectQueue3D` instead.
+- **The GPU timer is the driver's timestamps, and a backend may not have them.**
+  `LAMaterialSphereGPU3D` publishes `gpu_dispatch_ms` and a `gpu_<pass>_ms` per pass off
+  `get_captured_timestamp_gpu_time`; with fewer than two timestamps captured the gauges hold their last
+  value rather than reading zero, so check the count before trusting a flat reading.
 - **Where the field's time goes: RE-MEASURE IT, the old split is void.** The split it quoted attributed a
   share to a geothermal core pin, and that work no longer exists — the geotherm module is gone and rock
   warms itself inside the transport kernel. Readback is still the thing to optimise; a camera-relevance
@@ -220,18 +222,14 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
 ---
 
 
-## The CLI godot is an ACCESSORY APP, and that is deliberate
+## Every Godot launch goes through `la_godot`, and that is deliberate
 
-`/opt/homebrew/bin/godot` points at `/Applications/GodotQuiet.app`, a copy of the editor bundle whose
-`Info.plist` carries `LSUIElement`. An accessory app never activates, never takes focus and never appears
-in the Dock, whatever script it runs — which is the only way to cover every path that opens a window: the
-sim, the importer, the editor scan, and the bare `SceneTree` probes four gates launch for themselves.
-Setting a window flag inside our own harness covered the sim alone and left the gate probes stealing focus.
+`scripts/lib_godot.sh` builds a background-only `GodotAgent.app` under `TMPDIR` — `LSBackgroundOnly` plus
+`LSUIElement` — and launches every run, import, editor scan and gate probe through it. macOS activates a
+whole app on launch whatever a window flag says, and `LSUIElement` alone only hides the Dock icon, so a
+bundle it cannot activate is the only thing that covers every path that opens a window. A bundle that
+cannot be built is a hard failure, never a quieter launch through the real binary.
 
-`/Applications/Godot.app` is untouched, so launching the editor by hand behaves normally.
-
-`brew upgrade godot` restores the original symlink. Repoint it:
-`ln -sf /Applications/GodotQuiet.app/Contents/MacOS/Godot /opt/homebrew/bin/godot`
-
-Rebuild the bundle after a Godot upgrade: copy the app, add the `LSUIElement` key, then
-`codesign --force --deep --sign -` it, because editing `Info.plist` invalidates the signature.
+The window is created before any script runs, so only the launch flags can size it: `la_window_res` makes
+it 1x1 with no override, and `--shoot` renders into a SubViewport. `scripts/check_godot_launcher.sh` holds
+every one of those, and `scripts/check_no_focus_theft.sh` samples the frontmost app for a whole run.

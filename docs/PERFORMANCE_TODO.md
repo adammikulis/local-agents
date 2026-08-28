@@ -8,8 +8,8 @@ verified, never when it is worked around.
 forbidden. Several items below WOULD change results; each says so, and those need the maintainer.
 
 **Measure against `field_readback_ms` / `field_dispatch_ms` / `field_sync_ms`, which the driver already
-publishes — not against a wall clock.** This repo's own recorded measurement put readback at roughly three
-quarters of the field's frame cost and dispatch at a few percent, so a dispatch win can be invisible.
+publishes — not against a wall clock.** Readback and dispatch are separate rows: take both before and
+after, or a dispatch win reads as no win at all.
 
 ---
 ## 1a. EVERY COLUMN MARCH IS A PREFIX SUM. THIS IS THE LARGEST EXACT WIN AVAILABLE.
@@ -56,16 +56,16 @@ cheap instead.
 
 ## 1c. One surface-cell list would empty six full-grid walks
 
-`MaterialFieldEnergyBudget3D`'s surface compaction is gone with that file, but `WaterSurfaceMesh.build`,
-`sea_surface_stats` and `rock_radial_profile` each still walk every
-cell to find the same thing: the skin. It is a stream compaction, so no reduce `Op` expresses it — it is
-the active-cell list again. Build it once per step and all of them become O(surface cells), about N^(2/3).
+`WaterSurfaceMesh.build`, `sea_surface_stats` and `rock_radial_profile` each walk every cell to find the
+same thing: the skin. It is a stream compaction, so no reduce `Op` expresses it — it is the active-cell
+list again. Build it once per step and all of them become O(surface cells), about N^(2/3).
 
 
 ## 2b. The dispatch budget, and where it is spent
 
-`ReducePass` sweeps the whole grid once per `LAReduceRecords` row — 72 dispatches, each followed by an
-unconditional barrier — and it is now the pass that costs the box rather than what is moving.
+`ReducePass` sweeps the whole grid once per `LAProcessSet.reduce_rows()` row, each dispatch followed by
+an unconditional barrier, while `TransportPass` dispatches over its active list. It is the pass that
+costs the whole box rather than what is moving.
 
 **Fuse ReducePass into one multi-row dispatch.** O(rows × N) becomes O(distinct sources × N): one sweep,
 one barrier, every row's lane accumulated in registers. `partials` already has a per-row base and the
@@ -112,9 +112,7 @@ literal re-reads of buffers fetched two lines earlier. Several derived buffers h
 consumer at all. The `request_channel`/`CHANNEL_HOLD_DRAINS` gate already exists for situational channels;
 the derived set has no such gate. Removing the duplicate reads is unconditionally exact.
 
-This repo's own recorded measurement put readback at roughly three quarters of the field's frame cost
-against a few percent for dispatch, so **measure any of 2b–2f against `field_readback_ms` /
-`field_dispatch_ms` before believing it helped.**
+**Measure any of 2b–2f against `field_readback_ms` / `field_dispatch_ms` before believing it helped.**
 
 
 ## 12. Θ(N²) creature scans, next to a spatial index that already works
@@ -129,7 +127,7 @@ plant and carcass on the planet to find one within ~1.4 m), `_best_learned_cue`,
 
 Two of them change behaviour, so decide deliberately: `broadcast_call` filters by each LISTENER's hearing
 range, so the query radius must be the population maximum, not the caller's, or animals stop hearing calls.
-`LACognitionScheduler._scan_*` currently truncates at `SCAN_LIMIT` in GROUP ORDER — an arbitrary cut
+`LocalAgentCognitionScheduler._scan_*` currently truncates at `SCAN_LIMIT` in GROUP ORDER — an arbitrary cut
 standing in for a spatial query, so replacing it with a radius query changes perception and is its own
 argument.
 
