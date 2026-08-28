@@ -83,15 +83,14 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/game/render/VegetationRenderer.gd` | `_INITIAL_CAP` | 512 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/SimWorld.gd` | `SLOW_BUILD_CELLS` | 250000 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/SimWorld.gd` | `MODELLED_ATMOSPHERE_HEIGHT_M` | 1.0e5 | modelling extent: how much air the box holds | a body that declares its own atmosphere mass |
-| `addons/local_agents/sim/SimWorld.gd` | `RELIEF_M` | 9.4e3 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
-| `addons/local_agents/sim/SimWorld.gd` | `FEATURE_M` | 5.2e4 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
-| `addons/local_agents/sim/SimWorld.gd` | `BASIN_RELIEF_M` | 4.0e3 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
-| `addons/local_agents/sim/SimWorld.gd` | `BASIN_SIZE_M` | 4.4e4 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
-| `addons/local_agents/sim/SimWorld.gd` | `RIDGE_RELIEF_M` | 1.35e3 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
-| `addons/local_agents/sim/SimWorld.gd` | `RIDGE_SIZE_M` | 3.2e4 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
-| `addons/local_agents/sim/SimWorld.gd` | `DETAIL_RELIEF_M` | 3.4e2 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
-| `addons/local_agents/sim/SimWorld.gd` | `CAVE_SIZE_M` | 2.0e4 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
-| `addons/local_agents/sim/SimWorld.gd` | `CAVE_DEPTH_FADE_M` | 4.7e3 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
+| `addons/local_agents/sim/terrain/PlanetShape.gd` | `FINEST_WAVELENGTH_M` | 4.0e2 | shortest relief wavelength the seeded body carries; a resolution of the declared shape, not a rate | 0.5 grows the terrain by simulating geology forward |
+| `addons/local_agents/sim/terrain/PlanetShape.gd` | `CDF_SAMPLES` | 8192 | directions the relief cascade's own distribution is measured over before the hypsographic curve is laid along it | a closed form for the cascade's distribution |
+| `addons/local_agents/sim/terrain/PlanetShape.gd` | `CURVE_POINTS` | 65 | control points of that map | the same closed form |
+| `addons/local_agents/sim/terrain/PlanetShape.gd` | `CURVE_BAKE` | 512 | resolution the graph samples that map at | the same closed form |
+| `addons/local_agents/sim/terrain/PlanetShape.gd` | `CAVE_SIZE_M` | 2.0e4 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
+| `addons/local_agents/sim/terrain/PlanetShape.gd` | `CAVE_THRESHOLD` | 0.09 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
+| `addons/local_agents/sim/terrain/PlanetShape.gd` | `CAVE_STRENGTH` | 40.0 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
+| `addons/local_agents/sim/terrain/PlanetShape.gd` | `CAVE_DEPTH_FADE_M` | 4.7e3 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
 | `addons/local_agents/sim/SimClock.gd` | `DAYS_PER_SEASON` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_OUTPUT_SDF` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/terrain/SpherePlanetGenerator.gd` | `T_ADD` | 5 | inherited, unreviewed | Stage 2 substrate rewrite |

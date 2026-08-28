@@ -521,3 +521,27 @@ const PREBIOTIC_MOLE_FRAC_H2S: float = 1.0e-9
 const PREBIOTIC_MOLE_FRAC_N2: float = 1.0 - PREBIOTIC_MOLE_FRAC_CO2 - PREBIOTIC_MOLE_FRAC_H2 \
 	- PREBIOTIC_MOLE_FRAC_CO - PREBIOTIC_MOLE_FRAC_CH4 - PREBIOTIC_MOLE_FRAC_SO2 \
 	- PREBIOTIC_MOLE_FRAC_H2S
+
+# EARTH'S HYPSOGRAPHIC CURVE: the area-by-elevation distribution of the solid surface against sea level.
+# Sverdrup, Johnson & Fleming 1942, The Oceans, ch. II; Eakins & Sharman 2010, NOAA ETOPO1 volumes.
+const HYPSOMETRY_ELEVATION_M: Array[float] = [-10984.0, -6000.0, -5000.0, -4000.0, -3000.0, -2000.0,
+	-1000.0, 0.0, 1000.0, 2000.0, 3000.0, 4000.0, 5000.0, 8848.86]
+const HYPSOMETRY_AREA_BELOW: Array[float] = [0.0, 0.010, 0.174, 0.407, 0.546, 0.593, 0.622, 0.708,
+	0.917, 0.962, 0.984, 0.995, 0.999, 1.0]
+## Challenger Deep (Gardner, Armstrong & Calder 2014, Marine Geodesy 37:1).
+const HYPSOMETRY_DEEPEST_M: float = -10984.0
+## Everest (China-Nepal joint survey 2020).
+const HYPSOMETRY_HIGHEST_M: float = 8848.86
+## Land as a share of the solid surface (Eakins & Sharman 2010).
+const HYPSOMETRY_LAND_AREA_FRACTION: float = 0.292
+
+## Topographic power at planetary wavelengths falls as l^-2, so amplitude scales with wavelength
+## (Rapp 1989; Wieczorek 2007, Treatise on Geophysics vol. 10).
+const TOPOGRAPHY_LONG_HURST: float = 1.0
+## Below ~100 km continental topography is self-affine with Hurst exponent ~0.5 (Turcotte 1997,
+## Fractals and Chaos in Geology and Geophysics, ch. 7).
+const TOPOGRAPHY_SHORT_HURST: float = 0.5
+## Wavelength the two regimes meet at (Turcotte 1997).
+const TOPOGRAPHY_SELF_AFFINE_CROSSOVER_M: float = 1.0e5
+## The continent-ocean dichotomy is a degree-2 pattern (Wieczorek 2007).
+const TOPOGRAPHY_DOMINANT_HARMONIC_DEGREE: int = 2

@@ -16,14 +16,7 @@ on the file it named. If you know the cause you are close enough to fix it, so f
 
 ## 0. THE WIND BLOWS PAST ITS OWN SOUND SPEED, AND THE DEFAULT BOX IS NOT EXEMPT
 
-`bash scripts/check_process_ladder.sh` stops at `hydrostatic`: `bash scripts/check_hydrostatic_seed.sh`
-counts a handful of open vertical pairs whose pressure falls going down. They are the columns
-`LAFieldLithostaticSeed::shape_atmosphere` refuses because their surface sits under the sea-level datum.
-Deleting that refusal reads zero inversions and seeds tens of atmospheres into open ground kilometres
-under the datum, which the sky flood reaches through the box's own outside; the wind then reads eight
-figures. Reproduce either way by flipping the `surf[c] < datum` test.
-
-Above it, `bash scripts/check_rung_acoustic.sh` reads a cell moving faster than its own sound speed. The
+`bash scripts/check_rung_acoustic.sh` reads a cell moving faster than its own sound speed. The
 peak stops climbing and holds, and it holds far past the ~70 m/s of a real jet stream, on a world nothing
 drives but pressure and gravity, which cancel at balance. **Reproduce:**
 `for n in 4 8 16; do scripts/sim_run.sh --rung 3 --frames $n --report wind_speed_max; done`.

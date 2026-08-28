@@ -13,7 +13,6 @@ var _viewer: VoxelViewer = null
 var _gen_opts: Dictionary = {}             # the dict build_planet handed LASpherePlanetGenerator.build()
 var _center: Vector3 = Vector3.ZERO
 var _planet_radius: float = 0.0
-var _relief_ceiling: float = 0.0       # sum of every relief amplitude the generator adds to the sphere
 var _sea_radius: float = 0.0
 
 ## Planet centre in world space (origin by default). Only meaningful in planet mode.
@@ -28,9 +27,14 @@ func planet_radius() -> float:
 func sea_radius() -> float:
 	return _sea_radius
 
-## Highest radius the terrain reaches: mean radius plus every relief amplitude. Nothing solid is above it.
+## Highest radius the terrain reaches: the sea shell plus the highest elevation the declared hypsographic
+## curve carries. Nothing solid stands above it.
 func max_surface_radius() -> float:
-	return _planet_radius + _relief_ceiling
+	return _planet_radius + LAPhysical.HYPSOMETRY_HIGHEST_M
+
+## Lowest radius the terrain reaches: the sea shell plus the deepest elevation the curve carries.
+func min_surface_radius() -> float:
+	return _planet_radius + LAPhysical.HYPSOMETRY_DEEPEST_M
 
 ## Local "up" at a world point: radial from the planet centre.
 func up_at(pos: Vector3) -> Vector3:
@@ -43,36 +47,11 @@ func build_planet(parent: Node3D, opts: Dictionary = {}) -> void:
 		return
 	_center = opts.get("center", Vector3.ZERO)
 	var pg: RefCounted = PlanetGenScript.new()
-	var relief: float = float(opts.get("relief", 46.0))
-	var feature: float = float(opts.get("feature_size", 155.0))
-	var detail_relief: float = float(opts.get("detail_relief", 6.0))
-	# TERRAIN IS SELF-AFFINE: the fine layer stands at the same slope as the continental one, so its
-	# wavelength follows this world's own relief, not a default written for a different-sized body.
-	var detail_size: float = float(opts.get("detail_size", feature * detail_relief / maxf(relief, 0.001)))
-	var gen_opts: Dictionary = {
-		"radius": float(opts.get("radius", 250.0)),
-		"sea_radius": opts.get("sea_radius", float(opts.get("radius", 250.0))),
-		"ocean_bias": float(opts.get("ocean_bias", 7.0)),
-		"relief": relief,
-		"feature_size": feature,
-		"detail_relief": detail_relief,
-		"detail_size": detail_size,
-		"basin_relief": float(opts.get("basin_relief", 0.0)),
-		"basin_size": float(opts.get("basin_size", 130.0)),
-		"ridge_relief": float(opts.get("ridge_relief", 0.0)),
-		"ridge_size": float(opts.get("ridge_size", 90.0)),
-		"ridge_octaves": int(opts.get("ridge_octaves", 4)),
-		# Fractal cave tunnels (see LASpherePlanetGenerator); caves_enabled=false / LA_CAVES=0 disables them.
-		"caves_enabled": bool(opts.get("caves_enabled", true)),
-		"cave_size": float(opts.get("cave_size", 70.0)),
-		"cave_threshold": float(opts.get("cave_threshold", 0.08)),
-		"cave_strength": float(opts.get("cave_strength", 40.0)),
-		"cave_depth_fade": float(opts.get("cave_depth_fade", 24.0)),
-		"octaves": int(opts.get("octaves", 3)),
-		"seed": int(opts.get("seed", 1337)),
-	}
+	# THE SHAPE IS LAPlanetShape'S, WHOLE. A default written here would be a second declaration of the
+	# body, and the one nobody reads.
+	var gen_opts: Dictionary = LAPlanetShape.opts(float(opts.get("radius", 0.0)),
+		int(opts.get("seed", 1337)), bool(opts.get("caves_enabled", true)))
 	var gen: VoxelGeneratorGraph = pg.build(gen_opts)
-	_relief_ceiling = relief + detail_relief + float(gen_opts["basin_relief"]) + float(gen_opts["ridge_relief"])
 	_planet_radius = pg.radius()
 	_sea_radius = pg.sea_radius()
 	_generator = gen
@@ -172,8 +151,8 @@ func sdf_at(pos: Vector3) -> float:
 		return 999.0
 	var d: Vector3 = pos - _center
 	var r: float = d.length()
-	if r <= _planet_radius - _relief_ceiling:
-		return r - (_planet_radius - _relief_ceiling)
+	if r <= min_surface_radius():
+		return r - min_surface_radius()
 	if r >= max_surface_radius():
 		return r - max_surface_radius()
 	var sr: float = surface_radius(d)
@@ -290,7 +269,7 @@ func _generated_surface_radius(dir: Vector3) -> float:
 		return NAN
 	var d: Vector3 = dir.normalized()
 	var r_top: float = max_surface_radius() + SURFACE_RAY_MARGIN
-	var r_bot: float = maxf(_planet_radius - _relief_ceiling - SURFACE_RAY_MARGIN, 1.0)
+	var r_bot: float = maxf(min_surface_radius() - SURFACE_RAY_MARGIN, 1.0)
 	var r_a: float = r_top
 	var r_b: float = r_bot
 	var r_hit: float = NAN

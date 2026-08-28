@@ -9,15 +9,16 @@ const T_MULTIPLY: int = 7
 const T_ABS: int = 11
 const T_MIN: int = 16
 const T_MAX: int = 17
+const T_CURVE: int = 25
 const T_SDF_SPHERE: int = 32
 const T_FAST_NOISE_3D: int = 40
 
 # SdfSphere input ports: 0=x 1=y 2=z 3=radius (x/y/z autoconnect to world coords when left unwired).
 
-var _radius: float = 250.0
-var _sea_radius: float = 250.0
+var _radius: float = 0.0
+var _sea_radius: float = 0.0
 
-## Planet solid radius (mean sphere the relief rides on).
+## Planet solid radius (the sea-level sphere the relief rides on).
 func radius() -> float:
 	return _radius
 
@@ -26,70 +27,50 @@ func sea_radius() -> float:
 	return _sea_radius
 
 
+func _cascade(p_period: float, p_octaves: int, p_gain: float, p_seed: int) -> ZN_FastNoiseLite:
+	var n: ZN_FastNoiseLite = ZN_FastNoiseLite.new()
+	n.noise_type = ZN_FastNoiseLite.TYPE_OPEN_SIMPLEX_2S
+	n.seed = p_seed
+	n.period = maxf(1.0, p_period)
+	n.fractal_type = ZN_FastNoiseLite.FRACTAL_FBM
+	n.fractal_octaves = maxi(1, p_octaves)
+	n.fractal_lacunarity = 2.0
+	n.fractal_gain = p_gain
+	return n
+
+
 func build(opts: Dictionary = {}) -> VoxelGeneratorGraph:
-	_radius = float(opts.get("radius", 250.0))
+	_radius = float(opts.get("radius", 0.0))
 	_sea_radius = float(opts.get("sea_radius", _radius))
-	var ocean_bias: float = float(opts.get("ocean_bias", 7.0))
-	var relief: float = float(opts.get("relief", 46.0))
-	var detail_relief: float = float(opts.get("detail_relief", 6.0))
-	var feature_size: float = float(opts.get("feature_size", 155.0))
-	var detail_size: float = float(opts.get("detail_size", 44.0))
-	var jitter: float = clampf(float(opts.get("jitter", 1.0)), 0.0, 1.0)
-	var octaves: int = int(opts.get("octaves", 3))
 	var seed_val: int = int(opts.get("seed", 1337))
-	# BASINS: a medium-wavelength simplex layer whose hollows become closed depressions on the otherwise-flat
-	# cellular plateaus — the endorheic bowls where springs/rain/runoff POOL into standing lakes (the cellular
-	# CELL_VALUE relief is flat-topped, so without this land drains monotonically to the sea and nothing pools).
-	var basin_relief: float = float(opts.get("basin_relief", 0.0))
-	var basin_size: float = float(opts.get("basin_size", 130.0))
-	var ridge_relief: float = float(opts.get("ridge_relief", 0.0))
-	var ridge_size: float = float(opts.get("ridge_size", 90.0))
-	var ridge_octaves: int = maxi(1, int(opts.get("ridge_octaves", 4)))
+	var det_weight: float = float(opts.get("detail_weight", 0.0))
 	var caves_enabled: bool = bool(opts.get("caves_enabled", true))
-	var cave_size: float = maxf(1.0, float(opts.get("cave_size", 70.0)))
-	var cave_threshold: float = float(opts.get("cave_threshold", 0.08))
+	var cave_size: float = maxf(1.0, float(opts.get("cave_size", 2.0e4)))
+	var cave_threshold: float = float(opts.get("cave_threshold", 0.09))
 	var cave_strength: float = float(opts.get("cave_strength", 40.0))
-	var cave_depth_fade: float = maxf(0.0, float(opts.get("cave_depth_fade", 24.0)))
+	var cave_depth_fade: float = maxf(0.0, float(opts.get("cave_depth_fade", 4.7e3)))
 
-	var cont: ZN_FastNoiseLite = ZN_FastNoiseLite.new()
-	cont.noise_type = ZN_FastNoiseLite.TYPE_OPEN_SIMPLEX_2S
-	cont.seed = seed_val
-	cont.period = maxf(1.0, feature_size)
-	cont.fractal_type = ZN_FastNoiseLite.FRACTAL_FBM
-	cont.fractal_octaves = maxi(2, octaves + 1)
-	cont.fractal_lacunarity = 2.0
-	cont.fractal_gain = 0.5
+	# ONE CASCADE, BENT AT THE CROSSOVER: planetary wavelengths fall as l^-2, continental ones are
+	# self-affine at a shallower exponent, and these two layers are that one cascade either side of it.
+	var cont: ZN_FastNoiseLite = _cascade(float(opts.get("continental_size", 1.0)),
+		int(opts.get("continental_octaves", 1)), float(opts.get("continental_gain", 0.5)), seed_val)
+	var detail: ZN_FastNoiseLite = _cascade(float(opts.get("detail_size", 1.0)),
+		int(opts.get("detail_octaves", 1)), float(opts.get("detail_gain", 0.707)), seed_val + 7)
 
-	# DETAIL: low-amplitude simplex fBm so hillsides have texture (not glass) without drowning the cells.
-	var detail: ZN_FastNoiseLite = ZN_FastNoiseLite.new()
-	detail.noise_type = ZN_FastNoiseLite.TYPE_OPEN_SIMPLEX_2S
-	detail.seed = seed_val + 7
-	detail.period = maxf(1.0, detail_size)
-	detail.fractal_type = ZN_FastNoiseLite.FRACTAL_FBM
-	detail.fractal_octaves = 2
-	detail.fractal_lacunarity = 2.0
-	detail.fractal_gain = 0.5
-
-	# BASINS: medium-wavelength simplex fBm added to the relief; its ±amplitude undulation carves hollows into
-	# the flat plateaus (local minima the water CA fills = lakes) and raises low hills between them.
-	var basin: ZN_FastNoiseLite = ZN_FastNoiseLite.new()
-	basin.noise_type = ZN_FastNoiseLite.TYPE_OPEN_SIMPLEX_2S
-	basin.seed = seed_val + 13
-	basin.period = maxf(1.0, basin_size)
-	basin.fractal_type = ZN_FastNoiseLite.FRACTAL_FBM
-	basin.fractal_octaves = 3
-	basin.fractal_lacunarity = 2.0
-	basin.fractal_gain = 0.5
-
-	# RIDGES: ridged multifractal → branching ridge lines + valleys (the dendritic river-valley network).
-	var ridge: ZN_FastNoiseLite = ZN_FastNoiseLite.new()
-	ridge.noise_type = ZN_FastNoiseLite.TYPE_OPEN_SIMPLEX_2S
-	ridge.seed = seed_val + 23
-	ridge.period = maxf(1.0, ridge_size)
-	ridge.fractal_type = ZN_FastNoiseLite.FRACTAL_RIDGED
-	ridge.fractal_octaves = ridge_octaves
-	ridge.fractal_lacunarity = 2.0
-	ridge.fractal_gain = 0.5
+	var samples: PackedFloat32Array = PackedFloat32Array()
+	for d: Vector3 in LAPlanetShape.directions(LAPlanetShape.CDF_SAMPLES):
+		var p: Vector3 = d * _radius
+		samples.append(cont.get_noise_3d(p.x, p.y, p.z)
+			+ det_weight * detail.get_noise_3d(p.x, p.y, p.z))
+	var curve: Curve = LAPlanetShape.hypsometric_curve(samples)
+	if curve == null:
+		push_error("LASpherePlanetGenerator: the relief cascade is flat over the body, so it carries no "
+			+ "distribution to lay the hypsographic curve along.")
+		return null
+	var sorted: PackedFloat32Array = samples.duplicate()
+	sorted.sort()
+	var lo: float = sorted[0]
+	var inv_span: float = 1.0 / (sorted[sorted.size() - 1] - lo)
 
 	var gen: VoxelGeneratorGraph = VoxelGeneratorGraph.new()
 	var fn: VoxelGraphFunction = gen.get_main_function()
@@ -99,78 +80,38 @@ func build(opts: Dictionary = {}) -> VoxelGeneratorGraph:
 	var sphere: int = fn.create_node(T_SDF_SPHERE, Vector2(0, 0), 0)
 	fn.set_node_default_input(sphere, 3, _radius)
 
-	# continent relief = cellular * relief
-	var cont_noise: int = fn.create_node(T_FAST_NOISE_3D, Vector2(0, 200), 0)
+	var cont_noise: int = fn.create_node(T_FAST_NOISE_3D, Vector2(0, 220), 0)
 	fn.set_node_param_by_name(cont_noise, "noise", cont)
-	var cont_mul: int = fn.create_node(T_MULTIPLY, Vector2(200, 200), 0)
-	fn.add_connection(cont_noise, 0, cont_mul, 0)
-	fn.set_node_default_input(cont_mul, 1, relief)
-
-	# detail relief = fbm * detail_relief
-	var det_noise: int = fn.create_node(T_FAST_NOISE_3D, Vector2(0, 360), 0)
+	var det_noise: int = fn.create_node(T_FAST_NOISE_3D, Vector2(0, 380), 0)
 	fn.set_node_param_by_name(det_noise, "noise", detail)
-	var det_mul: int = fn.create_node(T_MULTIPLY, Vector2(200, 360), 0)
+	var det_mul: int = fn.create_node(T_MULTIPLY, Vector2(200, 380), 0)
 	fn.add_connection(det_noise, 0, det_mul, 0)
-	fn.set_node_default_input(det_mul, 1, detail_relief)
+	fn.set_node_default_input(det_mul, 1, det_weight)
+	var cascade: int = fn.create_node(T_ADD, Vector2(400, 300), 0)
+	fn.add_connection(cont_noise, 0, cascade, 0)
+	fn.add_connection(det_mul, 0, cascade, 1)
 
-	# basin relief = fbm * basin_relief  (±amplitude → hollows/hills on the plateaus)
-	var basin_noise: int = fn.create_node(T_FAST_NOISE_3D, Vector2(0, 500), 0)
-	fn.set_node_param_by_name(basin_noise, "noise", basin)
-	var basin_mul: int = fn.create_node(T_MULTIPLY, Vector2(200, 500), 0)
-	fn.add_connection(basin_noise, 0, basin_mul, 0)
-	fn.set_node_default_input(basin_mul, 1, basin_relief)
+	# The cascade's own range mapped onto the curve's domain, so the curve is read at its own quantile.
+	var norm_mul: int = fn.create_node(T_MULTIPLY, Vector2(560, 300), 0)
+	fn.add_connection(cascade, 0, norm_mul, 0)
+	fn.set_node_default_input(norm_mul, 1, inv_span)
+	var norm: int = fn.create_node(T_ADD, Vector2(700, 300), 0)
+	fn.add_connection(norm_mul, 0, norm, 0)
+	fn.set_node_default_input(norm, 1, -lo * inv_span)
 
-	# relief = continent + detail
-	var relief_sum: int = fn.create_node(T_ADD, Vector2(400, 280), 0)
-	fn.add_connection(cont_mul, 0, relief_sum, 0)
-	fn.add_connection(det_mul, 0, relief_sum, 1)
+	# elevation, metres above the sea shell
+	var elev: int = fn.create_node(T_CURVE, Vector2(860, 300), 0)
+	fn.set_node_param_by_name(elev, "curve", curve)
+	fn.add_connection(norm, 0, elev, 0)
 
-	# ridge relief = ridged * ridge_relief  (branching ridge lines → river valleys between)
-	var ridge_noise: int = fn.create_node(T_FAST_NOISE_3D, Vector2(0, 640), 0)
-	fn.set_node_param_by_name(ridge_noise, "noise", ridge)
-	var ridge_mul: int = fn.create_node(T_MULTIPLY, Vector2(200, 640), 0)
-	fn.add_connection(ridge_noise, 0, ridge_mul, 0)
-	fn.set_node_default_input(ridge_mul, 1, ridge_relief)
+	var surface: int = fn.create_node(T_SUBTRACT, Vector2(1020, 140), 0)
+	fn.add_connection(sphere, 0, surface, 0)
+	fn.add_connection(elev, 0, surface, 1)
 
-	# relief += basin  (undulate so closed depressions exist for water to pool)
-	var relief_sum2: int = fn.create_node(T_ADD, Vector2(500, 400), 0)
-	fn.add_connection(relief_sum, 0, relief_sum2, 0)
-	fn.add_connection(basin_mul, 0, relief_sum2, 1)
-
-	# relief += ridge  (carve the dendritic valley network)
-	var relief_sum3: int = fn.create_node(T_ADD, Vector2(560, 460), 0)
-	fn.add_connection(relief_sum2, 0, relief_sum3, 0)
-	fn.add_connection(ridge_mul, 0, relief_sum3, 1)
-
-	# core = sphere - relief  (raise surface outward where relief is high)
-	var core: int = fn.create_node(T_SUBTRACT, Vector2(600, 140), 0)
-	fn.add_connection(sphere, 0, core, 0)
-	fn.add_connection(relief_sum3, 0, core, 1)
-
-	# biased = core + ocean_bias  (push the whole surface inward => most of the sphere is ocean)
-	var biased: int = fn.create_node(T_ADD, Vector2(800, 140), 0)
-	fn.add_connection(core, 0, biased, 0)
-	fn.set_node_default_input(biased, 1, ocean_bias)
-
-	var final_node: int = biased
+	var final_node: int = surface
 	if caves_enabled and cave_strength > 0.0:
-		var cave1: ZN_FastNoiseLite = ZN_FastNoiseLite.new()
-		cave1.noise_type = ZN_FastNoiseLite.TYPE_OPEN_SIMPLEX_2S
-		cave1.seed = seed_val + 101
-		cave1.period = cave_size
-		cave1.fractal_type = ZN_FastNoiseLite.FRACTAL_FBM
-		cave1.fractal_octaves = 3
-		cave1.fractal_lacunarity = 2.0
-		cave1.fractal_gain = 0.5
-
-		var cave2: ZN_FastNoiseLite = ZN_FastNoiseLite.new()
-		cave2.noise_type = ZN_FastNoiseLite.TYPE_OPEN_SIMPLEX_2S
-		cave2.seed = seed_val + 211
-		cave2.period = cave_size
-		cave2.fractal_type = ZN_FastNoiseLite.FRACTAL_FBM
-		cave2.fractal_octaves = 3
-		cave2.fractal_lacunarity = 2.0
-		cave2.fractal_gain = 0.5
+		var cave1: ZN_FastNoiseLite = _cascade(cave_size, 3, 0.5, seed_val + 101)
+		var cave2: ZN_FastNoiseLite = _cascade(cave_size, 3, 0.5, seed_val + 211)
 
 		var cn1: int = fn.create_node(T_FAST_NOISE_3D, Vector2(0, 820), 0)
 		fn.set_node_param_by_name(cn1, "noise", cave1)
@@ -198,7 +139,7 @@ func build(opts: Dictionary = {}) -> VoxelGeneratorGraph:
 		#   => 0 once we are deeper than cave_depth_fade, strongly negative near/above the surface. Adding it to
 		#   the void drives the void negative near the surface, so surface tunnels are suppressed (no holes).
 		var depth: int = fn.create_node(T_MULTIPLY, Vector2(720, 60), 0)
-		fn.add_connection(biased, 0, depth, 0)
+		fn.add_connection(surface, 0, depth, 0)
 		fn.set_node_default_input(depth, 1, -1.0)
 		var dminus: int = fn.create_node(T_SUBTRACT, Vector2(900, 60), 0)
 		fn.add_connection(depth, 0, dminus, 0)
@@ -212,7 +153,7 @@ func build(opts: Dictionary = {}) -> VoxelGeneratorGraph:
 		fn.add_connection(cvoid, 0, gvoid, 0)
 		fn.add_connection(gate, 0, gvoid, 1)
 		var carved: int = fn.create_node(T_MAX, Vector2(1260, 500), 0)
-		fn.add_connection(biased, 0, carved, 0)
+		fn.add_connection(surface, 0, carved, 0)
 		fn.add_connection(gvoid, 0, carved, 1)
 		final_node = carved
 
