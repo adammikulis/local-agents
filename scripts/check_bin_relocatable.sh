@@ -11,7 +11,8 @@ BIN="$ROOT/addons/local_agents/gdextensions/localagents/bin"
 
 FOREIGN='^/(opt|usr/local)/'
 
-files="$(find "$BIN" -type f \( -name '*.dylib' -o -name '*.so' -o -name '*.so.*' \
+# -L: every worktree's bin is a symlink to the primary checkout's build, so an unfollowed find sees none.
+files="$(find -L "$BIN" -type f \( -name '*.dylib' -o -name '*.so' -o -name '*.so.*' \
 	-o -name 'llama-cli' -o -name 'llama-server' -o -name 'localagents.*' \) 2>/dev/null)"
 [ -n "$files" ] || { echo "check_bin_relocatable: no libraries under $BIN. A gate that examines nothing is not a gate." >&2; exit 2; }
 

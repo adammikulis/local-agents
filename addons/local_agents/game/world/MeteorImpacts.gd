@@ -2,76 +2,45 @@ class_name LAMeteorImpacts
 extends Node
 
 ## The one cause that is genuinely outside the system: a rock arriving from space. It carries mass and
-## momentum in at the boundary. Nothing here makes weather or geology happen.
+## momentum in at the boundary. Nothing here makes weather or geology happen, and nothing here consults
+## the camera: where a rock comes down is not a function of who is watching.
 
 const MeteorScript: GDScript = preload("res://addons/local_agents/sim/actors/Meteor.gd")
 
-var _world = null            # LAVoxelWorld (dynamic; method calls only)
 var _terrain = null
 var _ecology = null
 var _actors_root: Node3D = null
 var _camera: Camera3D = null
 
 
-func setup(world, terrain, ecology, actors_root: Node3D, camera: Camera3D) -> void:
-	_world = world
+func setup(terrain, ecology, actors_root: Node3D, camera: Camera3D) -> void:
 	_terrain = terrain
 	_ecology = ecology
 	_actors_root = actors_root
 	_camera = camera
 
 
-## The camera is PRESENTATION — the screen-ray casts. It stays null without --ui.
+## The camera is PRESENTATION — the trailer's cinematic shot casts along it. It stays null without --ui.
 func set_presentation(camera: Camera3D) -> void:
 	_camera = camera
 
 
-# Aim one at the nearest tree so the impact hits vegetation, else at the point under the camera's aim.
-func fire_test_meteor() -> void:
-	var impact: Vector3 = Vector3.ZERO
-	var found: bool = false
-	var best: float = INF
-	for t in get_tree().get_nodes_in_group("tree"):
-		if t is Node3D:
-			var d: float = (_camera.global_position - (t as Node3D).global_position).length()
-			if d < best:
-				best = d
-				impact = (t as Node3D).global_position
-				found = true
-	if not found:
-		var ray: Dictionary = _camera.aim_ray()
-		var hit: Dictionary = _terrain.raycast_terrain(ray["origin"], ray["dir"], 3000.0)
-		if not bool(hit.get("hit", false)):
-			return
-		impact = hit["position"]
-	var m: MeteorScript = MeteorScript.new()
-	_actors_root.add_child(m)
-	m.setup(_terrain, _ecology)
-	m.launch(impact, _camera.global_position)
-	_world.set_destruction(1.0)
-	_world.mark_auto_meteor_fired()
-	if _camera.has_method("focus_on"):
-		_camera.focus_on(impact)
-	else:
-		_camera.global_position = impact + Vector3(26.0, 30.0, 26.0)
-		_camera.look_at(impact, Vector3.UP)
+## One arrival from outside. Its approach direction is drawn from the seeded planet stream and the impact
+## point is that direction's own surface, so the run needs no camera and one seed lands one rock in one place.
+func fire_ambient_meteor(size_scale: float = 1.0) -> void:
+	var target: Vector3 = _arrival_point()
+	if is_nan(target.x):
+		return
+	_drop(target, size_scale)
 
 
-func fire_barrage(count: int = 18, size_scale: float = 5.5, spread: float = 20.0) -> void:
-	if _camera == null or _terrain == null:
-		return
-	var ray: Dictionary = _camera.aim_ray()
-	var hit: Dictionary = _terrain.raycast_terrain(ray["origin"], ray["dir"], 3000.0)
-	if not bool(hit.get("hit", false)):
-		return
-	var impact: Vector3 = hit["position"]
+## A volley: independent arrivals, each drawn from the same stream, not a spread around one aimed point.
+func fire_barrage(count: int = 18, size_scale: float = 5.5) -> void:
 	for i in count:
-		var j: Vector3 = LASimRng.shared().rand_dir() * spread
-		var m: MeteorScript = MeteorScript.new()
-		_actors_root.add_child(m)
-		m.setup(_terrain, _ecology)
-		m.launch(impact + j, _camera.global_position + j * 4.0, size_scale)
-	_world.set_destruction(1.0)
+		var target: Vector3 = _arrival_point()
+		if is_nan(target.x):
+			continue
+		_drop(target, size_scale)
 
 
 ## Fling one toward `target` FROM an explicit world position. It then coasts under real N-body gravity.
@@ -80,3 +49,34 @@ func fire_meteor_at(target: Vector3, from_pos: Vector3) -> void:
 	_actors_root.add_child(m)
 	m.setup(_terrain, _ecology)
 	m.launch(target, from_pos)
+
+
+func _drop(target: Vector3, size_scale: float) -> void:
+	var m: MeteorScript = MeteorScript.new()
+	_actors_root.add_child(m)
+	m.setup(_terrain, _ecology)
+	m.launch(target, Vector3(INF, INF, INF), size_scale)
+
+
+func _arrival_point() -> Vector3:
+	var nan3: Vector3 = Vector3(NAN, NAN, NAN)
+	if _terrain == null or _actors_root == null:
+		push_error("MeteorImpacts: no terrain for a rock to arrive at.")
+		return nan3
+	if not _terrain.has_method("surface_point"):
+		push_error("MeteorImpacts: the terrain service resolves no surface point.")
+		return nan3
+	return _terrain.surface_point(_arrival_direction())
+
+
+# Isotropic: rejection-sampled inside the unit ball, so no direction on the sphere is favoured.
+func _arrival_direction() -> Vector3:
+	var rng: LASimRng = LASimRng.for_domain("planet")
+	var v: Vector3 = rng.rand_dir()
+	var tries: int = 0
+	while (v.length() > 1.0 or v.length() < 0.001) and tries < 32:
+		v = rng.rand_dir()
+		tries += 1
+	if v.length() < 0.001:
+		return Vector3.UP
+	return v.normalized()

@@ -31,6 +31,8 @@ if [ -n "$KEY" ] && [ "$(cat "$CACHE_ROOT/$KEY/.godot/la_import_key" 2>/dev/null
 		rm -rf "$PROJ/.godot"
 		mv "$PROJ/.godot.incoming" "$PROJ/.godot"
 		[ -z "$(la_stale_kernels "$PROJ")" ] && exit 0
+		# The entry is missing a kernel artifact. Every tree taking that key would copy the same hole.
+		rm -rf "${CACHE_ROOT:?}/${KEY:?}"
 	else
 		rm -rf "$PROJ/.godot.incoming"
 	fi
@@ -49,6 +51,15 @@ rc=$?
 [ "$rc" -eq 0 ] || exit "$rc"
 
 la_write_kernel_manifest "$PROJ" || { echo "godot_import: could not record the kernel include hashes." >&2; exit 1; }
+
+# Godot exits 0 having reimported nothing, so the .import file can name a .res that was never written:
+# load() then returns null and the GPU field is silently dead. Never key or cache that.
+left="$(la_stale_kernels "$PROJ")"
+if [ -n "$left" ]; then
+	echo "godot_import: godot exited 0 and these kernels still have no artifact:" >&2
+	printf '  %s\n' $left >&2
+	exit 1
+fi
 
 if [ -n "$KEY" ]; then
 	printf '%s\n' "$KEY" > "$PROJ/.godot/la_import_key"
