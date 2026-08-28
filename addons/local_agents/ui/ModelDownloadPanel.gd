@@ -13,9 +13,6 @@ signal model_installed(model_id: String, path: String)
 
 var _rows: Dictionary = {}   # model_id -> Dictionary of that row's controls
 
-var _shoot_path: String = ""
-var _shoot_frames: int = 12
-var _shoot_counter: int = 0
 var _demo_installed_id: String = ""
 
 func _ready() -> void:
@@ -36,10 +33,9 @@ func _ready() -> void:
 	_build_rows()
 	_refresh_all_rows()
 
-	if _shoot_path != "" or OS.has_environment("LA_OFFSCREEN"):
-		LAQuietWindow.apply()
-	if _shoot_path != "":
-		set_process(true)
+	LAQuietWindow.apply_if_automated()
+	if is_scene_root:
+		add_child(LASceneShooter.new())
 
 func _run_selftest_if_requested() -> bool:
 	for arg: String in OS.get_cmdline_user_args():
@@ -52,21 +48,8 @@ func _run_selftest_if_requested() -> bool:
 
 func _parse_cmdline() -> void:
 	for arg: String in OS.get_cmdline_user_args():
-		if arg.begins_with("--shoot="):
-			_shoot_path = arg.substr("--shoot=".length())
-		elif arg.begins_with("--shoot-frames="):
-			_shoot_frames = int(arg.substr("--shoot-frames=".length()))
-		elif arg.begins_with("--demo-installed="):
+		if arg.begins_with("--demo-installed="):
 			_demo_installed_id = arg.substr("--demo-installed=".length())
-
-func _process(_delta: float) -> void:
-	if _shoot_path == "":
-		return
-	_shoot_counter += 1
-	if _shoot_counter == _shoot_frames:
-		LocalAgentDemoHarness.save_viewport_png(get_viewport(), _shoot_path)
-		get_tree().quit(0)
-
 
 func open() -> void:
 	visible = true

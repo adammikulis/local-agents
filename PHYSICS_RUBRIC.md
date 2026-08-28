@@ -95,7 +95,7 @@ Two runs at one seed and one length: the worst relative difference across the co
 |---|---|---|---|---|---|---|---|---|---|
 
 ### 10. Observer independence — *does looking at it change it?*
-A `--bare` arm against the same run with the presentation layer on, over the conserved totals and
+An arm with no `--ui` against the same run with the presentation layer on, over the conserved totals and
 `energy_stock` (`scripts/check_observer_independence.sh`). No rate may change because of where the camera
 points, what the framerate is, or which gauge is switched on. A probe narrowed to the quantities expected
 to be fine cannot see a defect in the others.

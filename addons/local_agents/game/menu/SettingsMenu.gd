@@ -50,7 +50,7 @@ func _ready() -> void:
 			_graphics.demo_nudge()
 		if _sim != null:
 			_sim.demo_nudge()
-	add_child(LAMenuShooter.new())
+	add_child(LASceneShooter.new())
 
 
 func _build_sections() -> void:

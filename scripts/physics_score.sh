@@ -38,7 +38,7 @@ if [ -z "$REPORT_SRC" ]; then
   LA_RUN_TIMEOUT="${LA_RUN_TIMEOUT:-900}" LA_NO_STREAMER=1 \
     "$SCRIPT_DIR/run_sim_offscreen.sh" --path "$PROJ" \
     addons/local_agents/game/VoxelWorld.tscn --fixed-fps 60 \
-    -- --sandbox --planet-only "--run-frames=${FRAMES}" "--seed=${SEED}" --no-fauna --bare \
+    -- --sandbox --planet-only "--run-frames=${FRAMES}" "--seed=${SEED}" --no-fauna \
     > "$TMP_OUT" 2>&1
   rc=$?
   # Exit 126 is a conservation violation, which is a RESULT here rather than a failure to run — the score
@@ -71,13 +71,13 @@ if [ -z "$REPORT_SRC" ]; then
     TMP_PRESENT="$(mktemp "${TMPDIR:-/tmp}/la_score_present.XXXXXX")"
     trap 'rm -f "$TMP_OUT" "$TMP_BASE" "$TMP_REPEAT" "$TMP_PRESENT"' EXIT
     # The pair for criterion 9 is two runs of the SAME length, so the main run cannot serve as one half.
-    # EVERY MEASUREMENT ARM IS `--bare`. The UI — HUD, audio, ocean, particles, vegetation, overlays — builds
+    # NO MEASUREMENT ARM PASSES --ui. The HUD, audio, ocean, particles, vegetation and overlays are built
     # a dozen nodes that measure nothing and cost load time on every arm. Determinism is therefore tested in
     # the configuration we actually measure in, and the observer criterion supplies the one arm WITH the
     # presentation layer, because comparing the two is the whole of its job.
     echo "physics_score: determinism pair (bare) + one presentation arm, ${AUX_FRAMES} frames each" >&2
-    run_aux "$TMP_BASE" --bare
-    run_aux "$TMP_REPEAT" --bare
+    run_aux "$TMP_BASE"
+    run_aux "$TMP_REPEAT"
     run_aux "$TMP_PRESENT"
     export LA_SCORE_BASE="$TMP_BASE" LA_SCORE_REPEAT="$TMP_REPEAT" LA_SCORE_BARE="$TMP_PRESENT"
   fi

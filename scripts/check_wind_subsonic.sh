@@ -12,7 +12,7 @@ require_tool rg
 LOG="$(mktemp "${TMPDIR:-/tmp}/la_wind.XXXXXX")"
 LA_RUN_TIMEOUT="${LA_RUN_TIMEOUT:-120}" "$ROOT/scripts/run_sim_offscreen.sh" --path "$ROOT" \
 	addons/local_agents/game/VoxelWorld.tscn --fixed-fps 60 \
-	-- --sandbox "--run-frames=${LA_WIND_FRAMES:-12}" --seed=4242 --bare --planet-only --no-fauna \
+	-- --sandbox "--run-frames=${LA_WIND_FRAMES:-12}" --seed=4242 --planet-only --no-fauna \
 	> "$LOG" 2>&1 || true
 
 read -r WIND CEL NF <<EOF

@@ -61,9 +61,8 @@ func build(world: Node, sim: LASimulation, render: LARenderLayer, input: LAVoxel
 	_tutorial.setup(_interaction, _hud, _game_hud, _input, _progression)
 
 	# The input controller parses the command line in every run; its Esc menu and view-controls bar are
-	# Controls and exist only here.
-	if _input.has_method("build_ui"):
-		_input.build_ui()
+	# Controls, and they hang here so no presentation node lives on the simulation side.
+	_input.build_ui(self)
 	# The stings and the status line these sim controllers accept but never require.
 	if sim.meteor_impacts() != null:
 		sim.meteor_impacts().set_presentation(camera)
