@@ -148,6 +148,7 @@ func _run(grid, solid_v: PackedFloat32Array, temp_c: PackedFloat32Array) -> Arra
 	bufs["gravity"] = _f32(cc * 3)
 	bufs["g_rest"] = _f32(cc * 3)
 	bufs["grav_phi"] = _f32(cc)
+	bufs["grav_ref"] = _f32(cc)
 	bufs["pos"] = _f32(cc * 3)
 
 	_upload(bufs["solid"], solid_v)

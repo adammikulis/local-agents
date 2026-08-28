@@ -94,10 +94,11 @@ void LAFieldHydrosphereSeed::seed(Object *p_field) {
 
 	// Height above the body centre — the flood's priority key — and the pore space beside it.
 	const Vector3 centre = field_centre(p_field);
+	const PackedVector3Array la_cw = grid->call("cell_world_pos_all");
 	std::vector<double> height(cc, 0.0);
 	double pore = 0.0;
 	for (int c = 0; c < cc; c++) {
-		height[c] = double((Vector3(grid->call("cell_world_pos", c)) - centre).length());
+		height[c] = double((la_cw[c] - centre).length());
 		if (regolith[c] != 0) {
 			pore += double(porosity[c]) * vol[c];
 		}

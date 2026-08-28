@@ -94,7 +94,7 @@ func _build() -> Dictionary:
 	for name in LAChannels.derived_buffers():
 		bufs[String(name)] = _f32(_filled(cc, 0.0))
 	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "celerity", "speed", "rad_w_m3",
-			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi", "k_cond", "mom_orphan"]:
+			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi", "grav_ref", "k_cond", "mom_orphan"]:
 		bufs[name] = _f32(_filled(cc, 0.0))
 	bufs["gravity"] = _f32(_filled(cc * 3, 0.0))
 	# Everything the derive owns, temporal levels and active lists included, from its own declaration.

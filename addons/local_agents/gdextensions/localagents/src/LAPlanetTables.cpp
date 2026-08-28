@@ -492,45 +492,76 @@ void LAPlanetComposition::seed(Object *p_field, double p_t_c) {
 	const PackedByteArray solid = PackedByteArray(p_field->get("_solid"));
 	PackedFloat32Array cement = PackedFloat32Array(p_field->get("_cement"));
 	PackedFloat32Array metal = PackedFloat32Array(p_field->get("_metal"));
-	Dictionary shell;
 	const PackedStringArray ch = shell_channels();
+	std::vector<PackedFloat32Array> shell(ch.size());
+	std::vector<float> fill(ch.size(), 0.0f);
 	for (int i = 0; i < ch.size(); i++) {
-		shell[ch[i]] = PackedFloat32Array(p_field->get("_" + ch[i]));
+		shell[i] = PackedFloat32Array(p_field->get("_" + ch[i]));
+		if (shell[i].size() != cc) {
+			shell[i].resize(cc);
+		}
+		fill[i] = float(double(amounts[ch[i]]));
 	}
+	const PackedVector3Array la_cw = grid->call("cell_world_pos_all");
 	double r_max = 0.0;
 	for (int c = 0; c < cc; c++) {
 		if (solid[c] != 0) {
-			const Vector3 pos = Vector3(grid->call("cell_world_pos", c));
-			r_max = MAX(r_max, (pos - centre).length());
+			r_max = MAX(r_max, (la_cw[c] - centre).length());
 		}
 	}
 	const double r_core = r_max * core_radius_frac(p_t_c, p_std);
+	if (cement.size() != cc) {
+		cement.resize(cc);
+	}
+	if (metal.size() != cc) {
+		metal.resize(cc);
+	}
+	float *cw = cement.ptrw();
+	float *mw = metal.ptrw();
+	std::vector<float *> sw(ch.size());
+	for (int i = 0; i < ch.size(); i++) {
+		sw[i] = shell[i].ptrw();
+	}
 	for (int c = 0; c < cc; c++) {
 		const bool is_solid = solid[c] != 0;
-		cement.set(c, is_solid ? 1.0f : 0.0f);
+		cw[c] = is_solid ? 1.0f : 0.0f;
 		if (!is_solid) {
 			continue;
 		}
-		const Vector3 pos = Vector3(grid->call("cell_world_pos", c));
-		if ((pos - centre).length() < r_core) {
-			metal.set(c, float(metal_full));
+		if ((la_cw[c] - centre).length() < r_core) {
+			mw[c] = float(metal_full);
 			continue;
 		}
 		for (int i = 0; i < ch.size(); i++) {
-			PackedFloat32Array arr = PackedFloat32Array(shell[ch[i]]);
-			arr.set(c, float(double(amounts[ch[i]])));
-			shell[ch[i]] = arr;
+			sw[i][c] = fill[i];
 		}
 	}
 	p_field->set("_cement", cement);
 	p_field->set("_metal", metal);
 	for (int i = 0; i < ch.size(); i++) {
-		p_field->set("_" + ch[i], shell[ch[i]]);
+		p_field->set("_" + ch[i], shell[i]);
 	}
+}
+
+// THE SOLID MASK, one walk: 1 where the terrain's signed distance is inside the rock.
+PackedByteArray LAPlanetComposition::solid_mask(Object *p_grid, Object *p_terrain) {
+	PackedByteArray out;
+	if (!p_grid || !p_terrain) {
+		return out;
+	}
+	const int cc = int(p_grid->get("cell_count"));
+	const PackedVector3Array cw = p_grid->call("cell_world_pos_all");
+	out.resize(cc);
+	uint8_t *w = out.ptrw();
+	for (int c = 0; c < cc; c++) {
+		w[c] = bool(p_terrain->call("is_solid", cw[c])) ? 1 : 0;
+	}
+	return out;
 }
 
 void LAPlanetComposition::_bind_methods() {
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("shell_channels"), &shell_channels);
+	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("solid_mask", "grid", "terrain"), &solid_mask);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("mg_number"), &mg_number);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("an_fraction"), &an_fraction);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("apatite_f_fraction"), &apatite_f_fraction);

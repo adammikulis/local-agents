@@ -7,9 +7,6 @@ extends RefCounted
 
 const PASS_FILE: String = "GravityPass.gd"
 
-## Residual, as a fraction of its own source, every solve relaxes to. docs/MODEL_PARAMETERS.md.
-const RESIDUAL_TOLERANCE: float = 1.0e-4
-const DISPATCH_CAP: int = 2048
 
 var _f = null
 var _pass = null
@@ -29,8 +26,7 @@ func _pass_script() -> GDScript:
 	return load("res://addons/local_agents/sim/material/sphere_passes/" + PASS_FILE)
 
 
-## GravityPass alone, RELAXED TO CONVERGENCE. Poisson is elliptic, so a fixed sweep count is not a solve.
-## Its own ctx: no dt is consumed, no step index moves.
+## GravityPass alone, CONVERGED. Its own ctx: no dt is consumed, no step index moves.
 func solve() -> void:
 	if _f._slice != null:
 		_solve_slice()
@@ -38,24 +34,16 @@ func solve() -> void:
 	_bind()
 	if _pass == null or _f._gpu == null or _f._gpu._rd == null:
 		return
-	var rd: RenderingDevice = _f._gpu._rd
-	var ctx: Dictionary = {"step_index": 0, "cell_size": _f._grid.cell_size, "gravity_solve": true}
-	var rel: float = INF
-	var dispatches: int = 0
-	while rel > RESIDUAL_TOLERANCE and dispatches < DISPATCH_CAP:
-		var cl: int = rd.compute_list_begin()
-		_pass.dispatch(rd, cl, ctx, _f._gpu._cc, _f._gpu._groups)
-		rd.compute_list_end()
-		rd.submit()
-		rd.sync()
-		_pass._drain(rd)
-		rel = float(_pass.residual_rel())
-		dispatches += 1
-	if rel > RESIDUAL_TOLERANCE:
-		push_error(("The gravity solve did not converge in %d dispatches: the discrete Poisson residual is "
-			+ "still %f of its source. Every `above`/`below` walk below this — pressure, the regolith "
-			+ "burial march, the lake flood, the surface seed — is reading a direction the solve has not "
-			+ "yet produced.") % [dispatches, rel])
+	var rel: float = _pass.solve_converged(_f._gpu._rd, _f._grid, _f._gpu._cc, _f._gpu._groups)
+	if rel > _pass.RESIDUAL_TOLERANCE:
+		push_error(("The gravity solve did not converge: the discrete Poisson residual is still %f of its "
+			+ "source. Every `above`/`below` walk below this — pressure, the regolith burial march, the "
+			+ "lake flood, the surface seed — is reading a direction the solve has not yet produced.") % rel)
+
+
+## The full potential per cell, J/kg: the deviation the device holds plus the monopole reference.
+func phi_abs() -> PackedFloat32Array:
+	return LAGravitySolve.sum(_f._gpu.read_raw("grav_phi"), _f._gpu.read_raw("grav_ref"))
 
 
 ## SLICE: a partial slab cannot solve Poisson — its own mass is not the field's source. The DECLARED

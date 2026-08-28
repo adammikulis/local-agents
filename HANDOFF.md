@@ -19,25 +19,15 @@ is measured, and no item about a higher rung is examined until the rungs below i
 
 ---
 
-## 1. THE GRADED GRID — built, on tag `wip/graded-grid`, not landed. UPSTREAM OF EVERY ITEM BELOW.
+## 1. RUNG 3 CANNOT RUN AT THE GRID'S CELL COUNT (the first red rung)
 
-The demo grid is 24 cells of 550 km, so one cell holds ocean, rock and the whole atmosphere
-(`docs/PHYSICS_TODO.md` D): nothing above rung 2 can be stated on it, let alone measured. Land the grid
-first: `scripts/new_worktree.sh feature/graded-grid wip/graded-grid`, merge the dev branch, fix what the
-merge and the ladder show, then `scripts/integrate.sh feature/graded-grid`. Two slice gates,
-`check_boundary_books.sh` and `check_boundary_momentum_book.sh`, exit 2 on the transport substep budget
-for the slice.
+`scripts/sim_run.sh --rung 3 --frames 2` on the graded planet exits 4 with `timeout waiting for fence`:
+`transport.glsl`'s row-per-substance dispatch does not complete a step inside `docs/RUN_TIMEOUT_CEILING`
+at `docs/CELL_BUDGET` cells. The flux kernel that replaces it (one conservative face flux per face,
+mass, momentum and enthalpy together, well-balanced against the solved potential) is built on the slab
+first: `bash scripts/check_atmosphere_at_rest.sh` is its acceptance, both arms.
 
-## 2. OPEN CELLS ONE EDGE APART READ PRESSURES ATMOSPHERES APART (rung 3, the first red rung; after item 1)
-
-`scripts/sim_run.sh --rung 3 --frames 2` exits 4: `the h2o row's own cells carry a signal speed at or
-past light`, on a world nothing drives but pressure and gravity. After the first step, open cells one
-edge apart read 787 kPa beside 1.6 kPa and 596 C beside 15 C. The demo grid is 24 cells of 550 km, so
-one cell holds ocean, rock and the whole atmosphere (`docs/PHYSICS_TODO.md` D); item 1 is the grid that
-resolves it. `bash scripts/check_atmosphere_at_rest.sh` is the
-rung's other gate.
-
-## 3. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the books above it
+## 2. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the books above it
 
 - The open-boundary books at run level: `scripts/sim_run.sh --frames 20 --slice-capture C` then
   `LA_RUN_TIMEOUT=900 scripts/sim_run.sh --slice --slice-state C --frames 650` fires
@@ -45,26 +35,26 @@ rung's other gate.
 - The h2o book on a shut box: with every wall shut, `scripts/agent_harness.sh sim --rung=8 --frames 20`
   ends with `h2o_total` below its sealed baseline while the element and mineral books close.
 
-## 4. A --ui run with fauna never reports, and the terrain does not reach the eye inside a run
+## 3. A --ui run with fauna never reports, and the terrain does not reach the eye inside a run
 
 `LA_RUN_TIMEOUT=110 scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn --
 --sandbox --ui --run-frames=20` never prints a report and logs no error; the same arm with
 `--planet-only --no-fauna` reports. `scripts/agent_harness.sh ground` exits 2: the terrain under the
 camera is never built inside the run's frames, at any rung.
 
-## 5. Reduce the rest on the device
+## 4. Reduce the rest on the device
 
 `FieldPassAttribution3D._sums` walks the channels it downloads at a checkpoint; a reduce dispatch per
 checkpoint replaces it. Three shapes refused a row and say why: `sea_surface_stats`, `lava_shell_diag`,
 `rock_radial_profile`.
 
-## 6. Move what the device cannot take into the GDExtension
+## 5. Move what the device cannot take into the GDExtension
 
 Still GDScript on the seed path: `MaterialFieldSolidCache3D`'s SDF spot check and file hashing,
 `MaterialFieldRegolith3D.compute`'s burial march, `LAFieldEnthalpySeed.seed`'s per-cell mixture loop.
 Do not move `PhysicalConstants.gd`: godot-cpp binds only integer class constants.
 
-## 7. Build the binding registry
+## 6. Build the binding registry
 
 SSBO binding numbers are a bare integer in GLSL and a second bare integer in each uniform-set builder.
 Build `addons/local_agents/sim/material/Bindings.gd` on `Channels.gd`'s shape and one gate absorbing the

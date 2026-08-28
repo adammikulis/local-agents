@@ -49,6 +49,7 @@ public:
 	static Dictionary shell_minerals();
 	static double shell_density(double p_t_c, double p_p_pa);
 	static double core_radius_frac(double p_t_c, double p_p_pa);
+	static PackedByteArray solid_mask(Object *p_grid, Object *p_terrain);
 	static double radius_for_mass(double p_mass_kg, double p_t_c);
 	static void seed(Object *p_field, double p_t_c);
 

@@ -134,6 +134,9 @@ layout(set = 0, binding = 75, std430) readonly buffer O2Buf { float o2_gas[]; };
 layout(set = 0, binding = 76, std430) readonly buffer N2Buf { float n2_gas[]; };
 layout(set = 0, binding = 77, std430) readonly buffer H2Buf { float h2_gas[]; };
 layout(set = 0, binding = 78, std430) restrict readonly buffer GravPhi { float grav_phi[]; };  // J/kg, zero at infinity
+layout(set = 0, binding = 95, std430) restrict readonly buffer GravRef { float grav_ref[]; };  // J/kg, the reference grav_phi deviates from
+// The full potential of a cell, J/kg.
+float la_phi(uint c) { return grav_phi[c] + grav_ref[c]; }
 // The charge riding a mass row's exterior crossing, C/m^3 per step.
 layout(set = 0, binding = 79, std430) buffer BndQ { float bnd_q[]; };
 // TEMPORAL LEVELS. A cell's own stable timestep is dt/2^tlevel; the ghost tail is level 0. `level_idx`
@@ -390,7 +393,7 @@ float face_cos(uint c, uint f, uint d) {
 	}
 	int inb = nbr[f];
 	return (inb >= 0 && uint(inb) < params.cell_count)
-		? (grav_phi[c] - grav_phi[uint(inb)]) / (gm * la_face_dist(c, inb))
+		? (la_phi(c) - la_phi(uint(inb))) / (gm * la_face_dist(c, inb))
 		: dot(face_normal(d), gv) / gm;
 }
 
@@ -652,7 +655,7 @@ float escape_fraction(uint c, uint f, uint d, out float tail_j_mol) {
 	tail_j_mol = 0.0;
 	vec3 gv = g_at(c);
 	float gmag = length(gv);
-	float depth = -grav_phi[c];
+	float depth = -la_phi(c);
 	float kg_mol = sub_kg_mol();
 	if (gmag <= 0.0 || depth <= 0.0 || kg_mol <= 0.0) {
 		return 0.0;
@@ -1458,7 +1461,7 @@ void main() {
 		// Matter a potential gradient carried here arrives with the potential it lost as heat; the potential
 		// store falls by the same joules. A momentum-driven parcel arrives with motion instead (bodyf).
 		if (params.mode == MODE_POTENTIAL && !is_signed && params.density > 0.0 && nb < params.cell_count) {
-			gained_h += send[bf] * ratio * sub_kg_mol() * (grav_phi[nb] - grav_phi[gidx]);
+			gained_h += send[bf] * ratio * sub_kg_mol() * (la_phi(nb) - la_phi(gidx));
 		}
 		gained_q += send_q[bf] * ratio;
 		gained_m += vec3(send_mx[bf], send_my[bf], send_mz[bf]) * ratio;

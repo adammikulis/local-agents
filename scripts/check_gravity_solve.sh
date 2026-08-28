@@ -105,6 +105,7 @@ func _solve(grid, fill: PackedFloat32Array) -> Array:
 	bufs["gravity"] = _f32(cc * 3)
 	# The potential this solve writes; StateDerivePass declares it, so a rig without that pass makes it.
 	bufs["grav_phi"] = _f32(cc)
+	bufs["grav_ref"] = _f32(cc)
 	for name in LAMatterChannels.CHANNELS:
 		bufs[String(name)] = _f32(cc)
 	var src_bytes: PackedByteArray = fill.to_byte_array()
@@ -113,14 +114,7 @@ func _solve(grid, fill: PackedFloat32Array) -> Array:
 	p.grid_dims = Vector3i(N, N, N)
 	p.setup(_rd, bufs, cc)
 	var groups: int = int(ceil(float(cc) / 64.0))
-	var ctx: Dictionary = {"cell_size": CELL, "step_index": 0.0, "gravity_solve": true}
-	var rounds: int = int(ceil(float(SWEEP_BUDGET) / float(scr.SWEEPS_PER_DISPATCH)))
-	for _i in rounds:
-		var cl: int = _rd.compute_list_begin()
-		p.dispatch(_rd, cl, ctx, cc, groups)
-		_rd.compute_list_end()
-		_rd.submit()
-		_rd.sync()
+	p.solve_converged(_rd, grid, cc, groups)
 	var readings: Dictionary = p._drain(_rd)
 	var g: PackedFloat32Array = p.mirror()
 	p.dispose(_rd)

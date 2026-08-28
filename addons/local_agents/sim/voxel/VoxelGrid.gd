@@ -90,6 +90,10 @@ func cell_world_pos(c: int) -> Vector3:
 	return centres[c]
 
 
+func cell_world_pos_all() -> PackedVector3Array:
+	return centres
+
+
 ## The leaf containing a world point, or -1 outside the box.
 func cell_at(p: Vector3) -> int:
 	return LAGridGeometry.cell_at(self, p)

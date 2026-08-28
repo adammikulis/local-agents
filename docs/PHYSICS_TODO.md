@@ -119,10 +119,6 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       treatment where `K0'` is unmeasured rather than an invented number, and it is declared as
       `second_order_birch_murnaghan`, but a phase whose real `K0'` is larger stiffens faster than the
       table says. The field is read already; only the cited data per phase is missing.
-- [ ] **Molten silicate weighs the same as solid silicate, so magma buoyancy is only thermal.** Only `h2o`
-      carries `density_solid`, so silicate's fusion volume change — the larger half of why a melt rises — is
-      absent. Adding it also moves `melt_c_at`'s Clapeyron slope off zero, which is real (decompression
-      melting) and which `enthalpy.glsli` must move with, or the two phase curves are no longer one curve.
 - [ ] **Solid polymorphs** — ice I…VII, and olivine → wadsleyite → perovskite with depth. A planet's mantle
       structure IS these transitions, each with its own enthalpy and density jump. Maintainer asked for the
       structure to be built.

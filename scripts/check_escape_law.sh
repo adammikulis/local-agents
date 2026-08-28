@@ -127,7 +127,7 @@ func _init() -> void:
 	for name in LAChannels.derived_buffers():
 		_bufs[String(name)] = _f32(_filled(_cc, 0.0), owned)
 	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "celerity", "k_cond", "speed", "rad_w_m3",
-			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi"]:
+			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi", "grav_ref"]:
 		_bufs[String(name)] = _f32(_filled(_cc, 0.0), owned)
 	_upload("cap_sensible", _filled(_cc, 1.0))
 	var grav: PackedFloat32Array = PackedFloat32Array()

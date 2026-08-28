@@ -35,7 +35,8 @@ layout(set = 0, binding = 53, std430) restrict buffer KCond { float k_cond[]; };
 // else, read only by the reduce, so a book can weigh it against the enthalpy it trades with.
 layout(set = 0, binding = 90, std430) restrict writeonly buffer KinBuf { float ke_j_m3[]; };
 // The energy of POSITION, J/m^3: this cell's mass in the potential `g_rest` is the gradient of.
-layout(set = 0, binding = 78, std430) restrict readonly buffer GravPhi { float grav_phi[]; };  // J/kg
+layout(set = 0, binding = 78, std430) restrict readonly buffer GravPhi { float grav_phi[]; };   // deviation from grav_ref
+layout(set = 0, binding = 95, std430) restrict readonly buffer GravRef { float grav_ref[]; };   // J/kg, the monopole reference  // J/kg
 layout(set = 0, binding = 91, std430) restrict writeonly buffer PotBuf { float pe_j_m3[]; };
 // Radiogenic power of this cell's own matter, W/m^3: sum over channels of amount * M * W/kg(mix, epoch).
 // transport.glsl's RADIOGENIC leg deposits it into the enthalpy.
@@ -292,6 +293,7 @@ void main() {
 	float v_lambda = 0.0;    // volume-weighted conductivity, W/m/K
 	float v_used = 0.0;
 	float v_lithic = 0.0;    // volume fraction of rock and metal phases: what the solid flag reads
+	float v_sil = 0.0;       // volume fraction of the silicate entry, the one phase here that melts
 	float rad_w = 0.0;       // radiogenic power of the cell's matter, W/m^3
 	// EOS sums: b* the unstressed condensed volume of everything but h2o, c* its compressibility.
 	float b0 = 0.0; float b1 = 0.0; float b2 = 0.0;
@@ -314,6 +316,7 @@ void main() {
 		v_lambda += vf * props[base + PROP_LAMBDA];
 		v_used += vf;
 		v_lithic += props[base + PROP_LITHIC] > 0.0 ? vf : 0.0;
+		v_sil += entry == E_SILICATE ? vf : 0.0;
 		rad_w += f * props[base + PROP_M] * rad_w_kg(int(props[base + PROP_RAD_GROUP]));
 		n_gas_mol += m * props[base + PROP_MOL_PER_KG];
 		if (props[base + PROP_MOL_PER_KG] > 0.0) {
@@ -352,7 +355,7 @@ void main() {
 	float rho = total * inv_vol;     // kg/m^3, gas included: gravity pulls on all of it
 	rho_bulk[g] = rho;
 	vec3 v_frame = cross(omega, r_vec);
-	pe_j_m3[g] = rho * (params.grav_self * grav_phi[g] - 0.5 * dot(v_frame, v_frame));
+	pe_j_m3[g] = rho * (params.grav_self * (grav_phi[g] + grav_ref[g]) - 0.5 * dot(v_frame, v_frame));
 	ke_j_m3[g] = 0.0;
 	float f_melt = 0.0;
 	vec3 v = vec3(0.0);
@@ -517,9 +520,12 @@ void main() {
 			: (t_c < solidus ? 0.0 : 1.0);
 	}
 	silicate_melt[g] = f_melt;
+	// The molten share of the ROCK: the melt's volume over the lithic volume, so a partial melt of one
+	// phase does not unlock a cell whose crystals still touch.
+	float melt_share = v_lithic > 0.0 ? clamp(f_melt * v_sil / v_lithic, 0.0, 1.0) : f_melt;
 
 	if (params.restate == 0u) {
-		lithify(g, f_melt, v_lithic);
+		lithify(g, melt_share, v_lithic);
 
 		// The derived state, which breaks before the momentum does.
 		float dv[3] = float[3](pressure[g], k_cond[g], rho);

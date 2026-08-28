@@ -216,6 +216,8 @@ const LATENT_HEAT_SUBLIMATION_J_KG: float = 2.834e6
 
 ## Basalt enthalpy of crystallisation, J/kg (Lange, Cashman & Navrotsky 1994, CMP 118:169).
 const BASALT_LATENT_HEAT_CRYSTALLISATION_J_KG: float = 4.0e5
+## Basaltic melt at its liquidus, kg/m^3 (Lange & Carmichael 1987, Rev. Mineral. 24:25).
+const BASALT_MELT_DENSITY_KG_M3: float = 2650.0
 
 const BASALT_EMISSIVITY: float = 0.95
 

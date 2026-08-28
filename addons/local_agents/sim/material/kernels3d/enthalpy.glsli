@@ -107,7 +107,7 @@ SubstanceTh la_silicate() {
 		840.0,              // LAPhysical.ROCK_SPECIFIC_HEAT_J_KGK
 		840.0,              // LAPhysical.ROCK_SPECIFIC_HEAT_J_KGK
 		2900.0,             // LAPhysical.ROCK_DENSITY_KG_M3
-		2900.0,             // LAPhysical.ROCK_DENSITY_KG_M3
+		2650.0,             // LAPhysical.BASALT_MELT_DENSITY_KG_M3
 		1000.0,             // LAPhysical.BASALT_SOLIDUS_C
 		1200.0,             // LAPhysical.BASALT_LIQUIDUS_C
 		0.0,

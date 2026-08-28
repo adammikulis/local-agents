@@ -289,6 +289,7 @@ PackedFloat32Array LAFieldLithostaticSeed::compress(Object *p_field,
 	}
 
 	// Height along the local vertical and the slot pointing up it: rock's column marches these.
+	const PackedVector3Array la_cw = grid->call("cell_world_pos_all");
 	std::vector<double> h(cc, 0.0);
 	std::vector<int> up_slot(cc, -1);
 	for (int c = 0; c < cc; c++) {
@@ -298,7 +299,7 @@ PackedFloat32Array LAFieldLithostaticSeed::compress(Object *p_field,
 			continue;
 		}
 		const Vector3 up = -g / gm;
-		h[c] = double((Vector3(grid->call("cell_world_pos", c)) - centre).dot(up));
+		h[c] = double((la_cw[c] - centre).dot(up));
 		up_slot[c] = slot_toward(up);
 	}
 	std::vector<int> order(cc);
@@ -324,13 +325,13 @@ PackedFloat32Array LAFieldLithostaticSeed::compress(Object *p_field,
 			const Vector3 g(p_gravity[c * 3], p_gravity[c * 3 + 1], p_gravity[c * 3 + 2]);
 			const double gm = double(g.length());
 			const Vector3 up = gm > 0.0 ? Vector3(-g / gm) : Vector3(0, 1, 0);
-			const Vector3 here = Vector3(grid->call("cell_world_pos", c));
+			const Vector3 here = la_cw[c];
 			for (int f2 = slot_off[c * 7 + d]; f2 < slot_off[c * 7 + d + 1]; f2++) {
 				const int n = nbr[f2];
 				if (n < 0 || n >= cc) {
 					continue;
 				}
-				const Vector3 r = Vector3(grid->call("cell_world_pos", n)) - here;
+				const Vector3 r = la_cw[n] - here;
 				const double lat = double((r - up * float(r.dot(up))).length());
 				if (u < 0 || lat < off) {
 					u = n;

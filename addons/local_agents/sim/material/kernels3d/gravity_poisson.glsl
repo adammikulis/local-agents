@@ -17,6 +17,7 @@ layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]
 layout(set = 0, binding = 16, std430) restrict readonly buffer Pos { float pos[]; };
 // bit 0 = the cell touches the outside of the box, bits 1-2 = its Gauss-Seidel colour.
 layout(set = 0, binding = 17, std430) restrict buffer Flags { uint cellflag[]; };
+layout(set = 0, binding = 95, std430) restrict buffer GravRef { float grav_ref[]; };  // J/kg, the monopole reference phi is stored against
 layout(set = 0, binding = 18, std430) restrict buffer Phi { float phi[]; };          // J/kg
 layout(set = 0, binding = 19, std430) restrict buffer Density { float density[]; };  // kg/m^3
 layout(set = 0, binding = 20, std430) restrict buffer Grav { float g_field[]; };     // flat cell*3, m/s^2
@@ -31,9 +32,7 @@ const uint MODE_FLAGS = 0u;
 const uint MODE_DENSITY = 1u;
 const uint MODE_MOMENTS = 2u;
 const uint MODE_SEED = 3u;
-const uint MODE_RELAX = 4u;
 const uint MODE_GRADIENT = 5u;
-const uint MODE_RESIDUAL = 6u;
 const uint MODE_FIELD_STATS = 7u;
 const uint MODE_MONOPOLE = 8u;
 const uint MODE_VERT_UP = 9u;
@@ -130,7 +129,7 @@ bool la_slot_mean(uint c, uint d, out float p, out float dist) {
 		if (nb < 0) { continue; }
 		float w = la_face_area(c, nb);
 		a += w;
-		ap += w * phi[uint(nb)];
+		ap += w * (phi[uint(nb)] + grav_ref[uint(nb)]);
 		ad += w * la_face_dist(c, nb);
 	}
 	if (a <= 0.0) { return false; }
@@ -148,8 +147,8 @@ float axis_deriv(uint c, uint lo_slot, uint hi_slot) {
 	bool has_lo = la_slot_mean(c, lo_slot, plo, dlo);
 	bool has_hi = la_slot_mean(c, hi_slot, phi_hi, dhi);
 	if (has_lo && has_hi) { return (phi_hi - plo) / (dlo + dhi); }
-	if (has_hi) { return (phi_hi - phi[c]) / dhi; }
-	if (has_lo) { return (phi[c] - plo) / dlo; }
+	if (has_hi) { return (phi_hi - phi[c] - grav_ref[c]) / dhi; }
+	if (has_lo) { return (phi[c] + grav_ref[c] - plo) / dlo; }
 	return 0.0;
 }
 
@@ -164,7 +163,7 @@ void mode_flags(uint c) {
 	float e = cell_edge[c];
 	vec3 q = floor((pos_at(c) - vec3(params.ox, params.oy, params.oz)) / max(e, 1.0e-30));
 	uint parity = uint(mod(q.x + q.y + q.z, 2.0));
-	uint lvl = e < 0.75 * params.base_edge ? 1u : 0u;
+	uint lvl = uint(round(log2(max(params.base_edge / max(e, 1.0e-30), 1.0)))) & 1u;
 	cellflag[c] = f | (((lvl << 1) | parity) << FLAG_COLOUR_SHIFT);
 }
 
@@ -214,29 +213,20 @@ void mode_moments() {
 	}
 }
 
-// Dirichlet edge: the monopole potential of the mass the box encloses.
+// THE REFERENCE, every cell: the monopole potential of the mass the box encloses. `phi` holds the
+// deviation from it, so float32 carries the second differences the Laplacian is made of; the Dirichlet
+// ring is exactly the reference, so its deviation is zero.
 void mode_seed(uint c) {
-	if ((cellflag[c] & FLAG_BOUNDARY) == 0u) { return; }
 	float total = moments[0];
 	if (total <= 0.0) {
-		phi[c] = 0.0;
+		grav_ref[c] = 0.0;
+		if ((cellflag[c] & FLAG_BOUNDARY) != 0u) { phi[c] = 0.0; }
 		return;
 	}
 	vec3 com = vec3(moments[1], moments[2], moments[3]);
 	float r = length(pos_at(c) - com);
-	phi[c] = -params.g_si * total / max(r, cell_edge[c]);
-}
-
-// Gauss-Seidel in place: one dispatch per colour, and a colour's cells are never neighbours.
-void mode_relax(uint c) {
-	uint f = cellflag[c];
-	if ((f & FLAG_BOUNDARY) != 0u || ((f >> FLAG_COLOUR_SHIFT) & 3u) != params.colour) {
-		return;
-	}
-	float w_sum = 0.0;
-	float w_phi = 0.0;
-	la_stencil(c, w_sum, w_phi);
-	if (w_sum > 0.0) { phi[c] = (w_phi - source_of(c)) / w_sum; }
+	grav_ref[c] = -params.g_si * total / max(r, cell_edge[c]);
+	if ((cellflag[c] & FLAG_BOUNDARY) != 0u) { phi[c] = 0.0; }
 }
 
 void mode_gradient(uint gidx, bool live) {
@@ -260,7 +250,7 @@ void mode_gradient(uint gidx, bool live) {
 			for (uint f2 = la_face_lo(gidx); f2 < la_face_hi(gidx); ++f2) {
 				int nb2 = nbr[f2];
 				if (nb2 >= 0 && (cellflag[uint(nb2)] & FLAG_BOUNDARY) != 0u) {
-					outflux += (phi[gidx] - phi[uint(nb2)])
+					outflux += (phi[gidx] + grav_ref[gidx] - phi[uint(nb2)] - grav_ref[uint(nb2)])
 						* la_face_area(gidx, nb2) / la_face_dist(gidx, nb2);
 				}
 			}
@@ -276,28 +266,6 @@ void mode_gradient(uint gidx, bool live) {
 		partials[b + 5u] = hits;
 		partials[b + 8u] = flux;
 		partials[b + 9u] = mass_in;
-	}
-}
-
-// |laplacian(phi) - 4 pi G rho| over interior cells, AND the source term it is a residual OF, so the
-// drain publishes their ratio. The bare difference carries G, which is small whether the solve worked.
-void mode_residual(uint gidx, bool live) {
-	float r = 0.0;
-	float s = 0.0;
-	if (live && (cellflag[gidx] & FLAG_BOUNDARY) == 0u) {
-		float v = cell_volume(gidx);
-		float src = source_of(gidx);
-		float w_sum = 0.0;
-		float w_phi = 0.0;
-		la_stencil(gidx, w_sum, w_phi);
-		r = abs(w_phi - w_sum * phi[gidx] - src) / v;
-		s = abs(src) / v;
-	}
-	float worst = wg_max(r);
-	float src_max = wg_max(s);
-	if (gl_LocalInvocationID.x == 0u) {
-		partials[gl_WorkGroupID.x * PART_STRIDE + 6u] = worst;
-		partials[gl_WorkGroupID.x * PART_STRIDE + 7u] = src_max;
 	}
 }
 
@@ -362,7 +330,6 @@ void mode_field_stats() {
 	float mass_in = wg_sum(m_in);
 	if (t == 0u) {
 		moments[4] = n > 0.0 ? sum_g / n : 0.0;
-		moments[5] = max_src > 0.0 ? max_r / max_src : 0.0;
 		// Interface flux over the -4 pi G M of the relaxed interior: 1 when the solve satisfies its own
 		// discrete law, -1 when g points away from the mass.
 		float want = -4.0 * acos(-1.0) * params.g_si * mass_in;
@@ -458,14 +425,8 @@ void main() {
 		case MODE_SEED:
 			if (live) { mode_seed(gidx); }
 			return;
-		case MODE_RELAX:
-			if (live) { mode_relax(gidx); }
-			return;
 		case MODE_GRADIENT:
 			mode_gradient(gidx, live);
-			return;
-		case MODE_RESIDUAL:
-			mode_residual(gidx, live);
 			return;
 		case MODE_FIELD_STATS:
 			mode_field_stats();

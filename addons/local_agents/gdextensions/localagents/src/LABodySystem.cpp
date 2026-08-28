@@ -295,9 +295,11 @@ void LABodyMeasure::measure(Object *p_field, const Vector3 &p_spin_axis) {
 	double i_acc = 0.0;
 	double moles = 0.0;
 	double gas_kg = 0.0;
+	const PackedVector3Array la_cw = grid->call("cell_world_pos_all");
+	const PackedFloat32Array la_cv = grid->call("cell_volumes");
 	for (int c = 0; c < cc; c++) {
-		const double vol = double(grid->call("cell_volume", c));
-		const Vector3 r = Vector3(grid->call("cell_world_pos", c)) - centre;
+		const double vol = double(la_cv[c]);
+		const Vector3 r = la_cw[c] - centre;
 		double cell_kg = 0.0;
 		for (int k = 0; k < mirrors.size(); k++) {
 			const Array pair = mirrors[k];
