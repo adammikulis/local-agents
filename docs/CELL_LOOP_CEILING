@@ -4,4 +4,4 @@
 # SET AT THE COUNT, not raised: scripts/lib_ceiling.sh enumerated the spellings of the bound and matched
 # `_cell_count` but not `field._cell_count`, so a third of the loops were never counted. The receiver is
 # now matched generically. Nothing got worse; the instrument stopped under-reading a second time.
-14
+12
