@@ -145,6 +145,8 @@ func _init() -> void:
 	var p: RefCounted = (load(PASS_PATH) as GDScript).new()
 	p.ghost_count = ng
 	var want: Dictionary = p._buffers(cc)
+	# The temporal levels a world gets from StateDerivePass; this rig runs the transport pass alone.
+	want.merge(LATemporalLevels.buffers(cc + ng, p.group_count()))
 	for key in want:
 		var spec: Variant = want[key]
 		var n: int = int(spec["n"]) if spec is Dictionary else int(spec)

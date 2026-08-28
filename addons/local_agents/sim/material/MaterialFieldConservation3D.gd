@@ -29,7 +29,7 @@ const GATED: Dictionary = {
 	"lith_Na_total": {"rel": "lith_Na_rel_drift"},
 	"lith_Cl_total": {"rel": "lith_Cl_rel_drift"},
 	"lith_P_total": {"rel": "lith_P_rel_drift"},
-	"energy_stock": {"rel": "energy_residual_rel", "turnover": "energy_turnover_j", "stock": "energy_stock"},
+	"energy_held": {"rel": "energy_residual_rel", "turnover": "energy_turnover_j", "stock": "energy_held"},
 	"charge_stock": {"rel": "charge_rel_drift", "turnover": "charge_gross", "stock": "charge_gross",
 		"needs": "charge_separate"},
 }

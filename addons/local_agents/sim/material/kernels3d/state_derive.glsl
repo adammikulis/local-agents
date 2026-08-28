@@ -34,6 +34,9 @@ layout(set = 0, binding = 53, std430) restrict buffer KCond { float k_cond[]; };
 // The energy of MOTION, J/m^3, which the enthalpy state does not hold. A function of state and nothing
 // else, read only by the reduce, so a book can weigh it against the enthalpy it trades with.
 layout(set = 0, binding = 90, std430) restrict writeonly buffer KinBuf { float ke_j_m3[]; };
+// The energy of POSITION, J/m^3: this cell's mass in the potential `g_rest` is the gradient of.
+layout(set = 0, binding = 78, std430) restrict readonly buffer GravPhi { float grav_phi[]; };  // J/kg
+layout(set = 0, binding = 91, std430) restrict writeonly buffer PotBuf { float pe_j_m3[]; };
 // Radiogenic power of this cell's own matter, W/m^3: sum over channels of amount * M * W/kg(mix, epoch).
 // transport.glsl's RADIOGENIC leg deposits it into the enthalpy.
 layout(set = 0, binding = 65, std430) restrict writeonly buffer RadW { float rad_w_m3[]; };
@@ -86,6 +89,10 @@ layout(set = 0, binding = 46, std430) restrict writeonly buffer HSilicate { floa
 layout(set = 0, binding = 47, std430) restrict writeonly buffer HSensible { float h_sensible[]; };
 layout(set = 0, binding = 48, std430) restrict writeonly buffer CapSensible { float cap_sensible[]; };
 
+// The active list the transport substep walks, sorted by level. LATemporalLevels.SLOTS: 4 offset, 6 suffix.
+layout(set = 0, binding = 81, std430) restrict readonly buffer LevelIdx { uint level_idx[]; };
+layout(set = 0, binding = 82, std430) restrict readonly buffer LevelArgs { uint level_args[]; };
+
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
 	float dt_s;
@@ -107,6 +114,10 @@ layout(push_constant, std430) uniform Params {
 	float rad_w_kg_3;
 	float rad_w_kg_4;
 	float sea_radius_m;     // the sea shell's radius from the body centre; 0 = the body carries no shell
+	float grav_self;        // 1/2 where the box's own mass sources the potential, 1 for a declared body
+	uint restate;           // 0 = the field step's derive; 1 = the transport substep's restate
+	uint args_slot;         // where this substep's level args start, in words
+	uint act_base;          // where this row group's sorted list starts, in cells
 } params;
 
 const float SOLID_IN = 0.6;    // LAPhysical.RHEOLOGICAL_LOCKUP_CRYSTAL_FRAC
@@ -207,6 +218,14 @@ void lithify(uint g, float melt, float v_lithic) {
 
 void main() {
 	uint g = gl_GlobalInvocationID.x;
+	// THE SAME SOLVE INSIDE THE SUBSTEP: what the substep moved is at a new pressure before the next face
+	// reads one.
+	if (params.restate != 0u) {
+		if (g >= level_args[params.args_slot + 6u]) {
+			return;
+		}
+		g = level_idx[params.act_base + level_args[params.args_slot + 4u] + g];
+	}
 	if (g >= params.cell_count) {
 		return;
 	}
@@ -220,43 +239,47 @@ void main() {
 		- vec3(params.centre_x, params.centre_y, params.centre_z);
 	float r_len = length(r_vec);
 	float w_len = length(omega);
-	alt[g] = (params.sea_radius_m > 0.0) ? r_len - params.sea_radius_m : uintBitsToFloat(0x7FC00000u);
 	// WHAT MATTER AT REST IN THIS FRAME IS PULLED BY: gravitation and the spin's centrifugal term. Read
 	// as geometry, before any matter is, so every balance stands against the one field.
 	vec3 g_eff = vec3(g_field[g * 3u], g_field[g * 3u + 1u], g_field[g * 3u + 2u])
 		- cross(omega, cross(omega, r_vec));
-	g_rest[g * 3u] = g_eff.x;
-	g_rest[g * 3u + 1u] = g_eff.y;
-	g_rest[g * 3u + 2u] = g_eff.z;
-	lat[g] = (w_len > 0.0 && r_len > 0.0)
-		? degrees(asin(clamp(dot(r_vec / r_len, omega / w_len), -1.0, 1.0)))
-		: uintBitsToFloat(0x7FC00000u);
-
 	float nf = 0.0;
-	for (int i = 0; i < LA_CHANNEL_SLOTS; ++i) {
-		float v = channel_at(i, g);
-		nf += (isnan(v) || isinf(v)) ? 1.0 : 0.0;
-	}
-	float hv = h_j_m3[g];
-	nf += (isnan(hv) || isinf(hv)) ? 1.0 : 0.0;
-	vec3 pv = vec3(mom_x[g], mom_y[g], mom_z[g]);
-	nf += (isnan(pv.x) || isinf(pv.x)) ? 1.0 : 0.0;
-	nf += (isnan(pv.y) || isinf(pv.y)) ? 1.0 : 0.0;
-	nf += (isnan(pv.z) || isinf(pv.z)) ? 1.0 : 0.0;
+	// GEOMETRY AND THE PER-STEP BOOKS: neither moves inside a step.
+	if (params.restate == 0u) {
+		alt[g] = (params.sea_radius_m > 0.0) ? r_len - params.sea_radius_m
+			: uintBitsToFloat(0x7FC00000u);
+		g_rest[g * 3u] = g_eff.x;
+		g_rest[g * 3u + 1u] = g_eff.y;
+		g_rest[g * 3u + 2u] = g_eff.z;
+		lat[g] = (w_len > 0.0 && r_len > 0.0)
+			? degrees(asin(clamp(dot(r_vec / r_len, omega / w_len), -1.0, 1.0)))
+			: uintBitsToFloat(0x7FC00000u);
 
-	// The dead pool's molar ratios, from the same channels the reduce rows sum.
-	float org_pool = max(detritus[g], 0.0) + max(fuel[g], 0.0);
-	if (org_pool * vol > params.org_min_pool_mol) {
-		float hc = max(org_h[g], 0.0) / org_pool;
-		float oc = max(org_o[g], 0.0) / org_pool;
-		org_hc[g] = hc;
-		org_oc[g] = oc;
-		org_fresh[g] = min(hc / params.fresh_h_per_c, oc / params.fresh_o_per_c);
-	} else {
-		float no_pool = uintBitsToFloat(0x7F800000u);
-		org_hc[g] = no_pool;
-		org_oc[g] = no_pool;
-		org_fresh[g] = no_pool;
+		for (int i = 0; i < LA_CHANNEL_SLOTS; ++i) {
+			float v = channel_at(i, g);
+			nf += (isnan(v) || isinf(v)) ? 1.0 : 0.0;
+		}
+		float hv = h_j_m3[g];
+		nf += (isnan(hv) || isinf(hv)) ? 1.0 : 0.0;
+		vec3 pv = vec3(mom_x[g], mom_y[g], mom_z[g]);
+		nf += (isnan(pv.x) || isinf(pv.x)) ? 1.0 : 0.0;
+		nf += (isnan(pv.y) || isinf(pv.y)) ? 1.0 : 0.0;
+		nf += (isnan(pv.z) || isinf(pv.z)) ? 1.0 : 0.0;
+
+		// The dead pool's molar ratios, from the same channels the reduce rows sum.
+		float org_pool = max(detritus[g], 0.0) + max(fuel[g], 0.0);
+		if (org_pool * vol > params.org_min_pool_mol) {
+			float hc = max(org_h[g], 0.0) / org_pool;
+			float oc = max(org_o[g], 0.0) / org_pool;
+			org_hc[g] = hc;
+			org_oc[g] = oc;
+			org_fresh[g] = min(hc / params.fresh_h_per_c, oc / params.fresh_o_per_c);
+		} else {
+			float no_pool = uintBitsToFloat(0x7F800000u);
+			org_hc[g] = no_pool;
+			org_oc[g] = no_pool;
+			org_fresh[g] = no_pool;
+		}
 	}
 
 	float mass[LA_MIX_MAX] = float[LA_MIX_MAX](0.0, 0.0, 0.0, 0.0);
@@ -332,6 +355,8 @@ void main() {
 	conductivity[g] = (v_used > 0.0) ? v_lambda / v_used : 0.0;
 	float rho = total * inv_vol;     // kg/m^3, gas included: gravity pulls on all of it
 	rho_bulk[g] = rho;
+	vec3 v_frame = cross(omega, r_vec);
+	pe_j_m3[g] = rho * (params.grav_self * grav_phi[g] - 0.5 * dot(v_frame, v_frame));
 	ke_j_m3[g] = 0.0;
 	float f_melt = 0.0;
 	vec3 v = vec3(0.0);
@@ -354,11 +379,14 @@ void main() {
 		h_silicate[g] = 0.0;
 		h_sensible[g] = 0.0;
 		cap_sensible[g] = 0.0;
-		bodyf_x[g] = 0.0;
-		bodyf_y[g] = 0.0;
-		bodyf_z[g] = 0.0;
 		k_cond[g] = 0.0;
-		lithify(g, f_melt, v_lithic);
+		if (params.restate == 0u) {
+			bodyf_x[g] = 0.0;
+			bodyf_y[g] = 0.0;
+			bodyf_z[g] = 0.0;
+			nonfinite[g] = nf;
+			lithify(g, f_melt, v_lithic);
+		}
 		return;   // no mass, so the frame terms deliver no momentum either
 	}
 	// v = p/rho, momentum density over mass density. Dividing by the density rather than multiplying by
@@ -482,14 +510,16 @@ void main() {
 	}
 	silicate_melt[g] = f_melt;
 
-	lithify(g, f_melt, v_lithic);
+	if (params.restate == 0u) {
+		lithify(g, f_melt, v_lithic);
 
-	// The derived state, which breaks before the momentum does.
-	float dv[3] = float[3](pressure[g], k_cond[g], rho);
-	for (int i = 0; i < 3; ++i) {
-		nf += (isnan(dv[i]) || isinf(dv[i])) ? 1.0 : 0.0;
+		// The derived state, which breaks before the momentum does.
+		float dv[3] = float[3](pressure[g], k_cond[g], rho);
+		for (int i = 0; i < 3; ++i) {
+			nf += (isnan(dv[i]) || isinf(dv[i])) ? 1.0 : 0.0;
+		}
+		nonfinite[g] = nf;
 	}
-	nonfinite[g] = nf;
 
 	// QUASI-STATIC ROCK: the lattice carries its weight (LA_APPROX quasi_static_solid_pressure), so
 	// locked matter holds no bulk momentum and a cell that unlocks starts from rest.
@@ -501,9 +531,15 @@ void main() {
 		vel_y[g] = 0.0;
 		vel_z[g] = 0.0;
 		speed[g] = 0.0;
-		bodyf_x[g] = 0.0;
-		bodyf_y[g] = 0.0;
-		bodyf_z[g] = 0.0;
+		ke_j_m3[g] = 0.0;
+		if (params.restate == 0u) {
+			bodyf_x[g] = 0.0;
+			bodyf_y[g] = 0.0;
+			bodyf_z[g] = 0.0;
+		}
+		return;
+	}
+	if (params.restate != 0u) {
 		return;
 	}
 	// BODY FORCES per volume: weight rho*g and the rotating-frame pair, computed and booked here;

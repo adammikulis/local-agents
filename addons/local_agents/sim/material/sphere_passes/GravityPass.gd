@@ -63,8 +63,8 @@ var _mono: PackedFloat32Array = PackedFloat32Array()
 
 func _buffers(cc: int) -> Dictionary:
 	var g: int = maxi(int(ceil(float(cc) / float(GROUP))), 1)
+	# PHI is StateDerivePass's declaration: it weighs a cell's potential energy at rungs below this pass.
 	return {
-		PHI: maxi(cc, 1),
 		DENSITY: maxi(cc, 1),
 		FLAGS: maxi(cc, 1),
 		MOMENTS: MOMENT_SLOTS,
@@ -127,6 +127,7 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 
 
 func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:
+	ctx["gravity_self"] = 1.0 if not _mono.is_empty() else 0.5
 	if not _dispatchable() or not _set.is_valid():
 		if not _failed_announced:
 			_failed_announced = true

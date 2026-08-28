@@ -227,11 +227,15 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       element_C — and the energy row reads UNMEASURED rather than conserved. **Reproduce:**
       `scripts/check_conservation.sh`.
 
-- [ ] **A SEALED BOX'S ENERGY DOES NOT CLOSE OVER ITS TWO STORES.** `energy_kinetic` is the joules of
-      motion the enthalpy state does not hold; it moves while `energy_stock` stands still, so their sum is
-      not a constant. The third store, the potential the body force works against, is F's own item and has
-      no gauge. **Reproduce:** `for n in 4 8; do scripts/sim_run.sh --rung 3 --frames $n --report
-      energy_stock,energy_kinetic; done` and read the pair at one length against the other.
+- [ ] **THE ENERGY BOOK WEIGHS ENTHALPY WHERE IT SHOULD WEIGH INTERNAL ENERGY.** `h_j_m3` is a specific
+      enthalpy, so the conserved sum is `energy_stock` MINUS the pressure's own pV over the box, plus the
+      kinetic and potential stores; no row publishes that pV. **Reproduce:** `scripts/sim_run.sh --rung 3
+      --frames 8 --report energy_stock,energy_kinetic,energy_potential,energy_run_drift_rel` and read what
+      the book calls a total against what the first law says one is.
+- [ ] **THE POTENTIAL STORE IS NOT BOOKED, AND A RELOADED WORLD DOES NOT REPRODUCE IT.** `energy_potential`
+      is gauged and left out of the run book: the same mass in the same cells reads a different potential
+      after a load than after a walk. **Reproduce:** `bash scripts/check_seal_cache.sh` with
+      `energy_potential` added to the ledger's `energy_held`.
 
 - [ ] **`LA_PASS_PROBE` sums bare fill fractions**, which a kernel moving fill fractions conserves by
       construction, so it cannot see a volume-weighted loss and its silence is not evidence. Every
