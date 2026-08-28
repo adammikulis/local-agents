@@ -22,11 +22,14 @@ fail=0
 [ -f "$SSOT" ] || { echo "check_neighbour_slots: MISSING $SSOT — the SSOT include is gone." >&2; exit 2; }
 [ -f "$GRID" ] || { echo "check_neighbour_slots: MISSING $GRID." >&2; exit 2; }
 
-# 1. No bare integer slot index. `nbr[base + 5u]` is a kernel asserting slot 5 means something; on a box the
-# slots are axis tags, so a kernel either loops over all six or asks for the reverse of the one it holds.
-bare=$(grep -nE '\b(nbr|send|send_h|send_q)\[[^]]*[+-][[:space:]]*[0-9]+u?[[:space:]]*\]' "$K"/*.glsl "$K"/*.glsli 2>/dev/null || true)
+# 1. No bare integer slot index and no fixed six-slot stride. `nbr[base + 5u]` asserts slot 5 means
+# something; `send[c * N_SLOTS + d]` asserts every cell has six faces, which a coarse cell meeting fine
+# ones does not. A face is looked up through LAVoxelGrid.slot_off or it is looked up wrong.
+bare=$(rg -n '(nbr|ghost|send|send_h|send_q|send_mx|send_my|send_mz)\[[^]]*([+-]\s*[0-9]+u?\s*|N_SLOTS)[^]]*\]' \
+  "$K" -g '*.glsl' -g '*.glsli' 2>/dev/null || true)
 if [ -n "$bare" ]; then
-  echo "check_neighbour_slots: BARE SLOT INDEX — a slot is an axis tag, never a named direction." >&2
+  echo "check_neighbour_slots: BARE FACE INDEX — a slot is an axis tag, never a named direction, and" >&2
+  echo "  a cell's faces are however many LAVoxelGrid.slot_off says it has." >&2
   echo "$bare" >&2
   fail=1
 fi

@@ -220,7 +220,9 @@ func setup_box(origin: Vector3, dims: Vector3i, cell_size: float, terrain = null
 	var grid: LAVoxelGrid = LAVoxelGrid.new()
 	grid.build(dims.x, dims.y, dims.z, maxf(cell_size, 1.0e-6), origin)
 	# WHERE THE GRID IS FINE: a shell around the terrain surface, plus a declared box.
-	var regions: Array[AABB] = [refine_region] if refine_region.size != Vector3.ZERO else []
+	var regions: Array[AABB] = []
+	if refine_region.size != Vector3.ZERO:
+		regions.append(refine_region)
 	if refine_below_m > 0.0 or refine_above_m > 0.0 or not regions.is_empty():
 		grid.refine(LAGridGeometry.refine_mask(grid, body_centre, terrain,
 			refine_below_m, refine_above_m, regions))
