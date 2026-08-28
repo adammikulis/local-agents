@@ -111,9 +111,7 @@ func apply(field, body, terrain) -> bool:
 		field._terrain_opts = terrain.generator_options()
 	var centre: Vector3 = Vector3(body.center()) + offset
 	var half: Vector3 = 0.5 * Vector3(dims) * cell_size
-	# THE SLICE IS A REGION OF THE ONE CONSTRUCTION PATH, not a second one, and it is handed the SAME
-	# refinement rule the whole body gets: a shell around the terrain surface, refined only where a
-	# cell is coarser than that shell. A slice whose own edge already resolves it stays uniform.
+	# The slice is a region of the one construction path, under the same refinement rule as the body.
 	field.setup_box(centre - half, dims, cell_size, terrain, body.center(), LocalAgentSimWorld.MODELLED_ATMOSPHERE_HEIGHT_M,
 		LocalAgentSimWorld.MODELLED_ATMOSPHERE_HEIGHT_M,
 		LAFieldGridBudget.target_edge_m("planet", float(body.radius()), LAMaterialField3D.INITIAL_TEMP), float(body.radius()))

@@ -711,15 +711,16 @@ PackedFloat32Array LAPlanetComposition::rock_fraction(Object *p_grid, Object *p_
 			ask.push_back(c);
 		}
 	}
-	// The band reads the terrain's lattice at SUB points per axis inside the cell; each sub-cube's share
-	// is the planar cut its signed distance makes through it.
+	// The band reads the terrain's lattice at SUB points per axis inside the cell, by SIGN: away from
+	// the surface the generator fills a block with a constant, so only the sign is a measurement.
 	if (ask.empty()) {
 		return out;
 	}
 	const Vector3 origin = p_grid->get("origin");
-	const int nx = int(p_grid->get("nx"));
+	// The lattice spans the box's LONGEST side: a column is one cell wide and many tall.
+	const int span = std::max(int(p_grid->get("nx")), std::max(int(p_grid->get("ny")), int(p_grid->get("nz"))));
 	const double base = double(p_grid->get("cell_size"));
-	const LATerrainLattice &lat = LATerrainLattice::build(p_terrain, origin, base * nx, LATerrainLattice::lod_for(base * nx), 32, p_centre, lo, hi);
+	const LATerrainLattice &lat = LATerrainLattice::build(p_terrain, origin, base * span, LATerrainLattice::lod_for(base * span), 32, p_centre, lo, hi);
 	if (!lat.valid()) {
 		UtilityFunctions::push_error("LAPlanetComposition: the terrain lattice did not build; no rock is seeded in the relief band.");
 		return out;
@@ -734,7 +735,7 @@ PackedFloat32Array LAPlanetComposition::rock_fraction(Object *p_grid, Object *p_
 				for (int k = 0; k < SUB; k++) {
 					const Vector3 p = cw[c] + Vector3(float((i + 0.5) * se - 0.5 * e), float((j + 0.5) * se - 0.5 * e),
 							float((k + 0.5) * se - 0.5 * e));
-					acc += CLAMP(0.5 - lat.sample(p) / se, 0.0, 1.0);
+					acc += lat.sample(p) < 0.0 ? 1.0 : 0.0;
 				}
 			}
 		}
@@ -743,13 +744,61 @@ PackedFloat32Array LAPlanetComposition::rock_fraction(Object *p_grid, Object *p_
 	return out;
 }
 
-// 1 where the rock fills at least half the cell.
+// DEPTH BELOW THE LOCAL GROUND per cell, m, negative above it: the surface on the cell's own ray,
+// found by bisecting the sign of the terrain's distance between the relief band's bounds.
+PackedFloat32Array LAPlanetComposition::surface_depth(Object *p_grid, Object *p_terrain, const Vector3 &p_centre) {
+	PackedFloat32Array out;
+	if (!p_grid || !p_terrain) {
+		return out;
+	}
+	const int cc = int(p_grid->get("cell_count"));
+	const PackedVector3Array cw = p_grid->get("centres");
+	double lo = -1.0, hi = -1.0;
+	if (p_terrain->has_method("min_surface_radius") && p_terrain->has_method("max_surface_radius")) {
+		lo = double(p_terrain->call("min_surface_radius"));
+		hi = double(p_terrain->call("max_surface_radius"));
+	}
+	const Vector3 origin = p_grid->get("origin");
+	const int span = std::max(int(p_grid->get("nx")), std::max(int(p_grid->get("ny")), int(p_grid->get("nz"))));
+	const double base = double(p_grid->get("cell_size"));
+	const LATerrainLattice &lat = LATerrainLattice::build(p_terrain, origin, base * span, LATerrainLattice::lod_for(base * span), 32, p_centre, lo, hi);
+	if (!lat.valid() || !(lo > 0.0) || !(hi > 0.0)) {
+		UtilityFunctions::push_error("LAPlanetComposition: the terrain lattice did not build; no cell has a depth below its ground.");
+		return out;
+	}
+	out.resize(cc);
+	float *w = out.ptrw();
+	for (int c = 0; c < cc; c++) {
+		const Vector3 rel = cw[c] - p_centre;
+		const double r = double(rel.length());
+		if (!(r > 0.0)) {
+			w[c] = float(lo);
+			continue;
+		}
+		const Vector3 dir = rel / float(r);
+		double a = lo, b = hi;
+		for (int i = 0; i < 24; i++) {
+			const double m = 0.5 * (a + b);
+			if (lat.sample(p_centre + dir * float(m)) < 0.0) {
+				a = m;   // still rock: the surface is farther out
+			} else {
+				b = m;
+			}
+		}
+		w[c] = float(0.5 * (a + b) - r);
+	}
+	return out;
+}
+
+// 1 where the rock's share of the cell reaches the lock-up crystal fraction: the same law the derive
+// locks a cell on.
 PackedByteArray LAPlanetComposition::solid_of(const PackedFloat32Array &p_fraction) {
 	PackedByteArray out;
 	out.resize(p_fraction.size());
 	uint8_t *w = out.ptrw();
+	const float lock = float(la_physical("RHEOLOGICAL_LOCKUP_CRYSTAL_FRAC"));
 	for (int c = 0; c < p_fraction.size(); c++) {
-		w[c] = p_fraction[c] >= 0.5f ? 1 : 0;
+		w[c] = p_fraction[c] >= lock ? 1 : 0;
 	}
 	return out;
 }
@@ -758,6 +807,7 @@ void LAPlanetComposition::_bind_methods() {
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("shell_channels"), &shell_channels);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("rock_fraction", "grid", "terrain", "centre"), &rock_fraction);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("solid_of", "fraction"), &solid_of);
+	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("surface_depth", "grid", "terrain", "centre"), &surface_depth);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("mg_number"), &mg_number);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("an_fraction"), &an_fraction);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("apatite_f_fraction"), &apatite_f_fraction);

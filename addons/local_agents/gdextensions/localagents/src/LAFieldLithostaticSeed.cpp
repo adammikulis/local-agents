@@ -477,6 +477,31 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c, 
 		return;
 	}
 	const PackedFloat32Array edges = grid->call("cell_edges");
+	// The air stands in the volume the cell's rock leaves, the same lithic volume the derive sums.
+	PackedFloat32Array rock;
+	rock.resize(cc);
+	rock.fill(0.0f);
+	{
+		const Dictionary rows_all = la_call_gd(CHANNELS_GD, "rows", Array());
+		std::vector<Mirror> mats = channel_mirrors(p_field, "unit", "mol_m3");
+		float *rw = rock.ptrw();
+		for (const Mirror &mt : mats) {
+			const Dictionary row = rows_all.get(mt.name, Dictionary());
+			if (!bool(row.get("lithic", false)) || mt.substance.is_empty()) {
+				continue;
+			}
+			// The rock's molar volume at the seed temperature, as the derive will state it.
+			const double rho_t = LASubstances::density(mt.substance, p_temp_c, la_physical("STANDARD_PRESSURE_PA"));
+			const double mm = double(Dictionary(LASubstances::table().get(mt.substance, Dictionary())).get("molar_mass", 0.0));
+			const double full = (rho_t > 0.0 && mm > 0.0) ? rho_t / mm : 0.0;
+			if (!(full > 0.0) || mt.arr.size() != cc) {
+				continue;
+			}
+			for (int c = 0; c < cc; c++) {
+				rw[c] += float(std::max(double(mt.arr[c]), 0.0) / full);
+			}
+		}
+	}
 	// A CELL HOLDS WHAT ITS VOLUME HOLDS, not what its centre stands at. Over a cube whose potential
 	// falls linearly along g, the mean of the exponential is its centre value times sinh(x)/x per axis,
 	// x being half that axis's potential drop over R T / M. It is the same law, integrated.
@@ -487,13 +512,18 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c, 
 		const double e = c < edges.size() ? double(edges[c]) : 0.0;
 		const double gx[3] = { std::abs(double(p_gravity[c * 3])), std::abs(double(p_gravity[c * 3 + 1])),
 			std::abs(double(p_gravity[c * 3 + 2])) };
+		// The gas stands on the cell's rock: its layer is the room the rock leaves, its centre that much
+		// higher than the cell's, and the mean is taken over the layer.
+		const double room = c < rock.size() ? std::max(1.0 - double(rock[c]), 0.0) : 1.0;
+		const double gmag = std::sqrt(gx[0] * gx[0] + gx[1] * gx[1] + gx[2] * gx[2]);
+		const double phi_gas = double(p_phi[c]) + gmag * 0.5 * (1.0 - room) * e;
 		double mean = 1.0;
 		for (int a = 0; a < 3; a++) {
-			const double x = gx[a] * e * 0.5 / rt_over_m;
+			const double x = gx[a] * e * room * 0.5 / rt_over_m;
 			mean *= (x > 0.0) ? std::sinh(x) / x : 1.0;
 		}
 		// phi rises outward, so this is 1 at that anchor and falls from there.
-		f[c] = float(std::exp(-(double(p_phi[c]) - phi_ref) / rt_over_m) * mean);
+		f[c] = float(std::exp(-(phi_gas - phi_ref) / rt_over_m) * mean * room);
 	}
 	std::vector<double> vol(cc, 0.0);
 	for (int c = 0; c < cc && c < edges.size(); c++) {

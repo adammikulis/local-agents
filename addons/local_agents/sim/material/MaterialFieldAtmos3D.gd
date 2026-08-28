@@ -55,9 +55,7 @@ func fog_at(x: float, z: float) -> float:
 	return _condensed_at(c) if _f._temp[c] < LAMaterialField3D.FOG_MAX_TEMP else 0.0
 
 
-## Take the condensate counts and the mask-free vapour amount off the device. Cloud, fog and rain are three
-## thresholds on ONE quantity — the liquid plus frozen share of a cell's h2o — so each is a reduced row and
-## none of them walks the grid. Absent rows publish NAN / -1 rather than an empty sky.
+## Condensate counts and vapour off the device: three thresholds on one reduced quantity, NAN when absent.
 func refresh_aggregates() -> void:
 	_f._atmos_dirty = false
 	var q = _f._queries

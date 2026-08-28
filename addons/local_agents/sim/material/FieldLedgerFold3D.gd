@@ -48,10 +48,8 @@ func fold() -> Dictionary:
 	if r.has("charge_stock") and r.has("charge_gross"):
 		out["charge_stock"] = float(r["charge_stock"])
 		out["charge_gross"] = float(r["charge_gross"])
-	# The three stores the world's energy is the sum of, then the joules over one step that move it,
-	# volume-weighted. One the device did not deliver is NAMED, never skipped: a total short one of its
-	# stores is not a total, and skipping a book reads UNMEASURED instead of red.
-	var want: PackedStringArray = PackedStringArray(["energy_stock", "energy_stock_open", "energy_kinetic", "energy_potential", "energy_pv"])
+	# The stores the world's energy is the sum of; one the device did not deliver is named, never skipped.
+	var want: PackedStringArray = PackedStringArray(["energy_stock", "energy_stock_open", "energy_kinetic", "energy_potential", "energy_pv_solid", "energy_pv_fluid"])
 	for row: Dictionary in LAProcessSet.reduce_rows():
 		if bool(row.get("energy_book", false)):
 			want.append(String(row["key"]))

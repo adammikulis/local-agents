@@ -22,12 +22,11 @@ is measured, and no item about a higher rung is examined until the rungs below i
 ## 1. RUNG 3 DOES NOT COMPLETE ON THE GRADED PLANET (the first red rung; the slab's gate is green both arms)
 
 `scripts/sim_run.sh --rung 3 --frames 2` exits 4: the first frame completes and the second is refused
-with `FluxPass: the h2o record's own cells carry a signal speed at or past light`; after the first
-frame open cells holding loose rock, above and below the ground, stand at the ladder's top temperature
-and at no pressure. Upstream of it: on the slab `--slice --slice-box "0,surface,0,1,20,1,2000"`, the
-seed's `_rock_fraction` for the fourth rock cell under the ground reads about 0.6 and its
-`LAPlanetComposition.rock_fraction` sub-samples read distances of tens of metres for a cell ten
-kilometres inside the terrain; `LATerrainLattice::build` spans `base * nx`, one cell of a column.
+with `FluxPass: the h2o record's own cells carry a signal speed at or past light`. After the first
+frame, cells seeded empty about 480 km above the ground (cell indices 383, 384, 397 on the default
+seed) hold matter below 1e-16 kg/m^3 at temperatures between 1e5 and 1e7 K, their kinetic energy
+density above their enthalpy density; `rho_max_open`, `pressure_worst_open`, `open_temp_max` and
+`energy_pv_fluid` read inf.
 
 ## 2. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the books above it
 

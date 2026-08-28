@@ -91,9 +91,7 @@ func is_submerged_at(x: float, y: float, z: float) -> bool:
 		and _f._queries.liquid_at(c) >= LAMaterialField3D.MAX_MASS * 0.5
 
 
-# O₂ min / mean over the cells a lung could breathe in — open, and not drowned under half a cell of water.
-# Both are rows of LAReduceRecords, folded on the device. NAN when the reduction has not run: there is no
-# ambient value to fall back on, and a made-up one is what hid the sealed-cavity draw-down.
+# O2 min / mean over breathable open cells, reduced on the device; NAN when the reduction has not run.
 func o2_min_open() -> float:
 	return _f._queries.row_f("o2_open_min")
 

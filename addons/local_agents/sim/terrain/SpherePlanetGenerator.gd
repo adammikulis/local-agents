@@ -125,20 +125,19 @@ func build(opts: Dictionary = {}) -> VoxelGeneratorGraph:
 		fn.add_connection(copen, 0, cvoid, 0)
 		fn.set_node_default_input(cvoid, 1, cave_strength)
 
-		# DEPTH GATE: depth = -base_sdf ; gate = min(0, depth - cave_depth_fade)
-		#   => 0 once we are deeper than cave_depth_fade, strongly negative near/above the surface. Adding it to
-		#   the void drives the void negative near the surface, so surface tunnels are suppressed (no holes).
-		var depth: int = fn.create_node(VoxelGraphFunction.NODE_MULTIPLY, Vector2(720, 60), 0)
-		fn.add_connection(surface, 0, depth, 0)
-		fn.set_node_default_input(depth, 1, -1.0)
-		var dminus: int = fn.create_node(VoxelGraphFunction.NODE_SUBTRACT, Vector2(900, 60), 0)
-		fn.add_connection(depth, 0, dminus, 0)
-		fn.set_node_default_input(dminus, 1, cave_depth_fade)
-		var gate: int = fn.create_node(VoxelGraphFunction.NODE_MIN, Vector2(1080, 60), 0)
-		fn.add_connection(dminus, 0, gate, 0)
+		# Karst gates: open in the top cave_depth_fade metres, and only above base level (the sea).
+		var dplus: int = fn.create_node(VoxelGraphFunction.NODE_ADD, Vector2(900, 60), 0)
+		fn.add_connection(surface, 0, dplus, 0)
+		fn.set_node_default_input(dplus, 1, cave_depth_fade)
+		var above_sea: int = fn.create_node(VoxelGraphFunction.NODE_ADD, Vector2(900, 160), 0)
+		fn.add_connection(sphere, 0, above_sea, 0)
+		fn.set_node_default_input(above_sea, 1, _radius - _sea_radius)
+		var pair: int = fn.create_node(VoxelGraphFunction.NODE_MIN, Vector2(1080, 110), 0)
+		fn.add_connection(dplus, 0, pair, 0)
+		fn.add_connection(above_sea, 0, pair, 1)
+		var gate: int = fn.create_node(VoxelGraphFunction.NODE_MIN, Vector2(1180, 60), 0)
+		fn.add_connection(pair, 0, gate, 0)
 		fn.set_node_default_input(gate, 1, 0.0)
-
-		# gated void = void + gate  ; carve = max(base_sdf, gated void)
 		var gvoid: int = fn.create_node(VoxelGraphFunction.NODE_ADD, Vector2(1080, 900), 0)
 		fn.add_connection(cvoid, 0, gvoid, 0)
 		fn.add_connection(gate, 0, gvoid, 1)

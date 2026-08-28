@@ -106,6 +106,11 @@ bool no_matter(uint c) {
 	return !(rho_bulk[c] > 0.0);
 }
 
+// THE MATTER THAT MOVES, kg/m^3: the cell's mass less the lattice grains standing in it.
+float rho_fluid(uint c) {
+	return max(rho_bulk[c] - max(lithic_kg[c], 0.0), 0.0);
+}
+
 // The cell's h2o split by the shares the enthalpy ladder derived, mol/m^3.
 float h2o_ice(uint c)    { return max(h2o[c], 0.0) * clamp(h2o_solid[c], 0.0, 1.0); }
 float h2o_water(uint c)  { return max(h2o[c], 0.0) * clamp(h2o_liquid[c], 0.0, 1.0); }
@@ -119,13 +124,14 @@ float cloud_water_kg_m3(uint c) {
 // Volume fraction of the cell that is condensed, so a beam meets it geometrically.
 float condensed_frac(uint c) {
 	float f = solid[c] != 0.0 ? 1.0 : 0.0;
-	f += max(silicate[c], 0.0) / FULL_SILICATE + (h2o_water(c) + h2o_ice(c)) / FULL_H2O;
+	f += max(lithic_frac[c], 0.0) + (h2o_water(c) + h2o_ice(c)) / FULL_H2O;
 	return clamp(f, 0.0, 1.0);
 }
 
-// Mass of the cell's condensed phases per unit CELL volume, kg/m^3: what lies at the bottom of it.
+// Mass of the condensed phases THE FLUID CARRIES per unit cell volume, kg/m^3: what lies at the
+// bottom of it. The lattice's grains bear their own weight and stand outside the fluid's head.
 float cond_kg_m3(uint c) {
-	return cloud_water_kg_m3(c) + max(silicate[c], 0.0) * M_SILICATE;
+	return cloud_water_kg_m3(c);
 }
 
 // Non-inductive charge separation in the riming band, C/m^3 this step: the pair creates nothing.
@@ -166,7 +172,7 @@ float face_p(uint c, uint d) {
 		return max(pressure[c], 0.0);
 	}
 	return la_stack_face_p(face_cos(c, d), cell_edge[c], gm, cond_kg_m3(c),
-		max(rho_bulk[c], 0.0), max(pressure[c], 0.0));
+		rho_fluid(c), max(pressure[c], 0.0));
 }
 
 // The GAS alone at face d, Pa: the same reconstruction with the condensed head left off.
@@ -176,7 +182,7 @@ float face_p_gas(uint c, uint d) {
 	if (gm <= 0.0) {
 		return max(pressure[c], 0.0);
 	}
-	float m_gas = max(max(rho_bulk[c], 0.0) - cond_kg_m3(c), 0.0);
+	float m_gas = max(rho_fluid(c) - cond_kg_m3(c), 0.0);
 	return la_stack_face_p(face_cos(c, d), cell_edge[c], gm, 0.0, m_gas, max(pressure[c], 0.0));
 }
 

@@ -53,8 +53,9 @@ static func rows() -> Array:
 	out.append({"key": "energy_kinetic", "source": "ke_j_m3", "op": Op.SUM, "weight": true})
 	# The third store: mass in the potential, gravitational and rotating-frame alike.
 	out.append({"key": "energy_potential", "source": "pe_j_m3", "op": Op.SUM, "mask": Mask.ALL, "weight": true})
-	# The pV between the stored enthalpy and the internal energy the first law conserves, joules.
-	out.append({"key": "energy_pv", "source": "pressure", "op": Op.SUM, "mask": Mask.ALL, "weight": true})
+	# The pV between stored enthalpy and internal energy, J: the lattice's whole cell, the fluid's own volume.
+	out.append({"key": "energy_pv_solid", "source": "pressure", "op": Op.SUM, "mask": Mask.SOLID, "weight": true})
+	out.append({"key": "energy_pv_fluid", "source": "pv_fluid", "op": Op.SUM, "mask": Mask.OPEN, "weight": true})
 	# Coulombs over the box; `charge_gross` is the charge that EXISTS, the scale a net is a fraction of.
 	out.append({"key": "charge_stock", "source": "charge", "op": Op.SUM, "mask": Mask.ALL, "weight": true})
 	out.append({"key": "charge_gross", "source": "charge", "op": Op.SUM_ABS, "weight": true})
