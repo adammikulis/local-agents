@@ -151,6 +151,7 @@ layout(set = 0, binding = 86, std430) buffer ActQueue { uint act_q[]; };
 // Cells another kernel changed, slot 3 of the args carrying their count.
 layout(set = 0, binding = 87, std430) buffer WakeQueue { uint wake_q[]; };
 layout(set = 0, binding = 88, std430) buffer WakeArgs { uint wake_args[]; };
+layout(set = 0, binding = 90, std430) buffer SentAt { uint sent_at[]; };  // the dispatch that wrote each cell's faces
 
 #include "march.glsli"
 
@@ -188,6 +189,7 @@ layout(push_constant, std430) uniform Params {
 	uint substep_n;       // substeps the finest level takes across the field step, 2^levels
 	uint act_group;       // the row group whose activity counter and cell list this dispatch walks
 	uint act_group2;      // a second group this row's crossings wake; ACT_NO_GROUP for none
+	uint dispatch_id;     // unique per row per substep; stamped by pass 0, checked by pass 1
 } params;
 
 // The seconds THIS invocation integrates. A cell's own is dt/2^tlevel; a face's is the coarser of the
@@ -206,6 +208,8 @@ uint args_base() { return params.act_group * (ACT_QUEUE_BIN + 1u) * LEVEL_SLOTS;
 
 // Matter crossed this cell recently enough that it may still donate.
 bool awake(uint c) { return quiet[act_base() + c] < ACT_QUIET_SUBSTEPS; }
+
+bool ran_outflow(uint c) { return sent_at[c] == params.dispatch_id; }
 
 float la_level_dt(uint lv) {
 	return params.dt_s * exp2(-float(lv));
@@ -1092,6 +1096,7 @@ void main() {
 			send_my[base + d] = 0.0;
 			send_mz[base + d] = 0.0;
 		}
+		sent_at[gidx] = params.dispatch_id;
 		// DETECTORS ONLY, stamped in pass 0 off the one pre-drain state the OHMIC mobility acts on.
 		if ((params.flags & TF_EFIELD) != 0u && gidx < params.cell_count) {
 			float e_here = column_field(gidx);
@@ -1389,28 +1394,28 @@ void main() {
 			continue;
 		}
 		if (exterior && params.mode != MODE_RADIATE) {
-			float in_a = awake(nb) ? send[nb * N_SLOTS + (d ^ 1u)] : 0.0;
+			float in_a = ran_outflow(nb) ? send[nb * N_SLOTS + (d ^ 1u)] : 0.0;
 			bnd_amt[gidx] += in_a - send[base + d];
 			// A signed row (momentum) is not matter and carries no heat leg.
 			if (!is_signed) {
 				uint nbo = nb * N_SLOTS + (d ^ 1u);
-				float in_h = awake(nb) ? send_h[nbo] : 0.0;
+				float in_h = ran_outflow(nb) ? send_h[nbo] : 0.0;
 				bnd_h[gidx] += (params.flags & TF_ENTHALPY) != 0u
 					? in_a - send[base + d]
 					: in_h - send_h[base + d];
-				float in_q = awake(nb) ? send_q[nbo] : 0.0;
+				float in_q = ran_outflow(nb) ? send_q[nbo] : 0.0;
 				bnd_q[gidx] += in_q - send_q[base + d];
 				// The momentum the crossing mass carries, booked on its own signed legs.
-				vec3 in_m = awake(nb)
+				vec3 in_m = ran_outflow(nb)
 					? vec3(send_mx[nbo], send_my[nbo], send_mz[nbo]) : vec3(0.0);
 				bnd_mom_x[gidx] += in_m.x - send_mx[base + d];
 				bnd_mom_y[gidx] += in_m.y - send_my[base + d];
 				bnd_mom_z[gidx] += in_m.z - send_mz[base + d];
 			}
 		}
-		// ONLY AN AWAKE CELL RAN THE OUTFLOW, so only its face scratch is this substep's; a sleeping
-		// cell's still holds whatever row wrote it last.
-		if (!awake(nb)) {
+		// ONLY THIS DISPATCH'S OWN DONORS. A cell outside this substep's list never cleared its faces,
+		// and what stands there is another row's flux.
+		if (!ran_outflow(nb)) {
 			continue;
 		}
 		// Radiation arrives from the whole grid line behind this face, not just from the cell touching it.

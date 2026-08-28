@@ -99,6 +99,9 @@ private:
 	int _level_off = 0;
 	int _k_off = 0;
 	int _n_off = 0;
+	int _dispatch_off = 0;
+	// Unique per row per substep, so a gather reads only the faces this dispatch's outflow wrote.
+	uint32_t _dispatch_id = 0;
 	int _recorded = 0;
 
 	PackedByteArray _scratch;

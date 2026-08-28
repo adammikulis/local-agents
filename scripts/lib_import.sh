@@ -96,6 +96,12 @@ la_stale_kernels() {  # la_stale_kernels <proj> — one basename per kernel the 
 	[ -d "$proj/.godot/imported" ] || return 0
 	while IFS= read -r src; do
 		base="${src##*/}"
+		# NO SIDECAR, NO LOADER. `*.import` is gitignored, so a fresh worktree has the compiled .res and
+		# no mapping to it: load() returns null and the pass is silently dead.
+		if [ ! -f "$src.import" ]; then
+			printf '%s\n' "$base"
+			continue
+		fi
 		newest="$(ls -t "$proj"/.godot/imported/"$base"-*.res 2>/dev/null | head -1)"
 		if [ -z "$newest" ]; then
 			printf '%s\n' "$base"

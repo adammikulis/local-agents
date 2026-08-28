@@ -233,18 +233,11 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       --report all_n2,open_n2,all_ch4,open_ch4; done`, or `bash scripts/check_gas_in_rock.sh` under a
       lint capture.
 
-- [ ] **FREE OXYGEN APPEARS ON A LIFELESS PLANET.** `MaterialField3D.O2_AMBIENT` is zero and
-      `LAPlanetComposition::seed` places no gas at all, yet `o2_total` reads non-zero with `biomass_total`
-      at zero. **Reproduce:** `bash scripts/check_lifeless_planet.sh`.
-
 - [ ] **A SEALED BOX'S ENERGY DOES NOT CLOSE OVER ITS TWO STORES.** `energy_kinetic` is the joules of
       motion the enthalpy state does not hold; it moves while `energy_stock` stands still, so their sum is
       not a constant. The third store, the potential the body force works against, is F's own item and has
       no gauge. **Reproduce:** `for n in 4 8; do scripts/sim_run.sh --rung 3 --frames $n --report
       energy_stock,energy_kinetic; done` and read the pair at one length against the other.
-
-- [ ] **`o2_first` latches at zero**, so the o2 row has no scale to be a fraction of. A baseline of zero is
-      not a baseline.
 
 - [ ] **`LA_PASS_PROBE` sums bare fill fractions**, which a kernel moving fill fractions conserves by
       construction, so it cannot see a volume-weighted loss and its silence is not evidence. Every
