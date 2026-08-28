@@ -7,9 +7,9 @@
 #
 #   1. NO `bin/` SYMLINK. The compiled GDExtension is a gitignored build artifact, so a fresh worktree has
 #      none and the extension does not load.
-#   2. NO IMPORTED KERNELS. A fresh worktree's `.glsl` files are unimported, so `load()` returns null, the
-#      GPU MaterialField is SILENTLY DEAD (`biomass` 0, the log full of `get_spirv on a null value`) and
-#      every number in SIM_REPORT is fiction that looks fine.
+#   2. NO IMPORTED KERNELS, or ones compiled from other source. `load()` returns null, the GPU
+#      MaterialField is SILENTLY DEAD (`biomass` 0, `get_spirv on a null value`) and every number in
+#      SIM_REPORT is fiction that looks fine. An edited `.glsl` or `.glsli` is the same failure.
 #   3. NO `.godot/`. Every Godot invocation then re-imports the whole project first, so a gate that takes
 #      seconds takes CPU-minutes, on every gate, in every tree.
 #
@@ -27,6 +27,7 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+. "$REPO_ROOT/scripts/lib_import.sh"
 BIN_REL="addons/local_agents/gdextensions/localagents/bin"
 QUIET="${LA_WORKTREE_QUIET:-}"
 
@@ -64,19 +65,14 @@ fi
 
 # --- 2 and 3. the import cache -----------------------------------------------------------------------
 # One `--import` fixes both: it creates `.godot/` and compiles every `.glsl` into `.godot/imported/`. The
-# test is a kernel WITHOUT a compiled resource, which is exactly the silent-death condition — not merely
-# "is `.godot` absent", because a half-imported tree is the same failure with a directory in front of it.
+# test is scripts/lib_import.sh's, by content, so a kernel compiled from other source counts alongside one
+# with no artifact at all — not merely "is `.godot` absent", because a half-imported tree is the same
+# failure with a directory in front of it.
 needs_import=0
 if [[ ! -d "$REPO_ROOT/.godot/imported" ]]; then
   needs_import=1
-else
-  while IFS= read -r src; do
-    base="${src##*/}"
-    if ! compgen -G "$REPO_ROOT/.godot/imported/${base}-*.res" >/dev/null 2>&1; then
-      needs_import=1
-      break
-    fi
-  done < <(find "$REPO_ROOT/addons/local_agents" -name '*.glsl' -not -path '*/thirdparty/*' 2>/dev/null)
+elif [[ -n "$(la_stale_kernels "$REPO_ROOT")" ]]; then
+  needs_import=1
 fi
 
 if [[ $needs_import -eq 1 ]]; then
