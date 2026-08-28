@@ -86,7 +86,6 @@ var _list_idx_rid: Array = []
 ## The TF_EFIELD row's electric-field outputs (driver-owned so ReducePass can read them), the boundary
 ## books, and each list's compacted-index, membership-flag and indirect-args buffers.
 func _buffers(cc: int) -> Dictionary:
-	# The acoustic pass writes `celerity`: the fastest layer on any of the cell's own faces.
 	var out: Dictionary = {"col_e": cc, "strike": cc, "radiogenic": cc, "celerity": cc,
 		"sw_space": cc, "rad_residual": cc,
 		"bnd_void": cc, "bnd_h_void": cc, "rim_ghost": cc, "rim_w": cc}

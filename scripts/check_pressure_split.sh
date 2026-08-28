@@ -20,9 +20,15 @@ done
 fail=0
 
 # 1. The EOS writer takes open cells only.
-rg -qU 'if \(solid\[g\] == 0\.0\) \{\s*\n\s*pressure\[g\] = la_eos_p' "$DERIVE" || {
+rg -qU 'if \(solid\[g\] == 0\.0\) \{\s*\n\s*pressure\[g\] = p_pa;' "$DERIVE" || {
 	echo "FAIL  state_derive.glsl writes pressure without guarding on an OPEN cell, so it and" >&2
 	echo "      pressure.glsl both write the rock and the later dispatch silently wins." >&2
+	fail=1
+}
+
+# 1b. And the pressure it writes is the equation of state's, solved against the ladder.
+rg -qU 'p_next = la_eos_p\(' "$DERIVE" || {
+	echo "FAIL  state_derive.glsl no longer states an open cell's pressure from its own matter." >&2
 	fail=1
 }
 

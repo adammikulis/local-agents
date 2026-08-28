@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# ONE RECONSTRUCTION, TWO LANGUAGES. kernels3d/stack.glsli reconstructs a stratified cell's face pressure
-# and kernels3d/eos.glsli states its pressure from its own matter; a seed holding a different stack or a
-# different equation of state than the stepper is a world that starts out of balance. Compared as token
+# ONE EQUATION OF STATE, TWO LANGUAGES. kernels3d/eos.glsli states a cell's pressure from its own matter,
+# and the seed places matter against the same equation; a seed holding a different one than the stepper is
+# a world that starts out of balance. The stack itself is the stepper's alone -- the seed marches none. Compared as token
 # streams, so a rename or a reordered term fails and only the language's own spelling may differ.
 # EXIT 0 the two agree * 1 they have drifted * 2 could not run.
 set -uo pipefail
@@ -10,10 +10,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 require_tool python3
 require_tool rg
 
-GLSL="$ROOT/addons/local_agents/sim/material/kernels3d/stack.glsli"
 EOS="$ROOT/addons/local_agents/sim/material/kernels3d/eos.glsli"
 CPP="$ROOT/addons/local_agents/gdextensions/localagents/src/LAFieldLithostaticSeed.cpp"
-for f in "$GLSL" "$EOS" "$CPP"; do
+for f in "$EOS" "$CPP"; do
 	[ -f "$f" ] || { echo "check_stack_ssot: MISSING ${f#"$ROOT"/}" >&2; exit 2; }
 done
 
@@ -27,7 +26,7 @@ if [ -n "$stray" ]; then
 	exit 1
 fi
 
-python3 - "$GLSL" "$EOS" "$CPP" <<'PY'
+python3 - "" "$EOS" "$CPP" <<'PY'
 import re, sys
 
 def body(path, sig):
@@ -57,7 +56,6 @@ def tokens(text):
     return out
 
 PAIRS = [
-    ("stacking", sys.argv[1], "float la_stack_p(", "double stack_p("),
     ("equation of state", sys.argv[2], "float la_eos_p(", "double eos_p("),
 ]
 total = 0

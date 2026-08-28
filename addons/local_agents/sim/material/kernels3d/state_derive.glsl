@@ -110,6 +110,10 @@ const float SOLID_OUT = 0.4;   // LAPhysical.RHEOLOGICAL_MOBILE_CRYSTAL_FRAC
 
 // One row of `props` per channel, built from LASubstances by StateDerivePass. A channel amount is mol/m^3.
 const int PROP_STRIDE = 11;        // StateDerivePass.PROP_STRIDE
+// The (T, p) solve's budget: under-relaxed, so a pair on a latent plateau converges onto it.
+const int LA_STATE_STEPS = 64;
+const float LA_STATE_TOL = 1.0e-6;
+const float LA_STATE_RELAX = 0.5;
 const int PROP_M = 0;              // kg/mol
 const int PROP_C = 1;              // J/kg/K, sensible-heat entry only
 const int PROP_MOL_PER_KG = 2;     // mol/kg, non-condensable gases only
@@ -362,18 +366,81 @@ void main() {
 	bool pinned = false;
 	float progress = 0.0;
 	float p_sat = 0.0;
-	if (mol_h2o > 0.0) {
-		float ps = la_saturation_p_at(subs[E_H2O], temp[g]);
-		float tk_last = max(temp[g] + LA_KELVIN_OFFSET, 1.0);
-		if (mol_h2o > ps * vol / (LA_R_J_MOL_K * tk_last)) {
-			p_sat = ps;
+	float m_h2o = mass[E_H2O];
+	float t_c = temp[g];
+	float p_pa = max(pressure[g], 0.0);
+	float f_solid = 0.0;
+	float f_liquid = 0.0;
+	float f_vapour = 0.0;
+	float b_vol = 0.0;
+	float c_comp = 0.0;
+	// ONE STATE: the ladder gives T(h, p) and the EOS p(T) off the same matter, so they solve together.
+	for (int it = 0; it < LA_STATE_STEPS; ++it) {
+		// CONDENSED PHASE IS PRESENT when the cell holds more h2o than saturated vapour would fill it.
+		p_sat = 0.0;
+		if (mol_h2o > 0.0) {
+			float ps = la_saturation_p_at(subs[E_H2O], t_c);
+			float tk_last = max(t_c + LA_KELVIN_OFFSET, 1.0);
+			if (mol_h2o > ps * vol / (LA_R_J_MOL_K * tk_last)) {
+				p_sat = ps;
+			}
 		}
+		// THE VOID OVER A CONDENSED PHASE IS ITS OWN VAPOUR, at the most volatile's saturation pressure.
+		if (mass[E_SILICATE] > 0.0) {
+			p_sat = max(p_sat, la_saturation_p_at(subs[E_SILICATE], t_c));
+		}
+		p_pa = max(p_pa, p_sat);
+		pinned = false;
+		progress = 0.0;
+		t_c = la_mix_state(subs, mass, N_ENTRIES, h_j_m3[g] * vol, p_pa, n_gas_mol, 0.0,
+			pinned, progress);
+
+		// THE PHASE SPLIT OF THIS CELL'S H2O, off the SAME ladder. `progress` is where inside a latent
+		// plateau the enthalpy landed, so a cell at the melting point reports a partial solid share.
+		f_solid = 0.0;
+		f_liquid = 0.0;
+		f_vapour = 0.0;
+		if (m_h2o > 0.0) {
+			SubstanceTh w = subs[E_H2O];
+			bool has_vap = false;
+			float vap_t = la_mix_vapour_boundary_c(w, p_pa, has_vap);
+			float melt_t = la_melt_c_at(w, p_pa, 0.0);
+			float molten = 0.0;
+			// The plateau pinned on is the boundary the temperature is NEARER: no tolerance needed.
+			bool at_vapour = pinned && has_vap && abs(t_c - vap_t) <= abs(t_c - melt_t);
+			if (at_vapour) {
+				f_vapour = progress;
+				// Below the triple point the condensate leaving is SOLID; above it, liquid.
+				molten = la_sublimes_at(w, p_pa) ? 0.0 : 1.0;
+			} else {
+				f_vapour = la_mix_vapour_fraction(w, t_c, p_pa, m_h2o, n_gas_mol, 0.0);
+				molten = pinned ? progress : (t_c < melt_t ? 0.0 : 1.0);
+			}
+			float condensed = max(1.0 - f_vapour, 0.0);
+			f_solid = condensed * (1.0 - molten);
+			f_liquid = condensed * molten;
+		}
+
+		// The vapour share joins the gas term and what is left of the water is condensed.
+		float f_cond = max(1.0 - f_vapour, 0.0);
+		b_vol = (b0 + t_c * b1 - b2) + f_cond * (hb0 + t_c * hb1 - hb2);
+		c_comp = (c0 + t_c * c1 - c2) + f_cond * (hc0 + t_c * hc1 - hc2);
+		float n_gas = n_gas_mol + f_vapour * mol_h2o;
+		float tk = max(t_c + LA_KELVIN_OFFSET, 1.0);
+		// Rock's pressure is PressurePass's: its T is read at that column and nothing here iterates.
+		if (solid[g] != 0.0) {
+			break;
+		}
+		float p_next = la_eos_p(vol, n_gas * LA_R_J_MOL_K * tk, b_vol, c_comp, LA_P_STD, p_sat);
+		if (abs(p_next - p_pa) <= LA_STATE_TOL * max(p_pa, 1.0)) {
+			break;
+		}
+		p_pa += LA_STATE_RELAX * (p_next - p_pa);
 	}
-	// CONDENSED PHASE IS PRESENT when the cell holds more h2o than saturated vapour would fill it with.
-	float p_pa = max(max(pressure[g], 0.0), p_sat);
-	float t_c = la_mix_state(subs, mass, N_ENTRIES, h_j_m3[g] * vol, p_pa, n_gas_mol, 0.0,
-		pinned, progress);
 	temp[g] = t_c;
+	if (solid[g] == 0.0) {
+		pressure[g] = p_pa;
+	}
 
 	// The decomposition la_mix_enthalpy_at sums, kept per entry so transport moves heat with matter.
 	h_h2o[g] = la_entry_h(subs[E_H2O], mass[E_H2O], t_c, p_pa, n_gas_mol, pinned, progress) * inv_vol;
@@ -382,56 +449,10 @@ void main() {
 	h_sensible[g] = la_entry_h(subs[E_SENSIBLE], mass[E_SENSIBLE], t_c, p_pa, n_gas_mol, pinned,
 		progress) * inv_vol;
 	cap_sensible[g] = mc * inv_vol;
-
-	// THE PHASE SPLIT OF THIS CELL'S H2O, off the SAME ladder and the SAME saturation curve the solve used.
-	// `progress` is where inside a latent plateau the enthalpy landed, so a cell held at the melting point
-	// reports a partial solid share instead of flipping.
-	float m_h2o = mass[E_H2O];
-	float f_solid = 0.0;
-	float f_liquid = 0.0;
-	float f_vapour = 0.0;
-	if (m_h2o > 0.0) {
-		SubstanceTh w = subs[E_H2O];
-		bool has_vap = false;
-		float vap_t = la_mix_vapour_boundary_c(w, p_pa, has_vap);
-		float melt_t = la_melt_c_at(w, p_pa, 0.0);
-		float molten = 0.0;
-		// Which plateau the mixture is pinned on: the boundary the cell temperature is NEARER. Comparing the
-		// two distances needs no tolerance, where comparing t_c to a boundary for equality would.
-		bool at_vapour = pinned && has_vap && abs(t_c - vap_t) <= abs(t_c - melt_t);
-		if (at_vapour) {
-			f_vapour = progress;
-			// Below the triple point the condensate leaving is SOLID; above it, liquid.
-			molten = la_sublimes_at(w, p_pa) ? 0.0 : 1.0;
-		} else {
-			f_vapour = la_mix_vapour_fraction(w, t_c, p_pa, m_h2o, n_gas_mol, 0.0);
-			molten = pinned ? progress : (t_c < melt_t ? 0.0 : 1.0);
-		}
-		float condensed = max(1.0 - f_vapour, 0.0);
-		f_solid = condensed * (1.0 - molten);
-		f_liquid = condensed * molten;
-	}
 	h2o_solid[g] = f_solid;
 	h2o_liquid[g] = f_liquid;
 	h2o_vapour[g] = f_vapour;
 	liquid[g] = max(h2o[g], 0.0) * f_liquid;
-
-	// PRESSURE, off this cell's own matter and energy. The vapour share joins the gas term and what is
-	// left of the water is condensed. No column is walked, so there is no staircase to integrate along.
-	float f_cond = max(1.0 - f_vapour, 0.0);
-	float b_vol = (b0 + t_c * b1 - b2) + f_cond * (hb0 + t_c * hb1 - hb2);
-	float c_comp = (c0 + t_c * c1 - c2) + f_cond * (hc0 + t_c * hc1 - hc2);
-	float n_gas = n_gas_mol + f_vapour * mol_h2o;
-	float tk = max(t_c + LA_KELVIN_OFFSET, 1.0);
-	// THE VOID OVER A CONDENSED PHASE IS ITS OWN VAPOUR, at the saturation pressure of the most volatile.
-	if (mass[E_SILICATE] > 0.0) {
-		p_sat = max(p_sat, la_saturation_p_at(subs[E_SILICATE], t_c));
-	}
-	// Rock is quasi-static and PressurePass owns it; an open cell's pressure is its own state.
-	if (solid[g] == 0.0) {
-		pressure[g] = la_eos_p(vol, n_gas * LA_R_J_MOL_K * tk, b_vol, c_comp, LA_P_STD, p_sat);
-	}
-
 	k_cond[g] = c_comp > 0.0 ? b_vol / c_comp : 0.0;
 
 	// THE MELT SHARE OF THIS CELL'S SILICATE, off the SAME ladder. Rock has a melting INTERVAL, so the
