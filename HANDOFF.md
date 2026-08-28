@@ -12,6 +12,8 @@ it is fixed. An assertion about a cause rots in silence, reads as progress, and 
 on the file it named. If you know the cause you are close enough to fix it, so fix it.
 `scripts/check_doc_prose.sh` fails the build on a tracker that names one.
 
+**THE LIST IS ORDERED BY WHAT IS UPSTREAM OF WHAT: item 1 is what every item below it is measured against.** Re-order it at every landing.
+
 **WORK THE LADDER IN ORDER.** `scripts/agent_harness.sh ladder` names the first red rung; nothing above it
 is measured, and no item about a higher rung is examined until the rungs below it are green.
 
