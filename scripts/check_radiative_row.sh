@@ -125,6 +125,16 @@ func _run(grid, solid_v: PackedFloat32Array, temp_c: PackedFloat32Array) -> Arra
 	var nbr: RID = _rd.storage_buffer_create(nbr_bytes.size(), nbr_bytes)
 	_owned.append(nbr)
 	bufs["nbr"] = nbr
+	# THE FACE LIST'S OWN GEOMETRY: where a cell's faces begin, the face pointing back, and its edge.
+	var off_b: PackedByteArray = grid.slot_off.to_byte_array()
+	var par_b: PackedByteArray = grid.partners.to_byte_array()
+	var edge_b: PackedByteArray = grid.cell_edges().to_byte_array()
+	bufs["slot_off"] = _rd.storage_buffer_create(off_b.size(), off_b)
+	bufs["face_partner"] = _rd.storage_buffer_create(par_b.size(), par_b)
+	bufs["cell_edge"] = _rd.storage_buffer_create(edge_b.size(), edge_b)
+	_owned.append(bufs["slot_off"])
+	_owned.append(bufs["face_partner"])
+	_owned.append(bufs["cell_edge"])
 	# Every wall shut: the boundary redirect holds -1 per face, exactly as the driver builds it.
 	var gh_arr: PackedInt32Array = PackedInt32Array()
 	gh_arr.resize(cc * 6)

@@ -15,7 +15,7 @@ layout(set = 0, binding = 14, std430) restrict readonly buffer Props { float mol
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };
 #include "march.glsli"
 layout(set = 0, binding = 16, std430) restrict readonly buffer Pos { float pos[]; };
-// bit 0 = the cell touches the outside of the box.
+// bit 0 = the cell touches the outside of the box, bits 1-2 = its Gauss-Seidel colour.
 layout(set = 0, binding = 17, std430) restrict buffer Flags { uint cellflag[]; };
 layout(set = 0, binding = 18, std430) restrict buffer Phi { float phi[]; };          // J/kg
 layout(set = 0, binding = 19, std430) restrict buffer Density { float density[]; };  // kg/m^3
@@ -26,8 +26,6 @@ layout(set = 0, binding = 22, std430) restrict buffer Partials { float partials[
 // The one vertical relation. vert_down is the scattered inverse of vert_up; an unset entry means no cell below.
 layout(set = 0, binding = 23, std430) restrict buffer VertUp { int vert_up[]; };
 layout(set = 0, binding = 24, std430) restrict buffer VertDown { uint vert_down[]; };
-// The Jacobi sweep's target, applied back onto phi between sweeps.
-layout(set = 0, binding = 25, std430) restrict buffer PhiNext { float phi_next[]; };
 
 const uint MODE_FLAGS = 0u;
 const uint MODE_DENSITY = 1u;
@@ -40,22 +38,27 @@ const uint MODE_FIELD_STATS = 7u;
 const uint MODE_MONOPOLE = 8u;
 const uint MODE_VERT_UP = 9u;
 const uint MODE_VERT_DOWN = 10u;
-const uint MODE_APPLY = 11u;
-const uint MODE_VERT_DOWN_KEY = 12u;
+const uint MODE_VERT_DOWN_KEY = 11u;
 
 // Cells the packed vertical key can hold, and the offset steps stacked above them.
 const uint VERT_INDEX_LIMIT = 2097152u;
 const uint VERT_KEY_STEPS = 1024u;
 
 const uint FLAG_BOUNDARY = 1u;
+const uint FLAG_COLOUR_SHIFT = 1u;
 
 const uint PART_STRIDE = 10u;    // GravityPass.PART_STRIDE
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
 	uint mode;
+	uint colour;
 	uint groups;
-	float g_si;       // LAPhysical.GRAVITATIONAL_CONSTANT
+	float g_si;
+	float base_edge;   // a LEVEL 0 cell's edge, m
+	float ox;          // the box's minimum corner, m
+	float oy;
+	float oz;       // LAPhysical.GRAVITATIONAL_CONSTANT
 	// MODE_MONOPOLE only: the DECLARED body's centre, radius and mass. A slice is a partial slab, so its
 	// own mass is not the field's source and Poisson is never relaxed over it.
 	float mono_cx;
@@ -150,12 +153,19 @@ float axis_deriv(uint c, uint lo_slot, uint hi_slot) {
 	return 0.0;
 }
 
+// FOUR COLOURS, because the graded face graph has odd cycles: a coarse cell with two of the fine cells
+// across one of its faces. The parity of a cell's coordinates IN ITS OWN LEVEL'S LATTICE separates every
+// same-level pair, and the level bit separates a coarse cell from every fine one it meets.
 void mode_flags(uint c) {
 	uint f = 0u;
 	for (uint fi = la_face_lo(c); fi < la_face_hi(c); ++fi) {
 		if (nbr[fi] < 0) { f |= FLAG_BOUNDARY; }
 	}
-	cellflag[c] = f;
+	float e = cell_edge[c];
+	vec3 q = floor((pos_at(c) - vec3(params.ox, params.oy, params.oz)) / max(e, 1.0e-30));
+	uint parity = uint(mod(q.x + q.y + q.z, 2.0));
+	uint lvl = e < 0.75 * params.base_edge ? 1u : 0u;
+	cellflag[c] = f | (((lvl << 1) | parity) << FLAG_COLOUR_SHIFT);
 }
 
 void mode_density(uint gidx, bool live) {
@@ -217,17 +227,16 @@ void mode_seed(uint c) {
 	phi[c] = -params.g_si * total / max(r, cell_edge[c]);
 }
 
-// JACOBI, out of place: the graded face graph has odd cycles, so no two-colouring exists and an
-// in-place sweep would relax neighbours together. Same operator, same fixed point.
+// Gauss-Seidel in place: one dispatch per colour, and a colour's cells are never neighbours.
 void mode_relax(uint c) {
-	if ((cellflag[c] & FLAG_BOUNDARY) != 0u) {
-		phi_next[c] = phi[c];
+	uint f = cellflag[c];
+	if ((f & FLAG_BOUNDARY) != 0u || ((f >> FLAG_COLOUR_SHIFT) & 3u) != params.colour) {
 		return;
 	}
 	float w_sum = 0.0;
 	float w_phi = 0.0;
 	la_stencil(c, w_sum, w_phi);
-	phi_next[c] = w_sum > 0.0 ? (w_phi - source_of(c)) / w_sum : phi[c];
+	if (w_sum > 0.0) { phi[c] = (w_phi - source_of(c)) / w_sum; }
 }
 
 void mode_gradient(uint gidx, bool live) {
@@ -451,9 +460,6 @@ void main() {
 			return;
 		case MODE_RELAX:
 			if (live) { mode_relax(gidx); }
-			return;
-		case MODE_APPLY:
-			if (live) { phi[gidx] = phi_next[gidx]; }
 			return;
 		case MODE_GRADIENT:
 			mode_gradient(gidx, live);

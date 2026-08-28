@@ -151,6 +151,8 @@ func setup(field) -> void:
 			p.ghost_count = _ng
 			p.grid_dims = Vector3i(_grid.nx, _grid.ny, _grid.nz)
 			p.face_count = _face_count
+			p.grid_origin = _grid.origin
+			p.grid_cell_size = _grid.cell_size
 			_passes.append(p)
 			_pass_names.append(path.get_file().get_basename())   # e.g. "TransportPass" — timestamp label
 	# A pass declares the buffers it needs and the DRIVER allocates them, so they are driver-owned and can be

@@ -16,7 +16,7 @@ const PART_STRIDE: int = 10
 ## gravity_poisson.glsl `moments`: 0 mass · 1..3 centre of mass · 4 mean |g| · 5 residual · 6 Gauss ratio.
 const MOMENT_SLOTS: int = 7
 const GROUP: int = 64
-const PC_BYTES: int = 36
+const PC_BYTES: int = 56
 
 const MODE_FLAGS: int = 0
 const MODE_DENSITY: int = 1
@@ -29,11 +29,9 @@ const MODE_FIELD_STATS: int = 7
 const MODE_MONOPOLE: int = 8
 const MODE_VERT_UP: int = 9
 const MODE_VERT_DOWN: int = 10
-const MODE_APPLY: int = 11
-const MODE_VERT_DOWN_KEY: int = 12
+const MODE_VERT_DOWN_KEY: int = 11
 
 const PHI: String = "grav_phi"
-const PHI_NEXT: String = "grav_phi_next"
 const DENSITY: String = "grav_density"
 const FLAGS: String = "grav_cellflag"
 const MOMENTS: String = "grav_moments"
@@ -60,6 +58,10 @@ var _residual_rel: float = INF          # until a solve has been drained, the fi
 var _failed_announced: bool = false
 ## SLICE: centre xyz, radius, mass of the declared body. Empty = solve Poisson from the grid's own mass.
 var _mono: PackedFloat32Array = PackedFloat32Array()
+## The colours a sweep issues: two on a uniform grid, four where a 2:1 seam makes odd cycles.
+var _colours: PackedInt32Array = PackedInt32Array([0, 1])
+var _base_edge: float = 0.0
+var _origin: Vector3 = Vector3.ZERO
 
 
 func _buffers(cc: int) -> Dictionary:
@@ -71,7 +73,6 @@ func _buffers(cc: int) -> Dictionary:
 		MOMENTS: MOMENT_SLOTS,
 		VERT_UP: maxi(cc, 1),
 		VERT_DOWN: maxi(cc, 1),
-		PHI_NEXT: maxi(cc, 1),
 		PARTIALS: g * PART_STRIDE}
 
 
@@ -80,6 +81,10 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	if not _pipe.is_valid():
 		return
 	_groups = maxi(int(ceil(float(cc) / float(GROUP))), 1)
+	_base_edge = grid_cell_size
+	_origin = grid_origin
+	if face_count > cc * 6:
+		_colours = PackedInt32Array([0, 1, 2, 3])
 	var channels: PackedStringArray = LAMatterChannels.CHANNELS
 	if channels.size() != LAMatterChannels.KERNEL_SLOTS:
 		push_error("GravityPass: LAMatterChannels lists %d channels and matter_channels.glsli switches "
@@ -93,7 +98,7 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 
 	var want: PackedStringArray = channels.duplicate()
 	want.append_array(PackedStringArray(["nbr", "pos", "gravity", PHI, DENSITY, FLAGS, MOMENTS, PARTIALS,
-		VERT_UP, VERT_DOWN, PHI_NEXT, "slot_off", "face_partner", "cell_edge"]))
+		VERT_UP, VERT_DOWN, "slot_off", "face_partner", "cell_edge"]))
 	var missing: PackedStringArray = LAMatterChannels.absent(bufs, want)
 	if not missing.is_empty():
 		push_error("GravityPass: no buffer for %s, so no cell would get a gravity."
@@ -118,7 +123,6 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	entries.append([22, _single(bufs, PARTIALS)])
 	entries.append([23, _single(bufs, VERT_UP)])
 	entries.append([24, _single(bufs, VERT_DOWN)])
-	entries.append([25, _single(bufs, PHI_NEXT)])
 	entries.append([92, _single(bufs, "slot_off")])
 	entries.append([93, _single(bufs, "face_partner")])
 	entries.append([94, _single(bufs, "cell_edge")])
@@ -148,8 +152,8 @@ func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: i
 	plan.append([MODE_MOMENTS, 0, 1])
 	plan.append([MODE_SEED, 0, groups])
 	for _s in SWEEPS:
-		plan.append([MODE_RELAX, 0, groups])
-		plan.append([MODE_APPLY, 0, groups])
+		for colour in _colours:
+			plan.append([MODE_RELAX, colour, groups])
 	plan.append([MODE_GRADIENT, 0, groups])
 	plan.append([MODE_VERT_UP, 0, groups])
 	plan.append([MODE_VERT_DOWN, 0, groups])
@@ -191,15 +195,20 @@ func _issue(cl: int, plan: Array, cc: int) -> void:
 	_driver.run(cl, _pipe, [_set], pcs, wgs, args, offs, true)
 
 
-func _push(mode: int, _colour: int, cc: int) -> PackedByteArray:
+func _push(mode: int, colour: int, cc: int) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(PC_BYTES)
 	pc.encode_u32(0, cc)
 	pc.encode_u32(4, mode)
-	pc.encode_u32(8, _groups)
-	pc.encode_float(12, LAPhysical.GRAVITATIONAL_CONSTANT)
+	pc.encode_u32(8, colour)
+	pc.encode_u32(12, _groups)
+	pc.encode_float(16, LAPhysical.GRAVITATIONAL_CONSTANT)
+	pc.encode_float(20, _base_edge)
+	pc.encode_float(24, _origin.x)
+	pc.encode_float(28, _origin.y)
+	pc.encode_float(32, _origin.z)
 	for i in 5:
-		pc.encode_float(16 + i * 4, _mono[i] if i < _mono.size() else 0.0)
+		pc.encode_float(36 + i * 4, _mono[i] if i < _mono.size() else 0.0)
 	return pc
 
 

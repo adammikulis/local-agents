@@ -90,6 +90,16 @@ func _solve(grid, fill: PackedFloat32Array) -> Array:
 	var nbr: RID = _rd.storage_buffer_create(nbr_bytes.size(), nbr_bytes)
 	_owned.append(nbr)
 	bufs["nbr"] = nbr
+	# THE FACE LIST'S OWN GEOMETRY: where a cell's faces begin, the face pointing back, and its edge.
+	var off_b: PackedByteArray = grid.slot_off.to_byte_array()
+	var par_b: PackedByteArray = grid.partners.to_byte_array()
+	var edge_b: PackedByteArray = grid.cell_edges().to_byte_array()
+	bufs["slot_off"] = _rd.storage_buffer_create(off_b.size(), off_b)
+	bufs["face_partner"] = _rd.storage_buffer_create(par_b.size(), par_b)
+	bufs["cell_edge"] = _rd.storage_buffer_create(edge_b.size(), edge_b)
+	_owned.append(bufs["slot_off"])
+	_owned.append(bufs["face_partner"])
+	_owned.append(bufs["cell_edge"])
 	bufs["pos"] = _vec3_flat(grid)
 	bufs["gravity"] = _f32(cc * 3)
 	# The potential this solve writes; StateDerivePass declares it, so a rig without that pass makes it.

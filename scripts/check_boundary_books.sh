@@ -137,6 +137,9 @@ func _init() -> void:
 	bufs["gravity"] = _f32(_filled(tc * 3, 0.0), owned)
 	bufs["g_rest"] = _f32(_filled(tc * 3, 0.0), owned)
 	bufs["nbr"] = _i32(grid.neighbours, owned)
+	bufs["slot_off"] = _i32(grid.slot_off, owned)
+	bufs["face_partner"] = _i32(grid.partners, owned)
+	bufs["cell_edge"] = _f32(grid.cell_edges(), owned)
 	var ghost_tbl: PackedInt32Array = PackedInt32Array()
 	ghost_tbl.resize(grid.neighbours.size())
 	ghost_tbl.fill(-1)
@@ -144,6 +147,7 @@ func _init() -> void:
 
 	var p: RefCounted = (load(PASS_PATH) as GDScript).new()
 	p.ghost_count = ng
+	p.face_count = grid.neighbours.size()
 	var want: Dictionary = p._buffers(cc)
 	# The temporal levels a world gets from StateDerivePass; this rig runs the transport pass alone.
 	want.merge(LATemporalLevels.buffers(cc + ng, p.group_count()))

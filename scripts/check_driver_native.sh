@@ -97,6 +97,9 @@ func _build() -> Dictionary:
 		bufs[name] = _f32(_filled(cc, 0.0))
 	bufs["gravity"] = _f32(_filled(cc * 3, 0.0))
 	bufs["nbr"] = _i32(grid.neighbours)
+	bufs["slot_off"] = _i32(grid.slot_off)
+	bufs["face_partner"] = _i32(grid.partners)
+	bufs["cell_edge"] = _f32(grid.cell_edges())
 	var ghost_tbl: PackedInt32Array = PackedInt32Array()
 	ghost_tbl.resize(grid.neighbours.size())
 	ghost_tbl.fill(-1)
@@ -136,6 +139,7 @@ func _attach(bufs: Dictionary) -> RefCounted:
 	var cc: int = int(bufs["__cc"])
 	var p: RefCounted = (load(PASS_PATH) as GDScript).new()
 	p.ghost_count = 0
+	p.face_count = grid.neighbours.size()
 	var want: Dictionary = p._buffers(cc)
 	for key in want:
 		var spec: Variant = want[key]
