@@ -57,6 +57,7 @@ layout(push_constant, std430) uniform Params {
 	float ox;          // the box's minimum corner, m
 	float oy;
 	float oz;
+	float r_datum;     // m: the potential's zero is the reference monopole's at this radius
 } params;
 
 shared float s_red[64];
@@ -227,7 +228,8 @@ void mode_seed(uint c) {
 	}
 	vec3 com = vec3(moments[1], moments[2], moments[3]);
 	float r = length(pos_at(c) - com);
-	grav_ref[c] = -params.g_si * total / max(r, cell_edge[c]);
+	// STATED AGAINST THE DATUM, so float32 holds a potential of tens of kJ/kg, not tens of MJ/kg.
+	grav_ref[c] = -params.g_si * total * (1.0 / max(r, cell_edge[c]) - 1.0 / max(params.r_datum, cell_edge[c]));
 	if ((cellflag[c] & FLAG_BOUNDARY) != 0u) { phi[c] = 0.0; }
 }
 

@@ -19,18 +19,10 @@ is measured, and no item about a higher rung is examined until the rungs below i
 
 ---
 
-## 1. RUNG 3 DOES NOT COMPLETE ON THE GRADED PLANET (the first red rung; the slab's rest gate is green)
+## 1. RUNG 3 DOES NOT COMPLETE ON THE GRADED PLANET (the first red rung; the slab's gate is green both arms)
 
 `scripts/sim_run.sh --rung 3 --frames 8` exits 4; the run logs `FluxPass: the h2o record's own cells
 carry a signal speed at or past light, so no timestep integrates them`.
-
-## 1b. A FACE ONTO SPACE CARRIES NO MATTER, AND GAS VENTING INTO VACUUM DOES NOT COOL
-
-`LA_BOUNDARY_FACES=shut,shut,shut,space,shut,shut scripts/sim_run.sh --path . --slice --rung 3
---slice-box "0,surface,0,1,20,1,2000" --frames 3 --report wind_speed_max`: the top cell's density and
-pressure rise while the cells under it drain upward at hundreds of m/s, and every air cell stays at the
-seed temperature while its pressure halves. `bash scripts/check_atmosphere_at_rest.sh` prints the
-vented arm at a Mach number far past free expansion.
 
 ## 2. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the books above it
 

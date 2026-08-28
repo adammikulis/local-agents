@@ -60,6 +60,12 @@ uint args_base() { return params.act_group * (ACT_QUEUE_BIN + 1u) * LEVEL_SLOTS;
 // Matter crossed this cell recently enough that it may still donate.
 bool awake(uint c) { return quiet[act_base() + c] < ACT_QUIET_SUBSTEPS; }
 
+// THE CLAIM'S THREE STATES: 0 unlisted, 1 queued by this substep's marking, 2 in this substep's list.
+const uint CLAIM_LISTED = 2u;
+// A cell this substep dispatches. A face crosses only between two of them, or the crossing would be
+// written from one side and the books would not close.
+bool listed(uint c) { return c < params.total_count && act_claim[c] == CLAIM_LISTED; }
+
 float la_level_dt(uint lv) { return params.dt_s * exp2(-float(lv)); }
 
 // The cells this group's list holds right now: bin 0's suffix is every level at once.
@@ -103,7 +109,8 @@ void list_append(uint g) {
 
 // One cell into the compaction queue, counted into its level's bin; a second claimant is dropped.
 void act_claim_append(uint n) {
-	if (atomicExchange(act_claim[n], 1u) != 0u) {
+	// A cell listed LAST substep is claimable again: only this substep's own claim (1) dedups.
+	if (atomicExchange(act_claim[n], 1u) == 1u) {
 		return;
 	}
 	uint slot = atomicAdd(level_args[args_base() + ACT_QUEUE_BIN * LEVEL_SLOTS + 3u], 1u);
@@ -165,6 +172,7 @@ bool la_active_levels(uint gidx) {
 		if (gidx < act_listed()) {
 			uint c = level_idx[act_base() + gidx];
 			quiet[act_base() + c] = la_outside_driven(c) ? 0u : quiet[act_base() + c] + 1u;
+			act_claim[c] = 0u;   // last substep's listing ends; the marking below reclaims
 		}
 		return true;
 	}
@@ -175,6 +183,7 @@ bool la_active_levels(uint gidx) {
 		uint wide = max(1u, (params.total_count + 63u) / 64u);
 		if (gidx < params.total_count) {
 			wake_q[gidx] = gidx;
+			act_claim[gidx] = CLAIM_LISTED;
 			for (uint g = 0u; g < gc; ++g) {
 				level_idx[g * params.total_count + gidx] = gidx;
 				quiet[g * params.total_count + gidx] = 0u;
@@ -293,7 +302,7 @@ bool la_active_levels(uint gidx) {
 		// Bin 0's suffix, which the scan just wrote: the queue's own count is cleared below.
 		if (gidx < level_args[b0 + 6u]) {
 			uint c = act_q[gidx];
-			act_claim[c] = 0u;
+			act_claim[c] = CLAIM_LISTED;
 			uint lv = min(tlevel[c], ACT_BINS - 1u);
 			uint slot = level_args[b0 + lv * LEVEL_SLOTS + 4u]
 				+ atomicAdd(level_args[b0 + lv * LEVEL_SLOTS + 5u], 1u);

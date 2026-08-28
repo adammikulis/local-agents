@@ -48,6 +48,8 @@ static func rows() -> Array:
 		out.append({"key": "all_" + name, "source": name, "op": Op.SUM, "mask": Mask.ALL, "weight": true})
 		out.append({"key": "open_" + name, "source": name, "op": Op.SUM, "mask": Mask.OPEN, "weight": true})
 	out.append({"key": "energy_stock", "source": "h_j_m3", "op": Op.SUM, "mask": Mask.ALL, "weight": true})
+	# The same stock split by who updates it: open cells every substep, rock once a step.
+	out.append({"key": "energy_stock_open", "source": "h_j_m3", "op": Op.SUM, "mask": Mask.OPEN, "weight": true})
 	out.append({"key": "energy_kinetic", "source": "ke_j_m3", "op": Op.SUM, "weight": true})
 	# The third store: mass in the potential, gravitational and rotating-frame alike.
 	out.append({"key": "energy_potential", "source": "pe_j_m3", "op": Op.SUM, "mask": Mask.ALL, "weight": true})

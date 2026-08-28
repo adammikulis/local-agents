@@ -369,7 +369,7 @@ float escape_speed(uint c, uint d, out float tail_j_mol) {
 	tail_j_mol = 0.0;
 	vec3 gv = g_at(c);
 	float gmag = length(gv);
-	float depth = -la_phi(c);
+	float depth = -(la_phi(c) + params.phi_datum);
 	float kg_mol = sub_kg_mol();
 	if (gmag <= 0.0 || depth <= 0.0 || kg_mol <= 0.0) {
 		return 0.0;

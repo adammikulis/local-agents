@@ -16,7 +16,7 @@ const PART_STRIDE: int = 10
 ## gravity_poisson.glsl `moments`: 0 mass · 1..3 centre of mass · 4 mean |g| · 6 Gauss ratio.
 const MOMENT_SLOTS: int = 7
 const GROUP: int = 64
-const PC_BYTES: int = 36
+const PC_BYTES: int = 40
 
 const MODE_FLAGS: int = 0
 const MODE_DENSITY: int = 1
@@ -59,7 +59,8 @@ var _residual_rel: float = INF          # until a solve has been drained, the fi
 var _last: Dictionary = {}              # what the last drain published; the step's report reads it
 var _failed_announced: bool = false
 ## SLICE: centre xyz, radius, mass of the declared body. Empty = solve Poisson from the grid's own mass.
-var _slab: bool = false                  # a slab carries the declared body's field, uploaded once
+var _slab: bool = false
+var _r_datum: float = 0.0                # m: where the reference potential is zero                  # a slab carries the declared body's field, uploaded once
 var _phi_rid: RID = RID()
 var _iterations: int = 0
 var _density_rid: RID = RID()
@@ -195,6 +196,17 @@ func solve_converged(rd: RenderingDevice, grid, cc: int, groups: int) -> float:
 	return _residual_rel
 
 
+## The radius the reference potential is zero at: the box's half edge, a constant per world.
+func set_datum(r_m: float) -> void:
+	_r_datum = r_m
+
+
+## The potential at the datum against infinity, J/kg: what la_phi leaves out.
+func phi_datum() -> float:
+	var m: float = float(_last.get("gravity_total_mass_kg", 0.0))
+	return -LAPhysical.GRAVITATIONAL_CONSTANT * m / _r_datum if _r_datum > 0.0 and m > 0.0 else 0.0
+
+
 ## SLICE ONLY, once at the seed, after the body's field is uploaded: the vertical relation and |g| stats.
 func dispatch_slab(_rd: RenderingDevice, cl: int, cc: int, groups: int) -> void:
 	_slab = true
@@ -232,6 +244,7 @@ func _push(mode: int, colour: int, cc: int) -> PackedByteArray:
 	pc.encode_float(24, _origin.x)
 	pc.encode_float(28, _origin.y)
 	pc.encode_float(32, _origin.z)
+	pc.encode_float(36, _r_datum)
 	return pc
 
 

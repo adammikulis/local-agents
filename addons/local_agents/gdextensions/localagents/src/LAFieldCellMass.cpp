@@ -1,3 +1,5 @@
+#include <godot_cpp/variant/utility_functions.hpp>
+#include "LAGridGeometry.hpp"
 #include "LAFieldCellMass.hpp"
 
 #include "LAScriptCall.hpp"
@@ -94,6 +96,82 @@ void LAFieldCellMass3D::upload_regolith(RenderingDevice *p_rd, const Dictionary 
 		const PackedByteArray pb = por.to_byte_array();
 		p_rd->buffer_update(RID(p_bufs["porosity"]), 0, pb.size(), pb);
 	}
+}
+
+void LAFieldCellMass3D::regolith(Object *p_field, int p_shells) {
+	if (!p_field || p_shells <= 0) {
+		return;
+	}
+	Object *grid = Object::cast_to<Object>(p_field->get("_grid"));
+	Object *gravity = Object::cast_to<Object>(p_field->get("_gravity"));
+	const int cc = int(p_field->get("_cell_count"));
+	const PackedByteArray solid = p_field->get("_solid");
+	if (!grid || !gravity || cc <= 0 || solid.size() != cc) {
+		UtilityFunctions::push_error("LAFieldCellMass3D.regolith: no grid, no gravity or a solid mask of the wrong size; no regolith.");
+		return;
+	}
+	const PackedInt32Array up = gravity->call("up_table");
+	const PackedFloat64Array cw = LAGridGeometry::centres_f64(grid);
+	Array cargs;
+	cargs.append(p_field);
+	const Vector3 centre = la_call_gd("res://addons/local_agents/sim/material/FieldGeometry3D.gd", "centre", cargs);
+	const double sea_r = double(p_field->call("sea_radius"));
+	const double shell_m = la_physical("GROUNDWATER_CIRCULATION_M") / double(p_shells);
+	const double phi0 = la_physical("REGOLITH_SURFACE_POROSITY");
+	const double z_c = la_physical("COMPACTION_LENGTH_M");
+	const double d_low = la_physical("GRAIN_D_LOWLAND_M");
+	const double d_up = la_physical("GRAIN_D_UPLAND_M");
+	PackedByteArray mask;
+	PackedFloat32Array grain, por;
+	mask.resize(cc);
+	grain.resize(cc);
+	por.resize(cc);
+	mask.fill(0);
+	grain.fill(0.0f);
+	por.fill(0.0f);
+	std::vector<int> burial(cc, -1);
+	std::vector<double> radius(cc, 0.0);
+	double highest = sea_r;
+	const bool walkable = up.size() >= cc && cw.size() == cc * 3;
+	for (int c = 0; c < cc && walkable; c++) {
+		radius[c] = std::hypot(cw[c * 3] - double(centre.x), cw[c * 3 + 1] - double(centre.y), cw[c * 3 + 2] - double(centre.z));
+		if (solid[c] == 0) {
+			continue;
+		}
+		int at = c;
+		for (int k = 0; k < p_shells; k++) {
+			const int hi = up[at];
+			if (hi < 0 || hi >= cc) {
+				break;
+			}
+			if (solid[hi] == 0) {
+				burial[c] = k;
+				break;
+			}
+			at = hi;
+		}
+		if (burial[c] == 0) {
+			highest = std::max(highest, radius[c]);
+		}
+	}
+	const double relief = std::max(highest - sea_r, double(grid->get("cell_size")));
+	uint8_t *mw = mask.ptrw();
+	float *gw = grain.ptrw();
+	float *pw = por.ptrw();
+	for (int c = 0; c < cc; c++) {
+		const int shells = burial[c];
+		if (shells < 0) {
+			continue;
+		}
+		const double height = std::clamp((radius[c] - sea_r) / relief, 0.0, 1.0);
+		const double z = (double(shells) + 0.5) * shell_m;
+		mw[c] = 1;
+		gw[c] = float(d_low * std::pow(d_up / d_low, height));
+		pw[c] = float(phi0 * std::exp(-z / z_c));
+	}
+	p_field->set("_regolith", mask);
+	p_field->set("_grain", grain);
+	p_field->set("_porosity", por);
 }
 
 Dictionary LAFieldCellMass3D::masses_at(Object *p_field, int p_c, double p_cell_m3) {
@@ -285,6 +363,7 @@ double LAFieldCellMass3D::kg_m3_at(const Array &p_mirrors, int p_c) {
 void LAFieldCellMass3D::_bind_methods() {
 	ClassDB::bind_static_method("LAFieldCellMass3D",
 			D_METHOD("upload_regolith", "rd", "bufs", "field"), &LAFieldCellMass3D::upload_regolith);
+	ClassDB::bind_static_method("LAFieldCellMass3D", D_METHOD("regolith", "field", "shells"), &LAFieldCellMass3D::regolith);
 	ClassDB::bind_static_method("LAFieldCellMass3D",
 			D_METHOD("masses_at", "field", "cell", "cell_m3"), &LAFieldCellMass3D::masses_at);
 	ClassDB::bind_static_method("LAFieldCellMass3D",

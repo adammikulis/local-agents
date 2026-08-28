@@ -22,39 +22,7 @@ static func porosity_at(shells: int) -> float:
 	return LAPhysical.REGOLITH_SURFACE_POROSITY * exp(-z / LAPhysical.COMPACTION_LENGTH_M)
 
 
-## Compute the permeability mask, the grain-size field and the pore fraction. The water that stands in
-## those pores is the body's own, and LAFieldHydrosphereSeed lays it.
+## The permeability mask, the grain-size field and the pore fraction, walked in the GDExtension. The
+## water that stands in those pores is the body's own, and LAFieldHydrosphereSeed lays it.
 func compute() -> void:
-	if _f._grid == null or _f._solid.size() != _f._cell_count:
-		push_error("LAMaterialFieldRegolith3D.compute: no grid or the solid mask is %d over %d cells; no regolith." % [_f._solid.size(), _f._cell_count])
-		return
-	var cell_count: int = _f._cell_count
-	_f._regolith = PackedByteArray()
-	_f._regolith.resize(cell_count)                        # 0 = bedrock/void, 1 = permeable regolith
-	_f._grain = PackedFloat32Array()
-	_f._grain.resize(cell_count)                           # representative grain diameter, metres
-	_f._porosity = PackedFloat32Array()
-	_f._porosity.resize(cell_count)                        # Athy pore fraction, 0 outside the regolith band
-	var sea_r: float = _f.sea_radius()
-	var burial: PackedInt32Array = PackedInt32Array()
-	burial.resize(cell_count)
-	var highest: float = sea_r
-	for c in cell_count:
-		burial[c] = -1
-		if _f._solid[c] == 0:
-			continue
-		burial[c] = LAFieldGeometry.burial_steps(_f, c, REGOLITH_CELLS)
-		if burial[c] == 0:
-			highest = maxf(highest, LAFieldGeometry.radius_of(_f, c))
-	var relief: float = maxf(highest - sea_r, _f._grid.cell_size)
-
-	for c in cell_count:
-		var shells: int = burial[c]
-		if shells < 0:
-			continue
-		var height: float = clampf((LAFieldGeometry.radius_of(_f, c) - sea_r) / relief, 0.0, 1.0)
-		var phi: float = porosity_at(shells)
-		_f._regolith[c] = 1
-		_f._grain[c] = LAPhysical.GRAIN_D_LOWLAND_M * pow(
-			LAPhysical.GRAIN_D_UPLAND_M / LAPhysical.GRAIN_D_LOWLAND_M, height)
-		_f._porosity[c] = phi
+	LAFieldCellMass3D.regolith(_f, REGOLITH_CELLS)

@@ -43,7 +43,7 @@ const FLUSH_EVERY: int = 4096
 const PC_LEVEL: int = 92
 const PC_K: int = 96
 const PC_N: int = 100
-const PC_BYTES: int = 112
+const PC_BYTES: int = 120
 
 ## Records that advance together on one time axis; a solitary record is its own group.
 var _row_groups: Array = []
@@ -180,6 +180,8 @@ func _plan() -> Dictionary:
 
 ## XUV irradiance at this body, W/m^2, taken once per dispatch off the ctx the star publishes into.
 var _xuv_w_m2: float = 0.0
+var _phi_datum: float = 0.0             # J/kg, la_phi's zero against infinity
+var _grav_self: float = 1.0
 
 
 func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:
@@ -189,6 +191,8 @@ func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: i
 	var sun: Vector3 = ctx.get("sun_dir", Vector3.ZERO)
 	# No sun in the ctx is no star, which is no XUV — never an assumed one.
 	_xuv_w_m2 = float(ctx.get("xuv_w_m2", 0.0))
+	_phi_datum = float(ctx.get("phi_datum", 0.0))
+	_grav_self = float(ctx.get("gravity_self", 1.0))
 	# The equation of state, restated after every substep. StateDerivePass owns the kernel, the
 	# bindings and the block; this pass owns when the substep asks for it.
 	_driver.run_transport(cl, _peaks, _pc_rows(cc, dt_s, sun),
@@ -313,7 +317,7 @@ const BINDINGS: Dictionary = {
 	"rad_emitted": 38, "col_e": 39, "strike": 40, "rad_w_m3": 41, "ch4": 42, "radiogenic": 43,
 	"cap_sensible": 47, "rim_ghost": 50, "rim_w": 51, "sw_space": 54, "rad_residual": 55, "rho_bulk": 57,
 	"mom_x": 58, "mom_y": 59, "mom_z": 60, "celerity": 64, "speed": 65, "bodyf_x": 66, "bodyf_y": 67,
-	"bodyf_z": 68, "co": 72, "so2": 73, "h2s": 74, "o2": 75, "n2": 76, "h2": 77, "grav_phi": 78, "grav_ref": 95,
+	"bodyf_z": 68, "co": 72, "so2": 73, "h2s": 74, "o2": 75, "n2": 76, "h2": 77, "grav_phi": 78, "grav_ref": 95, "pe_j_m3": 91,
 	"tlevel": 80, "level_idx": 81, "level_args": 82, "level_peak": 83, "act_quiet": 84, "act_claim": 85,
 	"act_queue": 86, "act_wake": 87, "act_wake_args": 88, "k_cond": 89,
 	"slot_off": 92, "face_partner": 93, "cell_edge": 94
@@ -553,6 +557,8 @@ func _pc(row: Dictionary, cc: int, pass_id: int, dt_s: float,
 	pc.encode_u32(104, act_group)
 	# A record carrying silicate also wakes the prologue that derives where that mineral sits.
 	pc.encode_u32(108, group_count() - 1 if String(row["channel"]) == "silicate" else NO_GROUP)
+	pc.encode_float(112, _phi_datum)
+	pc.encode_float(116, _grav_self)
 	return pc
 
 
