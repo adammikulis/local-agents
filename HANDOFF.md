@@ -106,9 +106,6 @@ GDScript keeps bindings. `gdextensions/localagents/` already builds; a class is 
 - The seed-time serial work still in GDScript: `MaterialFieldSolidCache3D`'s SDF spot check and file
   hashing, `MaterialFieldRegolith3D.compute`'s burial march, and `LAFieldEnthalpySeed.seed`'s per-cell
   loop, which now calls native for the masses and keeps the mixture arithmetic here.
-- The driver: `MaterialSphereGPU3D.gd`, `MaterialField3D.gd` and `TransportPass.gd`. `TransportPass`'s
-  dispatch loop and `ReducePass._drain`'s readback are what the field costs now — read
-  `field_readback_ms`. Last, after the pass seam settles.
 
 ## 8. A --ui run with fauna never reports, and the opening view frames open ocean
 
