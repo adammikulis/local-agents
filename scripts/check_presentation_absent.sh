@@ -8,6 +8,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh"
 require_tool rg
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
+la_examined "$(basename "$0")" || exit $?
 
 if la_cap_dir >/dev/null; then
 	line="$(la_marker '^TREE_PRESENTATION=')" || exit 2

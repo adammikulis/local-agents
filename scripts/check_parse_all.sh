@@ -23,6 +23,7 @@
 set -uo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
+la_examined "$(basename "$0")" || exit $?
 
 # Pure-bash, no `dirname`: this must still resolve when PATH is broken, or the missing-tool check below
 # never gets a chance to report exit 2.

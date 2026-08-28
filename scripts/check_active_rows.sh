@@ -8,6 +8,7 @@ set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$REPO_ROOT/scripts/lib_capture.sh"
+la_examined "$(basename "$0")" || exit $?
 GODOT="${GODOT:-godot}"
 command -v "$GODOT" >/dev/null 2>&1 || { echo "ERROR: godot not on PATH — a gate that cannot run FAILS." >&2; exit 2; }
 command -v rg >/dev/null 2>&1 || { echo "ERROR: rg absent — a gate that cannot run FAILS." >&2; exit 2; }

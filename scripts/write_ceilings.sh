@@ -14,6 +14,18 @@ TREE="${1:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 require_tool rg
 
 fail=0
+track() {  # track <floor file> <measured>: the floor follows the count it floors, either way
+	local f="$TREE/docs/$1" have="$2"
+	[ -f "$f" ] || { echo "write_ceilings: no docs/$1" >&2; exit 2; }
+	local cur
+	cur="$(rg -N -e '^[0-9]+$' "$f" | head -1)"
+	case "$cur" in "" | *[!0-9]*) echo "write_ceilings: docs/$1 carries no number." >&2; exit 2 ;; esac
+	if [ "$have" != "$cur" ]; then
+		echo "write_ceilings: $1 $cur -> $have"
+		sed -i '' "s/^$cur\$/$have/" "$f"
+	fi
+}
+
 lower() {  # lower <ceiling file> <measured>
 	local f="$TREE/docs/$1" have="$2"
 	[ -f "$f" ] || { echo "write_ceilings: no docs/$1" >&2; exit 2; }
@@ -82,6 +94,6 @@ fi
 # against scanning a tree whose kernels did not import, so it tracks the kernel count rather than leading it.
 kernels="$(rg --files -g '*.glsl' "$TREE/addons/local_agents/sim/material/kernels3d" 2>/dev/null | rg -c '.' || echo 0)"
 [ "$kernels" -gt 0 ] || { echo "write_ceilings: found no .glsl kernels to floor." >&2; exit 2; }
-lower SHADER_FLOOR "$kernels"
+track SHADER_FLOOR "$kernels"
 
 [ "$fail" -eq 0 ] || exit 1

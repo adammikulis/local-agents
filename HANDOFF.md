@@ -27,14 +27,6 @@ mass (`scripts/check_momentum_orphans.sh`), and a cell with a little mass and a 
 same defect one cell over. `bash scripts/check_atmosphere_at_rest.sh` is the rung's other gate: its
 sealed column moves and its vented control reads differently.
 
-## 3. LINT FOLLOWS THE LADDER
-
-`scripts/lint_capture.sh` records its shared arm at `--rung 8` while the ladder stops at rung 3, so lint
-reads a world the ladder refuses to examine. The capture runs at the highest green rung
-(`docs/PLAYABLE_RUNG`); a gate that needs a process above it is assigned to that rung in `LAProcessSet`
-and exits 2 ("not examined") until the ladder reaches it; `docs/UNRUNNABLE_GATES_CEILING` then counts
-the rungs the ladder has not reached, not defects. Reproduce: `rg -n "rung 8" scripts/lint_capture.sh`.
-
 ## 4. THE GRADED GRID — built, on tag `wip/graded-grid`, not landed
 
 `scripts/new_worktree.sh feature/graded-grid wip/graded-grid`, merge the dev branch, then

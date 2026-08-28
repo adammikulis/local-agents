@@ -239,6 +239,7 @@ if [[ "$cmd" == "lint" ]]; then
     lint_failed=0
     lint_unrunnable=0
     lint_skipped=0
+    lint_not_examined=0
     run_gate() {
       local label="$1"
       shift
@@ -249,6 +250,9 @@ if [[ "$cmd" == "lint" ]]; then
         1)
           echo "LINT_FAIL: $label ($rc)"
           lint_failed=$((lint_failed + 1))
+          ;;
+        3)
+          lint_not_examined=$((lint_not_examined + 1))
           ;;
         *)
           echo "LINT_UNRUNNABLE: $label ($rc)"
@@ -378,8 +382,8 @@ if [[ "$cmd" == "lint" ]]; then
       echo "LINT_SUMMARY: $lint_failed gate(s) failed. Every gate ran; the list above is complete."
       exit 1
     fi
-    if [[ $lint_skipped -gt 0 ]]; then
-      echo "LINT_SUMMARY: passed, with $lint_skipped GPU gate(s) SKIPPED — this run did not examine them."
+    if [[ $lint_skipped -gt 0 || $lint_not_examined -gt 0 ]]; then
+      echo "LINT_SUMMARY: passed, with $lint_skipped GPU gate(s) SKIPPED and $lint_not_examined above the ladder's rung — this run did not examine them."
       exit 0
     fi
     echo "All lint gates passed (file length gates at soft 1300 / hard 1500; policy markers are advisory)."
