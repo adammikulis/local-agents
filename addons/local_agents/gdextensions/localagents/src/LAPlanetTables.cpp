@@ -502,7 +502,7 @@ void LAPlanetComposition::seed(Object *p_field, double p_t_c) {
 		}
 		fill[i] = float(double(amounts[ch[i]]));
 	}
-	const PackedVector3Array la_cw = grid->call("cell_world_pos_all");
+	const PackedVector3Array la_cw = grid->get("centres");
 	double r_max = 0.0;
 	for (int c = 0; c < cc; c++) {
 		if (solid[c] != 0) {
@@ -544,16 +544,38 @@ void LAPlanetComposition::seed(Object *p_field, double p_t_c) {
 }
 
 // THE SOLID MASK, one walk: 1 where the terrain's signed distance is inside the rock.
-PackedByteArray LAPlanetComposition::solid_mask(Object *p_grid, Object *p_terrain) {
+PackedByteArray LAPlanetComposition::solid_mask(Object *p_grid, Object *p_terrain, const Vector3 &p_centre) {
 	PackedByteArray out;
 	if (!p_grid || !p_terrain) {
 		return out;
 	}
 	const int cc = int(p_grid->get("cell_count"));
-	const PackedVector3Array cw = p_grid->call("cell_world_pos_all");
+	const PackedVector3Array cw = p_grid->get("centres");
+	// Only the relief band asks the terrain: below its lowest surface every cell is rock, above its
+	// highest every cell is open, and a cell's own diagonal pads the band.
+	double lo = -1.0, hi = -1.0;
+	if (p_terrain->has_method("min_surface_radius") && p_terrain->has_method("max_surface_radius")) {
+		lo = double(p_terrain->call("min_surface_radius"));
+		hi = double(p_terrain->call("max_surface_radius"));
+	}
+	const PackedFloat32Array edge = p_grid->call("cell_edges");
 	out.resize(cc);
 	uint8_t *w = out.ptrw();
+	std::vector<int> ask;
 	for (int c = 0; c < cc; c++) {
+		const double r = double((cw[c] - p_centre).length());
+		const double pad = c < edge.size() ? 0.5 * std::sqrt(3.0) * double(edge[c]) : 0.0;
+		if (lo > 0.0 && hi > 0.0 && r + pad < lo) {
+			w[c] = 1;
+		} else if (lo > 0.0 && hi > 0.0 && r - pad > hi) {
+			w[c] = 0;
+		} else {
+			w[c] = 0;
+			ask.push_back(c);
+		}
+	}
+	// Only the band asks the terrain.
+	for (int c : ask) {
 		w[c] = bool(p_terrain->call("is_solid", cw[c])) ? 1 : 0;
 	}
 	return out;
@@ -561,7 +583,7 @@ PackedByteArray LAPlanetComposition::solid_mask(Object *p_grid, Object *p_terrai
 
 void LAPlanetComposition::_bind_methods() {
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("shell_channels"), &shell_channels);
-	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("solid_mask", "grid", "terrain"), &solid_mask);
+	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("solid_mask", "grid", "terrain", "centre"), &solid_mask);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("mg_number"), &mg_number);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("an_fraction"), &an_fraction);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("apatite_f_fraction"), &apatite_f_fraction);

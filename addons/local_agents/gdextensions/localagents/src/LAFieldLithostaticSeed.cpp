@@ -289,7 +289,7 @@ PackedFloat32Array LAFieldLithostaticSeed::compress(Object *p_field,
 	}
 
 	// Height along the local vertical and the slot pointing up it: rock's column marches these.
-	const PackedVector3Array la_cw = grid->call("cell_world_pos_all");
+	const PackedVector3Array la_cw = grid->get("centres");
 	std::vector<double> h(cc, 0.0);
 	std::vector<int> up_slot(cc, -1);
 	for (int c = 0; c < cc; c++) {

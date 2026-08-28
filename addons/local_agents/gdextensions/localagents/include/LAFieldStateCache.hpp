@@ -27,6 +27,9 @@ public:
 	static String state_key(const String &p_tree_key, int p_nx, int p_ny, int p_nz, double p_cell,
 			const Vector3 &p_origin);
 	static Dictionary load_state(const String &p_key, int p_cell_count);
+	// A dictionary under a content key, unexamined: the caller knows what it stored.
+	static Dictionary load_blob(const String &p_key);
+	static void save_blob(const String &p_key, const Dictionary &p_data);
 	static void save_state(const String &p_key, const Dictionary &p_data);
 
 protected:

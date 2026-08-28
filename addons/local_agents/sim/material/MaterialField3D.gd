@@ -386,7 +386,7 @@ func sample_solidity() -> void:
 			_solid = cached
 			_seed_silicate()
 			return
-	_solid = LAPlanetComposition.solid_mask(_grid, _terrain)
+	_solid = LAPlanetComposition.solid_mask(_grid, _terrain, centre())
 	if k != "":
 		LAFieldStateCache.save_mask(k, _solid)
 	_seed_silicate()

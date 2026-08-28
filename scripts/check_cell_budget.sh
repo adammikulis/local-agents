@@ -11,7 +11,8 @@ CAP="$(rg -N -o '^[0-9]+$' "$ROOT/docs/CELL_BUDGET" 2>/dev/null | head -1)"
 [ -n "$CAP" ] || { echo "check_cell_budget: docs/CELL_BUDGET carries no number." >&2; exit 2; }
 out="$(la_report_raw --path "$ROOT" --frames "${LA_BUDGET_FRAMES:-2}" 2>/dev/null)"
 [ -n "$out" ] || { echo "check_cell_budget: the run published no SIM_REPORT." >&2; exit 2; }
-CAP="$CAP" printf '%s' "$out" | python3 -c '
+export CAP
+printf '%s' "$out" | python3 -c '
 import json, os, sys
 rep = json.loads(sys.stdin.read())
 def look(k):
