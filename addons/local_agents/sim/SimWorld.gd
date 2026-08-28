@@ -186,8 +186,18 @@ func _build_sphere() -> bool:
 			push_error("SLICE_INVALID: %s" % slice.error)
 			return false
 	else:
-		_material.setup_body(_body.center(), seed_radius() + MODELLED_ATMOSPHERE_HEIGHT_M,
-			field_cell_size_m(), _terrain)
+		# The box holds the whole body, so every face's exterior is vacuum unless a spec says otherwise.
+		if not _material.has_meta(LAFieldBoundary3D.META_FACES) \
+				and LAFieldBoundary3D.explicit_spec() == "":
+			_material.set_meta(LAFieldBoundary3D.META_FACES, "space,space,space,space,space,space")
+		var extent_m: float = seed_radius() + MODELLED_ATMOSPHERE_HEIGHT_M
+		var cell_m: float = field_cell_size_m()
+		var dims: Vector3i = LAVoxelGrid.dims_for(extent_m, cell_m)
+		var half: float = 0.5 * float(dims.x) * cell_m
+		# RESOLUTION FOLLOWS POSITION: the shell that holds the air column and the regolith under it is
+		# refined; the vacuum corners and the deep interior stay coarsest.
+		_material.setup_box(_body.center() - Vector3(half, half, half), dims, cell_m, _terrain,
+			LAGridRefine.shell(cell_m, MODELLED_ATMOSPHERE_HEIGHT_M), _body.center())
 	if _material.has_method("sample_solidity"):
 		_material.sample_solidity()
 	if _sun != null and _material.has_method("set_sun"):
@@ -203,13 +213,13 @@ func _build_flat() -> bool:
 	_material = MaterialFieldScript.new()
 	_material.name = "MaterialField"
 	add_child(_material)
-	# Box field volume centred on the extent, its floor at ground_y. setup_dims allocates the box channels +
+	# Box field volume centred on the extent, its floor at ground_y. setup_box allocates the box channels +
 	# wires the CPU box-step (heat diffuses/rises) — no planet, no GPU kernels.
 	var dx: int = maxi(1, int(round(flat_extent.x / flat_cell_size)))
 	var dy: int = maxi(1, int(round(flat_extent.y / flat_cell_size)))
 	var dz: int = maxi(1, int(round(flat_extent.z / flat_cell_size)))
 	var origin: Vector3 = Vector3(-0.5 * flat_extent.x, ground_y, -0.5 * flat_extent.z)
-	_material.setup_dims(dx, dy, dz, flat_cell_size, origin)
+	_material.setup_box(origin, Vector3i(dx, dy, dz), flat_cell_size)
 	return true
 
 

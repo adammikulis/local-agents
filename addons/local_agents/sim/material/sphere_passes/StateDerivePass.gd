@@ -15,7 +15,7 @@ const BOUND: Dictionary = {
 	"h_j_m3": 21, "pressure": 22, "ke_j_m3": 90, "pe_j_m3": 91, "grav_phi": 78, "level_args": 82,
 	"temp": 23, "mom_x": 25, "mom_y": 26, "mom_z": 27, "vel_x": 28, "vel_y": 29, "vel_z": 30,
 	"org_oc": 31, "rho_bulk": 32, "conductivity": 33, "h2o_solid": 34, "h2o_liquid": 35,
-	"h2o_vapour": 36, "silicate_melt": 37, "org_fresh": 38, "cell_vol": 40, "speed": 41, "lat": 42,
+	"h2o_vapour": 36, "silicate_melt": 37, "org_fresh": 38, "cell_edge": 94, "speed": 41, "lat": 42,
 	"alt": 43, "nonfinite": 44, "h_h2o": 45, "h_silicate": 46, "h_sensible": 47, "cap_sensible": 48,
 	"gravity": 49, "bodyf_x": 50, "bodyf_y": 51, "bodyf_z": 52, "k_cond": 53, "rad_w_m3": 65,
 	"g_rest": 39, "level_idx": 81}

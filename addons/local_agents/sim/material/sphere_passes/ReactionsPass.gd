@@ -58,7 +58,7 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	# The dead organic pool's hydrogen and oxygen. Registered channels (LAChannels), so the driver owns them.
 	var org_h: RID = _single(bufs, "org_h")
 	var org_o: RID = _single(bufs, "org_o")
-	var cell_vol: RID = _single(bufs, "cell_vol")
+	var cell_edge: RID = _single(bufs, "cell_edge")
 	var pressure: RID = _single(bufs, "pressure")
 	var gravity: RID = _single(bufs, "gravity")
 	# The h2o phase shares state_derive.glsl publishes. No record moves mass between them.
@@ -99,7 +99,7 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 		[35, h2o_liquid],       # DERIVED share — liquid, free or in pores
 		[36, h2o_vapour],       # DERIVED share — vapour
 		[37, pressure],         # Pa — the saturation curve and the ladder both read it
-		[40, cell_vol],         # per-cell volume (kernels3d/cellvol.glsli)
+		[94, cell_edge],        # per-cell edge, m (kernels3d/cellvol.glsli)
 		[48, gravity],          # the SOLVED g: the light angle reads it
 		[23, _single(bufs, "vert_up")],    # GravityPass owns the vertical relation; this reads it
 		[24, _single(bufs, "vert_down")],

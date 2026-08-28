@@ -69,7 +69,7 @@ func _solve_slice() -> void:
 	_pass.set_monopole(_f.centre(), r_body, m_kg)
 	var rd: RenderingDevice = _f._gpu._rd
 	var cl: int = rd.compute_list_begin()
-	_pass.dispatch_monopole(rd, cl, _f._gpu._cc, _f._grid.cell_size, _f._gpu._groups)
+	_pass.dispatch_monopole(rd, cl, _f._gpu._cc, _f._gpu._groups)
 	rd.compute_list_end()
 	rd.submit()
 	rd.sync()

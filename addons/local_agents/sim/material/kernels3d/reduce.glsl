@@ -25,15 +25,15 @@ layout(push_constant, std430) uniform Params {
 	uint mask;
 	uint base;         // this row's first partial slot
 	float threshold;
-	float weight;      // cell volume, m^3, or 1 for an unweighted row
+	uint weight;       // 1 weighs each cell by its own volume, m^3; 0 counts it once
 	uint has_aux;      // 0 none, 1 src*aux, 2 src*(aux + aux2)
 	uint has_gate;     // low bits: 0 none, 1 gate, 2 gate*gate_aux; bit 2: gate_lo is strict
 	float gate_lo;     // gated cells are those inside [gate_lo, gate_hi)
 	float gate_hi;
 	uint nbr;          // NBR_*: what the cell's value is read against
-	float cell_m;      // cell edge, m — the denominator of a gradient
 } params;
 
+#include "cellvol.glsli"
 #include "neighbours.glsli"
 #include "generated.glsli"
 #include "march.glsli"
@@ -88,14 +88,14 @@ float la_grad(uint i) {
 	float here = la_raw(i);
 	float a = (hi >= 0 && solid[uint(hi)] == 0.0) ? la_raw(uint(hi)) : here;
 	float b = (lo >= 0 && solid[uint(lo)] == 0.0) ? la_raw(uint(lo)) : here;
-	return (a - b) / (2.0 * max(params.cell_m, 1.0e-30));
+	return (a - b) / max(la_face_dist(i, hi) + la_face_dist(i, lo), 1.0e-30);
 }
 
 float la_value(uint i) {
 	if (params.nbr == NBR_SOLID_COUNT) {
 		float n = 0.0;
-		for (uint d = 0u; d < N_SLOTS; ++d) {
-			int nb = nbr[i * N_SLOTS + d];
+		for (uint f = la_face_lo(i); f < la_face_hi(i); ++f) {
+			int nb = nbr[f];
 			if (nb >= 0 && solid[uint(nb)] != 0.0) {
 				n += 1.0;
 			}
@@ -214,7 +214,7 @@ void main() {
 		} else if (params.op == OP_MIN || params.op == OP_MAX || params.op == OP_MAX_REL_DIFF) {
 			acc = la_fold(acc, v);
 		} else {
-			acc += v * params.weight;
+			acc += v * (params.weight != 0u ? cell_volume(i) : 1.0);
 		}
 	}
 

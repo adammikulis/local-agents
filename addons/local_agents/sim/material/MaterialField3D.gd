@@ -203,28 +203,23 @@ var _ready_sim: bool = false
 var _seal = null
 
 
-## THE ONE GRID: a uniform Cartesian box. Nothing here holds a second index layout.
+## THE ONE GRID: a Cartesian box with axis-aligned refinement. No second index layout anywhere.
 var _grid: LAVoxelGrid = null
 ## Gravity, SOLVED from the mass that is there. There is no gravity constant anywhere in this tree.
 var _gravity = null                                      # LAMaterialFieldGravity3D
 
-## Lay the field over a box centred on a body of `radius`, at `cell_size` resolution.
-func setup_body(centre_pos: Vector3, radius: float, cell_size: float, terrain = null) -> void:
+## THE ONE CONSTRUCTION PATH: `dims` cells of `cell_size` from `origin`, refined where `refine` says.
+## A slice, a sandbox and a whole planet differ in their arguments, never in their code.
+func setup_box(origin: Vector3, dims: Vector3i, cell_size: float, terrain = null,
+		refine: LAGridRefine = null, body_centre: Vector3 = Vector3.ZERO) -> void:
 	if terrain != null:
 		_terrain = terrain
 		if terrain.has_method("generator_options"):
 			_terrain_opts = terrain.generator_options()   # the solid-mask cache's key
-	# The box holds the whole body, so every face's exterior is vacuum unless a spec says otherwise.
-	if not has_meta(LAFieldBoundary3D.META_FACES) and LAFieldBoundary3D.explicit_spec() == "":
-		set_meta(LAFieldBoundary3D.META_FACES, "space,space,space,space,space,space")
 	var grid: LAVoxelGrid = LAVoxelGrid.new()
-	grid.build_centred(centre_pos, radius, maxf(0.5, cell_size))
-	_adopt(grid)
-
-## Lay the field over an explicit box. Same grid, same lifecycle: an extent is not a second kind of world.
-func setup_dims(dim_x: int, dim_y: int, dim_z: int, cell_size: float, origin: Vector3) -> void:
-	var grid: LAVoxelGrid = LAVoxelGrid.new()
-	grid.build(dim_x, dim_y, dim_z, cell_size, origin)
+	grid.build(dims.x, dims.y, dims.z, maxf(cell_size, 1.0e-6), origin)
+	if refine != null:
+		grid.refine(refine.mask(grid, body_centre, terrain))
 	_adopt(grid)
 
 ## ONE lifecycle.

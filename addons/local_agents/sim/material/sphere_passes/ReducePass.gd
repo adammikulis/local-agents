@@ -6,7 +6,7 @@ extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/reduce.glsl"
 const PARTIALS: String = "reduce_partials"
 const GROUP: int = 64
-const PC_BYTES: int = 48
+const PC_BYTES: int = 44
 
 var _pipe: RID = RID()
 var _rows: Array = []                   # rows whose buffers exist, in dispatch order
@@ -74,7 +74,10 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 			[8, _single(bufs, aux2) if aux2 != "" else solid],
 			[9, nbr],
 			[10, vert_up],
-			[11, vert_down]]))
+			[11, vert_down],
+			[92, _single(bufs, "slot_off")],
+			[93, _single(bufs, "face_partner")],
+			[94, _single(bufs, "cell_edge")]]))
 		_rows.append(row)
 		_folds.append(_fold_mode(int(row["op"])))
 		_keys.append(String(row["key"]))
@@ -94,7 +97,6 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, _groups_in
 
 ## Every row. `latch_ok` false leaves every reference where it is.
 func _run(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, latch_ok: bool) -> void:
-	var cell_m: float = _ctx_cell_size(ctx)
 	var usets: Array = []
 	var pcs: Array = []
 	var wgs: PackedInt32Array = PackedInt32Array()
@@ -107,7 +109,7 @@ func _run(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, latch_ok: boo
 		if latch and (_latch_step.has(ref) or not latch_ok):
 			continue      # a reference is the state the world was built with, taken once per row
 		usets.append(_sets[r])
-		pcs.append(_pc(cc, row, r * _groups, cell_m))
+		pcs.append(_pc(cc, row, r * _groups))
 		wgs.append(_groups)
 		args.append(RID())
 		offs.append(0)
@@ -162,9 +164,9 @@ func _fold_mode(op: int) -> int:
 	return LAFieldDriver.FOLD_SUM
 
 
-# Params { uint cell_count, op, mask, base; float threshold, weight; uint has_aux, has_gate;
-#          float gate_lo, gate_hi; uint nbr; float cell_m; } — 48 bytes.
-func _pc(cc: int, row: Dictionary, base: int, cell_m: float) -> PackedByteArray:
+# Params { uint cell_count, op, mask, base; float threshold; uint weight, has_aux, has_gate;
+#          float gate_lo, gate_hi; uint nbr; } — 44 bytes.
+func _pc(cc: int, row: Dictionary, base: int) -> PackedByteArray:
 	var gate: String = String(row.get("gate", ""))
 	var has_aux: int = 0
 	if String(row.get("aux", "")) != "":
@@ -181,11 +183,11 @@ func _pc(cc: int, row: Dictionary, base: int, cell_m: float) -> PackedByteArray:
 	pc.encode_u32(8, int(row.get("mask", LAReduceRecords.Mask.ALL)))
 	pc.encode_u32(12, base)
 	pc.encode_float(16, float(row.get("threshold", 0.0)))
-	pc.encode_float(20, pow(cell_m, 3.0) if bool(row.get("weight", false)) else 1.0)
+	# The kernel weighs each cell by ITS OWN volume; a graded grid has no one cell volume to bake in.
+	pc.encode_u32(20, 1 if bool(row.get("weight", false)) else 0)
 	pc.encode_u32(24, has_aux)
 	pc.encode_u32(28, has_gate)
 	pc.encode_float(32, float(row.get("gate_lo", -INF)))
 	pc.encode_float(36, float(row.get("gate_hi", INF)))
 	pc.encode_u32(40, int(row.get("nbr", LAReduceRecords.Nbr.NONE)))
-	pc.encode_float(44, cell_m)
 	return pc

@@ -112,7 +112,15 @@ func _build_field() -> void:
 		# METRES: LAFieldGravity solves Poisson in SI on this grid.
 		var extent_m: float = float(_body.radius()) + LocalAgentSimWorld.MODELLED_ATMOSPHERE_HEIGHT_M
 		var cells: int = maxi(_settings_applier.grid_cells_per_edge(), 1)
-		_material.setup_body(_body.center(), extent_m, 2.0 * extent_m / float(cells), _terrain)
+		var cell_m: float = 2.0 * extent_m / float(cells)
+		if not _material.has_meta(LAFieldBoundary3D.META_FACES) \
+				and LAFieldBoundary3D.explicit_spec() == "":
+			_material.set_meta(LAFieldBoundary3D.META_FACES, "space,space,space,space,space,space")
+		var dims: Vector3i = LAVoxelGrid.dims_for(extent_m, cell_m)
+		var half: float = 0.5 * float(dims.x) * cell_m
+		_material.setup_box(_body.center() - Vector3(half, half, half), dims, cell_m, _terrain,
+			LAGridRefine.shell(cell_m, LocalAgentSimWorld.MODELLED_ATMOSPHERE_HEIGHT_M),
+			_body.center())
 	_validate_grid(_material._grid)
 	if _material.has_method("sample_solidity"):
 		_material.sample_solidity()

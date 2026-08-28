@@ -4,6 +4,7 @@
 // Poisson's equation for the potential of the mass that is there, relaxed red-black in place.
 // One dispatch per colour: a colour's cells are never neighbours, so each reads only the other.
 
+#include "cellvol.glsli"
 #include "neighbours.glsli"
 #include "matter_channels.glsli"
 
@@ -14,7 +15,7 @@ layout(set = 0, binding = 14, std430) restrict readonly buffer Props { float mol
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };
 #include "march.glsli"
 layout(set = 0, binding = 16, std430) restrict readonly buffer Pos { float pos[]; };
-// bit 0 = the cell touches the outside of the box, bit 1 = its red-black colour.
+// bit 0 = the cell touches the outside of the box.
 layout(set = 0, binding = 17, std430) restrict buffer Flags { uint cellflag[]; };
 layout(set = 0, binding = 18, std430) restrict buffer Phi { float phi[]; };          // J/kg
 layout(set = 0, binding = 19, std430) restrict buffer Density { float density[]; };  // kg/m^3
@@ -25,6 +26,8 @@ layout(set = 0, binding = 22, std430) restrict buffer Partials { float partials[
 // The one vertical relation. vert_down is the scattered inverse of vert_up; an unset entry means no cell below.
 layout(set = 0, binding = 23, std430) restrict buffer VertUp { int vert_up[]; };
 layout(set = 0, binding = 24, std430) restrict buffer VertDown { uint vert_down[]; };
+// The Jacobi sweep's target, applied back onto phi between sweeps.
+layout(set = 0, binding = 25, std430) restrict buffer PhiNext { float phi_next[]; };
 
 const uint MODE_FLAGS = 0u;
 const uint MODE_DENSITY = 1u;
@@ -37,21 +40,17 @@ const uint MODE_FIELD_STATS = 7u;
 const uint MODE_MONOPOLE = 8u;
 const uint MODE_VERT_UP = 9u;
 const uint MODE_VERT_DOWN = 10u;
+const uint MODE_APPLY = 11u;
 
 const uint FLAG_BOUNDARY = 1u;
-const uint FLAG_COLOUR = 2u;
 
 const uint PART_STRIDE = 10u;    // GravityPass.PART_STRIDE
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
 	uint mode;
-	uint colour;
 	uint groups;
-	float cell_m;     // cell edge, metres
 	float g_si;       // LAPhysical.GRAVITATIONAL_CONSTANT
-	uint nx;          // cells along x
-	uint nxny;        // cells per z layer
 	// MODE_MONOPOLE only: the DECLARED body's centre, radius and mass. A slice is a partial slab, so its
 	// own mass is not the field's source and Poisson is never relaxed over it.
 	float mono_cx;
@@ -94,39 +93,63 @@ float wg_max(float v) {
 	return r;
 }
 
-float source_k() {
-	float h = params.cell_m;
-	return 4.0 * acos(-1.0) * params.g_si * h * h;
+// 4 pi G times the mass in the cell: the source term of the finite-volume Poisson equation.
+float source_of(uint c) {
+	return 4.0 * acos(-1.0) * params.g_si * density[c] * cell_volume(c);
 }
 
-// Sum of the six neighbours' potential. Only ever called on an interior cell, which has all six.
-float neighbour_sum(uint c) {
-	float acc = 0.0;
-	for (uint d = 0u; d < N_SLOTS; ++d) {
-		acc += phi[nbr[c * N_SLOTS + d]];
+// Conductance sum over the cell's faces and the same sum weighted by each neighbour's potential. The
+// finite-volume Laplacian at any refinement; on a uniform grid it is the seven-point stencil.
+void la_stencil(uint c, out float w_sum, out float w_phi) {
+	w_sum = 0.0;
+	w_phi = 0.0;
+	for (uint f = la_face_lo(c); f < la_face_hi(c); ++f) {
+		int nb = nbr[f];
+		if (nb < 0) { continue; }
+		float w = la_face_area(c, nb) / la_face_dist(c, nb);
+		w_sum += w;
+		w_phi += w * phi[uint(nb)];
 	}
-	return acc;
 }
 
-// d(phi)/d(axis) across a slot pair: central where both neighbours exist, one-sided at the box face.
-float axis_deriv(uint c, uint lo_slot, uint hi_slot, float h) {
-	int lo = nbr[c * N_SLOTS + lo_slot];
-	int hi = nbr[c * N_SLOTS + hi_slot];
-	if (lo >= 0 && hi >= 0) { return (phi[hi] - phi[lo]) / (2.0 * h); }
-	if (hi >= 0) { return (phi[hi] - phi[c]) / h; }
-	if (lo >= 0) { return (phi[c] - phi[lo]) / h; }
+// Area-weighted potential across one slot and the centre distance to it; false at the box face.
+bool la_slot_mean(uint c, uint d, out float p, out float dist) {
+	float a = 0.0;
+	float ap = 0.0;
+	float ad = 0.0;
+	for (uint f = la_slot_lo(c, d); f < la_slot_hi(c, d); ++f) {
+		int nb = nbr[f];
+		if (nb < 0) { continue; }
+		float w = la_face_area(c, nb);
+		a += w;
+		ap += w * phi[uint(nb)];
+		ad += w * la_face_dist(c, nb);
+	}
+	if (a <= 0.0) { return false; }
+	p = ap / a;
+	dist = ad / a;
+	return true;
+}
+
+// d(phi)/d(axis) across a slot pair: central where both sides exist, one-sided at the box face.
+float axis_deriv(uint c, uint lo_slot, uint hi_slot) {
+	float plo = 0.0;
+	float phi_hi = 0.0;
+	float dlo = 0.0;
+	float dhi = 0.0;
+	bool has_lo = la_slot_mean(c, lo_slot, plo, dlo);
+	bool has_hi = la_slot_mean(c, hi_slot, phi_hi, dhi);
+	if (has_lo && has_hi) { return (phi_hi - plo) / (dlo + dhi); }
+	if (has_hi) { return (phi_hi - phi[c]) / dhi; }
+	if (has_lo) { return (phi[c] - plo) / dlo; }
 	return 0.0;
 }
 
 void mode_flags(uint c) {
 	uint f = 0u;
-	for (uint d = 0u; d < N_SLOTS; ++d) {
-		if (nbr[c * N_SLOTS + d] < 0) { f |= FLAG_BOUNDARY; }
+	for (uint fi = la_face_lo(c); fi < la_face_hi(c); ++fi) {
+		if (nbr[fi] < 0) { f |= FLAG_BOUNDARY; }
 	}
-	uint x = c % params.nx;
-	uint y = (c / params.nx) % (params.nxny / params.nx);
-	uint z = c / params.nxny;
-	if (((x + y + z) & 1u) == 1u) { f |= FLAG_COLOUR; }
 	cellflag[c] = f;
 }
 
@@ -138,8 +161,7 @@ void mode_density(uint gidx, bool live) {
 		}
 		density[gidx] = rho;
 	}
-	float h = params.cell_m;
-	float m = rho * h * h * h;
+	float m = live ? rho * cell_volume(gidx) : 0.0;
 	vec3 p = live ? pos_at(gidx) : vec3(0.0);
 	float acc_m = wg_sum(m);
 	float acc_x = wg_sum(m * p.x);
@@ -187,14 +209,21 @@ void mode_seed(uint c) {
 	}
 	vec3 com = vec3(moments[1], moments[2], moments[3]);
 	float r = length(pos_at(c) - com);
-	phi[c] = -params.g_si * total / max(r, params.cell_m);
+	phi[c] = -params.g_si * total / max(r, cell_edge[c]);
 }
 
+// JACOBI, out of place: the graded face graph has odd cycles — a coarse cell and two of the fine cells
+// across one of its faces — so no two-colouring exists and an in-place sweep would relax neighbours
+// together. The operator and its fixed point are unchanged.
 void mode_relax(uint c) {
-	uint f = cellflag[c];
-	if ((f & FLAG_BOUNDARY) != 0u) { return; }
-	if (((f & FLAG_COLOUR) != 0u ? 1u : 0u) != params.colour) { return; }
-	phi[c] = (neighbour_sum(c) - source_k() * density[c]) / 6.0;
+	if ((cellflag[c] & FLAG_BOUNDARY) != 0u) {
+		phi_next[c] = phi[c];
+		return;
+	}
+	float w_sum = 0.0;
+	float w_phi = 0.0;
+	la_stencil(c, w_sum, w_phi);
+	phi_next[c] = w_sum > 0.0 ? (w_phi - source_of(c)) / w_sum : phi[c];
 }
 
 void mode_gradient(uint gidx, bool live) {
@@ -202,11 +231,10 @@ void mode_gradient(uint gidx, bool live) {
 	float outflux = 0.0;
 	float m_in = 0.0;
 	if (live) {
-		float h = params.cell_m;
 		vec3 g = -vec3(
-			axis_deriv(gidx, 0u, 1u, h),
-			axis_deriv(gidx, 2u, 3u, h),
-			axis_deriv(gidx, 4u, 5u, h));
+			axis_deriv(gidx, 0u, 1u),
+			axis_deriv(gidx, 2u, 3u),
+			axis_deriv(gidx, 4u, 5u));
 		g_field[gidx * 3u] = g.x;
 		g_field[gidx * 3u + 1u] = g.y;
 		g_field[gidx * 3u + 2u] = g.z;
@@ -215,11 +243,12 @@ void mode_gradient(uint gidx, bool live) {
 		// the one-sided flux through the interface with the Dirichlet ring, equal to -4 pi G times the
 		// mass the solve relaxed — an identity at convergence, so the ratio audits the solve itself.
 		if ((cellflag[gidx] & FLAG_BOUNDARY) == 0u) {
-			m_in = density[gidx] * h * h * h;
-			for (uint d = 0u; d < N_SLOTS; ++d) {
-				int nb2 = nbr[gidx * N_SLOTS + d];
+			m_in = density[gidx] * cell_volume(gidx);
+			for (uint f2 = la_face_lo(gidx); f2 < la_face_hi(gidx); ++f2) {
+				int nb2 = nbr[f2];
 				if (nb2 >= 0 && (cellflag[uint(nb2)] & FLAG_BOUNDARY) != 0u) {
-					outflux += -(phi[uint(nb2)] - phi[gidx]) * h;
+					outflux += (phi[gidx] - phi[uint(nb2)])
+						* la_face_area(gidx, nb2) / la_face_dist(gidx, nb2);
 				}
 			}
 		}
@@ -243,10 +272,13 @@ void mode_residual(uint gidx, bool live) {
 	float r = 0.0;
 	float s = 0.0;
 	if (live && (cellflag[gidx] & FLAG_BOUNDARY) == 0u) {
-		float h = params.cell_m;
-		float src = source_k() * density[gidx];
-		r = abs(neighbour_sum(gidx) - 6.0 * phi[gidx] - src) / (h * h);
-		s = abs(src) / (h * h);
+		float v = cell_volume(gidx);
+		float src = source_of(gidx);
+		float w_sum = 0.0;
+		float w_phi = 0.0;
+		la_stencil(gidx, w_sum, w_phi);
+		r = abs(w_phi - w_sum * phi[gidx] - src) / v;
+		s = abs(src) / v;
 	}
 	float worst = wg_max(r);
 	float src_max = wg_max(s);
@@ -366,6 +398,9 @@ void main() {
 			return;
 		case MODE_RELAX:
 			if (live) { mode_relax(gidx); }
+			return;
+		case MODE_APPLY:
+			if (live) { phi[gidx] = phi_next[gidx]; }
 			return;
 		case MODE_GRADIENT:
 			mode_gradient(gidx, live);

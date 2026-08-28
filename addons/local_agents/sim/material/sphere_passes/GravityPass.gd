@@ -1,14 +1,14 @@
 extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 
-## GRAVITY SOLVED FROM THE MASS THAT IS THERE, on the device. Poisson relaxed red-black, one dispatch per
-## colour, then g = -grad(phi). First in the chain: everything below it asks where down is.
+## GRAVITY SOLVED FROM THE MASS THAT IS THERE, on the device. Poisson relaxed by Jacobi sweeps over the
+## cell's own faces, then g = -grad(phi). First in the chain: everything below it asks where down is.
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/gravity_poisson.glsl"
 
 ## Field steps between solves. The solve warm-starts from the previous potential.
 const SOLVE_EVERY: int = 2
-## Red-black sweeps per dispatch. Poisson is elliptic, so the seeding solve relaxes until `residual_rel`
-## falls and the per-step solves track a warm-started field.
+## Sweeps per dispatch. Poisson is elliptic, so the seeding solve relaxes until `residual_rel` falls and
+## the per-step solves track a warm-started field.
 const SWEEPS: int = 128   # LA_APPROX: fixed_sweep_relaxation
 
 ## Floats each workgroup writes into the partials buffer — gravity_poisson.glsl PART_STRIDE.
@@ -16,7 +16,7 @@ const PART_STRIDE: int = 10
 ## gravity_poisson.glsl `moments`: 0 mass · 1..3 centre of mass · 4 mean |g| · 5 residual · 6 Gauss ratio.
 const MOMENT_SLOTS: int = 7
 const GROUP: int = 64
-const PC_BYTES: int = 52
+const PC_BYTES: int = 44
 
 const MODE_FLAGS: int = 0
 const MODE_DENSITY: int = 1
@@ -29,8 +29,10 @@ const MODE_FIELD_STATS: int = 7
 const MODE_MONOPOLE: int = 8
 const MODE_VERT_UP: int = 9
 const MODE_VERT_DOWN: int = 10
+const MODE_APPLY: int = 11
 
 const PHI: String = "grav_phi"
+const PHI_NEXT: String = "grav_phi_next"
 const DENSITY: String = "grav_density"
 const FLAGS: String = "grav_cellflag"
 const MOMENTS: String = "grav_moments"
@@ -46,9 +48,7 @@ var _gravity: RID = RID()
 var _up_rid: RID = RID()
 var _down_rid: RID = RID()
 var _groups: int = 0
-var _nx: int = 0
-var _nxny: int = 0
-var _flagged: bool = false              # the boundary/colour map is a property of the grid, so it is built once
+var _flagged: bool = false              # the boundary map is a property of the grid, built once
 var _solves: int = 0
 var _read_due: bool = false             # a solve is in flight; the next drain publishes it
 var _mirror: PackedFloat32Array = PackedFloat32Array()
@@ -70,6 +70,7 @@ func _buffers(cc: int) -> Dictionary:
 		MOMENTS: MOMENT_SLOTS,
 		VERT_UP: maxi(cc, 1),
 		VERT_DOWN: maxi(cc, 1),
+		PHI_NEXT: maxi(cc, 1),
 		PARTIALS: g * PART_STRIDE}
 
 
@@ -91,18 +92,11 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 
 	var want: PackedStringArray = channels.duplicate()
 	want.append_array(PackedStringArray(["nbr", "pos", "gravity", PHI, DENSITY, FLAGS, MOMENTS, PARTIALS,
-		VERT_UP, VERT_DOWN]))
+		VERT_UP, VERT_DOWN, PHI_NEXT, "slot_off", "face_partner", "cell_edge"]))
 	var missing: PackedStringArray = LAMatterChannels.absent(bufs, want)
 	if not missing.is_empty():
 		push_error("GravityPass: no buffer for %s, so no cell would get a gravity."
 			% String(", ").join(missing))
-		return
-	# The index layout is the GRID's, so the red-black colouring is (x + y + z) & 1 on its own dims.
-	_nx = grid_dims.x
-	_nxny = grid_dims.x * grid_dims.y
-	if _nx <= 0 or grid_dims.y <= 0 or grid_dims.z <= 0:
-		push_error(("GravityPass: the driver states a grid of %s cells, so the red-black colouring cannot "
-			+ "be derived and the solve would relax adjacent cells together.") % str(grid_dims))
 		return
 	_moments = _single(bufs, MOMENTS)
 	_gravity = _single(bufs, "gravity")
@@ -123,6 +117,10 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	entries.append([22, _single(bufs, PARTIALS)])
 	entries.append([23, _single(bufs, VERT_UP)])
 	entries.append([24, _single(bufs, VERT_DOWN)])
+	entries.append([25, _single(bufs, PHI_NEXT)])
+	entries.append([92, _single(bufs, "slot_off")])
+	entries.append([93, _single(bufs, "face_partner")])
+	entries.append([94, _single(bufs, "cell_edge")])
 	_set = _uset(_pipe, entries)
 
 
@@ -141,7 +139,6 @@ func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: i
 	var step: int = int(_ctx_num(ctx, "step_index"))
 	if step % SOLVE_EVERY != 0:
 		return
-	var cell_m: float = _ctx_cell_size(ctx)
 	var plan: Array = []
 	if not _flagged:
 		_flagged = true
@@ -150,14 +147,14 @@ func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: i
 	plan.append([MODE_MOMENTS, 0, 1])
 	plan.append([MODE_SEED, 0, groups])
 	for _s in SWEEPS:
-		for colour in 2:
-			plan.append([MODE_RELAX, colour, groups])
+		plan.append([MODE_RELAX, 0, groups])
+		plan.append([MODE_APPLY, 0, groups])
 	plan.append([MODE_GRADIENT, 0, groups])
 	plan.append([MODE_VERT_UP, 0, groups])
 	plan.append([MODE_VERT_DOWN, 0, groups])
 	plan.append([MODE_RESIDUAL, 0, groups])
 	plan.append([MODE_FIELD_STATS, 0, 1])
-	_issue(cl, plan, cc, cell_m)
+	_issue(cl, plan, cc)
 	_solves += 1
 	_read_due = true
 
@@ -168,43 +165,39 @@ func set_monopole(centre: Vector3, r_body: float, m_kg: float) -> void:
 
 
 ## SLICE ONLY, once at the seed: write the declared body's monopole and its mean-|g| stats.
-func dispatch_monopole(_rd: RenderingDevice, cl: int, cc: int, cell_m: float, groups: int) -> void:
+func dispatch_monopole(_rd: RenderingDevice, cl: int, cc: int, groups: int) -> void:
 	if not _dispatchable() or not _set.is_valid() or _mono.is_empty():
 		return
 	# The one vertical relation reads the gravity the monopole just wrote.
 	_issue(cl, [[MODE_MONOPOLE, 0, groups], [MODE_VERT_UP, 0, groups], [MODE_VERT_DOWN, 0, groups],
-		[MODE_FIELD_STATS, 0, 1]], cc, cell_m)
+		[MODE_FIELD_STATS, 0, 1]], cc)
 	_solves += 1
 	_read_due = true
 
 
-## One mode per entry, each followed by a barrier: a colour reads what the other colour just wrote.
-func _issue(cl: int, plan: Array, cc: int, cell_m: float) -> void:
+## One mode per entry, each followed by a barrier: a sweep reads what the sweep before it wrote.
+func _issue(cl: int, plan: Array, cc: int) -> void:
 	var pcs: Array = []
 	var wgs: PackedInt32Array = PackedInt32Array()
 	var args: Array = []
 	var offs: PackedInt32Array = PackedInt32Array()
 	for e: Array in plan:
-		pcs.append(_push(int(e[0]), int(e[1]), cc, cell_m))
+		pcs.append(_push(int(e[0]), int(e[1]), cc))
 		wgs.append(int(e[2]))
 		args.append(RID())
 		offs.append(0)
 	_driver.run(cl, _pipe, [_set], pcs, wgs, args, offs, true)
 
 
-func _push(mode: int, colour: int, cc: int, cell_m: float) -> PackedByteArray:
+func _push(mode: int, _colour: int, cc: int) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(PC_BYTES)
 	pc.encode_u32(0, cc)
 	pc.encode_u32(4, mode)
-	pc.encode_u32(8, colour)
-	pc.encode_u32(12, _groups)
-	pc.encode_float(16, cell_m)
-	pc.encode_float(20, LAPhysical.GRAVITATIONAL_CONSTANT)
-	pc.encode_u32(24, _nx)
-	pc.encode_u32(28, _nxny)
+	pc.encode_u32(8, _groups)
+	pc.encode_float(12, LAPhysical.GRAVITATIONAL_CONSTANT)
 	for i in 5:
-		pc.encode_float(32 + i * 4, _mono[i] if i < _mono.size() else 0.0)
+		pc.encode_float(16 + i * 4, _mono[i] if i < _mono.size() else 0.0)
 	return pc
 
 
