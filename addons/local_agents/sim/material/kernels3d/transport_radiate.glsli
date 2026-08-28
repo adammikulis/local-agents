@@ -119,9 +119,9 @@ float band_tau(vec4 a, vec2 z, vec4 m, uint b, uint ti, float tf) {
 // Planck-weighted at its own temperature, blended into the emissivity of whatever it holds condensed.
 float longwave_emissivity(uint c) {
 	float tk = t_k(c);
-	vec4 a = absorber_paths(c, params.cell_m);
-	vec2 z = o3_paths(c, params.cell_m);
-	vec4 m = minor_paths(c, params.cell_m);
+	vec4 a = absorber_paths(c, cell_edge[c]);
+	vec2 z = o3_paths(c, cell_edge[c]);
+	vec4 m = minor_paths(c, cell_edge[c]);
 	float tf = 0.0;
 	uint ti = slice_of(tk, tf);
 	float eps = 0.0;
@@ -169,8 +169,8 @@ float shortwave_absorbed_frac(uint c, float len) {
 	return clamp(f_c + (1.0 - f_c) * gas, 0.0, 1.0);
 }
 
-float solar_step_m() {
-	return la_step_len(vec3(params.sun_x, params.sun_y, params.sun_z), params.cell_m);
+float solar_step_m(uint c) {
+	return la_step_len(vec3(params.sun_x, params.sun_y, params.sun_z), cell_edge[c]);
 }
 
 // What reaches this cell of the solar beam, W/m^2, marched along the real slant path to the top of the
@@ -199,18 +199,20 @@ float solar_incident(uint c) {
 
 // Longwave arriving at `c` through face `d`, J/m^3: the grid line behind it, attenuated in between.
 // LA_APPROX: band_averaged_transmittance
-float longwave_incident(uint c, uint d) {
-	uint back = d ^ 1u;
+float longwave_incident(uint c, uint f0, uint d) {
 	float through = 1.0;
 	float arriving = 0.0;
-	int at = nbr[c * N_SLOTS + d];
-	if (at < 0) { at = ghost[c * N_SLOTS + d]; }
+	uint f = f0;
+	int at = nbr[f];
+	if (at < 0) { at = ghost[f]; }
 	for (uint i = 0u; i < MARCH_HOPS && at >= 0 && through > 0.0; ++i) {
 		uint a = uint(at);
-		arriving += through * send[a * N_SLOTS + back];
+		arriving += through * send[la_back_face(f, a, d)] * vol_ratio(a, c);
 		through *= 1.0 - lw_emis[a];
-		at = nbr[a * N_SLOTS + d];
-		if (at < 0) { at = ghost[a * N_SLOTS + d]; }
+		// LA_APPROX: march_enters_first_subface
+		f = la_slot_lo(a, d);
+		at = nbr[f];
+		if (at < 0) { at = ghost[f]; }
 	}
 	return arriving;
 }
@@ -233,7 +235,7 @@ void sw_scatter(uint c) {
 		through *= 1.0 - sw_keep[a];
 		at = la_step(a, -up);
 	}
-	float dep = arriving * sw_keep[c] * la_dt / params.cell_m;
+	float dep = arriving * sw_keep[c] * la_dt / cell_edge[c];
 	if (dep > 0.0) {
 		amount[c] += dep;
 		rad_absorbed[c] += dep;
@@ -248,7 +250,7 @@ void sw_scatter(uint c) {
 		esc *= 1.0 - sw_keep[uint(above)];
 		above = la_step(uint(above), up);
 	}
-	sw_space[c] = src * esc * la_dt / params.cell_m;
+	sw_space[c] = src * esc * la_dt / cell_edge[c];
 }
 
 #endif

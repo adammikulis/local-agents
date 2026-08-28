@@ -88,7 +88,7 @@ func _build_field() -> void:
 	_dy = maxi(1, int(round(extent.y / cell_size)))
 	_dz = maxi(1, int(round(extent.z / cell_size)))
 	var origin: Vector3 = Vector3(-0.5 * extent.x, 0.0, -0.5 * extent.z) + origin_offset
-	_field.setup_dims(_dx, _dy, _dz, cell_size, origin)
+	_field.setup_box(origin, Vector3i(_dx, _dy, _dz), cell_size)
 
 
 # Cell centre straight from the field, so a point handed back to temp_at()/add_heat_energy() lands on exactly

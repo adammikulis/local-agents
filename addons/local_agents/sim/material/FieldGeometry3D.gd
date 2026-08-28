@@ -121,16 +121,18 @@ static func curl(field, c: int) -> Vector3:
 ## d(velocity)/d(axis) across the pair of slots on one axis, in 1/s.
 static func _axis_deriv(field, c: int, lo_slot: int, hi_slot: int) -> Vector3:
 	var grid: LAVoxelGrid = field._grid
-	var base: int = c * LAVoxelGrid.SLOTS
-	var lo: int = grid.neighbours[base + lo_slot]
-	var hi: int = grid.neighbours[base + hi_slot]
-	var h: float = maxf(grid.cell_size, 1.0e-6)
+	var f_lo: int = grid.slot_begin(c, lo_slot)
+	var f_hi: int = grid.slot_begin(c, hi_slot)
+	var lo: int = grid.neighbours[f_lo]
+	var hi: int = grid.neighbours[f_hi]
+	var d_lo: float = maxf(LAGridGeometry.face_distance(grid, c, f_lo), 1.0e-6)
+	var d_hi: float = maxf(LAGridGeometry.face_distance(grid, c, f_hi), 1.0e-6)
 	if lo >= 0 and hi >= 0:
-		return (velocity(field, hi) - velocity(field, lo)) / (2.0 * h)
+		return (velocity(field, hi) - velocity(field, lo)) / (d_lo + d_hi)
 	if hi >= 0:
-		return (velocity(field, hi) - velocity(field, c)) / h
+		return (velocity(field, hi) - velocity(field, c)) / d_hi
 	if lo >= 0:
-		return (velocity(field, c) - velocity(field, lo)) / h
+		return (velocity(field, c) - velocity(field, lo)) / d_lo
 	return Vector3.ZERO
 
 
@@ -167,10 +169,10 @@ static func gradient_at(field, c: int, value_at: Callable) -> Vector3:
 	if is_nan(here):
 		return Vector3.ZERO
 	var pos_c: Vector3 = field.cell_world_pos_linear(c)
-	var nbr: PackedInt32Array = field._grid.neighbours
+	var grid: LAVoxelGrid = field._grid
 	var grad: Vector3 = Vector3.ZERO
-	for d in range(LAVoxelGrid.SLOTS):
-		var nb: int = nbr[c * LAVoxelGrid.SLOTS + d]
+	for f in range(grid.slot_begin(c, 0), grid.slot_begin(c, LAVoxelGrid.SLOTS)):
+		var nb: int = grid.neighbours[f]
 		if nb < 0 or field._solid[nb] != 0:
 			continue
 		var dir: Vector3 = field.cell_world_pos_linear(nb) - pos_c

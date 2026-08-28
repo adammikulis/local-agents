@@ -17,6 +17,11 @@ var _ctx_missing: Dictionary = {}        # ctx key -> its absence has already be
 var ghost_count: int = 0
 ## Cells per axis, set by the driver off LAVoxelGrid. The grid owns this; no pass re-derives it.
 var grid_dims: Vector3i = Vector3i.ZERO
+## Faces over interior plus ghost tail, set by the driver off LAVoxelGrid: a per-face buffer's length.
+var face_count: int = 0
+## The box's minimum corner and a LEVEL 0 cell's edge, set by the driver off LAVoxelGrid.
+var grid_origin: Vector3 = Vector3.ZERO
+var grid_cell_size: float = 0.0
 
 
 func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:

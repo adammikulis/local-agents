@@ -90,24 +90,24 @@ $rest
 EOF
 echo "ATMOSPHERE_AT_REST={\"finite\":$REST_FIN,\"mach\":$REST_MACH,\"pressure_rest_rel\":$REST_PREL,\"levels\":$REST_LV}"
 
-vent="$(measure "space,shut,shut,shut,shut,shut")" || {
-	echo "check_atmosphere_at_rest: the vented control published no readings, so the gate has no control." >&2
-	exit 2
-}
-read -r VENT_FIN VENT_MACH VENT_PREL VENT_LV <<EOF
+# THE CONTROL ANSWERS THE QUESTION THE SEALED ARM LEFT OPEN, and only that one. A sealed column that
+# MOVED has already shown this instrument reads motion, so there is nothing for a vented arm to prove
+# and no engine to start for it. A sealed column at rest is the reading that needs a control.
+if at_rest "$REST_FIN" "$REST_MACH" "$REST_PREL" "$REST_LV"; then
+	vent="$(measure "space,shut,shut,shut,shut,shut")" || {
+		echo "check_atmosphere_at_rest: the vented control published no readings, so the gate has no control." >&2
+		exit 2
+	}
+	read -r VENT_FIN VENT_MACH VENT_PREL VENT_LV <<EOF
 $vent
 EOF
-echo "ATMOSPHERE_VENTED={\"finite\":$VENT_FIN,\"mach\":$VENT_MACH,\"pressure_rest_rel\":$VENT_PREL,\"levels\":$VENT_LV}"
-
-# THE CONTROL FIRST: a gate whose disabled arm also passes is holding nothing.
-if at_rest "$VENT_FIN" "$VENT_MACH" "$VENT_PREL" "$VENT_LV"; then
-	echo >&2
-	echo "check_atmosphere_at_rest: the column with its SIDE OPEN TO SPACE also stayed at rest. Every" >&2
-	echo "cell holding matter touches that face, so it must move. This gate cannot fail." >&2
-	exit 2
-fi
-
-if at_rest "$REST_FIN" "$REST_MACH" "$REST_PREL" "$REST_LV"; then
+	echo "ATMOSPHERE_VENTED={\"finite\":$VENT_FIN,\"mach\":$VENT_MACH,\"pressure_rest_rel\":$VENT_PREL,\"levels\":$VENT_LV}"
+	if at_rest "$VENT_FIN" "$VENT_MACH" "$VENT_PREL" "$VENT_LV"; then
+		echo >&2
+		echo "check_atmosphere_at_rest: the column with its SIDE OPEN TO SPACE also stayed at rest. Every" >&2
+		echo "cell holding matter touches that face, so it must move. This gate cannot fail." >&2
+		exit 2
+	fi
 	echo "check_atmosphere_at_rest: OK"
 	exit 0
 fi

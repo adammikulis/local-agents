@@ -39,6 +39,8 @@ set(SRC
     src/LAPlanetTables.cpp
     src/LABodySystem.cpp
     src/LAFieldCellMass.cpp
+    src/LAGridGeometry.cpp
+    src/LAGravitySolve.cpp
     src/LAFieldDriver.cpp
     src/LAFieldStateCache.cpp
     src/LAFieldHydrosphereSeed.cpp

@@ -127,7 +127,7 @@ func _init() -> void:
 	for name in LAChannels.derived_buffers():
 		_bufs[String(name)] = _f32(_filled(_cc, 0.0), owned)
 	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "celerity", "k_cond", "speed", "rad_w_m3",
-			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi"]:
+			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi", "grav_ref"]:
 		_bufs[String(name)] = _f32(_filled(_cc, 0.0), owned)
 	_upload("cap_sensible", _filled(_cc, 1.0))
 	var grav: PackedFloat32Array = PackedFloat32Array()
@@ -137,8 +137,11 @@ func _init() -> void:
 	_bufs["gravity"] = _f32(grav, owned)
 	_bufs["g_rest"] = _f32(grav, owned)
 	_bufs["nbr"] = _i32(grid.neighbours, owned)
+	_bufs["slot_off"] = _i32(grid.slot_off, owned)
+	_bufs["face_partner"] = _i32(grid.partners, owned)
+	_bufs["cell_edge"] = _f32(grid.cell_edges(), owned)
 	var ghost_tbl: PackedInt32Array = PackedInt32Array()
-	ghost_tbl.resize(_cc * LAVoxelGrid.SLOTS)
+	ghost_tbl.resize(grid.neighbours.size())
 	ghost_tbl.fill(-1)
 	_bufs["ghost"] = _i32(ghost_tbl, owned)
 	# The +x face is SPACE by the provider's own record; every other face is a wall.
@@ -150,6 +153,7 @@ func _init() -> void:
 		quit(2)
 		return
 	var p: RefCounted = (load(PASS_PATH) as GDScript).new()
+	p.face_count = grid.neighbours.size()
 	var want: Dictionary = p._buffers(_cc)
 	# The temporal levels a world gets from StateDerivePass; this rig runs the transport pass alone.
 	want.merge(LATemporalLevels.buffers(_cc, p.group_count()))

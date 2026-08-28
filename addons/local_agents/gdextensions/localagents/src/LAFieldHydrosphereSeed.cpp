@@ -24,7 +24,8 @@ using namespace godot;
 namespace {
 
 const char *GEOMETRY_GD = "res://addons/local_agents/sim/material/FieldGeometry3D.gd";
-const int SLOTS = 6;
+// LAVoxelGrid.slot_off: 7 entries per cell, the last ending its faces.
+const int SLOT_STRIDE = 7;
 // Bisection steps on the one scale that spends the water budget. Monotone, so this is convergence.
 const int FILL_STEPS = 80;
 
@@ -34,12 +35,13 @@ Vector3 field_centre(Object *p_field) {
 	return la_call_gd(GEOMETRY_GD, "centre", args);
 }
 
-// Cells' worth of water the scale lays down: a floor takes a share of a brim-full cell in proportion to
-// how deep the basin stands over it, and no cell holds more than a cell.
-double filled(const std::vector<double> &p_deep, double p_edge, double p_scale) {
+// Cubic metres of brim-full water the scale lays down: a floor takes a share of its own cell in
+// proportion to how deep the basin stands over it, and no cell holds more than itself.
+double filled(const std::vector<double> &p_deep, const std::vector<double> &p_edge,
+		const std::vector<double> &p_vol, double p_scale) {
 	double acc = 0.0;
-	for (double d : p_deep) {
-		acc += MIN(p_scale * d / p_edge, 1.0);
+	for (size_t i = 0; i < p_deep.size(); i++) {
+		acc += MIN(p_scale * p_deep[i] / p_edge[i], 1.0) * p_vol[i];
 	}
 	return acc;
 }
@@ -63,10 +65,22 @@ void LAFieldHydrosphereSeed::seed(Object *p_field) {
 		return;
 	}
 	const PackedInt32Array nbr = grid->get("neighbours");
+	const PackedInt32Array slot_off = grid->get("slot_off");
+	const PackedFloat32Array edges = grid->call("cell_edges");
 	const PackedInt32Array below = gravity->call("down_table");
-	const double edge = double(grid->get("cell_size"));
 	const double sea_r = double(terrain->call("sea_radius"));
-	if (nbr.size() != cc * SLOTS || !(edge > 0.0) || !(sea_r > 0.0)) {
+	if (nbr.is_empty() || slot_off.size() < cc * SLOT_STRIDE || edges.size() < cc || !(sea_r > 0.0)) {
+		return;
+	}
+	// RESOLUTION FOLLOWS POSITION, so a cell's edge and volume are its own.
+	std::vector<double> edge(cc, 0.0), vol(cc, 0.0);
+	double edge_min = std::numeric_limits<double>::infinity();
+	for (int c = 0; c < cc; c++) {
+		edge[c] = double(edges[c]);
+		vol[c] = edge[c] * edge[c] * edge[c];
+		edge_min = MIN(edge_min, edge[c]);
+	}
+	if (!(edge_min > 0.0)) {
 		return;
 	}
 	const Dictionary body = LABodySeeds::of("planet");
@@ -80,12 +94,13 @@ void LAFieldHydrosphereSeed::seed(Object *p_field) {
 
 	// Height above the body centre — the flood's priority key — and the pore space beside it.
 	const Vector3 centre = field_centre(p_field);
+	const PackedVector3Array la_cw = grid->call("cell_world_pos_all");
 	std::vector<double> height(cc, 0.0);
 	double pore = 0.0;
 	for (int c = 0; c < cc; c++) {
-		height[c] = double((Vector3(grid->call("cell_world_pos", c)) - centre).length());
+		height[c] = double((la_cw[c] - centre).length());
 		if (regolith[c] != 0) {
-			pore += double(porosity[c]);
+			pore += double(porosity[c]) * vol[c];
 		}
 	}
 	const int bins = MAX(int(grid->call("max_span")) + 2, 2);
@@ -93,7 +108,7 @@ void LAFieldHydrosphereSeed::seed(Object *p_field) {
 	std::vector<double> level(cc, std::numeric_limits<double>::infinity());
 	std::vector<char> done(cc, 0);
 	auto bin_of = [&](double lv) {
-		return CLAMP(int((lv - sea_r) / edge), 0, bins - 1);
+		return CLAMP(int((lv - sea_r) / edge_min), 0, bins - 1);
 	};
 
 	// OUTLETS: an open cell at or below the sea surface drains to the ocean, one on a box face out of it.
@@ -102,8 +117,8 @@ void LAFieldHydrosphereSeed::seed(Object *p_field) {
 			continue;
 		}
 		bool edged = false;
-		for (int d = 0; d < SLOTS; d++) {
-			edged = edged || nbr[c * SLOTS + d] < 0;
+		for (int f = slot_off[c * SLOT_STRIDE]; f < slot_off[c * SLOT_STRIDE + 6]; f++) {
+			edged = edged || nbr[f] < 0;
 		}
 		if (!edged && height[c] > sea_r) {
 			continue;
@@ -120,8 +135,8 @@ void LAFieldHydrosphereSeed::seed(Object *p_field) {
 				continue;
 			}
 			done[c] = 1;
-			for (int d = 0; d < SLOTS; d++) {
-				const int n = nbr[c * SLOTS + d];
+			for (int f = slot_off[c * SLOT_STRIDE]; f < slot_off[c * SLOT_STRIDE + 6]; f++) {
+				const int n = nbr[f];
 				if (n < 0 || n >= cc || done[n] != 0 || solid[n] != 0) {
 					continue;
 				}
@@ -149,53 +164,70 @@ void LAFieldHydrosphereSeed::seed(Object *p_field) {
 		floors.push_back(c);
 		deep.push_back(level[c] - height[c]);
 	}
-	if (floors.empty() || !(pore > 0.0)) {
-		UtilityFunctions::push_error("LAFieldHydrosphereSeed: the flood marked no basin floor or the "
-				"regolith walk no pore space, so the body's water has nowhere to stand.");
+	// NO PORE SPACE IS A BROKEN REGOLITH WALK: every box on this body has rock in it, and rock has
+	// porosity, so a walk that finds none found nothing rather than a body without groundwater.
+	if (!(pore > 0.0)) {
+		UtilityFunctions::push_error("LAFieldHydrosphereSeed: the regolith walk found no pore space, so "
+				"the body's groundwater has nowhere to stand.");
 		return;
 	}
 
 	const double full_mol = LASubstances::full_mol_m3("h2o");
-	const double cell_mol = full_mol * edge * edge * edge;
-	const double mass_mol = la_physical("MOLAR_MASS_WATER_KG_MOL") * cell_mol;
-	if (!(mass_mol > 0.0)) {
+	// kg one m^3 of brim-full water weighs, so a budget in kg becomes one in cubic metres of full cell.
+	const double kg_m3 = la_physical("MOLAR_MASS_WATER_KG_MOL") * full_mol;
+	if (!(kg_m3 > 0.0)) {
 		return;
 	}
-	const double sat = MIN(ground_kg / (mass_mol * pore), 1.0);
-	const double want = (water_kg - ground_kg) / mass_mol;
+	const double sat = MIN(ground_kg / (kg_m3 * pore), 1.0);
+	const double want = (water_kg - ground_kg) / kg_m3;
+	float *w = h2o.ptrw();
+	// THE PORE WATER STANDS WHEREVER THERE IS ROCK, basin or no basin.
+	for (int c = 0; c < cc; c++) {
+		if (regolith[c] != 0) {
+			w[c] = float(sat * double(porosity[c]) * full_mol);
+		}
+	}
+	// A BOX WITH NO BASIN IS A BOX ON LAND, not a broken seed: a column standing above the sea holds
+	// none of the body's surface water, and the rest of the body holds all of it.
+	if (floors.empty()) {
+		UtilityFunctions::push_warning("LAFieldHydrosphereSeed: this box holds no basin floor, so all of "
+				"the body's surface water stands outside it.");
+		p_field->set("_h2o", h2o);
+		return;
+	}
+	std::vector<double> floor_edge, floor_vol;
+	double floor_room = 0.0;
+	for (size_t i = 0; i < floors.size(); i++) {
+		floor_edge.push_back(edge[floors[i]]);
+		floor_vol.push_back(vol[floors[i]]);
+		floor_room += vol[floors[i]];
+	}
 	// A BOX THAT IS A WINDOW ON THE BODY HOLDS PART OF ITS OCEAN AND PART OF ITS GROUNDWATER. The basins
 	// and the pore space in it fill and the rest of the water is elsewhere on the body;
 	// scripts/check_hydrosphere_mass.sh holds the whole box to the whole hydrosphere, which is where a
 	// body that cannot hold its own water shows up.
-	if (want > double(floors.size()) || ground_kg > mass_mol * pore) {
+	if (want > floor_room || ground_kg > kg_m3 * pore) {
 		UtilityFunctions::push_warning("LAFieldHydrosphereSeed: the basins and pore space in this box hold "
 				"less than the body's water, so they fill and the rest of it stands outside the box.");
 	}
 	// THE ONE SCALE ON BASIN DEPTH THAT SPENDS THE BUDGET, capped at a brim-full cell: water poured into a
 	// basin that is already full runs into the next one.
 	double hi = 1.0;
-	for (int i = 0; i < 60 && filled(deep, edge, hi) < want; i++) {
+	for (int i = 0; i < 60 && filled(deep, floor_edge, floor_vol, hi) < want; i++) {
 		hi *= 2.0;
 	}
 	double lo = 0.0;
 	for (int i = 0; i < FILL_STEPS; i++) {
 		const double mid = 0.5 * (lo + hi);
-		if (filled(deep, edge, mid) < want) {
+		if (filled(deep, floor_edge, floor_vol, mid) < want) {
 			lo = mid;
 		} else {
 			hi = mid;
 		}
 	}
 	const double thick = 0.5 * (lo + hi);
-
-	float *w = h2o.ptrw();
-	for (int c = 0; c < cc; c++) {
-		if (regolith[c] != 0) {
-			w[c] = float(sat * double(porosity[c]) * full_mol);
-		}
-	}
 	for (size_t i = 0; i < floors.size(); i++) {
-		w[floors[i]] = float(MIN(thick * deep[i] / edge, 1.0) * full_mol);
+		w[floors[i]] = float(MIN(thick * deep[i] / edge[floors[i]], 1.0) * full_mol);
 	}
 	p_field->set("_h2o", h2o);
 }

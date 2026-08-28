@@ -24,6 +24,12 @@ public:
 	// The same, restricted to the channels that are gas: a mixture's specific gas constant is R over the
 	// mole-weighted molar mass of what is actually in the air.
 	static Array gas_mirrors(Object *p_field);
+	// THE ENTHALPY SEED, one pass over every cell: each ladder entry off its own curve at the cell's
+	// geotherm temperature and marched pressure, everything else sensible at its capacity. Returns
+	// {"h": J/m^3 per cell, "total_j": joules created}. p_profile is T(r) in kelvin over SAMPLES radii
+	// from the centre to p_r_body; cells outside the body take p_t_surface_c.
+	static Dictionary seed_enthalpy(Object *p_field, Object *p_grid, const PackedFloat32Array &p_profile,
+			double p_r_body, double p_t_surface_c, const PackedFloat32Array &p_p_pa);
 	// Moles per m^3 summed into kilograms per m^3 for one cell. Times the cell's own volume is its mass.
 	static double kg_m3_at(const Array &p_mirrors, int p_c);
 

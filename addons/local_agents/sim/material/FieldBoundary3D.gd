@@ -104,34 +104,32 @@ func configure(grid: LAVoxelGrid, modes: PackedInt32Array, states: Array) -> boo
 			_face_cells[d] = cells
 			ng += cells.size()
 	grid.add_ghost_rows(ng)
-	_ghost.resize((_cc + ng) * LAVoxelGrid.SLOTS)
+	# The redirect rides a FACE, as the flux does: LAVoxelGrid.slot_off says where a cell's own begin.
+	_ghost.resize(grid.neighbours.size())
 	_ghost.fill(-1)
 	_ng = ng
-	var nbr: PackedInt32Array = grid.neighbours
 	var next: int = _cc
 	for d in LAVoxelGrid.SLOTS:
 		if _modes[d] == SPACE:
 			for c in _cells_on_face(d):
-				_ghost[c * LAVoxelGrid.SLOTS + d] = SPACE_REDIRECT
+				_ghost[grid.slot_begin(c, d)] = SPACE_REDIRECT
 		elif _modes[d] == WRAP:
 			for c in _cells_on_face(d):
-				_ghost[c * LAVoxelGrid.SLOTS + d] = _wrap_partner(c, d)
+				_ghost[grid.slot_begin(c, d)] = grid.wrap_partner(c, d)
 		elif _modes[d] == CONSTANT or _modes[d] == REPLAY:
 			_face_base[d] = next
-			var back: int = LAVoxelGrid.opposite_slot(d)
 			var cells: PackedInt32Array = _face_cells[d]
 			for i in cells.size():
 				var gh: int = next + i
-				_ghost[cells[i] * LAVoxelGrid.SLOTS + d] = gh
-				nbr[gh * LAVoxelGrid.SLOTS + back] = cells[i]
+				_ghost[grid.slot_begin(cells[i], d)] = gh
+				grid.attach_ghost(gh, cells[i], d)
 			next += cells.size()
-	grid.neighbours = nbr
-	_build_rim(nbr)
+	_build_rim(grid)
 	return true
 
 
 ## LA_APPROX: boundary_relaxation_zone
-func _build_rim(nbr: PackedInt32Array) -> void:
+func _build_rim(grid: LAVoxelGrid) -> void:
 	_rim_ghost = PackedInt32Array()
 	_rim_ghost.resize(_cc)
 	_rim_ghost.fill(-1)
@@ -152,7 +150,7 @@ func _build_rim(nbr: PackedInt32Array) -> void:
 				if w > _rim_w[at]:
 					_rim_w[at] = w
 					_rim_ghost[at] = base + i
-				at = nbr[at * LAVoxelGrid.SLOTS + inward]
+				at = grid.neighbours[grid.slot_begin(at, inward)]
 
 
 func _valid_state(st: Dictionary, d: int) -> bool:
@@ -209,7 +207,9 @@ func replay(d: int, state: Dictionary) -> void:
 
 ## The redirect for an interior cell's face: -1 shut, -2 space, < cc wrap partner, >= cc ghost tail.
 func redirect(c: int, d: int) -> int:
-	var i: int = c * LAVoxelGrid.SLOTS + d
+	if _grid == null or c < 0 or c >= _grid.cell_count + _grid.ghost_rows:
+		return -1
+	var i: int = _grid.slot_begin(c, d)
 	return _ghost[i] if i >= 0 and i < _ghost.size() else -1
 
 
@@ -232,12 +232,12 @@ func wrap_check() -> Dictionary:
 		var s: Vector3i = LAVoxelGrid.SLOT_STEP[d]
 		for c in _cells_on_face(d):
 			var v: Vector3i = _grid.coords(c)
-			var want: int = _grid.index(
+			var want: int = _grid.leaf_at(
 				(v.x + s.x + dims[0]) % dims[0],
 				(v.y + s.y + dims[1]) % dims[1],
 				(v.z + s.z + dims[2]) % dims[2])
 			checked += 1
-			if _ghost[c * LAVoxelGrid.SLOTS + d] != want:
+			if _ghost[_grid.slot_begin(c, d)] != want:
 				mismatches += 1
 	return {"ok": mismatches == 0 and checked > 0, "checked": checked, "mismatches": mismatches}
 
@@ -254,20 +254,8 @@ func _cells_on_face(d: int) -> PackedInt32Array:
 		for v in dims[v_axis]:
 			p[u_axis] = u
 			p[v_axis] = v
-			out.append(_grid.index(p[0], p[1], p[2]))
+			out.append(_grid.leaf_at(p[0], p[1], p[2]))
 	return out
-
-
-func _wrap_partner(c: int, d: int) -> int:
-	var axis: int = d >> 1
-	var dims: PackedInt32Array = PackedInt32Array([_grid.nx, _grid.ny, _grid.nz])
-	var p: PackedInt32Array = PackedInt32Array([0, 0, 0])
-	var v: Vector3i = _grid.coords(c)
-	p[0] = v.x
-	p[1] = v.y
-	p[2] = v.z
-	p[axis] = dims[axis] - 1 if (d & 1) == 0 else 0
-	return _grid.index(p[0], p[1], p[2])
 
 
 ## Fill one face's ghost tails with the state the same way the seed derives enthalpy from a temperature

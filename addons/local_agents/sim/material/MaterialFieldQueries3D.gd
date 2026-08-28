@@ -487,9 +487,9 @@ func lava_shell_diag() -> Dictionary:
 	if _f._grid == null or _f._solid.size() != _f._cell_count or _f._temp.size() != _f._cell_count:
 		return out
 	# The melt depth that makes a cell part of the body, read back from the row the device counted with.
-	var nbr: PackedInt32Array = _f._grid.neighbours
+	var grid: LAVoxelGrid = _f._grid
 	var body: float = float(LAReduceRecords.row("lava_hot").get("threshold", NAN))
-	if nbr.size() != _f._cell_count * 6 or is_nan(body):
+	if grid.neighbours.is_empty() or is_nan(body):
 		return out
 	var interior: int = 0
 	var rind: int = 0
@@ -499,10 +499,9 @@ func lava_shell_diag() -> Dictionary:
 		var lv: float = melt_at(c)
 		if _f._solid[c] != 0 or lv < body or _f._silicate_melt[c] <= 0.0:
 			continue
-		var base: int = c * 6
 		var exposed: int = 0
-		for d in range(6):
-			var nb: int = nbr[base + d]
+		for f in range(grid.slot_begin(c, 0), grid.slot_begin(c, LAVoxelGrid.SLOTS)):
+			var nb: int = grid.neighbours[f]
 			if nb < 0:
 				exposed += 1
 				continue

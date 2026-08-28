@@ -4,6 +4,35 @@
 
 const uint N_SLOTS = 6u;   // LAVoxelGrid.SLOTS — a box has six faces
 
+// A SLOT is an axis tag; a FACE is what carries a flux, and a coarse cell has four of them on the slot
+// where it meets fine cells. `int nbr[]` and the per-face scratch are indexed by FACE.
+// LAVoxelGrid.slot_off: absolute face index where cell c's slot-d faces begin, 7 per cell.
+layout(set = 0, binding = 92, std430) restrict readonly buffer SlotOff { uint slot_off[]; };
+// LAVoxelGrid.partners: per face, the face pointing back. A 2:1 seam makes that a different question
+// from `d ^ 1`, which stays the reverse AXIS TAG and never an index.
+layout(set = 0, binding = 93, std430) restrict readonly buffer FacePartner { int partner[]; };
+
 uint opposite_slot(uint d) { return d ^ 1u; }
+
+uint la_slot_lo(uint c, uint d) { return slot_off[c * 7u + d]; }
+uint la_slot_hi(uint c, uint d) { return slot_off[c * 7u + d + 1u]; }
+uint la_face_lo(uint c) { return slot_off[c * 7u]; }
+uint la_face_hi(uint c) { return slot_off[c * 7u + 6u]; }
+uint la_face_count(uint c) { return la_face_hi(c) - la_face_lo(c); }
+
+// The slot face `f` of cell `c` lies on.
+uint la_face_slot(uint c, uint f) {
+	for (uint d = 0u; d < N_SLOTS; ++d) {
+		if (f < la_slot_hi(c, d)) { return d; }
+	}
+	return N_SLOTS - 1u;
+}
+
+// The face `nb` presents back across face `f`, which `d` crosses: the stored partner, or — where the
+// face left the box and a boundary provider redirected it — that cell's own face on the reverse slot.
+uint la_back_face(uint f, uint nb, uint d) {
+	int p = partner[f];
+	return p >= 0 ? uint(p) : la_slot_lo(nb, opposite_slot(d));
+}
 
 #endif

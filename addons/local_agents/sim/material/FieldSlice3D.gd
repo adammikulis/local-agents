@@ -3,7 +3,7 @@ extends RefCounted
 
 ## A SLICE of the declared body: a small box on the planet, seeded from the real terrain, fed at its faces
 ## by LAFieldBoundary3D. Spec "ox,oy,oz,nx,ny,nz,cell_m" — box-centre offset (m, body frame), cells per
-## axis, cell edge; an offset component may be `surface`. Node meta -> setting -> env.
+## axis, COARSEST cell edge; an offset component may be `surface`. Node meta -> setting -> env.
 
 const CaptureScript: GDScript = preload("res://addons/local_agents/sim/material/FieldBoundaryCapture3D.gd")
 
@@ -102,7 +102,12 @@ func apply(field, body, terrain) -> bool:
 		field._terrain_opts = terrain.generator_options()
 	var centre: Vector3 = Vector3(body.center()) + offset
 	var half: Vector3 = 0.5 * Vector3(dims) * cell_size
-	field.setup_dims(dims.x, dims.y, dims.z, cell_size, centre - half)
+	# THE SLICE IS A REGION OF THE ONE CONSTRUCTION PATH, not a second one, and it is handed the SAME
+	# refinement rule the whole body gets: a shell around the terrain surface, refined only where a
+	# cell is coarser than that shell. A slice whose own edge already resolves it stays uniform.
+	field.setup_box(centre - half, dims, cell_size, terrain, body.center(), LocalAgentSimWorld.MODELLED_ATMOSPHERE_HEIGHT_M,
+		LocalAgentSimWorld.MODELLED_ATMOSPHERE_HEIGHT_M,
+		LAFieldGridBudget.target_edge_m("planet", float(body.radius()), LAMaterialField3D.INITIAL_TEMP))
 	_configure_boundary(field)
 	return error == ""
 

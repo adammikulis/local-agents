@@ -1,16 +1,13 @@
 #!/usr/bin/env bash
 # =====================================================================================================
-# VOXEL GRID — the structural claims of the uniform Cartesian grid, checked rather than asserted.
-#
-# The cubed-sphere grid this replaces had to EARN reciprocity: a face seam table, family orientation
-# repair, a kernel-order slot permutation, and a reciprocal-slot lookup that was wrong for all four
-# lateral slots (matter destroyed on two faces of six, duplicated on two others). On an axis-aligned
-# grid the opposite of d IS d ^ 1 and there is nothing to get wrong — but "nothing to get wrong" is a
-# claim, so it is tested.
-#
-# It also checks the property the whole migration is FOR:
-#   volume_ratio == 1      every cell is the same size, so no transfer needs a donor/receiver ratio.
-#
+# VOXEL GRID — the structural claims of the GRADED Cartesian grid, checked rather than asserted.
+#   volume_ratio == 8         a 2:1 neighbour's volume ratio is EXACTLY eight, never a near miss
+#   ratio_violations == 0     no pair differs by anything else
+#   area_violations == 0      the four fine faces across a coarse face tile it exactly
+#   non_reciprocal == 0       every face names the face that points back, through `partners`
+# Plus: every transfer across such a face goes through `cellvol.glsli`'s vol_ratio(donor, receiver).
+# A channel value is a FILL FRACTION of the cell holding it, so a 2:1 crossing without the ratio
+# creates or destroys seven eighths of what crossed.
 # EXIT CODES. 0 pass · 1 a structural claim is false · 2 could not run.
 # =====================================================================================================
 set -uo pipefail
@@ -42,10 +39,35 @@ echo "$line"
 # The marker carries the verdict; a batched runner has no exit code of its own.
 fails="$(printf '%s' "$line" | grep -oE '"failures":[0-9]+' | grep -oE '[0-9]+$')"
 [ -n "$fails" ] || { echo "ERROR: the probe published no failure count." >&2; exit 2; }
+ratio="$(printf '%s' "$line" | grep -oE '"volume_ratio":[0-9.]+' | grep -oE '[0-9.]+$')"
+[ -n "$ratio" ] || { echo "ERROR: the probe published no volume ratio." >&2; exit 2; }
 if [ "$fails" -ne 0 ]; then
   echo
-  echo "A structural claim of the uniform grid is false. These are the properties the cubed-sphere grid"
-  echo "had to earn with a seam table and got wrong; on this grid they should hold by construction."
+  echo "A structural claim of the graded grid is false: a 2:1 pair whose volumes are not eight to one,"
+  echo "a coarse face its four fine faces do not tile, or a face with no partner pointing back."
+  exit 1
+fi
+# The refined arm's own reading, so a probe that quietly stopped refining cannot pass this gate.
+case "$ratio" in
+  8|8.0|8.0*) ;;
+  *) echo "check_voxel_grid: the refined grid reports volume_ratio $ratio, not 8." >&2; exit 1 ;;
+esac
+
+# EVERY TRANSFER GOES THROUGH vol_ratio. transport.glsl's gather is the one place a donor's fill
+# fraction becomes a receiver's, and on a graded grid it may not be a bare copy.
+K="$REPO_ROOT/addons/local_agents/sim/material/kernels3d"
+grep -q 'float vol_ratio(uint donor, uint receiver)' "$K/cellvol.glsli" || {
+  echo "check_voxel_grid: cellvol.glsli no longer declares vol_ratio(donor, receiver)." >&2; exit 1; }
+for expr in 'send\[bf\] \* ratio' 'send_h\[bf\] \* ratio' 'send_q\[bf\] \* ratio' \
+            'float ratio = vol_ratio\(nb, gidx\);'; do
+  grep -qE "$expr" "$K/transport.glsl" || {
+    echo "check_voxel_grid: transport.glsl's gather does not scale an inflow by the pair's volume" >&2
+    echo "  ratio ($expr absent), so matter crossing a 2:1 seam is created or destroyed." >&2
+    exit 1; }
+done
+# And nothing may index per-face scratch by a fixed six-slot stride any more.
+if grep -nE '(send|send_h|send_q|send_mx|send_my|send_mz|nbr|ghost)\[[^]]*N_SLOTS' "$K"/*.glsl "$K"/*.glsli; then
+  echo "check_voxel_grid: a per-face buffer is still indexed by a fixed six-slot stride." >&2
   exit 1
 fi
 echo "check_voxel_grid: OK"

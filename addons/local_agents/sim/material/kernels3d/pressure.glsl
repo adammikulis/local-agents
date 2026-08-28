@@ -5,7 +5,7 @@
 // cell's pressure is state_derive.glsl's; touching one here makes two writers disagree about it.
 // LA_APPROX: quasi_static_solid_pressure
 
-#include "neighbours.glsli"
+#include "cellvol.glsli"
 
 layout(local_size_x = 64) in;
 
@@ -19,7 +19,6 @@ layout(set = 0, binding = 4, std430) restrict readonly buffer VertUp { int vert_
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
-	float cell_m;
 	float p_top;      // pressure above the outermost cell: vacuum unless something stands there
 	uint max_steps;   // walk bound: a staircase takes at most one step per cell on each axis
 } params;
@@ -48,7 +47,7 @@ float la_load(uint c) {
 		return 0.0;
 	}
 	float m = max(max(abs(up.x), abs(up.y)), abs(up.z));
-	return rho_bulk[c] * gmag * params.cell_m * m;
+	return rho_bulk[c] * gmag * cell_edge[c] * m;
 }
 
 void main() {

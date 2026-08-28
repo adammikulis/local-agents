@@ -4,6 +4,7 @@
 // Two passes over one dispatch: pass 0 writes what leaves each face into send/send_h, pass 1 gathers.
 // Opposite of slot d is d ^ 1.
 
+#include "cellvol.glsli"
 #include "neighbours.glsli"
 #include "generated.glsli"
 #include "stack.glsli"
@@ -21,7 +22,7 @@ layout(set = 0, binding = 4, std430) restrict readonly buffer Grav { float g_fie
 layout(set = 0, binding = 5, std430) restrict buffer VelX { float vel_x[]; };
 layout(set = 0, binding = 6, std430) restrict buffer VelY { float vel_y[]; };
 layout(set = 0, binding = 7, std430) restrict buffer VelZ { float vel_z[]; };
-// Per-face scratch, cell*6 + slot.
+// Per-face scratch, indexed by FACE: LAVoxelGrid.slot_off says where a cell's own begin.
 layout(set = 0, binding = 8, std430) restrict buffer Send   { float send[]; };
 layout(set = 0, binding = 9, std430) restrict buffer SendH  { float send_h[]; };
 // Charge rides the mass, exactly as enthalpy does: it is carried, never created by a move.
@@ -133,6 +134,9 @@ layout(set = 0, binding = 75, std430) readonly buffer O2Buf { float o2_gas[]; };
 layout(set = 0, binding = 76, std430) readonly buffer N2Buf { float n2_gas[]; };
 layout(set = 0, binding = 77, std430) readonly buffer H2Buf { float h2_gas[]; };
 layout(set = 0, binding = 78, std430) restrict readonly buffer GravPhi { float grav_phi[]; };  // J/kg, zero at infinity
+layout(set = 0, binding = 95, std430) restrict readonly buffer GravRef { float grav_ref[]; };  // J/kg, the reference grav_phi deviates from
+// The full potential of a cell, J/kg.
+float la_phi(uint c) { return grav_phi[c] + grav_ref[c]; }
 // The charge riding a mass row's exterior crossing, C/m^3 per step.
 layout(set = 0, binding = 79, std430) buffer BndQ { float bnd_q[]; };
 // TEMPORAL LEVELS. A cell's own stable timestep is dt/2^tlevel; the ghost tail is level 0. `level_idx`
@@ -162,7 +166,6 @@ layout(push_constant, std430) uniform Params {
 	uint law;             // LAW_* — which transport law sets the mobility
 	uint band_count;
 	uint flags;           // TF_SIGNED | TF_SETTLE | TF_EFIELD
-	float cell_m;         // cell edge, metres. One number: the grid is uniform.
 	float dt_s;
 	float repose_tan;     // 0 = a fluid, which levels freely
 	float density;        // kg/m^3 of the substance this record carries
@@ -370,85 +373,105 @@ float cond_kg_m3(uint c) {
 	return cloud_water_kg_m3(c) + max(silicate[c], 0.0) * M_SILICATE;
 }
 
-// Depth of face d below the cell's top, m: where the face cuts the stack.
+// Depth of face d below the cell's top, m, over the cell's OWN edge: each side of a 2:1 seam
+// reconstructs over the half-edge it has.
 float face_z(uint c, uint d) {
 	vec3 gv = g_at(c);
 	float gm = length(gv);
-	return gm > 0.0 ? 0.5 * params.cell_m * (1.0 + dot(face_normal(d), gv) / gm)
-		: 0.5 * params.cell_m;
+	float e = cell_edge[c];
+	return gm > 0.0 ? 0.5 * e * (1.0 + dot(face_normal(d), gv) / gm) : 0.5 * e;
 }
 
 // How far face d lies below the cell's centre, in half-edges. It is a GEOPOTENTIAL between two cell
 // centres, never a length along a frozen gravity vector: a step ACROSS the field changes no altitude,
 // however far gravity leans off the box axes. The box edge has no second centre to read it from.
-float face_cos(uint c, uint d) {
+float face_cos(uint c, uint f, uint d) {
 	vec3 gv = g_at(c);
 	float gm = length(gv);
 	if (gm <= 0.0) {
 		return 0.0;
 	}
-	int inb = nbr[c * N_SLOTS + d];
+	int inb = nbr[f];
 	return (inb >= 0 && uint(inb) < params.cell_count)
-		? (grav_phi[c] - grav_phi[uint(inb)]) / (gm * params.cell_m)
+		? (la_phi(c) - la_phi(uint(inb))) / (gm * la_face_dist(c, inb))
 		: dot(face_normal(d), gv) / gm;
 }
 
 // The cell's MEAN pressure over face d, off the matter it holds, so its own six faces return its own
 // weight and an equilibrium column presents ONE pressure to a shared face.
-float face_p(uint c, uint d) {
+float face_p(uint c, uint f, uint d) {
 	vec3 gv = g_at(c);
 	float gm = length(gv);
 	if (gm <= 0.0) {
 		return pressure[c];
 	}
-	return la_stack_face_p(face_cos(c, d), params.cell_m, gm, cond_kg_m3(c),
+	return la_stack_face_p(face_cos(c, f, d), cell_edge[c], gm, cond_kg_m3(c),
 		max(rho_bulk[c], 0.0), max(pressure[c], 0.0));
 }
 
 // The GAS alone at face d, Pa: the same reconstruction with the condensed head left off.
-float face_p_gas(uint c, uint d) {
+float face_p_gas(uint c, uint f, uint d) {
 	vec3 gv = g_at(c);
 	float gm = length(gv);
 	if (gm <= 0.0) {
 		return pressure[c];
 	}
 	float m_gas = max(max(rho_bulk[c], 0.0) - cond_kg_m3(c), 0.0);
-	return la_stack_face_p(face_cos(c, d), params.cell_m, gm, 0.0, m_gas, max(pressure[c], 0.0));
+	return la_stack_face_p(face_cos(c, f, d), cell_edge[c], gm, 0.0, m_gas, max(pressure[c], 0.0));
 }
 
 // The layer this cell presents at face d, stated AT THAT FACE: a gas held at the cell's mean pressure
 // has an impedance the matter at the face does not, and p/Z is then an expansion faster than its sound.
-vec2 face_layer(uint c, uint d) {
-	float pg = max(face_p_gas(c, d), 0.0);
-	return la_stack_layer(face_z(c, d), params.cell_m, condensed_frac(c), cond_kg_m3(c),
+vec2 face_layer(uint c, uint f, uint d) {
+	float pg = max(face_p_gas(c, f, d), 0.0);
+	return la_stack_layer(face_z(c, d), cell_edge[c], condensed_frac(c), cond_kg_m3(c),
 		pg / (DRY_AIR_R * t_k(c)), pg, max(k_cond[c], 0.0), AIR_GAMMA);
 }
 
 // Signal speed of the layer at face d, m/s: sqrt(K/rho) of what touches it, never a mixture mean.
-float face_c(uint c, uint d) {
-	vec2 lay = face_layer(c, d);
+float face_c(uint c, uint f, uint d) {
+	vec2 lay = face_layer(c, f, d);
 	return (lay.x > 0.0 && lay.y > 0.0) ? sqrt(lay.y / lay.x) : 0.0;
 }
 
 // Impedance rho*c of the layer at face d, kg/(m^2 s). LA_APPROX: acoustic_face_pressure
-float impedance(uint c, uint d) {
-	vec2 lay = face_layer(c, d);
+float impedance(uint c, uint f, uint d) {
+	vec2 lay = face_layer(c, f, d);
 	return (lay.x > 0.0 && lay.y > 0.0) ? sqrt(lay.x * lay.y) : 0.0;
 }
 
 // Magnitude of the resolved strain-rate tensor, 1/s: |S| = sqrt(2 S_ij S_ij).
+// Area-weighted velocity across one slot, and the centre distance to it. The cell's own at a wall.
+vec3 slot_vel(uint c, uint d, out float dist) {
+	float a = 0.0;
+	vec3 av = vec3(0.0);
+	float ad = 0.0;
+	for (uint f = la_slot_lo(c, d); f < la_slot_hi(c, d); ++f) {
+		int nb = nbr[f];
+		if (nb < 0) { nb = ghost[f]; }
+		if (nb < 0) { continue; }
+		float w = la_face_area(c, nbr[f]);
+		a += w;
+		av += w * vel_at(uint(nb));
+		ad += w * la_face_dist(c, nbr[f]);
+	}
+	if (a <= 0.0) {
+		dist = 0.5 * cell_edge[c];
+		return vel_at(c);
+	}
+	dist = ad / a;
+	return av / a;
+}
+
 float strain_rate(uint c) {
-	uint base = c * N_SLOTS;
 	mat3 grad = mat3(0.0);
 	for (uint a = 0u; a < 3u; ++a) {
 		uint slot = a * 2u;
-		int lo = nbr[base + slot];
-		int hi = nbr[base + opposite_slot(slot)];
-		if (lo < 0) { lo = ghost[base + slot]; }
-		if (hi < 0) { hi = ghost[base + opposite_slot(slot)]; }
-		vec3 vlo = lo >= 0 ? vel_at(uint(lo)) : vel_at(c);
-		vec3 vhi = hi >= 0 ? vel_at(uint(hi)) : vel_at(c);
-		vec3 d = (vhi - vlo) / (2.0 * params.cell_m);
+		float dlo = 0.0;
+		float dhi = 0.0;
+		vec3 vlo = slot_vel(c, slot, dlo);
+		vec3 vhi = slot_vel(c, opposite_slot(slot), dhi);
+		vec3 d = (vhi - vlo) / max(dlo + dhi, 1.0e-30);
 		grad[0][a] = d.x;
 		grad[1][a] = d.y;
 		grad[2][a] = d.z;
@@ -465,7 +488,7 @@ float strain_rate(uint c) {
 
 // Smagorinsky eddy viscosity, m^2/s: nu_t = (C_s dx)^2 |S| plus that fluid's molecular floor.
 float eddy_viscosity_of(uint c, float rho, float mu) {
-	float mixing = SMAGORINSKY_COEFF * params.cell_m;
+	float mixing = SMAGORINSKY_COEFF * cell_edge[c];
 	float nu_mol = rho > 0.0 ? mu / rho : 0.0;
 	return nu_mol + mixing * mixing * strain_rate(c);
 }
@@ -495,7 +518,7 @@ float column_field(uint c) {
 		if (solid[at] != 0.0) {
 			break;
 		}
-		sigma += charge[at] * la_step_len(up, params.cell_m);
+		sigma += charge[at] * la_step_len(up, cell_edge[at]);
 		int nx = la_step(at, up);
 		if (nx < 0) {
 			break;
@@ -526,7 +549,7 @@ float ohmic_conductivity_at(uint c, float e) {
 // The fraction of the driving imbalance that crosses a face in one step. Every branch is a transport law
 // evaluated on this cell's own state; nothing here is a chosen rate.
 float mobility_at(uint c, float amt) {
-	float L = params.cell_m;
+	float L = cell_edge[c];
 	float dt = la_dt;
 	float g = length(g_at(c));
 	// The matter's depth: its volume fraction of the cell (amount over the row's full amount) times the
@@ -584,7 +607,7 @@ float darcy_mobility(uint a, uint b) {
 		return 0.0;
 	}
 	return params.fluid_rho * length(g_at(a)) * la_dt
-		/ (r * max(params.fluid_visc, 1.0e-30) * params.cell_m);
+		/ (r * max(params.fluid_visc, 1.0e-30) * cell_edge[a]);
 }
 
 // Terminal settling velocity of a grain of diameter `d` in a fluid, m/s (Stokes drag: the buoyant weight
@@ -628,11 +651,11 @@ float wind_term(float n, float m, float m_max) {
 // LAW_ESCAPE: the box edge is space. Bound gas: Jeans tail effusion (Jeans 1925; Chamberlain & Hunten
 // 1987), tail excess out via `tail_j_mol`; unbound: the XUV energy-limited wind (Watson et al. 1981;
 // Erkaev et al. 2007). LA_APPROX: top_cell_exobase
-float escape_fraction(uint c, uint d, out float tail_j_mol) {
+float escape_fraction(uint c, uint f, uint d, out float tail_j_mol) {
 	tail_j_mol = 0.0;
 	vec3 gv = g_at(c);
 	float gmag = length(gv);
-	float depth = -grav_phi[c];
+	float depth = -la_phi(c);
 	float kg_mol = sub_kg_mol();
 	if (gmag <= 0.0 || depth <= 0.0 || kg_mol <= 0.0) {
 		return 0.0;
@@ -669,23 +692,25 @@ float escape_fraction(uint c, uint d, out float tail_j_mol) {
 		}
 		v_eff = XUV_EFF * params.xuv_w_m2 * mu / (depth * rho_wind);
 	}
-	return min(v_eff * la_dt / params.cell_m, 1.0) * cosf;
+	return min(v_eff * la_dt * la_face_div(c, nbr[f]), 1.0) * cosf;
 }
 
 #include "transport_radiate.glsli"
 
 // Piezometric head at face d: drive head, plus elevation and p/(rho g) for a hydraulic POTENTIAL row.
-float potential(uint c, uint d) {
+// `L` is the FACE'S centre distance, one length for both sides of a seam; the elevation term is each
+// cell's own half-edge.
+float potential(uint c, uint d, float L) {
 	vec3 gv = g_at(c);
 	float gmag = length(gv);
 	bool hydraulic = params.mode == MODE_POTENTIAL
 		&& (params.law == LAW_SHALLOW || params.law == LAW_FILM || params.law == LAW_DARCY);
 	if (!hydraulic || (params.flags & TF_DRIVEN) != 0u || gmag <= 0.0) {
-		return drive[c] * params.cell_m;
+		return drive[c] * L;
 	}
-	float z = 0.5 * params.cell_m * dot(gv / gmag, face_normal(d));
+	float z = 0.5 * cell_edge[c] * dot(gv / gmag, face_normal(d));
 	float p_head = params.density > 0.0 ? max(pressure[c], 0.0) / (params.density * gmag) : 0.0;
-	return drive[c] * params.cell_m + (z + p_head) * params.max_fill;
+	return drive[c] * L + (z + p_head) * params.max_fill;
 }
 
 // PASS_GRAIN: a cell's loose grains — in water, in air, or on the bed. Shares sum to
@@ -716,7 +741,7 @@ void grain_state(uint g) {
 // Substeps this row's stability asks of THIS cell, off the cell's own state: per-face share <= 1/6,
 // donor courant v dt <= L, acoustic c dt sqrt(3)/L <= 1, gravity adjustment g h (dt/n)^2/L^2 <= 1/6.
 float la_row_need(uint c) {
-	float L = params.cell_m;
+	float L = cell_edge[c];
 	float dt = params.dt_s;
 	float tk = t_k(c);
 	float need = 0.0;
@@ -724,7 +749,9 @@ float la_row_need(uint c) {
 	if ((params.flags & TF_VEL) != 0u && solid[c] == 0.0) {
 		float w = 0.0;
 		for (uint d = 0u; d < N_SLOTS; ++d) {
-			w = max(w, abs(dot(vel_at(c), face_normal(d))) + face_c(c, d));
+			for (uint f = la_slot_lo(c, d); f < la_slot_hi(c, d); ++f) {
+				w = max(w, abs(dot(vel_at(c), face_normal(d))) + face_c(c, f, d));
+			}
 		}
 		need = w * dt / L;
 	}
@@ -804,9 +831,8 @@ bool la_outside_driven(uint c) {
 	if (params.law != LAW_ESCAPE) {
 		return false;
 	}
-	uint b = c * N_SLOTS;
-	for (uint d = 0u; d < N_SLOTS; ++d) {
-		if (ghost[b + d] == GHOST_SPACE) {
+	for (uint f = la_face_lo(c); f < la_face_hi(c); ++f) {
+		if (ghost[f] == GHOST_SPACE) {
 			return true;
 		}
 	}
@@ -831,10 +857,9 @@ void act_claim_append(uint n) {
 // AN AWAKE CELL'S EVERY RECEIVER IS DISPATCHED, or what it donates lands nowhere.
 void act_mark_ring(uint c) {
 	act_claim_append(c);
-	uint nbase = c * N_SLOTS;
-	for (uint d = 0u; d < N_SLOTS; ++d) {
-		int nb = nbr[nbase + d];
-		if (nb < 0) { nb = ghost[nbase + d]; }
+	for (uint f = la_face_lo(c); f < la_face_hi(c); ++f) {
+		int nb = nbr[f];
+		if (nb < 0) { nb = ghost[f]; }
 		if (nb >= 0 && uint(nb) < params.total_count) {
 			act_claim_append(uint(nb));
 		}
@@ -950,10 +975,9 @@ void main() {
 		if (gidx < act_listed()) {
 			uint c = level_idx[act_base() + gidx];
 			tlevel[c] = 0u;
-			uint rbase = c * N_SLOTS;
-			for (uint d = 0u; d < N_SLOTS; ++d) {
-				int rnb = nbr[rbase + d];
-				if (rnb < 0) { rnb = ghost[rbase + d]; }
+			for (uint f = la_face_lo(c); f < la_face_hi(c); ++f) {
+				int rnb = nbr[f];
+				if (rnb < 0) { rnb = ghost[f]; }
 				if (rnb >= 0 && uint(rnb) < params.total_count) {
 					tlevel[uint(rnb)] = 0u;
 				}
@@ -975,11 +999,10 @@ void main() {
 		// the invocations land in.
 		if (gidx < act_listed()) {
 			uint c = level_idx[act_base() + gidx];
-			uint rbase = c * N_SLOTS;
 			uint mx = tlevel[c];
-			for (uint d = 0u; d < N_SLOTS; ++d) {
-				int rnb = nbr[rbase + d];
-				if (rnb < 0) { rnb = ghost[rbase + d]; }
+			for (uint f = la_face_lo(c); f < la_face_hi(c); ++f) {
+				int rnb = nbr[f];
+				if (rnb < 0) { rnb = ghost[f]; }
 				if (rnb >= 0 && rnb < int(params.cell_count)) {
 					uint ln = tlevel[uint(rnb)];
 					mx = max(mx, ln > 0u ? ln - 1u : 0u);
@@ -1048,7 +1071,9 @@ void main() {
 		}
 		float cel_top = 0.0;
 		for (uint d = 0u; d < N_SLOTS; ++d) {
-			cel_top = max(cel_top, face_c(gidx, d));
+			for (uint f = la_slot_lo(gidx, d); f < la_slot_hi(gidx, d); ++f) {
+				cel_top = max(cel_top, face_c(gidx, f, d));
+			}
 		}
 		cel_m_s[gidx] = cel_top;
 		return;
@@ -1079,7 +1104,8 @@ void main() {
 		sw_scatter(gidx);
 		return;
 	}
-	uint base = gidx * N_SLOTS;
+	uint f_lo = la_face_lo(gidx);
+	uint f_hi = la_face_hi(gidx);
 	bool is_signed = (params.flags & TF_SIGNED) != 0u;
 	// Pore flow's domain IS the rock: its resistance, not a solid mask, is what stops it.
 	bool through_pores = params.law == LAW_DARCY;
@@ -1087,13 +1113,13 @@ void main() {
 	bool blocks_solid = !through_pores && params.mode != MODE_RADIATE && params.mode != MODE_CONDUCT;
 
 	if (params.pass_id == 0u) {
-		for (uint d = 0u; d < N_SLOTS; ++d) {
-			send[base + d] = 0.0;
-			send_h[base + d] = 0.0;
-			send_q[base + d] = 0.0;
-			send_mx[base + d] = 0.0;
-			send_my[base + d] = 0.0;
-			send_mz[base + d] = 0.0;
+		for (uint f = f_lo; f < f_hi; ++f) {
+			send[f] = 0.0;
+			send_h[f] = 0.0;
+			send_q[f] = 0.0;
+			send_mx[f] = 0.0;
+			send_my[f] = 0.0;
+			send_mz[f] = 0.0;
 		}
 		sent_at[gidx] = params.dispatch_id;
 		// DETECTORS ONLY, stamped in pass 0 off the one pre-drain state the OHMIC mobility acts on.
@@ -1114,17 +1140,18 @@ void main() {
 		if (params.mode == MODE_RADIATE) {
 			float eps = longwave_emissivity(gidx);
 			lw_emis[gidx] = eps;
-			sw_absorbed[gidx] = shortwave_absorbed_frac(gidx, solar_step_m());
+			sw_absorbed[gidx] = shortwave_absorbed_frac(gidx, solar_step_m(gidx));
 			// Share of an upwelling flux this cell keeps as heat over one vertical step: what it
 			// intercepts, minus what it reflects onward.
 			vec3 gsw = g_at(gidx);
+			float edge = cell_edge[gidx];
 			float up_len = length(gsw) > 0.0
-				? la_step_len(-normalize(gsw), params.cell_m) : params.cell_m;
+				? la_step_len(-normalize(gsw), edge) : edge;
 			sw_keep[gidx] = shortwave_absorbed_frac(gidx, up_len) * (1.0 - shortwave_albedo(gidx));
 			float tk = t_k(gidx);
-			float leaving = eps * STEFAN * tk * tk * tk * tk * la_dt / params.cell_m;
-			for (uint d = 0u; d < N_SLOTS; ++d) {
-				send[base + d] = leaving;
+			float leaving = eps * STEFAN * tk * tk * tk * tk * la_dt;
+			for (uint f = f_lo; f < f_hi; ++f) {
+				send[f] = leaving * la_face_div(gidx, nbr[f]);
 			}
 			return;
 		}
@@ -1143,12 +1170,13 @@ void main() {
 			if (slot < 0) {
 				return;
 			}
-			int below = nbr[base + uint(slot)];
+			uint f_sep = la_slot_lo(gidx, uint(slot));
+			int below = nbr[f_sep];
 			// A charge with nowhere to go is not a separated charge.
 			if (below < 0 || solid[below] != 0.0) {
 				return;
 			}
-			send[base + uint(slot)] = -dq;
+			send[f_sep] = -dq;
 			return;
 		}
 		// A TF_FRACTION row moves only the phase share `frac` names; the rest of the channel stays put.
@@ -1180,13 +1208,14 @@ void main() {
 		}
 		float amt0 = abs(remaining);
 
-		for (uint d = 0u; d < N_SLOTS; ++d) {
+		for (uint f = f_lo; f < f_hi; ++f) {
 			if (!is_signed && remaining <= 0.0) {
 				break;
 			}
-			int inb = nbr[base + d];
+			uint d = la_face_slot(gidx, f);
+			int inb = nbr[f];
 			if (inb < 0) {
-				inb = ghost[base + d];
+				inb = ghost[f];
 			}
 			// LA_APPROX: level_seam_coarse_clock
 			// A face runs on the COARSER of the pair's clocks, so both sides write it on the same
@@ -1205,16 +1234,16 @@ void main() {
 					continue;
 				}
 				float tail = 0.0;
-				float flow_e = clamp(remaining * escape_fraction(gidx, d, tail) * open, 0.0, remaining);
+				float flow_e = clamp(remaining * escape_fraction(gidx, f, d, tail) * open, 0.0, remaining);
 				if (flow_e <= 0.0) {
 					continue;
 				}
-				send[base + d] = flow_e;
-				send_h[base + d] = flow_e * (h_per_unit + tail);
-				send_q[base + d] = flow_e * m_share * charge[gidx];
-				send_mx[base + d] = flow_e * m_share * mom_x[gidx];
-				send_my[base + d] = flow_e * m_share * mom_y[gidx];
-				send_mz[base + d] = flow_e * m_share * mom_z[gidx];
+				send[f] = flow_e;
+				send_h[f] = flow_e * (h_per_unit + tail);
+				send_q[f] = flow_e * m_share * charge[gidx];
+				send_mx[f] = flow_e * m_share * mom_x[gidx];
+				send_my[f] = flow_e * m_share * mom_y[gidx];
+				send_mz[f] = flow_e * m_share * mom_z[gidx];
 				remaining -= flow_e;
 				continue;
 			}
@@ -1224,6 +1253,9 @@ void main() {
 				continue;
 			}
 			uint nb = uint(max(inb, 0));
+			uint bf = la_back_face(f, nb, d);
+			float dist_f = la_face_dist(gidx, inb);
+			float div_f = la_face_div(gidx, inb);
 			if (is_signed) {
 				// ONE WRITER PER FACE (+axis side, or a wall's only fluid side), else applied twice.
 				if (!wall && (d & 1u) == 0u) {
@@ -1240,18 +1272,19 @@ void main() {
 					// Pressure's momentum flux. A wall meets the cell's own reconstructed face pressure,
 					// a face onto vacuum meets none, an open face the linearized Riemann p*.
 					bool onto_void = inb == GHOST_SPACE || (!wall && no_matter(nb));
-					float p_face = onto_void ? 0.0 : face_p(gidx, d);
-					float za = impedance(gidx, d);
-					float zb = wall ? 0.0 : impedance(nb, d ^ 1u);
+					float p_face = onto_void ? 0.0 : face_p(gidx, f, d);
+					float za = impedance(gidx, f, d);
+					float zb = wall ? 0.0 : impedance(nb, bf, opposite_slot(d));
 					if (!wall && !onto_void && !no_matter(gidx) && za + zb > 0.0) {
 						float ua = dot(vel_at(gidx), nrm);
 						float ub = dot(vel_at(nb), nrm);
 						// Subtractive form: exact at equilibrium for any impedance pair.
 						p_face = p_face
-							+ za * (face_p(nb, d ^ 1u) - p_face + zb * (ua - ub)) / (za + zb);
+							+ za * (face_p(nb, bf, opposite_slot(d)) - p_face + zb * (ua - ub))
+								/ (za + zb);
 					}
 					float ni = params.axis == 0u ? nrm.x : (params.axis == 1u ? nrm.y : nrm.z);
-					sflux = p_face * ni * la_dt / params.cell_m;
+					sflux = p_face * ni * la_dt * div_f;
 				} else {
 					// VISCOSITY DIFFUSES VELOCITY, mu grad(v): the pair's exact frozen-coefficient
 					// relaxation moves momentum toward equal velocities and never past them.
@@ -1262,24 +1295,24 @@ void main() {
 						float va = amount[gidx] / ra;
 						float vb = amount[nb] / rb;
 						float mu = 0.5 * (ra + rb) * eddy_viscosity(gidx);
-						float k = mu * (1.0 / ra + 1.0 / rb) / (params.cell_m * params.cell_m);
+						float k = mu * (1.0 / ra + 1.0 / rb) * div_f / dist_f;
 						float m_red = ra * rb / (ra + rb);
-						// All six faces relax from ONE pre-state, so each takes at most a sixth of full
-						// equalization; the summed pull can then never pass the neighbours' mean.
+						// Each face relaxes from one pre-state, so the summed pull cannot pass the mean.
+						float nf = float(la_face_count(gidx));
 						sflux = m_red * (va - vb)
-							* (1.0 - exp(-float(N_SLOTS) * k * la_dt)) / float(N_SLOTS) * open;
+							* (1.0 - exp(-nf * k * la_dt)) / nf * open;
 					}
 				}
-				send[base + d] = sflux;
+				send[f] = sflux;
 				continue;
 			}
 			bool advective = params.mode == MODE_ADVECT || params.mode == MODE_BOTH;
-			float drop = potential(gidx, d) - potential(nb, d ^ 1u);
+			float drop = potential(gidx, d, dist_f) - potential(nb, opposite_slot(d), dist_f);
 			// A THRESHOLD GRADIENT. Granular material holds a slope up to its angle of repose; a column of
 			// gas holds a temperature gradient up to its adiabat. Same construct, one cell of run either way.
 			if (params.repose_tan > 0.0) {
 				// One cell of run, amount-scaled exactly as the elevation term inside `potential`.
-				drop -= params.repose_tan * params.cell_m * params.max_fill;
+				drop -= params.repose_tan * dist_f * params.max_fill;
 			}
 			if (drop <= 0.0 && !advective && params.mode != MODE_CONDUCT) {
 				continue;
@@ -1290,7 +1323,7 @@ void main() {
 					? darcy_mobility(gidx, nb) : mobility_at(gidx, amt0);
 				// The pair's imbalance decays as exp(-k t), so the share that crosses approaches it
 				// rather than passing it. LA_APPROX: exponential_pair_relaxation
-				flow = drop * (1.0 - exp(-mob_face * open / params.cell_m));
+				flow = drop * (1.0 - exp(-mob_face * open / dist_f));
 			}
 			if (params.mode == MODE_CONDUCT) {
 				// Series half-cells, so the interface conductivity is the harmonic mean, and
@@ -1298,8 +1331,7 @@ void main() {
 				float a = aux[gidx];
 				float b = aux[nb];
 				float lam = 2.0 * a * b / max(a + b, 1.0e-12);
-				flow = lam * (drive[gidx] - drive[nb]) * la_dt
-					/ (params.cell_m * params.cell_m);
+				flow = lam * (drive[gidx] - drive[nb]) * la_dt * div_f / dist_f;
 			}
 			if (advective) {
 				// Outgoing advective flux at the FACE velocity, the linearized Riemann u*: air falling
@@ -1307,30 +1339,32 @@ void main() {
 				vec3 nrm_a = face_normal(d);
 				float ua = dot(vel_at(gidx), nrm_a);
 				float ub = dot(vel_at(nb), nrm_a);
-				float za = impedance(gidx, d);
-				float zb = impedance(nb, d ^ 1u);
+				float za = impedance(gidx, f, d);
+				float zb = impedance(nb, bf, opposite_slot(d));
 				float vn = (no_matter(nb) || za + zb <= 0.0)
-					? (za > 0.0 ? ua + face_p(gidx, d) / za : ua)
-					: ua + (zb * (ub - ua) + (face_p(gidx, d) - face_p(nb, d ^ 1u))) / (za + zb);
+					? (za > 0.0 ? ua + face_p(gidx, f, d) / za : ua)
+					: ua + (zb * (ub - ua)
+						+ (face_p(gidx, f, d) - face_p(nb, bf, opposite_slot(d)))) / (za + zb);
 				vn += dot(transport_velocity(gidx) - vel_at(gidx), nrm_a);
 				if (vn > 0.0) {
-					flow += remaining * vn * la_dt / params.cell_m;
+					flow += remaining * vn * la_dt * div_f;
 				}
 			}
 			flow = clamp(flow, 0.0, remaining);
 			// LA_APPROX: shared_face_headroom
 			if (!is_signed && params.max_fill > 0.0 && !isinf(params.max_fill)) {
-				flow = min(flow, max(params.max_fill - amount[nb], 0.0) / float(N_SLOTS));
+				flow = min(flow, max(params.max_fill - amount[nb], 0.0)
+					/ (float(la_face_count(nb)) * max(vol_ratio(gidx, nb), 1.0e-30)));
 			}
 			if (flow <= 0.0) {
 				continue;
 			}
-			send[base + d] = flow;
-			send_h[base + d] = flow * h_per_unit;
-			send_q[base + d] = flow * m_share * charge[gidx];
-			send_mx[base + d] = flow * m_share * mom_x[gidx];
-			send_my[base + d] = flow * m_share * mom_y[gidx];
-			send_mz[base + d] = flow * m_share * mom_z[gidx];
+			send[f] = flow;
+			send_h[f] = flow * h_per_unit;
+			send_q[f] = flow * m_share * charge[gidx];
+			send_mx[f] = flow * m_share * mom_x[gidx];
+			send_my[f] = flow * m_share * mom_y[gidx];
+			send_mz[f] = flow * m_share * mom_z[gidx];
 			remaining -= flow;
 		}
 		return;
@@ -1350,38 +1384,42 @@ void main() {
 	vec3 gained_m = vec3(0.0);
 	vec3 lost_m = vec3(0.0);
 	float absorptivity = params.mode == MODE_RADIATE ? lw_emis[gidx] : 0.0;
-	for (uint d = 0u; d < N_SLOTS; ++d) {
-		lost += send[base + d];
-		lost_h += send_h[base + d];
-		lost_q += send_q[base + d];
-		lost_m += vec3(send_mx[base + d], send_my[base + d], send_mz[base + d]);
-		int inb = nbr[base + d];
+	for (uint f = f_lo; f < f_hi; ++f) {
+		uint d = la_face_slot(gidx, f);
+		lost += send[f];
+		lost_h += send_h[f];
+		lost_q += send_q[f];
+		lost_m += vec3(send_mx[f], send_my[f], send_mz[f]);
+		int inb = nbr[f];
 		bool edge = inb < 0;
 		if (edge) {
-			inb = ghost[base + d];
+			inb = ghost[f];
 		}
 		// A wall books the signed push; the space edge books the escape law's matter, heat, charge, momentum.
 		if (inb < 0) {
 			if (is_signed) {
-				bnd_amt[gidx] -= send[base + d];
+				bnd_amt[gidx] -= send[f];
 			} else if (params.law == LAW_ESCAPE) {
-				bnd_amt[gidx] -= send[base + d];
-				bnd_h[gidx] -= send_h[base + d];
-				bnd_q[gidx] -= send_q[base + d];
-				bnd_mom_x[gidx] -= send_mx[base + d];
-				bnd_mom_y[gidx] -= send_my[base + d];
-				bnd_mom_z[gidx] -= send_mz[base + d];
+				bnd_amt[gidx] -= send[f];
+				bnd_h[gidx] -= send_h[f];
+				bnd_q[gidx] -= send_q[f];
+				bnd_mom_x[gidx] -= send_mx[f];
+				bnd_mom_y[gidx] -= send_my[f];
+				bnd_mom_z[gidx] -= send_mz[f];
 			}
 			continue;
 		}
 		uint nb = uint(inb);
+		// A FILL FRACTION IS OF THE DONOR'S OWN VOLUME, so what arrives is scaled by the pair's ratio.
+		uint bf = la_back_face(f, nb, d);
+		float ratio = vol_ratio(nb, gidx);
 		// The same face rule as the outflow: a neighbour coarser than this substep did not run, so its
 		// face scratch is not this substep's and nothing crossed.
 		if (nb < params.total_count && tlevel[nb] < params.level) {
 			continue;
 		}
 		if (is_signed && solid[nb] != 0.0 && blocks_solid) {
-			bnd_amt[gidx] -= send[base + d];
+			bnd_amt[gidx] -= send[f];
 			continue;
 		}
 		// Exterior crossings book inflow-positive; a wrap partner is interior motion and books nothing.
@@ -1392,23 +1430,22 @@ void main() {
 			continue;
 		}
 		if (exterior && params.mode != MODE_RADIATE) {
-			float in_a = ran_outflow(nb) ? send[nb * N_SLOTS + (d ^ 1u)] : 0.0;
-			bnd_amt[gidx] += in_a - send[base + d];
+			float in_a = ran_outflow(nb) ? send[bf] * ratio : 0.0;
+			bnd_amt[gidx] += in_a - send[f];
 			// A signed row (momentum) is not matter and carries no heat leg.
 			if (!is_signed) {
-				uint nbo = nb * N_SLOTS + (d ^ 1u);
-				float in_h = ran_outflow(nb) ? send_h[nbo] : 0.0;
+				float in_h = ran_outflow(nb) ? send_h[bf] * ratio : 0.0;
 				bnd_h[gidx] += (params.flags & TF_ENTHALPY) != 0u
-					? in_a - send[base + d]
-					: in_h - send_h[base + d];
-				float in_q = ran_outflow(nb) ? send_q[nbo] : 0.0;
-				bnd_q[gidx] += in_q - send_q[base + d];
+					? in_a - send[f]
+					: in_h - send_h[f];
+				float in_q = ran_outflow(nb) ? send_q[bf] * ratio : 0.0;
+				bnd_q[gidx] += in_q - send_q[f];
 				// The momentum the crossing mass carries, booked on its own signed legs.
 				vec3 in_m = ran_outflow(nb)
-					? vec3(send_mx[nbo], send_my[nbo], send_mz[nbo]) : vec3(0.0);
-				bnd_mom_x[gidx] += in_m.x - send_mx[base + d];
-				bnd_mom_y[gidx] += in_m.y - send_my[base + d];
-				bnd_mom_z[gidx] += in_m.z - send_mz[base + d];
+					? vec3(send_mx[bf], send_my[bf], send_mz[bf]) * ratio : vec3(0.0);
+				bnd_mom_x[gidx] += in_m.x - send_mx[f];
+				bnd_mom_y[gidx] += in_m.y - send_my[f];
+				bnd_mom_z[gidx] += in_m.z - send_mz[f];
 			}
 		}
 		// ONLY THIS DISPATCH'S OWN DONORS. A cell outside this substep's list never cleared its faces,
@@ -1418,31 +1455,33 @@ void main() {
 		}
 		// Radiation arrives from the whole grid line behind this face, not just from the cell touching it.
 		gained += params.mode == MODE_RADIATE
-			? absorptivity * longwave_incident(gidx, d)
-			: send[nb * N_SLOTS + (d ^ 1u)];
-		gained_h += send_h[nb * N_SLOTS + (d ^ 1u)];
+			? absorptivity * longwave_incident(gidx, f, d)
+			: send[bf] * ratio;
+		gained_h += send_h[bf] * ratio;
 		// Matter a potential gradient carried here arrives with the potential it lost as heat; the potential
 		// store falls by the same joules. A momentum-driven parcel arrives with motion instead (bodyf).
 		if (params.mode == MODE_POTENTIAL && !is_signed && params.density > 0.0 && nb < params.cell_count) {
-			gained_h += send[nb * N_SLOTS + (d ^ 1u)] * sub_kg_mol() * (grav_phi[nb] - grav_phi[gidx]);
+			gained_h += send[bf] * ratio * sub_kg_mol() * (la_phi(nb) - la_phi(gidx));
 		}
-		gained_q += send_q[nb * N_SLOTS + (d ^ 1u)];
-		gained_m += vec3(send_mx[nb * N_SLOTS + (d ^ 1u)], send_my[nb * N_SLOTS + (d ^ 1u)],
-			send_mz[nb * N_SLOTS + (d ^ 1u)]);
+		gained_q += send_q[bf] * ratio;
+		gained_m += vec3(send_mx[bf], send_my[bf], send_mz[bf]) * ratio;
 	}
 	if (params.mode == MODE_RADIATE) {
 		float sun_w = solar_incident(gidx);
 		float intercepted = sun_w * sw_absorbed[gidx];
 		float albedo = shortwave_albedo(gidx);
-		gained += intercepted * (1.0 - albedo) * la_dt / params.cell_m;
+		gained += intercepted * (1.0 - albedo) * la_dt / cell_edge[gidx];
 		rad_absorbed[gidx] = gained;
 		rad_emitted[gidx] = lost;
 		// What the beam march removed and this cell did not keep: PASS_SW carries it back out.
 		sw_src[gidx] = intercepted * albedo;
-		// Stefan-Boltzmann, recomputed against the published emission: six faces of e*sigma*T^4.
+		// Stefan-Boltzmann against the published emission: every face of e*sigma*T^4 over its own area.
 		float tk_sb = t_k(gidx);
-		float sb = 6.0 * lw_emis[gidx] * STEFAN * tk_sb * tk_sb * tk_sb * tk_sb
-			* la_dt / params.cell_m;
+		float div_sum = 0.0;
+		for (uint fs = f_lo; fs < f_hi; ++fs) {
+			div_sum += la_face_div(gidx, nbr[fs]);
+		}
+		float sb = lw_emis[gidx] * STEFAN * tk_sb * tk_sb * tk_sb * tk_sb * la_dt * div_sum;
 		rad_residual[gidx] = abs(lost - sb) / max(sb, 1.0e-30);
 	}
 	bool la_moved = lost != 0.0 || gained != 0.0;
@@ -1541,9 +1580,9 @@ void main() {
 		if (params.act_group2 != ACT_NO_GROUP) {
 			quiet[params.act_group2 * params.total_count + gidx] = 0u;
 		}
-		for (uint d = 0u; d < N_SLOTS; ++d) {
-			int wnb = nbr[base + d];
-			if (wnb < 0) { wnb = ghost[base + d]; }
+		for (uint f = f_lo; f < f_hi; ++f) {
+			int wnb = nbr[f];
+			if (wnb < 0) { wnb = ghost[f]; }
 			if (wnb >= 0 && uint(wnb) < params.total_count) {
 				quiet[act_base() + uint(wnb)] = 0u;
 			}

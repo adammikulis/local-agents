@@ -152,8 +152,8 @@ func respire(head_pos: Vector3, mass: float) -> float:
 		return 0.0
 	# Oxidation heat is part of the exchange, not an extra. With no cell volume the joules cannot be sized,
 	# so the whole exchange is refused rather than booked with its heat silently zero.
-	var m3: float = LAMaterialFieldCellVolume3D.m3(_f, c)
-	if m3 < 0.0:
+	var m3: float = _f._grid.cell_volume(c) if _f._grid != null else -1.0
+	if m3 <= 0.0:
 		push_error("LAMaterialFieldBiota3D.respire: no cell volume, so respiration heat cannot be sized.")
 		return 0.0
 	var have: float = _f._o2[c]

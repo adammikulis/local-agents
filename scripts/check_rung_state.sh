@@ -35,6 +35,12 @@ var _rd: RenderingDevice = null
 var _owned: Array[RID] = []
 
 
+## A buffer holding the values it is given, rather than n copies of one.
+func _write_f32(vals: PackedFloat32Array) -> RID:
+	var b: PackedByteArray = vals.to_byte_array()
+	return _rd.storage_buffer_create(b.size(), b)
+
+
 func _f32(n: int, v: float = 0.0) -> RID:
 	var a: PackedFloat32Array = PackedFloat32Array()
 	a.resize(maxi(n, 1))
@@ -108,10 +114,20 @@ func _init() -> void:
 	var nbr: RID = _rd.storage_buffer_create(nbr_bytes.size(), nbr_bytes)
 	_owned.append(nbr)
 	bufs["nbr"] = nbr
+	# THE FACE LIST'S OWN GEOMETRY: where a cell's faces begin, the face pointing back, and its edge.
+	var off_b: PackedByteArray = grid.slot_off.to_byte_array()
+	var par_b: PackedByteArray = grid.partners.to_byte_array()
+	var edge_b: PackedByteArray = grid.cell_edges().to_byte_array()
+	bufs["slot_off"] = _rd.storage_buffer_create(off_b.size(), off_b)
+	bufs["face_partner"] = _rd.storage_buffer_create(par_b.size(), par_b)
+	bufs["cell_edge"] = _rd.storage_buffer_create(edge_b.size(), edge_b)
+	_owned.append(bufs["slot_off"])
+	_owned.append(bufs["face_partner"])
+	_owned.append(bufs["cell_edge"])
 	bufs["gravity"] = _f32(cc * 3)
 	bufs["g_rest"] = _f32(cc * 3)
 	bufs["pos"] = _f32(cc * 3)
-	bufs["cell_vol"] = _f32(cc, CELL * CELL * CELL)
+	bufs["cell_edge"] = _write_f32(grid.cell_edges())
 
 	var amounts: PackedFloat32Array = PackedFloat32Array()
 	amounts.resize(cc)

@@ -8,16 +8,19 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_rung.sh"
 
 FRAMES="${LA_HYDROSTATIC_FRAMES:-6}"
-KEYS="pressure_inversions,pressure_audited,pressure_inv_open,pressure_inv_rock,pressure_inv_surface,pressure_aud_open,pressure_aud_rock,pressure_aud_surface"
+KEYS="pressure_inversions,pressure_audited,pressure_empty,pressure_inv_open,pressure_inv_rock,pressure_inv_surface,pressure_aud_open,pressure_aud_rock,pressure_aud_surface"
 
 out="$(la_rung_report 2 "$FRAMES" "$KEYS")"
 rc=$?
-la_rung_require "$out" pressure_inversions pressure_audited || exit 2
+la_rung_require "$out" pressure_inversions pressure_audited pressure_empty || exit 2
 
 inv="$(la_rung_value "$out" pressure_inversions)"
 aud="$(la_rung_value "$out" pressure_audited)"
-printf 'HYDROSTATIC_SEED={"inversions":%s,"audited":%s,"open":%s/%s,"rock":%s/%s,"surface":%s/%s}\n' \
-	"$inv" "$aud" \
+# Pairs the emptiness floor kept out. A cell state_derive.glsl gives no bulk state has no pressure, so
+# comparing one is comparing a reading with a quantity the model does not define.
+empty="$(la_rung_value "$out" pressure_empty)"
+printf 'HYDROSTATIC_SEED={"inversions":%s,"audited":%s,"empty":%s,"open":%s/%s,"rock":%s/%s,"surface":%s/%s}\n' \
+	"$inv" "$aud" "$empty" \
 	"$(la_rung_value "$out" pressure_inv_open)" "$(la_rung_value "$out" pressure_aud_open)" \
 	"$(la_rung_value "$out" pressure_inv_rock)" "$(la_rung_value "$out" pressure_aud_rock)" \
 	"$(la_rung_value "$out" pressure_inv_surface)" "$(la_rung_value "$out" pressure_aud_surface)"

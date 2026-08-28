@@ -36,10 +36,10 @@ const FLUSH_EVERY: int = 4096
 
 ## Byte offsets of the level, substep index and substep count in the Params block below: the three the
 ## driver rewrites per substep.
-const PC_LEVEL: int = 100
-const PC_K: int = 104
-const PC_N: int = 108
-const PC_DISPATCH: int = 120
+const PC_LEVEL: int = 96
+const PC_K: int = 100
+const PC_N: int = 104
+const PC_DISPATCH: int = 116
 
 ## Rows that advance together on one time axis; a solitary row is its own group.
 var _row_groups: Array = []
@@ -58,7 +58,6 @@ var _wake_pending: bool = true
 ## Per row: its uniform set. An invalid entry is a row whose buffers the driver has not got.
 var _sets: Array = []
 var _rows: Array = []
-## Per-face scratch, cell*6: what left each face this step, and the enthalpy and charge that rode with it.
 ## Pass-owned scratch, binding to buffer: what left each face and the enthalpy, charge and momentum
 ## that rode with it, the RADIATE row's emissivity, beam share and reflected pair, and the dispatch stamp.
 var _scr: Dictionary = {}
@@ -133,7 +132,7 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	# Ghost tail cells run pass 0, so every buffer the kernel indexes by cell carries the tail.
 	var tc: int = cc + ghost_count
 	for i in SCRATCH:
-		_scr[i] = _scratch(tc * 6 if i < FACE_SCRATCH else tc)
+		_scr[i] = _scratch(face_count if i < FACE_SCRATCH else tc)
 	_zero = _scratch(tc)
 	_no_h = _scratch(tc)
 	_one = _storage_buffer(_filled(tc, 1.0))
@@ -183,15 +182,14 @@ var _xuv_w_m2: float = 0.0
 func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:
 	if not _dispatchable():
 		return
-	var cell_m: float = _ctx_cell_size(ctx)
 	var dt_s: float = _ctx_num(ctx, "dt_s")
 	var sun: Vector3 = ctx.get("sun_dir", Vector3.ZERO)
 	# No sun in the ctx is no star, which is no XUV — never an assumed one.
 	_xuv_w_m2 = float(ctx.get("xuv_w_m2", 0.0))
 	# The equation of state, restated after every substep's gather. StateDerivePass owns the kernel, the
 	# bindings and the block; this pass owns when the substep asks for it.
-	_driver.run_transport(cl, _peaks, _pc_rows(cc, cell_m, dt_s, sun),
-		_pc_grain(cc, cell_m, dt_s, sun), _pc_lists(cc, cell_m, dt_s, sun),
+	_driver.run_transport(cl, _peaks, _pc_rows(cc, dt_s, sun),
+		_pc_grain(cc, dt_s, sun), _pc_lists(cc, dt_s, sun),
 		_seed_workgroups(), groups, ctx.get("restate", {}))
 
 
@@ -207,9 +205,8 @@ func _seed_workgroups() -> int:
 
 ## THE LEVEL FIELD, once per group over the cells it holds. The counting sort that turns it into a
 ## dispatch list is the active-cell rebuild, which the driver runs every substep.
-func build_levels(cl: int, g: int, cc: int, cell_m: float, dt_s: float, sun: Vector3,
-		levels: int) -> void:
-	_driver.build_levels(cl, g, _pc_rows(cc, cell_m, dt_s, sun), levels)
+func build_levels(cl: int, g: int, cc: int, dt_s: float, sun: Vector3, levels: int) -> void:
+	_driver.build_levels(cl, g, _pc_rows(cc, dt_s, sun), levels)
 
 
 ## Every cell changed at once, from outside any kernel: the one seam a CPU writer has into the mask.
@@ -223,7 +220,6 @@ func wake_all() -> void:
 func pre_step(rd: RenderingDevice, ctx: Dictionary, cc: int, _groups: int) -> void:
 	if not _dispatchable() or not _peak_rid.is_valid() or _row_groups.is_empty():
 		return
-	var cell_m: float = _ctx_cell_size(ctx)
 	var dt_s: float = _ctx_num(ctx, "dt_s")
 	rd.buffer_clear(_peak_rid, 0, _row_groups.size() * 4)
 	var usets: Array = []
@@ -234,7 +230,7 @@ func pre_step(rd: RenderingDevice, ctx: Dictionary, cc: int, _groups: int) -> vo
 	var seed: int = _seed_workgroups()
 	if seed > 0:
 		usets.append(_grain_set)
-		pcs.append(_pc(GRAIN_ROW, cc, PASS_ACT_SEED, cell_m, dt_s, Vector3.ZERO, 0, 0, 1,
+		pcs.append(_pc(GRAIN_ROW, cc, PASS_ACT_SEED, dt_s, Vector3.ZERO, 0, 0, 1,
 			group_count()))
 		wgs.append(seed)
 		args.append(RID())
@@ -242,7 +238,7 @@ func pre_step(rd: RenderingDevice, ctx: Dictionary, cc: int, _groups: int) -> vo
 	for g in _row_groups.size():
 		for gi in _row_groups[g]:
 			usets.append(_sets[gi])
-			pcs.append(_pc(_rows[gi], cc, PASS_LEVEL_PEAK, cell_m, dt_s, Vector3.ZERO, g, 0, 1, g))
+			pcs.append(_pc(_rows[gi], cc, PASS_LEVEL_PEAK, dt_s, Vector3.ZERO, g, 0, 1, g))
 			wgs.append(0)
 			args.append(_args_rid)
 			offs.append(ActiveScript.args_offset(g, 0))
@@ -254,7 +250,8 @@ func pre_step(rd: RenderingDevice, ctx: Dictionary, cc: int, _groups: int) -> vo
 	_peaks = rd.buffer_get_data(_peak_rid, 0, _row_groups.size() * 4).to_int32_array()
 	# A CELL ASKING FOR A STEP SHORTER THAN LIGHT TAKES TO CROSS IT IS NOT ASKING FOR RESOLUTION.
 	# Its state is broken, no subdivision integrates it, and its group does not move this step.
-	var lim: int = LevelsScript.light_level(dt_s, cell_m)
+	# The FINEST cell bounds it: light crosses a small cell in less time than a large one.
+	var lim: int = LevelsScript.light_level(dt_s, _ctx_num(ctx, "cell_size_min"))
 	_peak_top = 0
 	for g2 in _peaks.size():
 		_peak_top = maxi(_peak_top, _peaks[g2])
@@ -313,9 +310,10 @@ const BINDINGS: Dictionary = {
 	"rad_emitted": 38, "col_e": 39, "strike": 40, "rad_w_m3": 41, "ch4": 42, "radiogenic": 43,
 	"cap_sensible": 47, "rim_ghost": 50, "rim_w": 51, "sw_space": 54, "rad_residual": 55, "rho_bulk": 57,
 	"mom_x": 58, "mom_y": 59, "mom_z": 60, "celerity": 64, "speed": 65, "bodyf_x": 66, "bodyf_y": 67,
-	"bodyf_z": 68, "co": 72, "so2": 73, "h2s": 74, "o2": 75, "n2": 76, "h2": 77, "grav_phi": 78,
+	"bodyf_z": 68, "co": 72, "so2": 73, "h2s": 74, "o2": 75, "n2": 76, "h2": 77, "grav_phi": 78, "grav_ref": 95,
 	"tlevel": 80, "level_idx": 81, "level_args": 82, "level_peak": 83, "act_quiet": 84, "act_claim": 85,
-	"act_queue": 86, "act_wake": 87, "act_wake_args": 88, "k_cond": 89
+	"act_queue": 86, "act_wake": 87, "act_wake_args": 88, "k_cond": 89,
+	"slot_off": 92, "face_partner": 93, "cell_edge": 94
 }
 
 ## Pass-owned scratch, in binding order: the first FACE_SCRATCH ride a face, the rest are per cell.
@@ -417,7 +415,7 @@ const NAMED: Array = [["drive", LATransportRecords.Flag.DRIVEN],
 
 ## One push-constant block per row per slot the driver may issue, built once per step. The driver
 ## rewrites only the level and the substep pair, so a substep costs no encoding at all.
-func _pc_rows(cc: int, cell_m: float, dt_s: float, sun: Vector3) -> Array:
+func _pc_rows(cc: int, dt_s: float, sun: Vector3) -> Array:
 	var out: Array = []
 	for _r in _rows.size():
 		var t: Array = []
@@ -428,69 +426,69 @@ func _pc_rows(cc: int, cell_m: float, dt_s: float, sun: Vector3) -> Array:
 		var group: PackedInt32Array = _row_groups[g]
 		var head: Dictionary = _rows[group[0]]
 		var ht: Array = out[group[0]]
-		ht[LAFieldDriver.SLOT_LEVEL_RESET] = _pc(head, cc, PASS_LEVEL_RESET, cell_m, dt_s, sun, 0, 0, 1, g)
-		ht[LAFieldDriver.SLOT_LEVEL_RELAX] = _pc(head, cc, PASS_LEVEL_RELAX, cell_m, dt_s, sun, 0, 0, 1, g)
-		ht[LAFieldDriver.SLOT_ACT_AGE] = _pc(head, cc, PASS_ACT_AGE, cell_m, dt_s, sun, 0, 0, 1, g)
-		ht[LAFieldDriver.SLOT_ACT_WAKE] = _pc(head, cc, PASS_ACT_WAKE, cell_m, dt_s, sun, 0, 0, 1, g)
-		ht[LAFieldDriver.SLOT_ACT_MARK] = _pc(head, cc, PASS_ACT_MARK, cell_m, dt_s, sun, 0, 0, 1, g)
-		ht[LAFieldDriver.SLOT_LEVEL_SCAN] = _pc(head, cc, PASS_LEVEL_SCAN, cell_m, dt_s, sun, 0, 0, 1, g)
-		ht[LAFieldDriver.SLOT_LEVEL_SORT] = _pc(head, cc, PASS_LEVEL_SORT, cell_m, dt_s, sun, 0, 0, 1, g)
+		ht[LAFieldDriver.SLOT_LEVEL_RESET] = _pc(head, cc, PASS_LEVEL_RESET, dt_s, sun, 0, 0, 1, g)
+		ht[LAFieldDriver.SLOT_LEVEL_RELAX] = _pc(head, cc, PASS_LEVEL_RELAX, dt_s, sun, 0, 0, 1, g)
+		ht[LAFieldDriver.SLOT_ACT_AGE] = _pc(head, cc, PASS_ACT_AGE, dt_s, sun, 0, 0, 1, g)
+		ht[LAFieldDriver.SLOT_ACT_WAKE] = _pc(head, cc, PASS_ACT_WAKE, dt_s, sun, 0, 0, 1, g)
+		ht[LAFieldDriver.SLOT_ACT_MARK] = _pc(head, cc, PASS_ACT_MARK, dt_s, sun, 0, 0, 1, g)
+		ht[LAFieldDriver.SLOT_LEVEL_SCAN] = _pc(head, cc, PASS_LEVEL_SCAN, dt_s, sun, 0, 0, 1, g)
+		ht[LAFieldDriver.SLOT_LEVEL_SORT] = _pc(head, cc, PASS_LEVEL_SORT, dt_s, sun, 0, 0, 1, g)
 		for gi in group:
 			var row: Dictionary = _rows[gi]
 			var rt: Array = out[gi]
-			rt[LAFieldDriver.SLOT_LEVEL_SEED] = _pc(row, cc, PASS_LEVEL_SEED, cell_m, dt_s, sun, 0, 0, 1, g)
-			rt[LAFieldDriver.SLOT_OUTFLOW] = _pc(row, cc, PASS_OUTFLOW, cell_m, dt_s, sun, 0, 0, 1, g)
-			rt[LAFieldDriver.SLOT_GATHER] = _pc(row, cc, PASS_GATHER, cell_m, dt_s, sun, 0, 0, 1, g)
+			rt[LAFieldDriver.SLOT_LEVEL_SEED] = _pc(row, cc, PASS_LEVEL_SEED, dt_s, sun, 0, 0, 1, g)
+			rt[LAFieldDriver.SLOT_OUTFLOW] = _pc(row, cc, PASS_OUTFLOW, dt_s, sun, 0, 0, 1, g)
+			rt[LAFieldDriver.SLOT_GATHER] = _pc(row, cc, PASS_GATHER, dt_s, sun, 0, 0, 1, g)
 			if int(row["mode"]) == LATransportRecords.RADIATE:
-				rt[LAFieldDriver.SLOT_SW] = _pc(row, cc, PASS_SW, cell_m, dt_s, sun, 0, 0, 1, g)
+				rt[LAFieldDriver.SLOT_SW] = _pc(row, cc, PASS_SW, dt_s, sun, 0, 0, 1, g)
 		# The acoustic pair rides the group's last row, so that row carrying velocity IS the test.
 		var last: int = group[group.size() - 1]
 		if _vel_row(_rows[last]):
 			var lt: Array = out[last]
-			lt[LAFieldDriver.SLOT_ACOUSTIC] = _pc(_rows[last], cc, PASS_ACOUSTIC, cell_m, dt_s, sun, 0, 0, 1, g)
-			lt[LAFieldDriver.SLOT_ACOUSTIC_APPLY] = _pc(_rows[last], cc, PASS_ACOUSTIC_APPLY, cell_m,
+			lt[LAFieldDriver.SLOT_ACOUSTIC] = _pc(_rows[last], cc, PASS_ACOUSTIC, dt_s, sun, 0, 0, 1, g)
+			lt[LAFieldDriver.SLOT_ACOUSTIC_APPLY] = _pc(_rows[last], cc, PASS_ACOUSTIC_APPLY,
 				dt_s, sun, 0, 0, 1, g)
 	return out
 
 
 ## The grain prologue's own blocks, plus the whole-box seed and the wake-queue reset.
-func _pc_grain(cc: int, cell_m: float, dt_s: float, sun: Vector3) -> Array:
+func _pc_grain(cc: int, dt_s: float, sun: Vector3) -> Array:
 	var t: Array = []
 	t.resize(LAFieldDriver.SLOT_COUNT)
 	t.fill(PackedByteArray())
 	if not _grain_set.is_valid():
 		return t
 	var gslot: int = group_count() - 1
-	t[LAFieldDriver.SLOT_LEVEL_RESET] = _pc(GRAIN_ROW, cc, PASS_LEVEL_RESET, cell_m, dt_s, sun, 0, 0, 1, gslot)
-	t[LAFieldDriver.SLOT_ACT_AGE] = _pc(GRAIN_ROW, cc, PASS_ACT_AGE, cell_m, dt_s, sun, 0, 0, 1, gslot)
-	t[LAFieldDriver.SLOT_ACT_WAKE] = _pc(GRAIN_ROW, cc, PASS_ACT_WAKE, cell_m, dt_s, sun, 0, 0, 1, gslot)
-	t[LAFieldDriver.SLOT_ACT_MARK] = _pc(GRAIN_ROW, cc, PASS_ACT_MARK, cell_m, dt_s, sun, 0, 0, 1, gslot)
-	t[LAFieldDriver.SLOT_LEVEL_SCAN] = _pc(GRAIN_ROW, cc, PASS_LEVEL_SCAN, cell_m, dt_s, sun, 0, 0, 1, gslot)
-	t[LAFieldDriver.SLOT_LEVEL_SORT] = _pc(GRAIN_ROW, cc, PASS_LEVEL_SORT, cell_m, dt_s, sun, 0, 0, 1, gslot)
-	t[LAFieldDriver.SLOT_GRAIN] = _pc(GRAIN_ROW, cc, PASS_GRAIN, cell_m, dt_s, sun, 0, 0, 1, gslot)
-	t[LAFieldDriver.SLOT_ACT_SEED] = _pc(GRAIN_ROW, cc, PASS_ACT_SEED, cell_m, dt_s, Vector3.ZERO,
+	t[LAFieldDriver.SLOT_LEVEL_RESET] = _pc(GRAIN_ROW, cc, PASS_LEVEL_RESET, dt_s, sun, 0, 0, 1, gslot)
+	t[LAFieldDriver.SLOT_ACT_AGE] = _pc(GRAIN_ROW, cc, PASS_ACT_AGE, dt_s, sun, 0, 0, 1, gslot)
+	t[LAFieldDriver.SLOT_ACT_WAKE] = _pc(GRAIN_ROW, cc, PASS_ACT_WAKE, dt_s, sun, 0, 0, 1, gslot)
+	t[LAFieldDriver.SLOT_ACT_MARK] = _pc(GRAIN_ROW, cc, PASS_ACT_MARK, dt_s, sun, 0, 0, 1, gslot)
+	t[LAFieldDriver.SLOT_LEVEL_SCAN] = _pc(GRAIN_ROW, cc, PASS_LEVEL_SCAN, dt_s, sun, 0, 0, 1, gslot)
+	t[LAFieldDriver.SLOT_LEVEL_SORT] = _pc(GRAIN_ROW, cc, PASS_LEVEL_SORT, dt_s, sun, 0, 0, 1, gslot)
+	t[LAFieldDriver.SLOT_GRAIN] = _pc(GRAIN_ROW, cc, PASS_GRAIN, dt_s, sun, 0, 0, 1, gslot)
+	t[LAFieldDriver.SLOT_ACT_SEED] = _pc(GRAIN_ROW, cc, PASS_ACT_SEED, dt_s, Vector3.ZERO,
 		0, 0, 1, group_count())
-	t[LAFieldDriver.SLOT_ACT_WAKE_RESET] = _pc(GRAIN_ROW, cc, PASS_ACT_WAKE_RESET, cell_m, dt_s, sun)
+	t[LAFieldDriver.SLOT_ACT_WAKE_RESET] = _pc(GRAIN_ROW, cc, PASS_ACT_WAKE_RESET, dt_s, sun)
 	return t
 
 
 ## THE DETECTOR LISTS: where the strikes and the non-finite values are. A detector looks everywhere
 ## because a value it has never seen can sit anywhere; no row dispatches over one.
-func _pc_lists(cc: int, cell_m: float, dt_s: float, sun: Vector3) -> Array:
+func _pc_lists(cc: int, dt_s: float, sun: Vector3) -> Array:
 	var out: Array = []
 	for r in _list_rows.size():
 		var t: Array = []
 		t.resize(LAFieldDriver.SLOT_COUNT)
 		t.fill(PackedByteArray())
-		t[LAFieldDriver.SLOT_LIST_RESET] = _pc(_list_rows[r], cc, PASS_LIST_RESET, cell_m, dt_s, sun)
-		t[LAFieldDriver.SLOT_LIST_APPEND] = _pc(_list_rows[r], cc, PASS_LIST_APPEND, cell_m, dt_s, sun)
-		t[LAFieldDriver.SLOT_LIST_ARGS] = _pc(_list_rows[r], cc, PASS_LIST_ARGS, cell_m, dt_s, sun)
+		t[LAFieldDriver.SLOT_LIST_RESET] = _pc(_list_rows[r], cc, PASS_LIST_RESET, dt_s, sun)
+		t[LAFieldDriver.SLOT_LIST_APPEND] = _pc(_list_rows[r], cc, PASS_LIST_APPEND, dt_s, sun)
+		t[LAFieldDriver.SLOT_LIST_ARGS] = _pc(_list_rows[r], cc, PASS_LIST_ARGS, dt_s, sun)
 		out.append(t)
 	return out
 
 
 ## transport.glsl's Params block, in its declared order.
-func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float,
+func _pc(row: Dictionary, cc: int, pass_id: int, dt_s: float,
 		sun: Vector3, level: int = 0, substep_k: int = 0, substep_n: int = 1,
 		act_group: int = 0) -> PackedByteArray:
 	var substance: String = String(row["substance"])
@@ -510,47 +508,46 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float,
 	if String(row["channel"]) == "h_j_m3":
 		flags |= LATransportRecords.Flag.ENTHALPY
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(124)
+	pc.resize(120)
 	pc.encode_u32(0, cc)
 	pc.encode_u32(4, pass_id)
 	pc.encode_u32(8, int(row["mode"]))
 	pc.encode_u32(12, int(row.get("law", LATransportRecords.Law.NONE)))
 	pc.encode_u32(16, _band_count)
 	pc.encode_u32(20, flags)
-	pc.encode_float(24, cell_m)
-	pc.encode_float(28, dt_s)
-	pc.encode_float(32, float(row.get("repose_tan", 0.0)))
+	pc.encode_float(24, dt_s)
+	pc.encode_float(28, float(row.get("repose_tan", 0.0)))
 	var max_fill: float = LATransportRecords.max_fill(substance) if substance != "" else INF
-	pc.encode_float(36, float(entry.get("density", 0.0)))
+	pc.encode_float(32, float(entry.get("density", 0.0)))
 	# Enthalpy, momentum and a shock front are not matter occupying volume, so no cell is ever full of them.
-	pc.encode_float(40, max_fill)
-	pc.encode_float(44, fluid.x)
-	pc.encode_float(48, fluid.y)
+	pc.encode_float(36, max_fill)
+	pc.encode_float(40, fluid.x)
+	pc.encode_float(44, fluid.y)
 	# Seed diameter for cells whose own grain field is unset; the cell's value wins wherever it has one.
-	pc.encode_float(52, LAPhysical.GRAIN_D_UPLAND_M)
-	pc.encode_float(56, sun.x)
-	pc.encode_float(60, sun.y)
-	pc.encode_float(64, sun.z)
+	pc.encode_float(48, LAPhysical.GRAIN_D_UPLAND_M)
+	pc.encode_float(52, sun.x)
+	pc.encode_float(56, sun.y)
+	pc.encode_float(60, sun.z)
 	var water: Vector2 = LATransportRecords.fluid_properties(LATransportRecords.Fluid.WATER)
 	var air: Vector2 = LATransportRecords.fluid_properties(LATransportRecords.Fluid.AIR)
-	pc.encode_float(68, water.x)
-	pc.encode_float(72, water.y)
-	pc.encode_float(76, air.x)
-	pc.encode_float(80, air.y)
+	pc.encode_float(64, water.x)
+	pc.encode_float(68, water.y)
+	pc.encode_float(72, air.x)
+	pc.encode_float(76, air.y)
 	# J/m^3/K one mol/m^3 of the substance contributes to the sensible entry (molar mass times specific
 	# heat); 0 for a substance on a phase ladder, whose entry is the channel itself.
-	pc.encode_float(84, float(entry.get("molar_mass", 0.0)) * LAMatterChannels.specific_heat(substance))
-	pc.encode_u32(88, cc + ghost_count)
-	pc.encode_u32(92, int(row.get("axis", 0)))
+	pc.encode_float(80, float(entry.get("molar_mass", 0.0)) * LAMatterChannels.specific_heat(substance))
+	pc.encode_u32(84, cc + ghost_count)
+	pc.encode_u32(88, int(row.get("axis", 0)))
 	# XUV irradiance AT THIS BODY, already distance-corrected by the star that emitted it; the zenith
 	# cosine is what still scales it in-kernel.
-	pc.encode_float(96, _xuv_w_m2)
+	pc.encode_float(92, _xuv_w_m2)
 	pc.encode_u32(PC_LEVEL, level)
 	pc.encode_u32(PC_K, substep_k)
 	pc.encode_u32(PC_N, substep_n)
-	pc.encode_u32(112, act_group)
+	pc.encode_u32(108, act_group)
 	# A row carrying silicate also wakes the prologue that derives where that mineral sits.
-	pc.encode_u32(116, group_count() - 1 if String(row["channel"]) == "silicate" else NO_GROUP)
+	pc.encode_u32(112, group_count() - 1 if String(row["channel"]) == "silicate" else NO_GROUP)
 	return pc
 
 

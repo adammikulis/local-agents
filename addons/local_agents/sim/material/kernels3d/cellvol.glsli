@@ -1,15 +1,36 @@
+// Per-cell geometry: the edge every cell states for itself, and the volume and face measures off it.
 #ifndef LA_CELLVOL_GLSLI
 #define LA_CELLVOL_GLSLI
 
-layout(set = 0, binding = 40, std430) restrict readonly buffer CellVol { float cell_vol[]; };  // model units^3
+layout(set = 0, binding = 94, std430) restrict readonly buffer CellEdge { float cell_edge[]; };  // m
 
 float cell_volume(uint c) {
-	return cell_vol[c];
+	float e = cell_edge[c];
+	return e * e * e;
 }
 
 // Donor fill fraction -> receiver fill fraction, carrying the same matter across the face.
 float vol_ratio(uint donor, uint receiver) {
-	return cell_vol[donor] / max(cell_vol[receiver], 1e-30);
+	return cell_volume(donor) / max(cell_volume(receiver), 1e-30);
+}
+
+// Shared area of a face of `c` onto `nb`, m^2: the finer of the pair states it. nb < 0 is the box edge.
+float la_face_area(uint c, int nb) {
+	float e = cell_edge[c];
+	float s = nb >= 0 ? min(e, cell_edge[uint(nb)]) : e;
+	return s * s;
+}
+
+// Centre-to-centre distance across that face, m; a box edge has half a cell beyond it.
+float la_face_dist(uint c, int nb) {
+	float e = cell_edge[c];
+	return nb >= 0 ? 0.5 * (e + cell_edge[uint(nb)]) : e;
+}
+
+// Divergence weight of that face, 1/m: area over the cell's own volume. A per-face flux density times
+// this is the cell's own rate of change, at any refinement.
+float la_face_div(uint c, int nb) {
+	return la_face_area(c, nb) / max(cell_volume(c), 1e-30);
 }
 
 #endif

@@ -96,18 +96,22 @@ func _run(p_ghost: float, mode: int = LAFieldBoundary3D.CONSTANT, vel: Vector3 =
 	for name in LAChannels.derived_buffers():
 		bufs[String(name)] = _f32(_filled(tc, 0.0), owned)
 	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "celerity", "k_cond", "speed", "rad_w_m3",
-			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi"]:
+			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi", "grav_ref"]:
 		bufs[name] = _f32(_filled(tc, 0.0), owned)
 	bufs["gravity"] = _f32(_filled(tc * 3, 0.0), owned)
 	bufs["g_rest"] = _f32(_filled(tc * 3, 0.0), owned)
 	bufs["nbr"] = _i32(grid.neighbours, owned)
+	bufs["slot_off"] = _i32(grid.slot_off, owned)
+	bufs["face_partner"] = _i32(grid.partners, owned)
+	bufs["cell_edge"] = _f32(grid.cell_edges(), owned)
 	var ghost_tbl: PackedInt32Array = PackedInt32Array()
-	ghost_tbl.resize(tc * LAVoxelGrid.SLOTS)
+	ghost_tbl.resize(grid.neighbours.size())
 	ghost_tbl.fill(-1)
 	bufs["ghost"] = _i32(ghost_tbl, owned)
 
 	var p: RefCounted = (load(PASS_PATH) as GDScript).new()
 	p.ghost_count = ng
+	p.face_count = grid.neighbours.size()
 	var want: Dictionary = p._buffers(cc)
 	# The temporal levels a world gets from StateDerivePass; this rig runs the transport pass alone.
 	want.merge(LATemporalLevels.buffers(cc + ng, p.group_count()))

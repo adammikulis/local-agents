@@ -1,8 +1,8 @@
 class_name LAVoxelGrid
 extends RefCounted
 
-## A UNIFORM CARTESIAN GRID OF SPACE. Not a planet — space. A planet is wherever the matter ends up.
-##
+## A CARTESIAN GRID OF SPACE WITH AXIS-ALIGNED REFINEMENT. Not a planet — space. A planet is wherever
+## the matter ends up. A cell at level L has edge `cell_size / 2^L`; a coarse cell faces four fine ones.
 
 ## Face tags, not quantities. Ordered so the opposite of d is d ^ 1.
 enum { S_NEG_X, S_POS_X, S_NEG_Y, S_POS_Y, S_NEG_Z, S_POS_Z }
@@ -19,74 +19,112 @@ const SLOT_STEP: Array[Vector3i] = [
 var nx: int = 0
 var ny: int = 0
 var nz: int = 0
-var cell_size: float = 0.0                 # model units; the same along every axis
-var origin: Vector3 = Vector3.ZERO         # world position of the minimum corner of cell (0,0,0)
-var cell_count: int = 0
+## Edge of a LEVEL 0 cell, metres; the coarsest the box carries.
+var cell_size: float = 0.0
+var origin: Vector3 = Vector3.ZERO         # world position of the minimum corner of base cell (0,0,0)
+var cell_count: int = 0                    # leaves; a refined base cell is not one of them
 
-## (cell_count + ghost_rows) * 6 flat neighbour table, slot order above. -1 = outside the box.
+## Refinement level per cell, over interior plus ghost tail.
+var levels: PackedByteArray = PackedByteArray()
+
+## Per cell: base lattice cell, lattice coordinates at its level (3 ints), full-depth Morton code, centre.
+var cell_base: PackedInt32Array = PackedInt32Array()
+var cell_local: PackedInt32Array = PackedInt32Array()
+var cell_morton: PackedInt32Array = PackedInt32Array()
+var centres: PackedVector3Array = PackedVector3Array()
+## Per base cell: first leaf, and leaf count.
+var base_head: PackedInt32Array = PackedInt32Array()
+var base_leaves: PackedInt32Array = PackedInt32Array()
+
+## Absolute face index where cell c's slot-d faces begin, 7 per cell; [c * 7 + 6] ends the cell.
+var slot_off: PackedInt32Array = PackedInt32Array()
+## Per FACE: the cell across it, -1 = outside the box.
 var neighbours: PackedInt32Array = PackedInt32Array()
+## Per FACE: the face pointing back, -1 = outside. A coarse cell's four subfaces each name their own.
+var partners: PackedInt32Array = PackedInt32Array()
+
 ## Ghost rows appended past cell_count by a boundary provider; 0 = every wall shut.
 var ghost_rows: int = 0
+## The finest level any cell is at; 0 on a uniform box.
+var max_level: int = 0
 
 
-## The slot at which the neighbour at slot `d` points back here. Axis-aligned, so it is the bit flip
-## and needs no table.
+## The slot at which the neighbour at slot `d` points back here. Axis-aligned, so it is the bit flip.
+## The FACE pointing back is `partners[f]`, which a 2:1 seam makes a different question.
 static func opposite_slot(d: int) -> int:
 	return d ^ 1
+
+
+## Base cells per axis for a box holding a sphere of `radius` at `p_cell_size`.
+static func dims_for(radius: float, p_cell_size: float) -> Vector3i:
+	var n: int = maxi(int(ceil(2.0 * radius / maxf(p_cell_size, 1.0e-6))), 1)
+	return Vector3i(n, n, n)
 
 
 func index(x: int, y: int, z: int) -> int:
 	return x + nx * (y + ny * z)
 
 
+## Base lattice coordinates of cell `c`; the eight children of a split cell share them.
 func coords(c: int) -> Vector3i:
-	var x: int = c % nx
-	var y: int = (c / nx) % ny
-	var z: int = c / (nx * ny)
-	return Vector3i(x, y, z)
+	var b: int = cell_base[c] if c >= 0 and c < cell_base.size() else c
+	return Vector3i(b % nx, (b / nx) % ny, b / (nx * ny))
 
 
-func in_bounds(x: int, y: int, z: int) -> bool:
-	return x >= 0 and x < nx and y >= 0 and y < ny and z >= 0 and z < nz
+## Refinement level of cell `c`; 0 is the coarsest.
+func level_of(c: int) -> int:
+	return int(levels[c]) if c >= 0 and c < levels.size() else 0
+
+
+## Edge of cell `c`, metres.
+func cell_edge(c: int) -> float:
+	return cell_size * pow(0.5, float(level_of(c)))
+
+
+func cell_volume(c: int = 0) -> float:
+	return pow(cell_edge(c), 3.0)
 
 
 ## Centre of cell `c` in world coordinates.
 func cell_world_pos(c: int) -> Vector3:
-	var v: Vector3i = coords(c)
-	return origin + (Vector3(v) + Vector3(0.5, 0.5, 0.5)) * cell_size
+	return centres[c]
 
 
-## The cell containing a world point, or -1 outside the box.
+func cell_world_pos_all() -> PackedVector3Array:
+	return centres
+
+
+## The leaf containing a world point, or -1 outside the box.
 func cell_at(p: Vector3) -> int:
-	var local: Vector3 = (p - origin) / cell_size
-	var x: int = int(floor(local.x))
-	var y: int = int(floor(local.y))
-	var z: int = int(floor(local.z))
-	if not in_bounds(x, y, z):
-		return -1
-	return index(x, y, z)
+	return LAGridGeometry.cell_at(self, p)
 
 
-## Centre of the box in world coordinates.
-func center() -> Vector3:
-	return origin + Vector3(float(nx), float(ny), float(nz)) * cell_size * 0.5
+func leaf_at(x: int, y: int, z: int) -> int:
+	return base_head[index(x, y, z)]
 
 
-## Every cell's volume, m^3. One value repeated: that is what uniform means.
+func wrap_partner(c: int, d: int) -> int:
+	return LAGridGeometry.wrap_partner(self, c, d)
+
+
+## Every cell's volume, m^3, and every cell's edge, m.
 func cell_volumes() -> PackedFloat32Array:
-	var out: PackedFloat32Array = PackedFloat32Array()
-	out.resize(cell_count)
-	out.fill(cell_volume())
-	return out
+	return LAGridGeometry.volumes(self)
 
 
-## Longest march a column can take before it leaves the box.
+func cell_edges() -> PackedFloat32Array:
+	return LAGridGeometry.edges(self)
+
+
+## Longest march a column can take before it leaves the box, in the FINEST cells it may cross.
 func max_span() -> int:
-	return maxi(maxi(nx, ny), nz)
+	return maxi(maxi(nx, ny), nz) << max_level
 
 
-func cell_volume(_c: int = 0) -> float:
-	return cell_size * cell_size * cell_size
+## First face of cell `c` on slot `d`; `d` == SLOTS ends the cell. Four faces on a slot where a coarse
+## cell meets fine ones, and the whole cell's range is slot 0 to SLOTS.
+func slot_begin(c: int, d: int) -> int:
+	return slot_off[c * 7 + d]
 
 
 func build(p_nx: int, p_ny: int, p_nz: int, p_cell_size: float, p_origin: Vector3) -> void:
@@ -95,68 +133,63 @@ func build(p_nx: int, p_ny: int, p_nz: int, p_cell_size: float, p_origin: Vector
 	nz = maxi(p_nz, 1)
 	cell_size = maxf(p_cell_size, 1.0e-6)
 	origin = p_origin
-	cell_count = nx * ny * nz
-	_build_neighbours()
+	refine(PackedByteArray())
 
 
-## Build a box centred on `center` that contains a sphere of `radius`, at `p_cell_size` resolution.
-## The commonest construction while one body is being simulated; it asserts nothing about what fills it.
-func build_centred(center: Vector3, radius: float, p_cell_size: float) -> void:
-	var n: int = maxi(int(ceil(2.0 * radius / maxf(p_cell_size, 1.0e-6))), 1)
-	var half: float = 0.5 * float(n) * p_cell_size
-	build(n, n, n, p_cell_size, center - Vector3(half, half, half))
+func refine(mask: PackedByteArray) -> void:
+	_adopt_geometry(LAGridGeometry.build(Vector3i(nx, ny, nz), mask))
 
 
-## Append `n` ghost rows to the neighbour table: boundary-provider cells past cell_count, every slot shut
-## until the provider writes its interior partner. The table stays the one declaration of adjacency.
-func add_ghost_rows(n: int) -> void:
-	ghost_rows += maxi(n, 0)
-	var first: int = neighbours.size()
-	neighbours.resize((cell_count + ghost_rows) * SLOTS)
-	for i in range(first, neighbours.size()):
-		neighbours[i] = -1
+## Refine to `target_edge_m` in the surface band, 2:1 balanced, under `budget` cells; the edge reached.
+func refine_graded(centre: Vector3, terrain: Object, below_m: float, above_m: float,
+		target_edge_m: float, budget: int = 0) -> float:
+	var g: Dictionary = LAGridGeometry.build_to_budget(Vector3i(nx, ny, nz), origin, cell_size, centre,
+		terrain, below_m, above_m, target_edge_m, budget if budget > 0 else 2147483647)
+	_adopt_geometry(g)
+	return float(g.get("target_edge_m", cell_size))
 
 
-func _build_neighbours() -> void:
+func _adopt_geometry(g: Dictionary) -> void:
+	cell_count = int(g["cell_count"])
+	levels = g["levels"]
+	max_level = int(g["max_level"])
+	cell_base = g["cell_base"]
+	cell_local = g["cell_local"]
+	cell_morton = g["cell_morton"]
+	base_head = g["base_head"]
+	base_leaves = g["base_leaves"]
+	slot_off = g["slot_off"]
+	neighbours = g["neighbours"]
+	partners = g["partners"]
 	ghost_rows = 0
-	neighbours.resize(cell_count * SLOTS)
-	for z in nz:
-		for y in ny:
-			for x in nx:
-				var c: int = index(x, y, z)
-				var base: int = c * SLOTS
-				for d in SLOTS:
-					var s: Vector3i = SLOT_STEP[d]
-					var ax: int = x + s.x
-					var ay: int = y + s.y
-					var az: int = z + s.z
-					neighbours[base + d] = index(ax, ay, az) if in_bounds(ax, ay, az) else -1
+	centres = LAGridGeometry.centres(self)
 
 
-## Structural self-check. Every claim here is one the cubed-sphere grid had to work to earn.
+## Append `n` ghost rows: boundary-provider cells past cell_count, six shut faces each until a provider
+## attaches one. The face list stays the one declaration of adjacency.
+func add_ghost_rows(n: int) -> void:
+	var g: Dictionary = LAGridGeometry.ghost_rows(self, n)
+	if g.is_empty():
+		return
+	ghost_rows += n
+	levels = g["levels"]
+	slot_off = g["slot_off"]
+	neighbours = g["neighbours"]
+	partners = g["partners"]
+	centres = LAGridGeometry.centres(self)
+
+
+## Point ghost cell `gh` back at interior cell `c` across slot `d` of `c`, and take `c`'s level: a
+## prescribed exterior state is the same size as the cell it feeds.
+func attach_ghost(gh: int, c: int, d: int) -> void:
+	levels[gh] = levels[c]
+	var back: int = slot_begin(gh, opposite_slot(d))
+	neighbours[back] = c
+	partners[back] = slot_begin(c, d)
+	for f in range(slot_begin(c, d), slot_begin(c, d + 1)):
+		partners[f] = back
+
+
+## Structural self-check: reciprocity, the 2:1 volume ratio, and the tiling of a coarse face.
 func validate() -> Dictionary:
-	var reciprocal: int = 0
-	var non_reciprocal: int = 0
-	var boundary: int = 0
-	for c in cell_count:
-		var base: int = c * SLOTS
-		for d in SLOTS:
-			var m: int = neighbours[base + d]
-			if m < 0:
-				boundary += 1
-				continue
-			if neighbours[m * SLOTS + opposite_slot(d)] == c:
-				reciprocal += 1
-			else:
-				non_reciprocal += 1
-	var vol: float = cell_volume()
-	return {
-		"ok": non_reciprocal == 0 and cell_count == nx * ny * nz,
-		"cells": cell_count,
-		"reciprocal": reciprocal,
-		"non_reciprocal": non_reciprocal,
-		"boundary_faces": boundary,
-		"cell_volume": vol,
-		"volume_ratio": 1.0,
-		"total_volume": vol * float(cell_count),
-	}
+	return LAGridGeometry.validate(self)

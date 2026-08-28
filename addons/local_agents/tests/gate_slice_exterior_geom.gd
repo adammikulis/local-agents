@@ -37,7 +37,8 @@ func _box(spec: String) -> LAFieldSlice3D:
 func _coarse() -> void:
 	var box: LAFieldSlice3D = _box("0,%f,0,24,32,24,4000" % BODY_R)
 	var grid: LAVoxelGrid = LAVoxelGrid.new()
-	grid.build_centred(Vector3.ZERO, DOMAIN_R, 2.0 * DOMAIN_R / 24.0)
+	var gd: Vector3i = LAVoxelGrid.dims_for(DOMAIN_R, 2.0 * DOMAIN_R / 24.0)
+	grid.build(gd.x, gd.y, gd.z, 2.0 * DOMAIN_R / 24.0, -0.5 * float(gd.x) * (2.0 * DOMAIN_R / 24.0) * Vector3.ONE)
 	var faces: Array = Cap.exterior_faces(grid, box.offset, box)
 	for d in LAVoxelGrid.SLOTS:
 		_expect(_why(faces, d) == "",

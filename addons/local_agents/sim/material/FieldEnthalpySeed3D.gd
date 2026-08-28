@@ -32,24 +32,11 @@ static func entry_enthalpies(masses: Dictionary, n_gas_mol: float, t_c: float, p
 ## pressure, so enthalpy taken at one pressure and inverted at another lands on a different rung: a cell
 ## seeded liquid at one atmosphere reads superheated once the derive asks it at lithostatic.
 static func seed(f, geotherm: Dictionary, p_pa: PackedFloat32Array) -> void:
-	if f._cell_count <= 0:
+	if f._cell_count <= 0 or f._grid == null or geotherm.is_empty() or p_pa.size() != f._cell_count:
+		push_error("LAFieldEnthalpySeed: no grid, no marched pressure or no geotherm to seed the ladder on.")
 		return
-	f._h.resize(f._cell_count)
-	var vol: PackedFloat32Array = LAMaterialFieldCellVolume3D.of(f)
-	if vol.size() != f._cell_count or p_pa.size() != f._cell_count or geotherm.is_empty():
-		push_error("LAFieldEnthalpySeed: no cell volumes, no marched pressure or no geotherm to seed the ladder on.")
-		return
-	var total_j: float = 0.0
-	var centre: Vector3 = f.centre()
-	for c in f._cell_count:
-		var cell_m3: float = vol[c]
-		if cell_m3 <= 0.0: continue
-		var t_c: float = LAFieldGeothermSeed.temperature_c_at(geotherm, (f.cell_world_pos_linear(c) - centre).length())
-		# masses_at is EMPTY for a cell the substrate calls empty, so it is handed no joules to hold.
-		var e: Dictionary = entry_enthalpies(LAFieldCellMass3D.masses_at(f, c, cell_m3),
-			LAFieldCellMass3D.gas_moles_at(f, c, cell_m3), t_c, maxf(p_pa[c], 0.0))
-		var h_j: float = float(e["h_h2o"]) + float(e["h_silicate"]) + float(e["h_sensible"])
-		f._h[c] = h_j / cell_m3
-		total_j += h_j
+	var r: Dictionary = LAFieldCellMass3D.seed_enthalpy(f, f._grid, geotherm["profile"],
+		float(geotherm["r_body"]), float(geotherm["t_surface_c"]), p_pa)
+	f._h = r["h"]
 	if f._seal != null:
-		f._seal.note_creation("seed_enthalpy_j", total_j)
+		f._seal.note_creation("seed_enthalpy_j", float(r["total_j"]))

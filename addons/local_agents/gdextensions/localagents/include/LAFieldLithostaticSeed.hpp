@@ -26,7 +26,7 @@ public:
 	// AN ATMOSPHERE IS A SHELL ON A SURFACE, not a uniform fill of the box: gas falls off with altitude by
 	// the barometric relation about the mean solid radius, every quantity of it measured off the matter.
 	static void shape_atmosphere(Object *p_field, double p_temp_c, Object *p_measure,
-			const PackedFloat32Array &p_gravity);
+			const PackedFloat32Array &p_gravity, const PackedFloat32Array &p_phi);
 	// POURED WATER DISPLACES THE GAS: liquid holding an atmosphere's worth of gas in no free volume is a
 	// pressure bomb, not a sea.
 	static void displace_gas_from_water(Object *p_field);

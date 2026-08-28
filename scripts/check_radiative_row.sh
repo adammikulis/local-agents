@@ -106,6 +106,7 @@ func _run(grid, solid_v: PackedFloat32Array, temp_c: PackedFloat32Array) -> Arra
 	var cc: int = grid.cell_count
 	var scr: GDScript = load(PASS_PATH)
 	var p: RefCounted = scr.new()
+	p.face_count = grid.neighbours.size()
 	var bufs: Dictionary = {}
 	for name in LAChannels.channels():
 		bufs[String(name)] = _f32(cc)
@@ -126,9 +127,19 @@ func _run(grid, solid_v: PackedFloat32Array, temp_c: PackedFloat32Array) -> Arra
 	var nbr: RID = _rd.storage_buffer_create(nbr_bytes.size(), nbr_bytes)
 	_owned.append(nbr)
 	bufs["nbr"] = nbr
+	# THE FACE LIST'S OWN GEOMETRY: where a cell's faces begin, the face pointing back, and its edge.
+	var off_b: PackedByteArray = grid.slot_off.to_byte_array()
+	var par_b: PackedByteArray = grid.partners.to_byte_array()
+	var edge_b: PackedByteArray = grid.cell_edges().to_byte_array()
+	bufs["slot_off"] = _rd.storage_buffer_create(off_b.size(), off_b)
+	bufs["face_partner"] = _rd.storage_buffer_create(par_b.size(), par_b)
+	bufs["cell_edge"] = _rd.storage_buffer_create(edge_b.size(), edge_b)
+	_owned.append(bufs["slot_off"])
+	_owned.append(bufs["face_partner"])
+	_owned.append(bufs["cell_edge"])
 	# Every wall shut: the boundary redirect holds -1 per face, exactly as the driver builds it.
 	var gh_arr: PackedInt32Array = PackedInt32Array()
-	gh_arr.resize(cc * 6)
+	gh_arr.resize(grid.neighbours.size())
 	gh_arr.fill(-1)
 	var gh_bytes: PackedByteArray = gh_arr.to_byte_array()
 	var gh: RID = _rd.storage_buffer_create(gh_bytes.size(), gh_bytes)
@@ -137,6 +148,7 @@ func _run(grid, solid_v: PackedFloat32Array, temp_c: PackedFloat32Array) -> Arra
 	bufs["gravity"] = _f32(cc * 3)
 	bufs["g_rest"] = _f32(cc * 3)
 	bufs["grav_phi"] = _f32(cc)
+	bufs["grav_ref"] = _f32(cc)
 	bufs["pos"] = _f32(cc * 3)
 
 	_upload(bufs["solid"], solid_v)
@@ -164,7 +176,7 @@ func _interior(grid) -> PackedInt32Array:
 	for c in grid.cell_count:
 		var all_in: bool = true
 		for d in 6:
-			if grid.neighbours[c * 6 + d] < 0:
+			if grid.neighbours[grid.slot_begin(c, d)] < 0:
 				all_in = false
 				break
 		if all_in:
@@ -176,10 +188,10 @@ func _interior(grid) -> PackedInt32Array:
 ## is a loop guard on a finite graph and not a physical number.
 func _depth(grid, c: int, d: int) -> int:
 	var n: int = 0
-	var at: int = grid.neighbours[c * 6 + d]
+	var at: int = grid.neighbours[grid.slot_begin(c, d)]
 	while at >= 0 and n < grid.cell_count:
 		n += 1
-		at = grid.neighbours[at * 6 + d]
+		at = grid.neighbours[grid.slot_begin(at, d)]
 	return n
 
 
@@ -195,10 +207,10 @@ func _transmission(grid) -> Array:
 	var clear: int = -1
 	var emitter: int = -1
 	for c in cc:
-		var mid: int = grid.neighbours[c * 6]
+		var mid: int = grid.neighbours[grid.slot_begin(c, 0)]
 		if mid < 0:
 			continue
-		var far: int = grid.neighbours[mid * 6]
+		var far: int = grid.neighbours[grid.slot_begin(mid, 0)]
 		if far < 0:
 			continue
 		absorber = c
@@ -342,8 +354,21 @@ fi
 # ARM TWO — the field the SIM seeds, not one this script built.
 # ---------------------------------------------------------------------------------------------------
 SIM_FRAMES="${LA_RADIATIVE_FRAMES:-20}"
+# LAProcessSet::RADIATION — the rung whose reduce list declares rad_emitted, rad_absorbed,
+# sw_reflected and rad_sb_rel_max.
+RADIATION_RUNG=7
 # float32 rounding between the send stamp and the gather's independent recomputation; not a fit.
 SB_REL_TOL="0.001"
+# THESE ROWS EXIST ONLY AT LAProcessSet::RADIATION AND ABOVE. The world arm reads the demo world, which
+# runs at docs/PLAYABLE_RUNG; below radiation that world carries no radiation row at all, and an absent
+# reading is then a fact about the ladder rather than about the RADIATE row. The rig arm above still
+# judged the law, so the gate holds on it and says which arm it did not run.
+PLAYABLE="$(rg -N -o '^[0-9]+$' "$REPO_ROOT/docs/PLAYABLE_RUNG" 2>/dev/null | head -1)"
+if [ -n "$PLAYABLE" ] && [ "$PLAYABLE" -lt "$RADIATION_RUNG" ]; then
+  echo "check_radiative_row: OK (rig arm; the demo world runs at rung $PLAYABLE, below radiation, so it"
+  echo "                    carries no radiation row for the world arm to read)"
+  exit 0
+fi
 sim_out="$(la_report rad_emitted,rad_absorbed,solid_cells,rad_sb_rel_max,sw_reflected \
   --path "$REPO_ROOT" --frames "$SIM_FRAMES" 2>&1)"
 sim_rc=$?

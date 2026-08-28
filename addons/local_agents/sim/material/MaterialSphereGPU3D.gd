@@ -36,6 +36,7 @@ var _field = null
 var _grid: RefCounted = null
 var _cc: int = 0
 var _ng: int = 0                    # ghost tail cells appended past _cc; 0 = every wall shut
+var _face_count: int = 0            # faces over interior plus ghost tail: LAVoxelGrid.neighbours
 var _bnd_keys: PackedStringArray = PackedStringArray()   # per-step boundary books, cleared before each step
 var _step_index: int = 0            # monotonic field-step counter, published to kernels as ctx["step_index"]
 var _seed_totals: Dictionary = {}   # per channel: the total the last whole-mirror seed declared
@@ -95,14 +96,18 @@ func setup(field) -> void:
 	for name in LAChannels.derived_buffers():
 		_bufs[name] = _new_f(tc)
 		_buf_owner[name] = "LAChannels.derived_buffers()"
-	# GRID GEOMETRY, and on a uniform Cartesian grid there are only two pieces of it. The neighbour table,
-	# whose slot order is the grid's (`d ^ 1` is the opposite, checked by scripts/check_neighbour_slots.sh),
-	# already carrying any ghost rows the boundary provider appended,
+	# GRID GEOMETRY. The face list, whose adjacency is the grid's own (scripts/check_neighbour_slots.sh
+	# holds the one definition), already carrying any ghost rows the boundary provider appended,
 	var nbr_bytes: PackedByteArray = _grid.neighbours.to_byte_array()
 	_bufs["nbr"] = _rd.storage_buffer_create(nbr_bytes.size(), nbr_bytes)
+	_face_count = _grid.neighbours.size()
+	var off_bytes: PackedByteArray = _grid.slot_off.to_byte_array()
+	_bufs["slot_off"] = _rd.storage_buffer_create(off_bytes.size(), off_bytes)
+	var par_bytes: PackedByteArray = _grid.partners.to_byte_array()
+	_bufs["face_partner"] = _rd.storage_buffer_create(par_bytes.size(), par_bytes)
 	# The boundary redirect: per face, a wrap partner or a ghost tail cell; -1 keeps the face shut.
 	var gh: PackedInt32Array = PackedInt32Array()
-	gh.resize(tc * 6)
+	gh.resize(_face_count)
 	gh.fill(-1)
 	var gh_bytes: PackedByteArray = gh.to_byte_array()
 	_bufs["ghost"] = _rd.storage_buffer_create(gh_bytes.size(), gh_bytes)
@@ -110,9 +115,9 @@ func setup(field) -> void:
 	# The SOLVED gravity, flat cell*3, m/s^2. GravityPass writes it, every kernel that asks which way is
 	# down reads it, and nothing anywhere holds a gravity constant.
 	_bufs["gravity"] = _new_f(tc * 3)
-	# kernels3d/cellvol.glsli, binding 40: model units^3 per cell.
-	var vol_bytes: PackedByteArray = _grid.cell_volumes().to_byte_array()
-	_bufs["cell_vol"] = _rd.storage_buffer_create(vol_bytes.size(), vol_bytes)
+	# kernels3d/cellvol.glsli, binding 94: metres of edge per cell, the one geometry the kernels read.
+	var edge_bytes: PackedByteArray = _grid.cell_edges().to_byte_array()
+	_bufs["cell_edge"] = _rd.storage_buffer_create(edge_bytes.size(), edge_bytes)
 
 	_seed("h_j_m3", field._h)
 	seed_field("o2", field._o2, field._seal)
@@ -145,6 +150,9 @@ func setup(field) -> void:
 		if p.has_method("setup"):
 			p.ghost_count = _ng
 			p.grid_dims = Vector3i(_grid.nx, _grid.ny, _grid.nz)
+			p.face_count = _face_count
+			p.grid_origin = _grid.origin
+			p.grid_cell_size = _grid.cell_size
 			_passes.append(p)
 			_pass_names.append(path.get_file().get_basename())   # e.g. "TransportPass" — timestamp label
 	# A pass declares the buffers it needs and the DRIVER allocates them, so they are driver-owned and can be
@@ -179,6 +187,9 @@ func _allocate_declared(p: RefCounted, label: String) -> void:
 		# A per-cell buffer a kernel indexes by ghost tail cells declares {"ghosts": true}.
 		if spec is Dictionary and bool(spec.get("ghosts", false)):
 			n += _ng
+		# A per-FACE buffer declares {"faces": true}: the grid's face list is its length.
+		if spec is Dictionary and bool(spec.get("faces", false)):
+			n = _face_count
 		if n <= 0:
 			push_error("%s declares buffer \"%s\" of %d elements." % [label, name, n])
 			continue
@@ -211,6 +222,7 @@ func begin_frame(h: PackedFloat32Array, water: PackedFloat32Array) -> void:
 		_solid_dirty = false
 	_ctx["dt"] = LAMaterialFieldSphereStep3D.real_seconds_per_step()   # simulated seconds, not the cadence
 	_ctx["cell_size"] = _grid.cell_size
+	_ctx["cell_size_min"] = _grid.cell_size * pow(0.5, float(_grid.max_level))
 	# The SOLVED gravity, for the handful of scalar laws a pass evaluates once. A per-cell law reads the
 	# g field itself; nothing anywhere reads a gravity constant, because there is not one.
 	_ctx["g_m_s2"] = _field._gravity.mean_g() if _field._gravity != null else 0.0
@@ -338,6 +350,7 @@ func _drain_pending() -> void:
 func derive_seeded() -> void:
 	if _rd == null or _grid == null: return
 	_ctx["cell_size"] = _grid.cell_size
+	_ctx["cell_size_min"] = _grid.cell_size * pow(0.5, float(_grid.max_level))
 	for i in _passes.size():
 		if not (_pass_names[i] in ["StateDerivePass", "ReducePass"]): continue
 		var cl: int = _rd.compute_list_begin()

@@ -11,7 +11,7 @@ var _set: RID = RID()
 func _setup(bufs: Dictionary, _cc: int) -> void:
 	_pipe = _kernel(KERNEL_PATH)
 	var missing: PackedStringArray = PackedStringArray()
-	for name: String in ["pressure", "rho_bulk", "g_rest", "vert_up"]:
+	for name: String in ["pressure", "rho_bulk", "g_rest", "vert_up", "cell_edge"]:
 		if not _single(bufs, name).is_valid():
 			missing.append(name)
 	if not missing.is_empty():
@@ -23,7 +23,8 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 		[2, _single(bufs, "solid")],
 		[1, _single(bufs, "rho_bulk")],
 		[3, _single(bufs, "g_rest")],
-		[4, _single(bufs, "vert_up")]])
+		[4, _single(bufs, "vert_up")],
+		[94, _single(bufs, "cell_edge")]])
 
 
 func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:
@@ -35,11 +36,10 @@ func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: i
 
 func _push(ctx: Dictionary, cc: int) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(16)
+	pc.resize(12)
 	pc.encode_u32(0, cc)
-	pc.encode_float(4, _ctx_cell_size(ctx))
-	pc.encode_float(8, 0.0)                       # vacuum above the outermost cell
+	pc.encode_float(4, 0.0)                       # vacuum above the outermost cell
 	# A staircase up a snapped vertical takes at most one step per cell on each axis, so the walk bound is
 	# the three spans and not the longest one.
-	pc.encode_u32(12, 3 * int(_ctx_num(ctx, "depth")))
+	pc.encode_u32(8, 3 * int(_ctx_num(ctx, "depth")))
 	return pc

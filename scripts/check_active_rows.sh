@@ -83,11 +83,13 @@ func _read(bufs: Dictionary, key: String) -> PackedFloat32Array:
 	return _rd.buffer_get_data(bufs[key]).to_float32_array()
 
 
-func _total(bufs: Dictionary, key: String, cc: int) -> float:
+## MATTER, not fill fractions: a channel value is a fraction of the cell holding it, so a bare sum
+## over a graded box is not proportional to what is there.
+func _total(bufs: Dictionary, key: String, vol: PackedFloat32Array) -> float:
 	var a: PackedFloat32Array = _read(bufs, key)
 	var s: float = 0.0
-	for c in cc:
-		s += a[c]
+	for c in vol.size():
+		s += a[c] * vol[c]
 	return s
 
 
@@ -102,6 +104,36 @@ func _step(p: RefCounted, ctx: Dictionary, cc: int) -> void:
 	_rd.sync()
 
 
+## Every buffer the pass declares, plus the temporal-level field StateDerivePass declares and this pass
+## reads: without it every row refuses to move and the arms below measure a box nothing stepped.
+func _declared(p: RefCounted, cc: int, bufs: Dictionary, owned: Array[RID]) -> void:
+	var want: Dictionary = p._buffers(cc)
+	want.merge(LATemporalLevels.buffers(cc + int(p.ghost_count), int(p.group_count())))
+	for key in want:
+		var spec: Variant = want[key]
+		var n: int = int(spec["n"]) if spec is Dictionary else int(spec)
+		var indirect: bool = spec is Dictionary and bool(spec.get("indirect", false))
+		var zeros: PackedByteArray = _filled(n, 0.0).to_byte_array()
+		var r: RID = _rd.storage_buffer_create(zeros.size(), zeros,
+			RenderingDevice.STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT if indirect else 0)
+		owned.append(r)
+		bufs[String(key)] = r
+
+
+## THE GRID'S OWN GEOMETRY, as the driver uploads it: the face list, the redirect that rides a face,
+## and the per-cell edge every kernel reads its lengths off.
+func _geometry(grid: LAVoxelGrid, bufs: Dictionary, owned: Array[RID]) -> void:
+	bufs["__faces"] = grid.neighbours.size()
+	bufs["nbr"] = _i32(grid.neighbours, owned)
+	bufs["slot_off"] = _i32(grid.slot_off, owned)
+	bufs["face_partner"] = _i32(grid.partners, owned)
+	bufs["cell_edge"] = _f32(grid.cell_edges(), owned)
+	var ghost_tbl: PackedInt32Array = PackedInt32Array()
+	ghost_tbl.resize(grid.neighbours.size())
+	ghost_tbl.fill(-1)
+	bufs["ghost"] = _i32(ghost_tbl, owned)
+
+
 ## A world of nothing but the box: every channel empty, no wind, no gradient, no clock but the field's.
 func _build(owned: Array[RID]) -> Dictionary:
 	var grid: LAVoxelGrid = LAVoxelGrid.new()
@@ -113,15 +145,11 @@ func _build(owned: Array[RID]) -> Dictionary:
 	for name in LAChannels.derived_buffers():
 		bufs[String(name)] = _f32(_filled(cc, 0.0), owned)
 	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "celerity", "k_cond", "speed", "rad_w_m3",
-			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi"]:
+			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi", "grav_ref"]:
 		bufs[name] = _f32(_filled(cc, 0.0), owned)
 	bufs["gravity"] = _f32(_filled(cc * 3, 0.0), owned)
 	bufs["g_rest"] = _f32(_filled(cc * 3, 0.0), owned)
-	bufs["nbr"] = _i32(grid.neighbours, owned)
-	var ghost_tbl: PackedInt32Array = PackedInt32Array()
-	ghost_tbl.resize(cc * LAVoxelGrid.SLOTS)
-	ghost_tbl.fill(-1)
-	bufs["ghost"] = _i32(ghost_tbl, owned)
+	_geometry(grid, bufs, owned)
 	_write(bufs, "rho_bulk", _filled(cc, RHO_BULK))
 	_write(bufs, "h2o_liquid", _filled(cc, 1.0))
 	return bufs
@@ -131,16 +159,8 @@ func _attach(bufs: Dictionary, owned: Array[RID]) -> RefCounted:
 	var cc: int = int(bufs["__cc"])
 	var p: RefCounted = (load(PASS_PATH) as GDScript).new()
 	p.ghost_count = 0
-	var want: Dictionary = p._buffers(cc)
-	for key in want:
-		var spec: Variant = want[key]
-		var n: int = int(spec["n"]) if spec is Dictionary else int(spec)
-		var indirect: bool = spec is Dictionary and bool(spec.get("indirect", false))
-		var zeros: PackedByteArray = _filled(n, 0.0).to_byte_array()
-		var r: RID = _rd.storage_buffer_create(zeros.size(), zeros,
-			RenderingDevice.STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT if indirect else 0)
-		owned.append(r)
-		bufs[String(key)] = r
+	p.face_count = int(bufs["__faces"])
+	_declared(p, cc, bufs, owned)
 	p.setup(_rd, bufs, cc)
 	return p
 
@@ -152,7 +172,15 @@ func _seam() -> void:
 	var nx: int = 8
 	var grid: LAVoxelGrid = LAVoxelGrid.new()
 	grid.build(nx, 1, 1, SEAM_CELL, Vector3(-0.5 * float(nx) * SEAM_CELL, -0.5 * SEAM_CELL, -0.5 * SEAM_CELL))
+	# 2:1 IN SPACE AS WELL AS IN TIME: the right half is refined, so the faces on the seam join a
+	# coarse cell to fine ones and every crossing carries a volume ratio of eight.
+	var mask: PackedByteArray = PackedByteArray()
+	mask.resize(nx)
+	for b in range(nx / 2, nx):
+		mask[b] = 1
+	grid.refine(mask)
 	var cc: int = grid.cell_count
+	var vol: PackedFloat32Array = grid.cell_volumes()
 	var owned: Array[RID] = []
 	var bufs: Dictionary = {}
 	for name in LAChannels.channels():
@@ -160,28 +188,16 @@ func _seam() -> void:
 	for name in LAChannels.derived_buffers():
 		bufs[String(name)] = _f32(_filled(cc, 0.0), owned)
 	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "celerity", "k_cond", "speed", "rad_w_m3",
-			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi"]:
+			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi", "grav_ref"]:
 		bufs[name] = _f32(_filled(cc, 0.0), owned)
 	bufs["gravity"] = _f32(_filled(cc * 3, 0.0), owned)
 	bufs["g_rest"] = _f32(_filled(cc * 3, 0.0), owned)
-	bufs["nbr"] = _i32(grid.neighbours, owned)
-	var ghost_tbl: PackedInt32Array = PackedInt32Array()
-	ghost_tbl.resize(cc * LAVoxelGrid.SLOTS)
-	ghost_tbl.fill(-1)
-	bufs["ghost"] = _i32(ghost_tbl, owned)
+	_geometry(grid, bufs, owned)
 
 	var p: RefCounted = (load(PASS_PATH) as GDScript).new()
 	p.ghost_count = 0
-	var want: Dictionary = p._buffers(cc)
-	for key in want:
-		var spec: Variant = want[key]
-		var n: int = int(spec["n"]) if spec is Dictionary else int(spec)
-		var indirect: bool = spec is Dictionary and bool(spec.get("indirect", false))
-		var zeros: PackedByteArray = _filled(n, 0.0).to_byte_array()
-		var r: RID = _rd.storage_buffer_create(zeros.size(), zeros,
-			RenderingDevice.STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT if indirect else 0)
-		owned.append(r)
-		bufs[String(key)] = r
+	p.face_count = grid.neighbours.size()
+	_declared(p, cc, bufs, owned)
 
 	# A shut box of moving matter: a gradient so there is something to carry, and a velocity step so the
 	# right half's own courant asks for a finer clock than the left half's.
@@ -198,7 +214,7 @@ func _seam() -> void:
 		h2o.append(500.0 - 40.0 * float(c))
 		o2.append(200.0 + 10.0 * float(c))
 		co2.append(50.0 + 3.0 * float(c))
-		temps.append(SEAM_T_STIFF if c >= cc / 2 else SEAM_T)
+		temps.append(SEAM_T_STIFF if grid.level_of(c) > 0 else SEAM_T)
 		momz.append(10.0 + 2000.0 * float(c))
 		velz.append((10.0 + 2000.0 * float(c)) / SEAM_RHO)
 		spd.append(sqrt(SEAM_V * SEAM_V + velz[c] * velz[c]))
@@ -218,10 +234,11 @@ func _seam() -> void:
 	var checked: PackedStringArray = PackedStringArray(["h2o", "o2", "co2"])
 	var before: Dictionary = {}
 	for ch in checked:
-		before[String(ch)] = _total(bufs, String(ch), cc)
+		before[String(ch)] = _total(bufs, String(ch), vol)
 	var start: PackedFloat32Array = _rd.buffer_get_data(bufs["h2o"]).to_float32_array()
 
-	var ctx: Dictionary = {"cell_size": SEAM_CELL, "sun_dir": Vector3.ZERO, "dt_s": DT}
+	var ctx: Dictionary = {"cell_size": SEAM_CELL, "cell_size_min": 0.5 * SEAM_CELL,
+		"sun_dir": Vector3.ZERO, "dt_s": DT}
 	var groups: int = int(ceil(float(cc) / 64.0))
 	p.pre_step(_rd, ctx, cc, groups)
 	var peak: int = 0
@@ -235,7 +252,7 @@ func _seam() -> void:
 	# POSITIVE CONTROL: the level field the real code builds has to hold more than one level, or the
 	# conservation below is a closed book over a box that never straddled a seam.
 	var lcl: int = _rd.compute_list_begin()
-	p.build_levels(lcl, top, cc, SEAM_CELL, DT, Vector3.ZERO, peak)
+	p.build_levels(lcl, top, cc, DT, Vector3.ZERO, peak)
 	_rd.compute_list_end()
 	_rd.submit()
 	_rd.sync()
@@ -254,7 +271,7 @@ func _seam() -> void:
 
 	for ch in checked:
 		var name: String = String(ch)
-		var after: float = _total(bufs, name, cc)
+		var after: float = _total(bufs, name, vol)
 		var was: float = float(before[name])
 		_expect(absf(after - was) <= TOL * maxf(absf(was), 1.0),
 			"%s: a shut box held %s and now holds %s — the seam between two clocks is not conservative."
@@ -270,8 +287,12 @@ func _seam() -> void:
 	for r in owned:
 		if r.is_valid():
 			_rd.free_rid(r)
-	print('LEVEL_REFLUX={"cells":%d,"peak_level":%d,"levels_present":%d,"channels":%d,"failures":%d}'
-		% [cc, peak, seen.size(), checked.size(), _fails])
+	var ratio: float = grid.cell_volume(0) / grid.cell_volume(cc - 1)
+	_expect(absf(ratio - 8.0) < 1.0e-6,
+		"the seam box is not 2:1 in space, so no face carried a volume ratio and the books above "
+		+ "closed over a uniform grid.")
+	print('LEVEL_REFLUX={"cells":%d,"peak_level":%d,"levels_present":%d,"channels":%d,"vol_ratio":%.3f,"failures":%d}'
+		% [cc, peak, seen.size(), checked.size(), ratio, _fails])
 
 
 func _init() -> void:
@@ -285,12 +306,14 @@ func _init() -> void:
 	# emits its own heat to space is never settled, so a rung holding RADIATION could not answer arm one.
 	_seam()
 	LAProcessSet.declare(LAProcessSet.ADVECT)
-	var ctx: Dictionary = {"cell_size": CELL, "sun_dir": Vector3.ZERO, "dt_s": DT}
+	var ctx: Dictionary = {"cell_size": CELL, "cell_size_min": CELL, "sun_dir": Vector3.ZERO,
+		"dt_s": DT}
 
 	# --- ARM ONE: A SETTLED BOX SLEEPS, AND ITS BOOKS STILL CLOSE ---------------------------------
 	var owned_a: Array[RID] = []
 	var still: Dictionary = _build(owned_a)
 	var cc: int = int(still["__cc"])
+	var vol_a: PackedFloat32Array = _filled(cc, CELL * CELL * CELL)
 	# MATTER AT REST IS STILL MATTER: uniform, so no face carries a gradient and nothing has anywhere
 	# to go. An empty box would sleep for the wrong reason.
 	_write(still, "h2o", _filled(cc, BLOB_MOL_M3))
@@ -298,14 +321,14 @@ func _init() -> void:
 	var pa: RefCounted = _attach(still, owned_a)
 	var rows: int = int(pa._rows.size())
 	_expect(rows > 0, "the process rung this ran at holds no transport rows, so nothing was examined.")
-	var still_h2o: float = _total(still, "h2o", cc)
+	var still_h2o: float = _total(still, "h2o", vol_a)
 	_expect(still_h2o > 0.0, "the settled box holds nothing, so its sleeping proves nothing.")
 	for _i in STEPS:
 		_step(pa, ctx, cc)
 	var idle: int = int(pa._active_cells(_rd))
 	_expect(idle == 0, "a box where nothing moves still dispatches %d cells, so no cell ever sleeps."
 		% idle)
-	_expect(absf(_total(still, "h2o", cc) - still_h2o) <= TOL,
+	_expect(absf(_total(still, "h2o", vol_a) - still_h2o) <= TOL * maxf(still_h2o, 1.0),
 		"the settled box's own water total moved while nothing was stepping it.")
 	pa.dispose(_rd)
 	for r in owned_a:
@@ -321,7 +344,7 @@ func _init() -> void:
 	blob[SEED_CELL] = BLOB_MOL_M3
 	_write(box, "shock", blob)
 	var pb: RefCounted = _attach(box, owned_b)
-	var before: float = _total(box, "shock", cc)
+	var before: float = _total(box, "shock", vol_a)
 	_expect(before > 0.0, "the blob seeded nothing, so this arm examined nothing.")
 	for _k in STEPS:
 		_step(pb, ctx, cc)
@@ -329,7 +352,7 @@ func _init() -> void:
 	var sum: float = 0.0
 	var reach: int = 0
 	for c in cc:
-		sum += after[c]
+		sum += after[c] * vol_a[c]
 		if after[c] != 0.0:
 			reach = maxi(reach, absi(c - SEED_CELL))
 	# THE ONE CONSERVATION THIS ANSWERS: matter crossing into a cell the mask had asleep is matter gone.
@@ -342,9 +365,9 @@ func _init() -> void:
 	_expect(reach <= STEPS, "the blob reached %d cells from where it was seeded in %d steps: matter "
 		% [reach, STEPS] + "outran its own signal speed.")
 	var bubble: int = int(pb._active_cells(_rd))
-	_expect(bubble > 0 and bubble < int(pb._group_count()) * cc,
+	_expect(bubble > 0 and bubble < int(pb.group_count()) * cc,
 		"the blob's bubble holds %d of %d dispatchable cells, so it is not a bubble."
-		% [bubble, int(pb._group_count()) * cc])
+		% [bubble, int(pb.group_count()) * cc])
 	pb.dispose(_rd)
 	for r in owned_b:
 		if r.is_valid():

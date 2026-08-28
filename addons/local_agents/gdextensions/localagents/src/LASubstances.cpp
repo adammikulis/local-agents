@@ -353,6 +353,8 @@ Dictionary silicate_entry() {
 	d["melt_c"] = pc("BASALT_SOLIDUS_C");
 	d["liquidus_c"] = pc("BASALT_LIQUIDUS_C");
 	d["latent_fusion_j_kg"] = pc("BASALT_LATENT_HEAT_CRYSTALLISATION_J_KG");
+	// The rock is the solid; its melt is lighter, and the melting curve reads both.
+	d["density_melt"] = pc("BASALT_MELT_DENSITY_KG_M3");
 	d["conductivity"] = pc("THERMAL_CONDUCT_ROCK_W_MK");
 	d["emissivity"] = pc("BASALT_EMISSIVITY");
 	d["albedo"] = pc("ALBEDO_BARE_GROUND");
@@ -1067,8 +1069,9 @@ double LASubstances::melt_c_at(const String &p_id, double p_p_pa, double p_molal
 	}
 	// THE REFERENCE densities, not density() at (t, p): this is a rung of the phase ladder, and
 	// enthalpy.glsli carries the same two constants and has no EOS to call.
-	const double rho_l = dget(s, "density", 0.0);
-	const double rho_s = dget(s, "density_solid", rho_l);
+	// A substance whose table row is its solid names its melt; one whose row is its liquid names its solid.
+	const double rho_l = dget(s, "density_melt", dget(s, "density", 0.0));
+	const double rho_s = s.has("density_melt") ? dget(s, "density", 0.0) : dget(s, "density_solid", rho_l);
 	const double l_fus = dget(s, "latent_fusion_j_kg", 0.0);
 	const double mm = dget(s, "molar_mass", 0.0);
 	const double t_ref_k = t_ref_c + pc("KELVIN_OFFSET");
@@ -1091,8 +1094,8 @@ double LASubstances::melt_c_at(const String &p_id, double p_p_pa, double p_molal
 double LASubstances::fusion_pa_per_k(const String &p_id) {
 	const Dictionary s = row_of(p_id);
 	const double t_ref_c = dget(s, "melt_c", kInf);
-	const double rho_l = dget(s, "density", 0.0);
-	const double rho_s = dget(s, "density_solid", 0.0);
+	const double rho_l = dget(s, "density_melt", dget(s, "density", 0.0));
+	const double rho_s = s.has("density_melt") ? dget(s, "density", 0.0) : dget(s, "density_solid", 0.0);
 	const double l_fus = dget(s, "latent_fusion_j_kg", 0.0);
 	if (!std::isfinite(t_ref_c) || rho_l <= 0.0 || rho_s <= 0.0 || l_fus <= 0.0 || rho_l == rho_s) {
 		return 0.0;

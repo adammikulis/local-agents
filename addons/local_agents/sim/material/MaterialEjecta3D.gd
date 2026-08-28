@@ -163,7 +163,7 @@ func _physics_process(delta: float) -> void:
 func _mass_unit_kg(cell: int) -> float:
 	if _f == null:
 		return 0.0
-	var vol: PackedFloat32Array = LAMaterialFieldCellVolume3D.of(_f)
+	var vol: PackedFloat32Array = _f._grid.cell_volumes() if _f._grid != null else PackedFloat32Array()
 	if cell < 0 or cell >= vol.size():
 		return 0.0
 	return LAPhysical.MOLAR_MASS_CASIO3_KG_MOL * vol[cell]

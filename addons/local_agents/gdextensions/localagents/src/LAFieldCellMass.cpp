@@ -2,6 +2,12 @@
 
 #include "LAScriptCall.hpp"
 #include "LASubstances.hpp"
+#include "LAMixtureEnthalpy.hpp"
+#include "LAPhysicalRead.hpp"
+
+#include <algorithm>
+#include <cmath>
+#include <vector>
 
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
@@ -118,6 +124,107 @@ double LAFieldCellMass3D::gas_moles_at(Object *p_field, int p_c, double p_cell_m
 	return n;
 }
 
+Dictionary LAFieldCellMass3D::seed_enthalpy(Object *p_field, Object *p_grid,
+		const PackedFloat32Array &p_profile, double p_r_body, double p_t_surface_c,
+		const PackedFloat32Array &p_p_pa) {
+	Dictionary out;
+	if (!p_field || !p_grid) {
+		return out;
+	}
+	const int cc = int(p_field->get("_cell_count"));
+	const Dictionary rows = la_call_gd(CHANNELS_GD, "rows", Array());
+	const Dictionary table = LASubstances::table();
+	const char *MATTER_GD = "res://addons/local_agents/sim/material/MatterChannels.gd";
+	// Every matter channel once: its mirror, substance, molar mass, entry, sensible capacity, gas flag.
+	struct Chan { PackedFloat32Array arr; String sub; double molar; int entry; double cap; bool gas; };
+	std::vector<Chan> chans;
+	const Array names = rows.keys();
+	for (int i = 0; i < names.size(); i++) {
+		const String name = names[i];
+		const Dictionary row = rows[name];
+		const String sub = String(row.get("substance", ""));
+		if (sub.is_empty() || String(row.get("unit", "")) != "mol_m3") {
+			continue;
+		}
+		const Variant v = p_field->get("_" + name);
+		if (v.get_type() != Variant::PACKED_FLOAT32_ARRAY) {
+			continue;
+		}
+		Chan ch;
+		ch.arr = v;
+		if (ch.arr.size() != cc) {
+			continue;
+		}
+		ch.sub = sub;
+		ch.molar = double(Dictionary(table.get(sub, Dictionary())).get("molar_mass", 0.0));
+		Array a1;
+		a1.append(sub);
+		ch.entry = int(la_call_gd(MATTER_GD, "entry_of", a1));
+		ch.cap = double(la_call_gd(MATTER_GD, "specific_heat", a1));
+		ch.gas = String(row.get("phase", "")) == "gas";
+		chans.push_back(ch);
+	}
+	const PackedVector3Array centres = p_grid->call("cell_world_pos_all");
+	const PackedFloat32Array vol = p_grid->call("cell_volumes");
+	const Vector3 centre = p_field->call("centre");
+	const double kelvin = la_physical("KELVIN_OFFSET");
+	const int samples = p_profile.size();
+	PackedFloat32Array h;
+	h.resize(cc);
+	float *hw = h.ptrw();
+	double total_j = 0.0;
+	for (int c = 0; c < cc; c++) {
+		hw[c] = 0.0f;
+		const double cell_m3 = c < vol.size() ? double(vol[c]) : 0.0;
+		if (!(cell_m3 > 0.0) || c >= p_p_pa.size() || c >= centres.size()) {
+			continue;
+		}
+		const double r = double((centres[c] - centre).length());
+		double t_c = p_t_surface_c;
+		if (samples >= 2 && p_r_body > 0.0 && r < p_r_body) {
+			const double x = r / p_r_body * double(samples - 1);
+			int i = int(std::floor(x));
+			i = std::min(std::max(i, 0), samples - 2);
+			t_c = double(p_profile[i]) + (double(p_profile[i + 1]) - double(p_profile[i])) * (x - double(i)) - kelvin;
+		}
+		const double p_pa = std::max(double(p_p_pa[c]), 0.0);
+		double n_gas = 0.0, m_h2o = 0.0, m_sil = 0.0, mc = 0.0, total_kg = 0.0;
+		for (const Chan &ch : chans) {
+			const double a = double(ch.arr[c]);
+			if (!(a > 0.0)) {
+				continue;
+			}
+			const double m = a * ch.molar * cell_m3;
+			total_kg += m;
+			if (ch.gas) {
+				n_gas += a * cell_m3;
+			}
+			if (ch.entry == 0) {
+				m_h2o += m;
+			} else if (ch.entry == 1) {
+				m_sil += m;
+			} else {
+				mc += m * ch.cap;
+			}
+		}
+		if (!(total_kg > 0.0)) {
+			continue;   // no matter, no joules to hold
+		}
+		double h_j = mc * (t_c + kelvin);
+		if (m_h2o > 0.0) {
+			h_j += m_h2o * LAMixtureEnthalpy::specific_enthalpy("h2o", t_c, p_pa, m_h2o, n_gas);
+		}
+		if (m_sil > 0.0) {
+			h_j += m_sil * LAMixtureEnthalpy::specific_enthalpy("silicate", t_c, p_pa, m_sil, n_gas);
+		}
+		hw[c] = float(h_j / cell_m3);
+		total_j += h_j;
+	}
+	out["h"] = h;
+	out["total_j"] = total_j;
+	return out;
+}
+
 Array LAFieldCellMass3D::mirrors(Object *p_field) {
 	return walk(p_field, "unit", "mol_m3", false, nullptr);
 }
@@ -147,6 +254,9 @@ void LAFieldCellMass3D::_bind_methods() {
 			D_METHOD("masses_at", "field", "cell", "cell_m3"), &LAFieldCellMass3D::masses_at);
 	ClassDB::bind_static_method("LAFieldCellMass3D",
 			D_METHOD("gas_moles_at", "field", "cell", "cell_m3"), &LAFieldCellMass3D::gas_moles_at);
+	ClassDB::bind_static_method("LAFieldCellMass3D",
+			D_METHOD("seed_enthalpy", "field", "grid", "profile", "r_body", "t_surface_c", "p_pa"),
+			&LAFieldCellMass3D::seed_enthalpy);
 	ClassDB::bind_static_method("LAFieldCellMass3D", D_METHOD("mirrors", "field"),
 			&LAFieldCellMass3D::mirrors);
 	ClassDB::bind_static_method("LAFieldCellMass3D", D_METHOD("mirror_names", "field"),

@@ -4,6 +4,7 @@
 // Poisson's equation for the potential of the mass that is there, relaxed red-black in place.
 // One dispatch per colour: a colour's cells are never neighbours, so each reads only the other.
 
+#include "cellvol.glsli"
 #include "neighbours.glsli"
 #include "matter_channels.glsli"
 
@@ -14,8 +15,9 @@ layout(set = 0, binding = 14, std430) restrict readonly buffer Props { float mol
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };
 #include "march.glsli"
 layout(set = 0, binding = 16, std430) restrict readonly buffer Pos { float pos[]; };
-// bit 0 = the cell touches the outside of the box, bit 1 = its red-black colour.
+// bit 0 = the cell touches the outside of the box, bits 1-2 = its Gauss-Seidel colour.
 layout(set = 0, binding = 17, std430) restrict buffer Flags { uint cellflag[]; };
+layout(set = 0, binding = 95, std430) restrict buffer GravRef { float grav_ref[]; };  // J/kg, the monopole reference phi is stored against
 layout(set = 0, binding = 18, std430) restrict buffer Phi { float phi[]; };          // J/kg
 layout(set = 0, binding = 19, std430) restrict buffer Density { float density[]; };  // kg/m^3
 layout(set = 0, binding = 20, std430) restrict buffer Grav { float g_field[]; };     // flat cell*3, m/s^2
@@ -30,16 +32,19 @@ const uint MODE_FLAGS = 0u;
 const uint MODE_DENSITY = 1u;
 const uint MODE_MOMENTS = 2u;
 const uint MODE_SEED = 3u;
-const uint MODE_RELAX = 4u;
 const uint MODE_GRADIENT = 5u;
-const uint MODE_RESIDUAL = 6u;
 const uint MODE_FIELD_STATS = 7u;
 const uint MODE_MONOPOLE = 8u;
 const uint MODE_VERT_UP = 9u;
 const uint MODE_VERT_DOWN = 10u;
+const uint MODE_VERT_DOWN_KEY = 11u;
+
+// Cells the packed vertical key can hold, and the offset steps stacked above them.
+const uint VERT_INDEX_LIMIT = 2097152u;
+const uint VERT_KEY_STEPS = 1024u;
 
 const uint FLAG_BOUNDARY = 1u;
-const uint FLAG_COLOUR = 2u;
+const uint FLAG_COLOUR_SHIFT = 1u;
 
 const uint PART_STRIDE = 10u;    // GravityPass.PART_STRIDE
 
@@ -48,10 +53,11 @@ layout(push_constant, std430) uniform Params {
 	uint mode;
 	uint colour;
 	uint groups;
-	float cell_m;     // cell edge, metres
-	float g_si;       // LAPhysical.GRAVITATIONAL_CONSTANT
-	uint nx;          // cells along x
-	uint nxny;        // cells per z layer
+	float g_si;
+	float base_edge;   // a LEVEL 0 cell's edge, m
+	float ox;          // the box's minimum corner, m
+	float oy;
+	float oz;       // LAPhysical.GRAVITATIONAL_CONSTANT
 	// MODE_MONOPOLE only: the DECLARED body's centre, radius and mass. A slice is a partial slab, so its
 	// own mass is not the field's source and Poisson is never relaxed over it.
 	float mono_cx;
@@ -94,40 +100,71 @@ float wg_max(float v) {
 	return r;
 }
 
-float source_k() {
-	float h = params.cell_m;
-	return 4.0 * acos(-1.0) * params.g_si * h * h;
+// 4 pi G times the mass in the cell: the source term of the finite-volume Poisson equation.
+float source_of(uint c) {
+	return 4.0 * acos(-1.0) * params.g_si * density[c] * cell_volume(c);
 }
 
-// Sum of the six neighbours' potential. Only ever called on an interior cell, which has all six.
-float neighbour_sum(uint c) {
-	float acc = 0.0;
-	for (uint d = 0u; d < N_SLOTS; ++d) {
-		acc += phi[nbr[c * N_SLOTS + d]];
+// The finite-volume Laplacian at any refinement: face conductance summed, and summed against each
+// neighbour's potential. On a uniform grid it is the seven-point stencil.
+void la_stencil(uint c, out float w_sum, out float w_phi) {
+	w_sum = 0.0;
+	w_phi = 0.0;
+	for (uint f = la_face_lo(c); f < la_face_hi(c); ++f) {
+		int nb = nbr[f];
+		if (nb < 0) { continue; }
+		float w = la_face_area(c, nb) / la_face_dist(c, nb);
+		w_sum += w;
+		w_phi += w * phi[uint(nb)];
 	}
-	return acc;
 }
 
-// d(phi)/d(axis) across a slot pair: central where both neighbours exist, one-sided at the box face.
-float axis_deriv(uint c, uint lo_slot, uint hi_slot, float h) {
-	int lo = nbr[c * N_SLOTS + lo_slot];
-	int hi = nbr[c * N_SLOTS + hi_slot];
-	if (lo >= 0 && hi >= 0) { return (phi[hi] - phi[lo]) / (2.0 * h); }
-	if (hi >= 0) { return (phi[hi] - phi[c]) / h; }
-	if (lo >= 0) { return (phi[c] - phi[lo]) / h; }
+// Area-weighted potential across one slot and the centre distance to it; false at the box face.
+bool la_slot_mean(uint c, uint d, out float p, out float dist) {
+	float a = 0.0;
+	float ap = 0.0;
+	float ad = 0.0;
+	for (uint f = la_slot_lo(c, d); f < la_slot_hi(c, d); ++f) {
+		int nb = nbr[f];
+		if (nb < 0) { continue; }
+		float w = la_face_area(c, nb);
+		a += w;
+		ap += w * (phi[uint(nb)] + grav_ref[uint(nb)]);
+		ad += w * la_face_dist(c, nb);
+	}
+	if (a <= 0.0) { return false; }
+	p = ap / a;
+	dist = ad / a;
+	return true;
+}
+
+// d(phi)/d(axis) across a slot pair: central where both sides exist, one-sided at the box face.
+float axis_deriv(uint c, uint lo_slot, uint hi_slot) {
+	float plo = 0.0;
+	float phi_hi = 0.0;
+	float dlo = 0.0;
+	float dhi = 0.0;
+	bool has_lo = la_slot_mean(c, lo_slot, plo, dlo);
+	bool has_hi = la_slot_mean(c, hi_slot, phi_hi, dhi);
+	if (has_lo && has_hi) { return (phi_hi - plo) / (dlo + dhi); }
+	if (has_hi) { return (phi_hi - phi[c] - grav_ref[c]) / dhi; }
+	if (has_lo) { return (phi[c] + grav_ref[c] - plo) / dlo; }
 	return 0.0;
 }
 
+// FOUR COLOURS, because the graded face graph has odd cycles: a coarse cell with two of the fine cells
+// across one of its faces. The parity of a cell's coordinates IN ITS OWN LEVEL'S LATTICE separates every
+// same-level pair, and the level bit separates a coarse cell from every fine one it meets.
 void mode_flags(uint c) {
 	uint f = 0u;
-	for (uint d = 0u; d < N_SLOTS; ++d) {
-		if (nbr[c * N_SLOTS + d] < 0) { f |= FLAG_BOUNDARY; }
+	for (uint fi = la_face_lo(c); fi < la_face_hi(c); ++fi) {
+		if (nbr[fi] < 0) { f |= FLAG_BOUNDARY; }
 	}
-	uint x = c % params.nx;
-	uint y = (c / params.nx) % (params.nxny / params.nx);
-	uint z = c / params.nxny;
-	if (((x + y + z) & 1u) == 1u) { f |= FLAG_COLOUR; }
-	cellflag[c] = f;
+	float e = cell_edge[c];
+	vec3 q = floor((pos_at(c) - vec3(params.ox, params.oy, params.oz)) / max(e, 1.0e-30));
+	uint parity = uint(mod(q.x + q.y + q.z, 2.0));
+	uint lvl = uint(round(log2(max(params.base_edge / max(e, 1.0e-30), 1.0)))) & 1u;
+	cellflag[c] = f | (((lvl << 1) | parity) << FLAG_COLOUR_SHIFT);
 }
 
 void mode_density(uint gidx, bool live) {
@@ -138,8 +175,7 @@ void mode_density(uint gidx, bool live) {
 		}
 		density[gidx] = rho;
 	}
-	float h = params.cell_m;
-	float m = rho * h * h * h;
+	float m = live ? rho * cell_volume(gidx) : 0.0;
 	vec3 p = live ? pos_at(gidx) : vec3(0.0);
 	float acc_m = wg_sum(m);
 	float acc_x = wg_sum(m * p.x);
@@ -177,24 +213,20 @@ void mode_moments() {
 	}
 }
 
-// Dirichlet edge: the monopole potential of the mass the box encloses.
+// THE REFERENCE, every cell: the monopole potential of the mass the box encloses. `phi` holds the
+// deviation from it, so float32 carries the second differences the Laplacian is made of; the Dirichlet
+// ring is exactly the reference, so its deviation is zero.
 void mode_seed(uint c) {
-	if ((cellflag[c] & FLAG_BOUNDARY) == 0u) { return; }
 	float total = moments[0];
 	if (total <= 0.0) {
-		phi[c] = 0.0;
+		grav_ref[c] = 0.0;
+		if ((cellflag[c] & FLAG_BOUNDARY) != 0u) { phi[c] = 0.0; }
 		return;
 	}
 	vec3 com = vec3(moments[1], moments[2], moments[3]);
 	float r = length(pos_at(c) - com);
-	phi[c] = -params.g_si * total / max(r, params.cell_m);
-}
-
-void mode_relax(uint c) {
-	uint f = cellflag[c];
-	if ((f & FLAG_BOUNDARY) != 0u) { return; }
-	if (((f & FLAG_COLOUR) != 0u ? 1u : 0u) != params.colour) { return; }
-	phi[c] = (neighbour_sum(c) - source_k() * density[c]) / 6.0;
+	grav_ref[c] = -params.g_si * total / max(r, cell_edge[c]);
+	if ((cellflag[c] & FLAG_BOUNDARY) != 0u) { phi[c] = 0.0; }
 }
 
 void mode_gradient(uint gidx, bool live) {
@@ -202,11 +234,10 @@ void mode_gradient(uint gidx, bool live) {
 	float outflux = 0.0;
 	float m_in = 0.0;
 	if (live) {
-		float h = params.cell_m;
 		vec3 g = -vec3(
-			axis_deriv(gidx, 0u, 1u, h),
-			axis_deriv(gidx, 2u, 3u, h),
-			axis_deriv(gidx, 4u, 5u, h));
+			axis_deriv(gidx, 0u, 1u),
+			axis_deriv(gidx, 2u, 3u),
+			axis_deriv(gidx, 4u, 5u));
 		g_field[gidx * 3u] = g.x;
 		g_field[gidx * 3u + 1u] = g.y;
 		g_field[gidx * 3u + 2u] = g.z;
@@ -215,11 +246,12 @@ void mode_gradient(uint gidx, bool live) {
 		// the one-sided flux through the interface with the Dirichlet ring, equal to -4 pi G times the
 		// mass the solve relaxed — an identity at convergence, so the ratio audits the solve itself.
 		if ((cellflag[gidx] & FLAG_BOUNDARY) == 0u) {
-			m_in = density[gidx] * h * h * h;
-			for (uint d = 0u; d < N_SLOTS; ++d) {
-				int nb2 = nbr[gidx * N_SLOTS + d];
+			m_in = density[gidx] * cell_volume(gidx);
+			for (uint f2 = la_face_lo(gidx); f2 < la_face_hi(gidx); ++f2) {
+				int nb2 = nbr[f2];
 				if (nb2 >= 0 && (cellflag[uint(nb2)] & FLAG_BOUNDARY) != 0u) {
-					outflux += -(phi[uint(nb2)] - phi[gidx]) * h;
+					outflux += (phi[gidx] + grav_ref[gidx] - phi[uint(nb2)] - grav_ref[uint(nb2)])
+						* la_face_area(gidx, nb2) / la_face_dist(gidx, nb2);
 				}
 			}
 		}
@@ -234,25 +266,6 @@ void mode_gradient(uint gidx, bool live) {
 		partials[b + 5u] = hits;
 		partials[b + 8u] = flux;
 		partials[b + 9u] = mass_in;
-	}
-}
-
-// |laplacian(phi) - 4 pi G rho| over interior cells, AND the source term it is a residual OF, so the
-// drain publishes their ratio. The bare difference carries G, which is small whether the solve worked.
-void mode_residual(uint gidx, bool live) {
-	float r = 0.0;
-	float s = 0.0;
-	if (live && (cellflag[gidx] & FLAG_BOUNDARY) == 0u) {
-		float h = params.cell_m;
-		float src = source_k() * density[gidx];
-		r = abs(neighbour_sum(gidx) - 6.0 * phi[gidx] - src) / (h * h);
-		s = abs(src) / (h * h);
-	}
-	float worst = wg_max(r);
-	float src_max = wg_max(s);
-	if (gl_LocalInvocationID.x == 0u) {
-		partials[gl_WorkGroupID.x * PART_STRIDE + 6u] = worst;
-		partials[gl_WorkGroupID.x * PART_STRIDE + 7u] = src_max;
 	}
 }
 
@@ -317,7 +330,6 @@ void mode_field_stats() {
 	float mass_in = wg_sum(m_in);
 	if (t == 0u) {
 		moments[4] = n > 0.0 ? sum_g / n : 0.0;
-		moments[5] = max_src > 0.0 ? max_r / max_src : 0.0;
 		// Interface flux over the -4 pi G M of the relaxed interior: 1 when the solve satisfies its own
 		// discrete law, -1 when g points away from the mass.
 		float want = -4.0 * acos(-1.0) * params.g_si * mass_in;
@@ -325,21 +337,67 @@ void mode_field_stats() {
 	}
 }
 
-// The neighbour one step against gravity, snapped to the axis the local vertical lies nearest.
-void mode_vert_up(uint gidx) {
-	vec3 g = vec3(g_field[gidx * 3u], g_field[gidx * 3u + 1u], g_field[gidx * 3u + 2u]);
+// The cell the plumb line through `c` runs into along `dir`: the neighbour least off that line, so a
+// coarse cell's four fine neighbours do not put another column's ground over this one.
+int plumb_step(uint c, vec3 dir) {
+	int d = la_slot_toward(dir);
+	if (d < 0) {
+		return -1;
+	}
+	int best = -1;
+	float off = 0.0;
+	vec3 here = pos_at(c);
+	for (uint f = la_slot_lo(c, uint(d)); f < la_slot_hi(c, uint(d)); ++f) {
+		int nb = nbr[f];
+		if (nb < 0) {
+			continue;
+		}
+		vec3 r = pos_at(uint(nb)) - here;
+		float lat = length(r - dir * dot(r, dir));
+		if (best < 0 || lat < off) {
+			best = nb;
+			off = lat;
+		}
+	}
+	return best;
+}
+
+vec3 la_up_at(uint c, out bool ok) {
+	vec3 g = vec3(g_field[c * 3u], g_field[c * 3u + 1u], g_field[c * 3u + 2u]);
 	float mag = length(g);
-	vert_up[gidx] = (mag > 0.0) ? la_step(gidx, -g / mag) : -1;
+	ok = mag > 0.0;
+	return ok ? -g / mag : vec3(0.0);
+}
+
+void mode_vert_up(uint gidx) {
+	bool ok = false;
+	vec3 up = la_up_at(gidx, ok);
+	vert_up[gidx] = ok ? plumb_step(gidx, up) : -1;
 	vert_down[gidx] = 0xFFFFFFFFu;
 }
 
-// Invert it by scatter: the lowest-indexed cell naming `u` as its up becomes `u`'s below, so a march up
-// and back down returns to where it started. atomicMin makes the choice deterministic.
+// Invert the table above, so every `below` read walks the column the pressure march built. The key is
+// the claimant's offset from the plumb line over its own edge, the index below it to break a tie.
 void mode_vert_down(uint gidx) {
 	int u = vert_up[gidx];
-	if (u >= 0) {
-		atomicMin(vert_down[uint(u)], gidx);
+	if (u < 0 || gidx >= VERT_INDEX_LIMIT) {
+		return;
 	}
+	bool ok = false;
+	vec3 up = la_up_at(uint(u), ok);
+	float lat = 0.0;
+	if (ok) {
+		vec3 r = pos_at(gidx) - pos_at(uint(u));
+		lat = length(r - up * dot(r, up)) / max(cell_edge[uint(u)], 1.0e-30);
+	}
+	uint q = uint(clamp(lat, 0.0, 1.0) * float(VERT_KEY_STEPS - 1u));
+	atomicMin(vert_down[uint(u)], (q * VERT_INDEX_LIMIT) + gidx);
+}
+
+// Strip the offset key, leaving the cell index the audit and every `below` read want.
+void mode_vert_down_key(uint gidx) {
+	uint v = vert_down[gidx];
+	vert_down[gidx] = v == 0xFFFFFFFFu ? v : (v % VERT_INDEX_LIMIT);
 }
 
 void main() {
@@ -351,6 +409,9 @@ void main() {
 			return;
 		case MODE_VERT_DOWN:
 			if (live) { mode_vert_down(gidx); }
+			return;
+		case MODE_VERT_DOWN_KEY:
+			if (live) { mode_vert_down_key(gidx); }
 			return;
 		case MODE_FLAGS:
 			if (live) { mode_flags(gidx); }
@@ -364,14 +425,8 @@ void main() {
 		case MODE_SEED:
 			if (live) { mode_seed(gidx); }
 			return;
-		case MODE_RELAX:
-			if (live) { mode_relax(gidx); }
-			return;
 		case MODE_GRADIENT:
 			mode_gradient(gidx, live);
-			return;
-		case MODE_RESIDUAL:
-			mode_residual(gidx, live);
 			return;
 		case MODE_FIELD_STATS:
 			mode_field_stats();

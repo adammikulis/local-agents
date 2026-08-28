@@ -119,10 +119,6 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       treatment where `K0'` is unmeasured rather than an invented number, and it is declared as
       `second_order_birch_murnaghan`, but a phase whose real `K0'` is larger stiffens faster than the
       table says. The field is read already; only the cited data per phase is missing.
-- [ ] **Molten silicate weighs the same as solid silicate, so magma buoyancy is only thermal.** Only `h2o`
-      carries `density_solid`, so silicate's fusion volume change — the larger half of why a melt rises — is
-      absent. Adding it also moves `melt_c_at`'s Clapeyron slope off zero, which is real (decompression
-      melting) and which `enthalpy.glsli` must move with, or the two phase curves are no longer one curve.
 - [ ] **Solid polymorphs** — ice I…VII, and olivine → wadsleyite → perovskite with depth. A planet's mantle
       structure IS these transitions, each with its own enthalpy and density jump. Maintainer asked for the
       structure to be built.
@@ -187,26 +183,10 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
 
 ## D. Transport and geometry
 
-- [ ] **The modelled atmosphere is one cell thick, at every resolution the project offers.**
-      `LAFieldLithostaticSeed.shape_atmosphere` falls off over the scale height the solved gravity states,
-      and no open cell centre is within one of them of the surface, so the whole atmosphere lands in the
-      first open shell and everything above it is vacuum. The field box is
-      `2 * (PLANET_RADIUS + MODELLED_ATMOSPHERE_HEIGHT_M) / N` per cell with `N` clamped
-      to `[GRID_EDGE_MIN, GRID_EDGE_MAX]`, so the finest cell available is tens of kilometres larger than
-      any scale height this planet can have, and `MODELLED_ATMOSPHERE_HEIGHT_M` is itself under one cell.
-      There is no lapse rate, no vertical structure and no honest pressure gradient for the momentum
-      equation to work against, and the open cells that remain are mostly the cube's corners.
-      **Reproduce:** `scripts/sim_run.sh --rung 2 --frames 6 --report
-      clim_alt0_n,clim_alt1_n,clim_alt2_n,clim_alt3_n` and read how many open cells stand below the
-      first band floor `HeatRows.ALT_BAND_FLOORS_M` declares.
 - [ ] **An open cell leaves the pressure it was seeded at as soon as the world is stepped.** The seed
       publishes a pressure field and `state_derive.glsl` states its own from the matter in the cell; on the
       default box the two are not the same field, and nothing has moved.
       **Reproduce:** `scripts/sim_run.sh --rung 2 --frames 6 --report pressure_rest_rel`.
-- [ ] **The grid cannot resolve its own aquifer.** `LAVoxelGrid.cell_size` is one number for all three axes
-      and for every cell, so the few cells of regolith between the surface and the water table are as coarse
-      as the sky. The same axis-aligned refinement the atmosphere above needs answers this one: resolution
-      follows position, and `cell_size` becomes per-cell.
 
 ## E. Conservation, open
 

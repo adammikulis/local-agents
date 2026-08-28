@@ -1,4 +1,5 @@
-// Walk cell to cell along a world direction. neighbours.glsli and `int nbr[]` must precede this include.
+// Walk cell to cell along a world direction. cellvol.glsli, neighbours.glsli and `int nbr[]` must
+// precede this include.
 
 #ifndef LA_MARCH_GLSLI
 #define LA_MARCH_GLSLI
@@ -18,7 +19,8 @@ int la_step(uint c, vec3 dir) {
 	if (d < 0) {
 		return -1;
 	}
-	return nbr[c * N_SLOTS + uint(d)];
+	// LA_APPROX: march_enters_first_subface
+	return nbr[la_slot_lo(c, uint(d))];
 }
 
 // Path length through one cell along `dir`, metres: an off-axis ray crosses more than one edge.

@@ -76,7 +76,7 @@ func _run(cond: Dictionary, recs: Array = []) -> Dictionary:
 	for key in act:
 		var spec: Variant = act[key]
 		bufs[String(key)] = _f32(_filled(int(spec["n"]) if spec is Dictionary else int(spec), 0.0), owned)
-	bufs["cell_vol"] = _f32(_filled(cc, CELL * CELL * CELL), owned)
+	bufs["cell_edge"] = _f32(_grid.cell_edges(), owned)
 	var grav: PackedFloat32Array = PackedFloat32Array()
 	grav.resize(cc * 3)
 	for c in cc:
@@ -87,6 +87,16 @@ func _run(cond: Dictionary, recs: Array = []) -> Dictionary:
 	var nbr: RID = _rd.storage_buffer_create(nbr_bytes.size(), nbr_bytes)
 	owned.append(nbr)
 	bufs["nbr"] = nbr
+	# THE FACE LIST'S OWN GEOMETRY: where a cell's faces begin, the face pointing back, and its edge.
+	var off_b: PackedByteArray = _grid.slot_off.to_byte_array()
+	var par_b: PackedByteArray = _grid.partners.to_byte_array()
+	var edge_b: PackedByteArray = _grid.cell_edges().to_byte_array()
+	bufs["slot_off"] = _rd.storage_buffer_create(off_b.size(), off_b)
+	bufs["face_partner"] = _rd.storage_buffer_create(par_b.size(), par_b)
+	bufs["cell_edge"] = _rd.storage_buffer_create(edge_b.size(), edge_b)
+	owned.append(bufs["slot_off"])
+	owned.append(bufs["face_partner"])
+	owned.append(bufs["cell_edge"])
 	# The vertical relation GravityPass publishes on the real world: up is the slot along -g, and below is
 	# that map's scattered inverse. The reaction kernel reads these two, so a rig declaring g builds them.
 	var vup: PackedInt32Array = PackedInt32Array()
@@ -95,7 +105,7 @@ func _run(cond: Dictionary, recs: Array = []) -> Dictionary:
 	vdn.resize(cc)
 	vdn.fill(-1)
 	for c in cc:
-		vup[c] = _grid.neighbours[c * LAVoxelGrid.SLOTS + LAVoxelGrid.S_POS_Y]
+		vup[c] = _grid.neighbours[_grid.slot_begin(c, LAVoxelGrid.S_POS_Y)]
 	for c in cc:
 		var u: int = vup[c]
 		if u >= 0 and (vdn[u] < 0 or c < vdn[u]):

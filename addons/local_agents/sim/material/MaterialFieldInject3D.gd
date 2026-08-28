@@ -52,8 +52,8 @@ func add_heat_energy(world_pos: Vector3, joules: float, radius: float = 0.0) -> 
 func _inject_energy(cells: PackedInt32Array, joules: float) -> float:
 	if cells.size() == 0:
 		return 0.0
-	var vol: PackedFloat32Array = LAMaterialFieldCellVolume3D.of(_f)
-	if vol.size() != _f._cell_count:
+	var vol: PackedFloat32Array = _f._grid.cell_volumes() if _f._grid != null else PackedFloat32Array()
+	if vol.size() < _f._cell_count:
 		return 0.0
 	var total_vol: float = 0.0
 	for c in cells:
@@ -168,7 +168,7 @@ func _cells_within(world_pos: Vector3, radius: float) -> PackedInt32Array:
 	if radius <= 0.0 or _f._grid == null:
 		return out
 	var r2: float = radius * radius
-	var nbr: PackedInt32Array = _f._grid.neighbours
+	var grid: LAVoxelGrid = _f._grid
 	var seen: Dictionary = {c0: true}
 	var frontier: PackedInt32Array = PackedInt32Array([c0])
 	# Cap the walk so a huge radius can't run away; the bubble is small by design.
@@ -176,8 +176,8 @@ func _cells_within(world_pos: Vector3, radius: float) -> PackedInt32Array:
 	while frontier.size() > 0 and out.size() < max_cells:
 		var next: PackedInt32Array = PackedInt32Array()
 		for c in frontier:
-			for d in range(6):
-				var nb: int = nbr[c * 6 + d]
+			for f in range(grid.slot_begin(c, 0), grid.slot_begin(c, LAVoxelGrid.SLOTS)):
+				var nb: int = grid.neighbours[f]
 				if nb < 0 or seen.has(nb):
 					continue
 				seen[nb] = true
@@ -293,7 +293,6 @@ func resample_terrain(world_pos: Vector3, radius: float) -> void:
 func _flood_from_sea(cells: PackedInt32Array) -> void:
 	if _f._grid == null or _f._h2o.size() != _f._cell_count:
 		return
-	var nbr: PackedInt32Array = _f._grid.neighbours
 	var solid: PackedByteArray = _f._solid
 	var srcs: PackedInt32Array = PackedInt32Array()
 	var dsts: PackedInt32Array = PackedInt32Array()
@@ -314,15 +313,15 @@ func _flood_from_sea(cells: PackedInt32Array) -> void:
 
 
 func _nearest_water(from: int, rings: int) -> int:
-	var nbr: PackedInt32Array = _f._grid.neighbours
+	var grid: LAVoxelGrid = _f._grid
 	var solid: PackedByteArray = _f._solid
 	var seen: Dictionary = {from: true}
 	var frontier: PackedInt32Array = PackedInt32Array([from])
 	for _ring in range(rings):
 		var next: PackedInt32Array = PackedInt32Array()
 		for c in frontier:
-			for d in LAVoxelGrid.SLOTS:
-				var nb: int = nbr[c * 6 + d]
+			for f in range(grid.slot_begin(c, 0), grid.slot_begin(c, LAVoxelGrid.SLOTS)):
+				var nb: int = grid.neighbours[f]
 				if nb < 0 or nb >= _f._cell_count or seen.has(nb):
 					continue
 				seen[nb] = true
