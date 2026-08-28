@@ -54,6 +54,6 @@ func shock_gradient(world_pos: Vector3) -> Vector3:
 		func(i: int) -> float: return _f._shock[i])
 
 
-## Open cells over SHOCK_ACTIVE, reduced on the device. -1 when the reduction has not run.
-func shock_cell_count() -> int:
-	return _f._queries.row_n("shock_cells") if _f != null and _f._queries != null else -1
+## Open cells over SHOCK_ACTIVE, reduced on the device. null when the row was never reduced.
+func shock_cell_count():
+	return _f._queries.row_v("shock_cells", true) if _f != null and _f._queries != null else null

@@ -6,7 +6,7 @@ const ThresholdDetectorScript: GDScript = preload("res://addons/local_agents/sim
 
 signal event_emitted(event: LAEvent)
 
-const SAMPLE_INTERVAL: float = 1.0    # coarse detection cadence — 1 Hz, not per frame (phenomena last seconds)
+const SAMPLE_INTERVAL: float = 1.0    # simulated seconds between detection passes (phenomena last seconds)
 const RECENT_MAX: int = 32            # ring-buffer of the latest events a consumer can pull
 
 var _world: Node = null
@@ -78,8 +78,10 @@ func _threshold_increment(type_name: String, key: String, step: float, cooldown_
 	return d
 
 
-func _process(delta: float) -> void:
-	_accum += delta
+# The cadence is SIMULATED time. On a frame clock, which frames a detector inspects moves with the
+# framerate, and so does every count it publishes.
+func on_sim_step(_step: int) -> void:
+	_accum += LASimLoop.step_seconds()
 	if _accum < SAMPLE_INTERVAL:
 		return
 	var dt: float = _accum
@@ -108,8 +110,9 @@ func _snapshot() -> Dictionary:
 			snap["wind"] = (_material.wind() as Vector2).length()
 		if _material.has_method("bolts_fired"):
 			snap["bolts"] = _material.bolts_fired()
-		if _material.has_method("shock_cell_count"):
-			snap["shock_cells"] = _material.shock_cell_count()
+		var shock_n: Variant = _material.shock_cell_count() if _material.has_method("shock_cell_count") else null
+		if shock_n != null:
+			snap["shock_cells"] = shock_n
 	if _queries != null and _queries.has_method("melt_total"):
 		snap["melt_total"] = _queries.melt_total()
 	snap["fires"] = _fire_count()
@@ -128,7 +131,6 @@ func _fire_count() -> int:
 ## SIM_REPORT.events automatically ("phenomenon" + "phenomenon/<type>" breakdown for free).
 func _emit(e: LAEvent) -> void:
 	e.frame = Engine.get_physics_frames()
-	e.time = float(Time.get_ticks_msec()) / 1000.0
 	_recent.append(e)
 	while _recent.size() > RECENT_MAX:
 		_recent.pop_front()

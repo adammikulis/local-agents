@@ -154,7 +154,6 @@ func parse_cmdline() -> void:
 			_bench_interval = maxi(1, int(arg.substr("--bench-interval=".length())))
 		elif arg.begins_with("--seed="):
 			var world_seed: int = int(arg.substr("--seed=".length()))
-			seed(world_seed)
 			LASimRng.reset(world_seed)
 			_seed_explicit = true
 		elif arg.begins_with("--time="):
@@ -239,7 +238,7 @@ func parse_cmdline() -> void:
 	# reproducible out of the box -- nobody re-running the same --bench launch line should have to remember
 	# to also pass --seed= just to get a comparable result.
 	if _bench_name != "" and not _seed_explicit:
-		seed(DEFAULT_BENCH_SEED)
+		LASimRng.reset(DEFAULT_BENCH_SEED)
 
 
 ## Esc opens the pause menu (pausing the sim); G toggles geosync, F toggles fly, P toggles the solar-system
@@ -455,11 +454,6 @@ func build_ui(parent: Node) -> void:
 	_refresh_view_controls()
 
 
-# The impact controller fired the one-shot auto-meteor test; latch it so update() won't refire.
-func mark_auto_meteor_fired() -> void:
-	_auto_meteor_fired = true
-
-
 ## Auto-demo firing on the SIMULATION clock (physics ticks), for a --run-frames run. Every trigger below
 ## is expressed relative to `_run_frames`, which the harness counts in physics ticks, so the schedule has
 ## to count the same ticks or a hook lands at a different point in a run of the same nominal length.
@@ -488,11 +482,12 @@ func _fire_schedule(frame: int, spawned: bool) -> void:
 	if _bench_interval > 0 and frame > 0 and frame % _bench_interval == 0:
 		_bench_snapshot(frame)
 
-	# Auto-meteor demo/test: drop a meteor on a forest so it carves a crater, topples trees, ignites fire.
+	# Auto-meteor: one arrival from outside, on a frame this run declares. Its place comes from the seed.
 	if _auto_meteor and not _auto_meteor_fired and spawned:
 		var trigger: int = (_shoot_frames - 240) if _shoot_path != "" else maxi(_run_frames - 600, 60)
 		if frame == trigger:
-			_impacts.fire_test_meteor()
+			_impacts.fire_ambient_meteor()
+			_auto_meteor_fired = true
 
 	# Auto-barrage demo/test: rain a volley of large meteors to dig deep (expose crust->mantle->magma) + fracture.
 	if _auto_barrage and not _auto_barrage_fired and spawned:
@@ -833,7 +828,7 @@ func _bench_fire(frame: int) -> void:
 		match action:
 			"meteor":
 				if _impacts != null:
-					_impacts.fire_test_meteor()
+					_impacts.fire_ambient_meteor()
 			_:
 				push_warning("VoxelInputController: unknown --bench action '%s' at frame %d" % [action, frame])
 		print("BENCH_EVENT={frame:%d, action:\"%s\"}" % [frame, action])

@@ -355,12 +355,6 @@ func set_destruction(intensity: float) -> void:
 	_music_destruction = intensity
 
 
-# The impact controller fired the one-shot auto-meteor test; latch it.
-func mark_auto_meteor_fired() -> void:
-	if _input != null:
-		_input.mark_auto_meteor_fired()
-
-
 # V key: toggle the emergent scent-field debug gizmos.
 func toggle_scent_view() -> void:
 	if _debug != null:
