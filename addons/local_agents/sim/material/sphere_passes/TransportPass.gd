@@ -64,7 +64,7 @@ var _sets: Array = []
 var _rows: Array = []
 ## Per-face scratch, cell*6: what left each face this step, and the enthalpy and charge that rode with it.
 ## Pass-owned scratch, binding to buffer: what left each face and the enthalpy, charge and momentum
-## that rode with it, then the RADIATE row's own within-step emissivity, beam share and reflected pair.
+## that rode with it, the RADIATE row's emissivity, beam share and reflected pair, and the dispatch stamp.
 var _scr: Dictionary = {}
 ## resist 0 and aux 1 for a row that names neither.
 var _zero: RID = RID()

@@ -1339,8 +1339,8 @@ void main() {
 	}
 
 	// Pass 1: gather.
-	// Rock is quasi-static: a wall's normal push goes to the body, never into a solid cell's momentum.
-	if (is_signed && solid[gidx] != 0.0) {
+	// The wall is the FACE'S: what a solid cell refuses to be sent it also refuses to receive.
+	if (solid[gidx] != 0.0 && blocks_solid) {
 		return;
 	}
 	float gained = 0.0;
@@ -1469,8 +1469,7 @@ void main() {
 	}
 	// LA_APPROX: boundary_relaxation_zone
 	bool la_last = params.substep_k + (params.substep_n >> la_lv) >= params.substep_n;
-	if ((params.flags & TF_RELAX) != 0u && la_last && rim_w[gidx] > 0.0
-			&& !(solid[gidx] != 0.0 && blocks_solid)) {
+	if ((params.flags & TF_RELAX) != 0u && la_last && rim_w[gidx] > 0.0) {
 		int rg = rim_ghost[gidx];
 		if (rg >= int(params.cell_count) && rg < int(params.total_count)) {
 			uint rgu = uint(rg);

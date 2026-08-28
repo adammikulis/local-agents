@@ -13,6 +13,7 @@ const RUNNERS: Array = [
 	["reaction_energy", "res://scripts/check_reaction_energy.gd"],
 	["faint_young_sun", "res://scripts/check_faint_young_sun.gd"],
 	["voxel_grid", "res://addons/local_agents/tests/gate_voxel_grid.gd"],
+	["condensed_moduli", "res://addons/local_agents/tests/gate_condensed_moduli.gd"],
 	["process_set", "res://addons/local_agents/tests/gate_process_set.gd"],
 	["process_ui", "res://addons/local_agents/tests/gate_process_ui.gd"],
 	["slice_exterior_geom", "res://addons/local_agents/tests/gate_slice_exterior_geom.gd"],
