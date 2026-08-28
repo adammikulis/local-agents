@@ -134,12 +134,18 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
 ## Headless Harness Invocation (Mandatory)
 
 - Preferred entrypoint:
-  `scripts/agent_harness.sh <fast|all|bounded|single|smoke|demo|extension|dropin|ladder|sim|score|lint>`
+  `scripts/agent_harness.sh <fast|all|bounded|single|smoke|demo|extension|dropin|ladder|ground|sim|score|lint>`
   wraps the canonical runners, tees a log, and prints one `AGENT_HARNESS_RESULT={...}` line.
 - **`sim` is the one way to run the planet**, off-screen with the streamer off, re-importing first:
   `scripts/agent_harness.sh sim [--frames N] [--seed N] [--rung=N] [--path DIR] [--fauna] [--full] [--raw]`.
   `--rung=N` picks which processes the world contains (`LAProcessSet`); without it the world runs at
   `docs/PLAYABLE_RUNG`. `ladder` climbs every rung and stops at the first red one.
+  `ground` takes one `--ui --shoot` picture at the playable rung and refuses an eye inside unbuilt ground.
+- **Caches are content-addressed, never by mtime.** `scripts/cache_key.sh` keys the import cache, the
+  editor-scan verdict, the lint capture and the sealed world (`sim_run.sh --from-seal`); the extension's
+  dependencies build once into `$HOME/.cache/local-agents/extdeps/<key>`; `bin/SOURCE_HASH` must match
+  the sources or `la_godot` refuses. A `.glsli` edit re-imports exactly the kernels that include it
+  (`.godot/la_kernel_includes`). `LA_LAUNCH_LOG` counts engine launches per lint against `docs/LAUNCH_CEILING`.
 - **`lint` is the gate CI runs.** A lane runs `LA_NO_GPU=1 scripts/agent_harness.sh lint`, which skips the
   gates that need a real GPU and names each one it skipped. Exit 0 clean · 1 a violation · 2 a gate could
   not run.
