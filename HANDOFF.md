@@ -12,122 +12,86 @@ it is fixed. An assertion about a cause rots in silence, reads as progress, and 
 on the file it named. If you know the cause you are close enough to fix it, so fix it.
 `scripts/check_doc_prose.sh` fails the build on a tracker that names one.
 
+**WORK THE LADDER IN ORDER.** `scripts/agent_harness.sh ladder` names the first red rung; nothing above it
+is measured, and no item about a higher rung is examined until the rungs below it are green.
+
 ---
 
-## 0. THE WIND BLOWS PAST ITS OWN SOUND SPEED, AND THE DEFAULT BOX IS NOT EXEMPT
+## 1. THE #1 GOAL: EVERY CONSTANT STANDING WHERE PHYSICS HAS A RELATION IS DELETED
 
-`bash scripts/check_rung_acoustic.sh` reads a cell moving faster than its own sound speed. The
-peak stops climbing and holds, and it holds far past the ~70 m/s of a real jet stream, on a world nothing
-drives but pressure and gravity, which cancel at balance. **Reproduce:**
-`for n in 4 8 16; do scripts/sim_run.sh --rung 3 --frames $n --report wind_speed_max; done`.
+`rg -ci 'chosen|fitted|clamp|floor|per.step' docs/MODEL_PARAMETERS.md` counts the rows recorded as chosen,
+fitted, a clamp, a floor or a per-step rate; `docs/MODEL_PARAMETERS_CEILING` holds that count and
+`scripts/check_model_parameters_ceiling.sh` refuses a rise. Each row leaves the registry in one of two ways
+only: the constant becomes a law of the field it is a function of (the move that closed the day's defects:
+a per-cell scale height became the barometric law in the solved potential; four relief amplitudes became
+the measured hypsographic curve; a uniform-mixture face became the stratified stack), or it becomes a
+measured value with its citation in `LASubstances`/`LAPhysical`. Never a rename.
 
-`bash scripts/check_wind_subsonic.sh` reads that same peak against the sound speed the substrate states
-for it.
+ONE lane, all rows, one pass: no run and no gate between rows — a number read off a substrate that still
+carries the other rows is meaningless — then `LA_NO_GPU=1 scripts/agent_harness.sh lint` once, the
+ladder once, and `scripts/integrate.sh`. Lower the ceiling to the count that remains.
 
-`bash scripts/check_atmosphere_at_rest.sh` is rung 3's other gate: its sealed column moves. Its vented
-control opens the column's side and reads past it, so the gate has a control.
-`docs/PHYSICS_TODO.md` E carries the wind as its own item, and E is downstream of item 1. Until it reads a physical speed no run's numbers
-mean anything. `rho_max_open` is the reading that shows it: an open cell may not be denser than the densest
-substance the table declares, and that is this item's acceptance test.
+## 2. THE WIND BLOWS PAST ITS OWN SOUND SPEED (rung 3, the first red rung)
 
-`bash scripts/check_boundary_momentum_book.sh` publishes `momentum_book_bnd` on any run holding momentum
-rows; its twenty-frame capture arm runs long enough for the wind to refuse the transport.
-An offset component of `surface` puts a box on the body without naming a radius.
+`bash scripts/check_rung_acoustic.sh` reads a cell moving faster than its own sound speed; the peak stops
+climbing and holds, far past the ~70 m/s of a real jet stream, on a world nothing drives but pressure and
+gravity. **Reproduce:** `for n in 4 8 16; do scripts/sim_run.sh --rung 3 --frames $n --report wind_speed_max; done`
+and `bash scripts/check_wind_subsonic.sh`. `bash scripts/check_atmosphere_at_rest.sh` is the rung's other
+gate: its sealed column moves and its vented control reads differently.
 
-A slice's one basin cell is seeded brim full and reads back superheated. Reproduce:
-`LA_PASS_PROBE=h2o scripts/sim_run.sh --slice --rung 3 --frames 1`.
+The energy book weighs specific enthalpy where the first law wants internal energy, and no row publishes
+the pV between them (`docs/PHYSICS_TODO.md` E carries it with its reproducer).
 
-## 1. BUILD THE GRADED GRID. IT IS THE TRUNK AND ITEM 0 WAITS ON IT
+## 3. LINT FOLLOWS THE LADDER
 
-At every resolution the project offers, no open cell centre lies within a scale height of the surface, so
-the seeded atmosphere is one shell with vacuum above it: no lapse rate, no vertical structure, and the
-open cells the pressure audit compares are mostly the cube's corners. Item 0 cannot be read either way
-until this lands.
+`scripts/lint_capture.sh` records its shared arm at `--rung 8` while the ladder stops at rung 3, so lint
+reads a world the ladder refuses to examine. The capture runs at the highest green rung
+(`docs/PLAYABLE_RUNG`); a gate that needs a process above it is assigned to that rung in `LAProcessSet`
+and exits 2 ("not examined") until the ladder reaches it; `docs/UNRUNNABLE_GATES_CEILING` then counts
+the rungs the ladder has not reached, not defects. Reproduce: `rg -n "rung 8" scripts/lint_capture.sh`.
 
-**The grid is Cartesian with axis-aligned refinement. That is settled, with the reasoning, in
-`docs/PHYSICS_TODO.md` — do not re-open it.** What is left is to build it:
+## 4. THE GRADED GRID — built, on tag `wip/graded-grid`, not landed
 
-- `LAVoxelGrid` gains per-cell geometry: refinement level, edge length, per-face area and centre distance.
-  `cell_volumes()` stops filling one repeated value.
-- `neighbours` generalises from six fixed slots to a per-cell face list, so a coarse cell can face four
-  fine ones; `opposite_slot(d) = d ^ 1` becomes a stored partner slot and `check_neighbour_slots.sh`
-  gates the new single definition.
-- On the device, `params.cell_m` is replaced by per-cell and per-face buffers beside the `cell_vol` SSBO
-  that `kernels3d/cellvol.glsli` already reads. `transport.glsl`, `transport_radiate.glsli`,
-  `gravity_poisson.glsl`, `pressure.glsl`, `reduce.glsl` and `march.glsli` carry every site.
-- Refinement is seeded from distance to the terrain SDF, which `MaterialFieldSolidCache3D` already
-  samples. The vacuum corners and the quiet interior stay coarsest, which is what makes it affordable.
-- The slice box becomes a refinement region rather than a second construction path.
+`scripts/new_worktree.sh feature/graded-grid wip/graded-grid`, merge the dev branch, then
+`scripts/integrate.sh feature/graded-grid`. It refuses today because lint's rung-8 capture reads non-finite
+cells on the refined grid and twelve gates exit 2 — item 3 is what lets it land. What it leaves: `check_finite_channels`/`check_stack_balance` read non-finite cells through the
+shared capture and not on a direct run of the same world (`scripts/lint_capture.sh` five times: the
+count varies run to run; a uniform box reproduces the non-finite cells deterministically) — that is the
+wind, item 2. Two slice gates, `check_boundary_books.sh` and `check_boundary_momentum_book.sh`, exit 2 on
+the transport substep budget for the slice.
 
-**`check_voxel_grid.sh` asserts `volume_ratio == 1.0`** — a gate holding the grid uniform. It is INVERTED,
-not deleted: it becomes the gate that a 2:1 neighbour's volume ratio is exactly 8 and that every transfer
-goes through `cellvol.glsli`'s existing `vol_ratio(donor, receiver)`.
+## 5. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the books above it
 
-**The well-balanced scheme is required work, not a hope, and it decides whether the atmosphere is real.**
-`scripts/check_atmosphere_at_rest.sh` is its gate and it is RED: a cell's pressure leaves the value it
-was seeded with. Reproduce: `bash scripts/check_atmosphere_at_rest.sh`.
+- The open-boundary books at run level: `scripts/sim_run.sh --frames 20 --slice-capture C` then
+  `LA_RUN_TIMEOUT=900 scripts/sim_run.sh --slice --slice-state C --frames 650` fires
+  CONSERVATION_VIOLATION on h2o, nitrogen, mineral, element_C and element_O.
+- The h2o book on a shut box: with every wall shut, `scripts/agent_harness.sh sim --rung=8 --frames 20`
+  ends with `h2o_total` below its sealed baseline while the element and mineral books close.
 
-## 2. The open-boundary books do not close at run level
-
-`scripts/sim_run.sh --frames 20 --slice-capture C` then
-`LA_RUN_TIMEOUT=900 scripts/sim_run.sh --slice --slice-state C --frames 650` fires
-CONSERVATION_VIOLATION on h2o, nitrogen, mineral, element_C and element_O.
-
-Two things already hold, so the leak is in neither: `check_boundary_books.sh` holds the kernel's
-per-dispatch booking closed on that same capture, and the ledger folds the drain on every field step, so
-no step's crossings are dropped and nothing is extrapolated over a window.
-
-## 6. The h2o book does not close on a shut box
-
-With every wall shut, `scripts/agent_harness.sh sim --frames 20` ends with `h2o_total` below its sealed
-baseline while the element and mineral books close. Same symptom on the pre-conversion tree.
-
-## 4. Reduce the rest on the device
-
-`ReduceRecords` + `reduce.glsl` + `ReducePass` is the machine; the ledger fold and the report sweeps
-already use it. Left:
-
-- `FieldPassAttribution3D._sums` walks the channels it downloads at a checkpoint. ReducePass runs last, so
-  it cannot answer "which pass moved it": that wants a reduce dispatch per checkpoint, not a row.
-- Three shapes refused a row and say why: `sea_surface_stats` (a median needs a declared range nothing
-  supplies), `lava_shell_diag` (five outputs over two gates), `rock_radial_profile` (a binned reduction
-  plus a gravity march in one walk).
-
-The ops are BUILT — `Mask.GROUND`/`Mask.AIR`, `Op.COUNT_LT`, `enum Nbr` (below, above, six-face gradient)
-and the derived `speed`/`lat`/`alt` channels — so a sweep converts without adding machinery, and every
-latitude and altitude band is an ordinary row on the existing `gate_lo`/`gate_hi`.
-
-## 5. Move what the device cannot take into the GDExtension
-
-GDScript keeps bindings. `gdextensions/localagents/` already builds; a class is a `.cpp`/`.hpp` pair, one
-`SRC` line and one `register_class`.
-
-- **Do not move `PhysicalConstants.gd`.** godot-cpp binds only INTEGER class constants, so its floats
-  have no native form a GDScript `const` can fold; native code reads it through
-  `include/LAPhysicalRead.hpp`.
-- The seed-time serial work still in GDScript: `MaterialFieldSolidCache3D`'s SDF spot check and file
-  hashing, `MaterialFieldRegolith3D.compute`'s burial march, and `LAFieldEnthalpySeed.seed`'s per-cell
-  loop, which now calls native for the masses and keeps the mixture arithmetic here.
-
-## 8. A --ui run with fauna never reports, and the opening view frames open ocean
+## 6. A --ui run with fauna never reports, and the terrain does not reach the eye inside a run
 
 `LA_RUN_TIMEOUT=110 scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn --
---sandbox --ui --run-frames=20` never prints a report and logs no error. The same arm with
-`--planet-only --no-fauna` reports in about twenty seconds.
+--sandbox --ui --run-frames=20` never prints a report and logs no error; the same arm with
+`--planet-only --no-fauna` reports. `scripts/agent_harness.sh ground` exits 2: the terrain under the
+camera is never built inside the run's frames, at any rung.
 
-`scripts/check_ground_drawn.sh` passes and its picture is open sea: the spawn controller frames a
-bearing with no land on it, while `LAVoxelTerrainService.land_direction()` has bearings that carry land
-above the sea shell.
+## 7. Reduce the rest on the device
 
+`FieldPassAttribution3D._sums` walks the channels it downloads at a checkpoint; a reduce dispatch per
+checkpoint replaces it. Three shapes refused a row and say why: `sea_surface_stats`, `lava_shell_diag`,
+`rock_radial_profile`.
 
-## 7. Build the binding registry
+## 8. Move what the device cannot take into the GDExtension
 
-SSBO binding numbers are a bare integer in GLSL and a second bare integer in one of fourteen uniform-set
-builders. `check_binding_collisions.sh` check 4 already holds a pass to indices its kernel declares, so what
-is unheld is narrower: that one index names the same BUFFER on both sides. Build
-`addons/local_agents/sim/material/Bindings.gd` on `Channels.gd`'s shape — a `static func rows()`, never a
-`const Dictionary` built from another script's constants — and one gate absorbing the hand-written binding
-stanzas. Mutation-test it both ways. Delete the claim below with this item.
+Still GDScript on the seed path: `MaterialFieldSolidCache3D`'s SDF spot check and file hashing,
+`MaterialFieldRegolith3D.compute`'s burial march, `LAFieldEnthalpySeed.seed`'s per-cell mixture loop.
+Do not move `PhysicalConstants.gd`: godot-cpp binds only integer class constants.
+
+## 9. Build the binding registry
+
+SSBO binding numbers are a bare integer in GLSL and a second bare integer in each uniform-set builder.
+Build `addons/local_agents/sim/material/Bindings.gd` on `Channels.gd`'s shape and one gate absorbing the
+hand-written binding stanzas; mutation-test both ways. Delete the claim below with this item.
 
 <!-- claim: nofile addons/local_agents/sim/material/Bindings.gd -->
 
