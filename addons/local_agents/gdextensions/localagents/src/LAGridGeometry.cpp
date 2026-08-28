@@ -3,6 +3,7 @@
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 #include "LAPhysicalRead.hpp"
+#include "LATerrainLattice.hpp"
 #include <godot_cpp/variant/utility_functions.hpp>
 
 #include <algorithm>
@@ -370,7 +371,7 @@ struct SurfaceSamples {
 };
 
 SurfaceSamples sample_surface(const Vector3i &p_dims, const Vector3 &p_origin, double p_cell_size,
-		const Vector3 &p_centre, Object *p_terrain) {
+		const Vector3 &p_centre, Object *p_terrain, double p_target_edge_m) {
 	SurfaceSamples out;
 	const int nx = MAX(p_dims.x, 1), ny = MAX(p_dims.y, 1), nz = MAX(p_dims.z, 1);
 	const int base_count = nx * ny * nz;
@@ -390,6 +391,30 @@ SurfaceSamples sample_surface(const Vector3i &p_dims, const Vector3 &p_origin, d
 	}
 	// Bisection along every direction at once between the terrain's lowest and highest surface: the
 	// generator's signed distance, batched, instead of a ray march per direction.
+	// The surface along each direction: a bisection on the terrain's lattice between its lowest and
+	// highest surface, no ray march.
+	if (p_terrain->has_method("min_surface_radius") && p_terrain->has_method("max_surface_radius")) {
+		const double r_lo0 = double(p_terrain->call("min_surface_radius"));
+		const double r_hi0 = double(p_terrain->call("max_surface_radius"));
+		// The same lattice the solid mask reads, sized by the box.
+		const double extent = p_cell_size * MAX(MAX(nx, ny), nz);
+		const LATerrainLattice &lat = LATerrainLattice::build(p_terrain, p_origin, extent, LATerrainLattice::lod_for(extent), 32, p_centre, r_lo0, r_hi0);
+		if (lat.valid()) {
+			for (int b = 0; b < base_count; b++) {
+				double lo = r_lo0, hi = r_hi0;
+				for (int i = 0; i < 24; i++) {
+					const double mid = 0.5 * (lo + hi);
+					if (lat.sample(p_centre + dir[b] * float(mid)) < 0.0) {
+						lo = mid;
+					} else {
+						hi = mid;
+					}
+				}
+				out.rs[b] = 0.5 * (lo + hi);
+			}
+			return out;
+		}
+	}
 	for (int b = 0; b < base_count; b++) {
 		out.rs[b] = double(p_terrain->call("surface_radius", dir[b]));
 	}
@@ -439,8 +464,8 @@ Dictionary LAGridGeometry::build_graded(const Vector3i &p_dims, const Vector3 &p
 		double p_cell_size, const Vector3 &p_centre, Object *p_terrain, double p_below_m,
 		double p_above_m, double p_target_edge_m) {
 	return build_graded_sampled(p_dims, p_origin, p_cell_size, p_centre,
-			sample_surface(p_dims, p_origin, p_cell_size, p_centre, p_terrain), p_below_m, p_above_m,
-			p_target_edge_m);
+			sample_surface(p_dims, p_origin, p_cell_size, p_centre, p_terrain, p_target_edge_m), p_below_m,
+			p_above_m, p_target_edge_m);
 }
 
 Dictionary LAGridGeometry::build_to_budget(const Vector3i &p_dims, const Vector3 &p_origin,
@@ -450,7 +475,7 @@ Dictionary LAGridGeometry::build_to_budget(const Vector3i &p_dims, const Vector3
 	// grid that would not fit is never built.
 	Dictionary best = build(p_dims, PackedByteArray());
 	best["target_edge_m"] = p_cell_size;
-	const SurfaceSamples samples = sample_surface(p_dims, p_origin, p_cell_size, p_centre, p_terrain);
+	const SurfaceSamples samples = sample_surface(p_dims, p_origin, p_cell_size, p_centre, p_terrain, p_target_edge_m);
 	double target = 0.5 * p_cell_size;
 	while (p_target_edge_m > 0.0 && p_budget > 0 && target > 0.0) {
 		Dictionary next = build_graded_sampled(p_dims, p_origin, p_cell_size, p_centre, samples,

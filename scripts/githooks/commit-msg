@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# A COMMIT MESSAGE MAY NOT RECORD A DEFERRAL. scripts/check_no_deferral.sh names the phrases.
+set -uo pipefail
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
+ROOT="$(git rev-parse --show-toplevel)"
+[ -x "$ROOT/scripts/check_no_deferral.sh" ] || exit 0
+"$ROOT/scripts/check_no_deferral.sh" "$1" || { echo "COMMIT BLOCKED: the message defers a defect." >&2; exit 1; }

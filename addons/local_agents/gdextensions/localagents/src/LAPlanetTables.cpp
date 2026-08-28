@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "LAPhysicalRead.hpp"
+#include "LATerrainLattice.hpp"
 #include "LASubstances.hpp"
 
 #include <godot_cpp/classes/resource_loader.hpp>
@@ -574,9 +575,17 @@ PackedByteArray LAPlanetComposition::solid_mask(Object *p_grid, Object *p_terrai
 			ask.push_back(c);
 		}
 	}
-	// Only the band asks the terrain.
-	for (int c : ask) {
-		w[c] = bool(p_terrain->call("is_solid", cw[c])) ? 1 : 0;
+	// The band reads the terrain's lattice: half the finest cell edge per lattice step, one generated
+	// block at a time, interpolated at each cell centre.
+	if (!ask.empty()) {
+		const Vector3 origin = p_grid->get("origin");
+		const int nx = int(p_grid->get("nx"));
+		const double base = double(p_grid->get("cell_size"));
+		const LATerrainLattice &lat = LATerrainLattice::build(p_terrain, origin, base * nx, LATerrainLattice::lod_for(base * nx), 32, p_centre, lo, hi);
+		for (int c : ask) {
+			w[c] = lat.valid() ? (lat.sample(cw[c]) < 0.0 ? 1 : 0)
+					: (bool(p_terrain->call("is_solid", cw[c])) ? 1 : 0);
+		}
 	}
 	return out;
 }
