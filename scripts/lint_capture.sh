@@ -8,6 +8,7 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 . "$SCRIPT_DIR/lib_godot.sh"
+. "$SCRIPT_DIR/lib_import.sh"
 
 CAP="${LA_LINT_CAPTURE:-}"
 if [ -z "$CAP" ]; then
@@ -18,14 +19,25 @@ mkdir -p "$CAP/headless" || { echo "lint_capture: cannot write $CAP." >&2; exit 
 
 FRAMES="${LA_CAPTURE_FRAMES:-20}"
 SEED="${LA_CAPTURE_SEED:-4242}"
+CAP_RUNG="${LA_CAPTURE_RUNG:-8}"
+CACHE_ROOT="${LA_CAPTURE_CACHE:-$HOME/.cache/local-agents/capture}"
+KEEP_ENTRIES=4
 
-# THE CACHE IS NOT INVALIDATED BY AN INCLUDE: editing a .glsli leaves every .glsl that includes it holding
-# its old SPIR-V, and --import does not notice. Drop the kernels' cache so the arm below and the shader
-# probe in the batch both compile from source.
-if [ -d "$ROOT/.godot/imported" ]; then
-	find "$ROOT/.godot/imported" -maxdepth 1 -name '*.glsl-*' -delete
-fi
 "$SCRIPT_DIR/godot_import.sh" "$ROOT" >/dev/null 2>&1 || true
+
+# THE CAPTURE IS A FUNCTION OF WHAT PRODUCED IT: every source that reaches a run, the compiled extension,
+# the engine, and this arm's configuration. A docs-only or scripts-only change lints without launching a
+# sim, because nothing the run reads has moved.
+KEY="$("$SCRIPT_DIR/cache_key.sh" capture --path "$ROOT" \
+	"seed=$SEED" "rung=$CAP_RUNG" "frames=$FRAMES" "gpu=${LA_NO_GPU:-0}" 2>/dev/null || echo "")"
+if [ -n "$KEY" ] && [ -f "$CACHE_ROOT/$KEY/COMPLETE" ]; then
+	if cp -Rp "$CACHE_ROOT/$KEY/." "$CAP/" 2>/dev/null; then
+		rm -f "$CAP/COMPLETE"
+		printf '%s\n' "$CAP"
+		exit 0
+	fi
+fi
+
 
 # LA_NO_GPU=1 has no device to run the arm on, so the capture holds the headless batch and nothing else;
 # agent_harness.sh skips exactly the gates that would read the missing half.
@@ -50,9 +62,8 @@ fi
 # THE WHOLE WORLD, not the demo's rung: a gate that asks after a process reads a world that has it.
 # The rung is written beside the capture, because a face state replayed into another rung's interior is
 # an exterior from a different world.
-CAP_RUNG="${LA_CAPTURE_RUNG:-8}"
 printf '%s\n' "$CAP_RUNG" > "$CAP/rung"
-"$SCRIPT_DIR/sim_run.sh" --path "$ROOT" --frames "$FRAMES" --seed "$SEED" --rung "$CAP_RUNG" --keep --raw \
+"$SCRIPT_DIR/sim_run.sh" --path "$ROOT" --frames "$FRAMES" --seed "$SEED" --rung "$CAP_RUNG" --from-seal --keep --raw \
 	--slice-capture "$CAP/slice_state.json" > "$CAP/report.raw" 2> "$CAP/sim_run.err"
 SIM_RC=$?
 if [ -n "$POLL" ]; then kill "$POLL" 2>/dev/null; wait "$POLL" 2>/dev/null; fi
@@ -86,6 +97,27 @@ awk -v dir="$CAP/headless" '
 	/^LA_BATCH_END=/   { out = ""; next }
 	out != "" { print >> out }
 ' "$BATCH_LOG"
+
+# A FAILED CAPTURE IS NOT RECORDED. The arm that logged engine errors publishes no report, and a gate
+# reading a cached absence would read it as a measurement.
+publishable=0
+if [ -s "$BATCH_LOG" ]; then
+	if [ "${LA_NO_GPU:-0}" = "1" ]; then publishable=1
+	elif [ "$SIM_RC" -eq 0 ] && [ -f "$CAP/report.json" ]; then publishable=1
+	fi
+fi
+if [ -n "$KEY" ] && [ "$publishable" -eq 1 ] && [ ! -d "$CACHE_ROOT/$KEY" ]; then
+	mkdir -p "$CACHE_ROOT/$KEY.tmp"
+	if cp -Rp "$CAP/." "$CACHE_ROOT/$KEY.tmp/" 2>/dev/null; then
+		: > "$CACHE_ROOT/$KEY.tmp/COMPLETE"
+		mv "$CACHE_ROOT/$KEY.tmp" "$CACHE_ROOT/$KEY" 2>/dev/null || rm -rf "$CACHE_ROOT/$KEY.tmp"
+	else
+		rm -rf "$CACHE_ROOT/$KEY.tmp"
+	fi
+	ls -dt "$CACHE_ROOT"/*/ 2>/dev/null | tail -n +$((KEEP_ENTRIES + 1)) | while IFS= read -r old; do
+		rm -rf "$old"
+	done
+fi
 
 printf '%s\n' "$CAP"
 exit 0

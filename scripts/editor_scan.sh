@@ -31,6 +31,8 @@ set -euo pipefail
 # Pure-bash, no `dirname`: this must still resolve when PATH is broken, or the missing-tool check below
 # never gets a chance to report exit 2.
 ROOT="$(cd "${BASH_SOURCE[0]%/*}/.." && pwd)"
+# shellcheck source=lib_import.sh
+source "$ROOT/scripts/lib_import.sh"
 # shellcheck source=lib_require.sh
 source "$ROOT/scripts/lib_require.sh"
 
@@ -65,6 +67,18 @@ if [[ ! -f "$PROJECT/project.godot" ]]; then
   echo "editor_scan: no project.godot under '$PROJECT' — there is nothing here to scan." >&2
   exit 2
 fi
+
+# A CLEAN VERDICT IS A FUNCTION OF THE SOURCES IT READ. Only a clean one is recorded: a tree that does
+# not parse is re-scanned every time until it does.
+SCAN_KEY="$("$ROOT/scripts/cache_key.sh" scan --path "$PROJECT" 2>/dev/null || echo "")"
+VERDICT_FILE="$PROJECT/.godot/la_scan_key"
+if [[ -n "$SCAN_KEY" && "$(cat "$VERDICT_FILE" 2>/dev/null)" == "$SCAN_KEY" ]]; then
+  if [[ "$QUIET" -eq 1 ]]; then echo 0; else
+    echo "editor_scan: OK (no .gd, .tscn or .gdextension has changed since the last clean scan)"
+  fi
+  exit 0
+fi
+rm -f "$VERDICT_FILE"
 
 # mkdir is atomic on every filesystem we care about, so it is the portable lock primitive here (macOS has
 # no flock(1)). MACHINE-WIDE, and shared with scripts/godot_import.sh: a per-project lock excluded nothing
@@ -141,6 +155,15 @@ fi
 total=$(( editor_errors + parse_err_count + failed ))
 
 # --- verdict ------------------------------------------------------------------------------------------
+if [[ "$total" -eq 0 && -n "$SCAN_KEY" ]]; then
+  printf '%s\n' "$SCAN_KEY" > "$VERDICT_FILE"
+  IMPORT_KEY="$(cat "$PROJECT/.godot/la_import_key" 2>/dev/null || echo "")"
+  ENTRY="$(la_import_cache_root)/$IMPORT_KEY/.godot"
+  if [[ -n "$IMPORT_KEY" && -d "$ENTRY" ]]; then
+    cp "$VERDICT_FILE" "$ENTRY/la_scan_key" 2>/dev/null || true
+  fi
+fi
+
 if [[ "$QUIET" -eq 1 ]]; then
   echo "$total"
   if [[ "$total" -eq 0 ]]; then exit 0; fi

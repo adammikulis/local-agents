@@ -59,7 +59,7 @@ echo "[new_worktree] importing shaders (compiles .glsl kernels — required or t
 # every script, so a worktree that does not parse is reported here instead of at the first SIM_REPORT.
 echo "[new_worktree] editor scan + parse sweep (registers new class_name / .gdextension)…" >&2
 scan_rc=0
-"$PRIMARY/scripts/editor_scan.sh" --path "$WT" >&2 || scan_rc=$?
+"$WT/scripts/editor_scan.sh" --path "$WT" >&2 || scan_rc=$?
 if [ "$scan_rc" -ne 0 ]; then
 	abort "editor scan exited $scan_rc: the tree does not parse." 1
 fi
