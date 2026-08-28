@@ -85,6 +85,8 @@ func seed_tick() -> bool:
 	LAFieldLithostaticSeed.shape_atmosphere(_f, LAMaterialField3D.INITIAL_TEMP, _f._body_measure, g_solved)
 	var p_marched: PackedFloat32Array = LAFieldLithostaticSeed.compress(_f, g_solved)
 	LAFieldEnthalpySeed.seed(_f, LAMaterialField3D.INITIAL_TEMP, p_marched)
+	# WEIGH THE BODY once the march has compressed the rock it stands on.
+	_f._body_measure.measure(_f, LABodySeeds.spin_axis_of(_f._body_key))
 	if _f._gpu != null:                                # hand the device what those walks produced
 		_f._gpu._seed_regolith()                       # permeability mask + grain size
 		_f._gpu._seed("porosity", _f._porosity)        # Athy pore fraction

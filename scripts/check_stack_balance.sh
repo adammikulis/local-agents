@@ -9,6 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh"
 require_tool rg
+. "$SCRIPT_DIR/lib_capture.sh"
 
 # AND THE DEPTH IS AN ALTITUDE. Projecting the step onto a frozen gravity vector reads a step ACROSS a
 # radial field as a plunge into it, and hands two neighbours face pressures that differ by orders.
@@ -37,9 +38,9 @@ esac
 
 # SECOND ARM, ON THE WORLD THE SEED BUILDS. The rig feeds the reconstruction a table of its own, and a
 # face pressure that overflows or divides by nothing on a state the rig never holds passes it. Only the
-# seeded world sends those states, and what they leave behind is non-finite derived state.
-world="$("$SCRIPT_DIR/sim_run.sh" --path "$ROOT" --rung 3 --frames 4 \
-	--report nonfinite_cells,celerity_max 2>&1)"
+# seeded world sends those states, and what they leave behind is non-finite derived state. Read off the
+# lint's SHARED arm: a per-rung run of its own is the ladder's job, not a gate's.
+world="$(la_report nonfinite_cells,celerity_max --path "$ROOT" --rung 3 --frames 4 2>&1)" || true
 read -r NF CEL <<EOF
 $(printf '%s\n' "$world" | python3 -c "
 import re, sys

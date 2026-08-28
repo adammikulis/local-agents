@@ -226,6 +226,17 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
 - [ ] **Five matter rows trip the conservation gate on a clean tree** — h2o, nitrogen, mineral, oxidant and
       element_C — and the energy row reads UNMEASURED rather than conserved. **Reproduce:**
       `scripts/check_conservation.sh`.
+- [ ] **EVERY GAS ENDS UP INSIDE SOLID ROCK, and the seed did not put it there.** At the capture's own
+      arm each gas channel holds a near-identical amount in solid cells whatever its total. At frame 2 of
+      the same arm `all_X` and `open_X` are equal to the last bit, so it accumulates over the run.
+      **Reproduce:** `for n in 2 20; do scripts/sim_run.sh --rung 8 --frames $n --seed 4242 --from-seal
+      --report all_n2,open_n2,all_ch4,open_ch4; done`, or `bash scripts/check_gas_in_rock.sh` under a
+      lint capture.
+
+- [ ] **FREE OXYGEN APPEARS ON A LIFELESS PLANET.** `MaterialField3D.O2_AMBIENT` is zero and
+      `LAPlanetComposition::seed` places no gas at all, yet `o2_total` reads non-zero with `biomass_total`
+      at zero. **Reproduce:** `bash scripts/check_lifeless_planet.sh`.
+
 - [ ] **A SEALED BOX'S ENERGY DOES NOT CLOSE OVER ITS TWO STORES.** `energy_kinetic` is the joules of
       motion the enthalpy state does not hold; it moves while `energy_stock` stands still, so their sum is
       not a constant. The third store, the potential the body force works against, is F's own item and has
