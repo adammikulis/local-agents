@@ -17,15 +17,14 @@ is measured, and no item about a higher rung is examined until the rungs below i
 
 ---
 
-## 2. THE H2O ROW HAS CELLS NO TIMESTEP INTEGRATES (rung 3, the first red rung)
+## 2. OPEN CELLS ONE EDGE APART READ PRESSURES ATMOSPHERES APART (rung 3, the first red rung)
 
-`scripts/sim_run.sh --rung 3 --frames 2` exits 4: `TransportPass: the h2o row's own cells carry a signal
-speed at or past light, so no timestep integrates them`, on a world nothing drives but pressure and
-gravity, which cancel at balance. The emptiness floor that once zeroed the velocity of a near-empty cell
-is deleted (`scripts/check_no_empty_floor.sh`); `momentum_orphan_cells` counts momentum sitting on zero
-mass (`scripts/check_momentum_orphans.sh`), and a cell with a little mass and a lot of momentum is the
-same defect one cell over. `bash scripts/check_atmosphere_at_rest.sh` is the rung's other gate: its
-sealed column moves and its vented control reads differently.
+`scripts/sim_run.sh --rung 3 --frames 2` exits 4: `the h2o row's own cells carry a signal speed at or
+past light`, on a world nothing drives but pressure and gravity. After the first step, open cells one
+edge apart read 787 kPa beside 1.6 kPa and 596 C beside 15 C. The demo grid is 24 cells of 550 km, so
+one cell holds ocean, rock and the whole atmosphere (`docs/PHYSICS_TODO.md` D); item 4 is the grid that
+resolves it and is upstream of every rung above 2. `bash scripts/check_atmosphere_at_rest.sh` is the
+rung's other gate.
 
 ## 4. THE GRADED GRID — built, on tag `wip/graded-grid`, not landed
 
