@@ -126,7 +126,7 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	_set = _uset(_pipe, entries)
 
 
-func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:
+func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:
 	if not _dispatchable() or not _set.is_valid():
 		if not _failed_announced:
 			_failed_announced = true
@@ -140,23 +140,23 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: in
 	var step: int = int(_ctx_num(ctx, "step_index"))
 	if step % SOLVE_EVERY != 0:
 		return
-	rd.compute_list_bind_compute_pipeline(cl, _pipe)
-	rd.compute_list_bind_uniform_set(cl, _set, 0)
 	var cell_m: float = _ctx_cell_size(ctx)
+	var plan: Array = []
 	if not _flagged:
 		_flagged = true
-		_run(rd, cl, MODE_FLAGS, 0, cc, cell_m, groups)
-	_run(rd, cl, MODE_DENSITY, 0, cc, cell_m, groups)
-	_run(rd, cl, MODE_MOMENTS, 0, cc, cell_m, 1)
-	_run(rd, cl, MODE_SEED, 0, cc, cell_m, groups)
+		plan.append([MODE_FLAGS, 0, groups])
+	plan.append([MODE_DENSITY, 0, groups])
+	plan.append([MODE_MOMENTS, 0, 1])
+	plan.append([MODE_SEED, 0, groups])
 	for _s in SWEEPS:
 		for colour in 2:
-			_run(rd, cl, MODE_RELAX, colour, cc, cell_m, groups)
-	_run(rd, cl, MODE_GRADIENT, 0, cc, cell_m, groups)
-	_run(rd, cl, MODE_VERT_UP, 0, cc, cell_m, groups)
-	_run(rd, cl, MODE_VERT_DOWN, 0, cc, cell_m, groups)
-	_run(rd, cl, MODE_RESIDUAL, 0, cc, cell_m, groups)
-	_run(rd, cl, MODE_FIELD_STATS, 0, cc, cell_m, 1)
+			plan.append([MODE_RELAX, colour, groups])
+	plan.append([MODE_GRADIENT, 0, groups])
+	plan.append([MODE_VERT_UP, 0, groups])
+	plan.append([MODE_VERT_DOWN, 0, groups])
+	plan.append([MODE_RESIDUAL, 0, groups])
+	plan.append([MODE_FIELD_STATS, 0, 1])
+	_issue(cl, plan, cc, cell_m)
 	_solves += 1
 	_read_due = true
 
@@ -167,26 +167,28 @@ func set_monopole(centre: Vector3, r_body: float, m_kg: float) -> void:
 
 
 ## SLICE ONLY, once at the seed: write the declared body's monopole and its mean-|g| stats.
-func dispatch_monopole(rd: RenderingDevice, cl: int, cc: int, cell_m: float, groups: int) -> void:
+func dispatch_monopole(_rd: RenderingDevice, cl: int, cc: int, cell_m: float, groups: int) -> void:
 	if not _dispatchable() or not _set.is_valid() or _mono.is_empty():
 		return
-	rd.compute_list_bind_compute_pipeline(cl, _pipe)
-	rd.compute_list_bind_uniform_set(cl, _set, 0)
-	_run(rd, cl, MODE_MONOPOLE, 0, cc, cell_m, groups)
 	# The one vertical relation reads the gravity the monopole just wrote.
-	_run(rd, cl, MODE_VERT_UP, 0, cc, cell_m, groups)
-	_run(rd, cl, MODE_VERT_DOWN, 0, cc, cell_m, groups)
-	_run(rd, cl, MODE_FIELD_STATS, 0, cc, cell_m, 1)
+	_issue(cl, [[MODE_MONOPOLE, 0, groups], [MODE_VERT_UP, 0, groups], [MODE_VERT_DOWN, 0, groups],
+		[MODE_FIELD_STATS, 0, 1]], cc, cell_m)
 	_solves += 1
 	_read_due = true
 
 
-## One mode, then a barrier: a colour reads what the other colour just wrote.
-func _run(rd: RenderingDevice, cl: int, mode: int, colour: int, cc: int, cell_m: float, groups: int) -> void:
-	var pc: PackedByteArray = _push(mode, colour, cc, cell_m)
-	rd.compute_list_set_push_constant(cl, pc, pc.size())
-	rd.compute_list_dispatch(cl, groups, 1, 1)
-	rd.compute_list_add_barrier(cl)
+## One mode per entry, each followed by a barrier: a colour reads what the other colour just wrote.
+func _issue(cl: int, plan: Array, cc: int, cell_m: float) -> void:
+	var pcs: Array = []
+	var wgs: PackedInt32Array = PackedInt32Array()
+	var args: Array = []
+	var offs: PackedInt32Array = PackedInt32Array()
+	for e: Array in plan:
+		pcs.append(_push(int(e[0]), int(e[1]), cc, cell_m))
+		wgs.append(int(e[2]))
+		args.append(RID())
+		offs.append(0)
+	_driver.run(cl, _pipe, [_set], pcs, wgs, args, offs, true)
 
 
 func _push(mode: int, colour: int, cc: int, cell_m: float) -> PackedByteArray:

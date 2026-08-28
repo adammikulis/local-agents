@@ -242,7 +242,7 @@ func _seam() -> void:
 	# POSITIVE CONTROL: the level field the real code builds has to hold more than one level, or the
 	# conservation below is a closed book over a box that never straddled a seam.
 	var lcl: int = _rd.compute_list_begin()
-	p._build_levels(_rd, lcl, p._row_groups[top], cc, SEAM_CELL, DT, Vector3.ZERO, peak, top)
+	p.build_levels(lcl, top, cc, SEAM_CELL, DT, Vector3.ZERO, peak)
 	_rd.compute_list_end()
 	_rd.submit()
 	_rd.sync()

@@ -33,14 +33,16 @@ const GRAIN_ROW: Dictionary = {"channel": "silicate", "substance": "silicate",
 const EMPTY_RHO_KG_M3: float = 0.0001 * LAPhysical.AIR_DENSITY_KG_M3
 
 var _pipe: RID = RID()
-## The pressure half-step the acoustic group takes after its rows, on the group's last row's set.
-const ACOUSTIC_PAIR: Array = [PASS_ACOUSTIC, PASS_ACOUSTIC_APPLY]
 
 ## Dispatches one submit may hold. The device waits on a fence to read a buffer back, and a submit
 ## longer than that wait fails; splitting the recording changes nothing dispatched, only when.
 const FLUSH_EVERY: int = 4096
 
-var _recorded: int = 0
+## Byte offsets of the level, substep index and substep count in the Params block below: the three the
+## driver rewrites per substep.
+const PC_LEVEL: int = 104
+const PC_K: int = 108
+const PC_N: int = 112
 
 ## Rows that advance together on one time axis; a solitary row is its own group.
 var _row_groups: Array = []
@@ -160,13 +162,33 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 		_list_sets.append(_row_set(bufs, _list_rows.back()))
 		_list_args_rid.append(_single(bufs, String(keys["args"])))
 		_list_idx_rid.append(_single(bufs, String(keys["idx"])))
+	_driver.setup_transport(_plan())
+
+
+## What the native driver walks: the sets, the groups and the buffers. Every ROW stays in
+## LATransportRecords; nothing here restates one.
+func _plan() -> Dictionary:
+	var radiate: PackedInt32Array = PackedInt32Array()
+	for row: Dictionary in _rows:
+		radiate.append(1 if int(row["mode"]) == LATransportRecords.RADIATE else 0)
+	var acoustic: PackedInt32Array = PackedInt32Array()
+	var groups: Array = []
+	for group: PackedInt32Array in _row_groups:
+		groups.append(group)
+		acoustic.append(1 if _vel_row(_rows[group[group.size() - 1]]) else 0)
+	return {"pipe": _pipe, "row_sets": _sets, "row_group": _row_group, "row_radiate": radiate,
+		"groups": groups, "group_acoustic": acoustic, "args": _args_rid,
+		"wake_args": _wake_args_rid, "grain_set": _grain_set, "list_sets": _list_sets,
+		"queue_bin": ActiveScript.QUEUE_BIN, "slots": LevelsScript.SLOTS,
+		"group_count": _group_count(), "flush_every": FLUSH_EVERY,
+		"level_off": PC_LEVEL, "k_off": PC_K, "n_off": PC_N}
 
 
 ## XUV irradiance at this body, W/m^2, taken once per dispatch off the ctx the star publishes into.
 var _xuv_w_m2: float = 0.0
 
 
-func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:
+func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:
 	if not _dispatchable():
 		return
 	var cell_m: float = _ctx_cell_size(ctx)
@@ -174,133 +196,32 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: in
 	var sun: Vector3 = ctx.get("sun_dir", Vector3.ZERO)
 	# No sun in the ctx is no star, which is no XUV — never an assumed one.
 	_xuv_w_m2 = float(ctx.get("xuv_w_m2", 0.0))
-	_pc_cache.clear()
-	_seed_lists(rd, cl, cc, cell_m, dt_s)
-	# THE DETECTOR LISTS: where the strikes and the non-finite values are. A detector looks everywhere
-	# because a value it has never seen can sit anywhere; no row dispatches over one.
-	for r in _list_rows.size():
-		var lset: RID = _list_sets[r]
-		if not lset.is_valid():
-			continue
-		rd.compute_list_bind_compute_pipeline(cl, _pipe)
-		rd.compute_list_bind_uniform_set(cl, lset, 0)
-		for spec: Array in [[PASS_LIST_RESET, 1], [PASS_LIST_APPEND, groups], [PASS_LIST_ARGS, 1]]:
-			var lpc: PackedByteArray = _pc(_list_rows[r], cc, int(spec[0]), cell_m, dt_s, sun)
-			rd.compute_list_set_push_constant(cl, lpc, lpc.size())
-			rd.compute_list_dispatch(cl, int(spec[1]), 1, 1)
-			rd.compute_list_add_barrier(cl)
-	# PROLOGUE: the suspension shares three silicate rows read as `frac`, before anything donates.
-	if _grain_set.is_valid():
-		var gslot: int = _group_count() - 1
-		_act(rd, cl, _grain_set, GRAIN_ROW, cc, PASS_LEVEL_RESET, cell_m, dt_s, sun, gslot, 0, 0)
-		_rebuild_active(rd, cl, _grain_set, GRAIN_ROW, cc, cell_m, dt_s, sun, gslot, 0, true)
-		_act(rd, cl, _grain_set, GRAIN_ROW, cc, PASS_GRAIN, cell_m, dt_s, sun, gslot, 0, 0)
-	# EACH GROUP ON ITS OWN TIME AXIS. The acoustic group substeps as one unit: matter advects, the
-	# gathers refresh velocity, and the acoustic half-step advances the pressure.
-	for g in _row_groups.size():
-		var group: PackedInt32Array = _row_groups[g]
-		var levels: int = _peaks[g] if g < _peaks.size() else 0
-		if levels < 0:
-			continue
-		_build_levels(rd, cl, group, cc, cell_m, dt_s, sun, levels, g)
-		var n: int = 1 << levels
-		# The acoustic pair rides the group's last row, so that row carrying velocity IS the test.
-		var acoustic: bool = _vel_row(_rows[group[group.size() - 1]])
-		for k in n:
-			var lk: int = LevelsScript.coarsest_at(k, levels)
-			# THE BUBBLE, one substep at a time: age every listed cell, take in what another kernel
-			# woke, and compact the awake cells and their receivers into the list the rows walk.
-			_rebuild_active(rd, cl, _sets[group[0]], _rows[group[0]], cc, cell_m, dt_s, sun, g, lk,
-				k == 0)
-			for gi in group:
-				_run_row(rd, cl, gi, cc, cell_m, dt_s, sun, lk, k, n)
-			if acoustic:
-				_run_row(rd, cl, group[group.size() - 1], cc, cell_m, dt_s, sun, lk, k, n,
-					ACOUSTIC_PAIR)
-			_recorded += group.size() + 4
-			if _recorded > FLUSH_EVERY:
-				cl = _flush(rd)
-	# The wake queue is consumed; what the reactions write after this pass is next step's business.
-	if _grain_set.is_valid():
-		_fire(rd, cl, _grain_set, GRAIN_ROW, cc, PASS_ACT_WAKE_RESET, cell_m, dt_s, sun, 0, 0, RID(), 1)
+	_driver.run_transport(cl, _peaks, _pc_rows(cc, cell_m, dt_s, sun),
+		_pc_grain(cc, cell_m, dt_s, sun), _pc_lists(cc, cell_m, dt_s, sun),
+		_seed_workgroups(), groups)
 
 
 ## THE LISTS, before anything reads one: every cell of a world nobody has stepped yet, and every cell
-## again after a CPU write no kernel saw. The only pass here that walks the box, and it runs on neither
-## cadence — once at the seal, and once more whenever the field is written from outside.
-func _seed_lists(rd: RenderingDevice, cl: int, cc: int, cell_m: float, dt_s: float) -> void:
-	if not _wake_pending:
-		return
+## again after a CPU write no kernel saw. Workgroups over the whole box, and 0 on every other step.
+func _seed_workgroups() -> int:
+	if not _wake_pending or not _grain_set.is_valid():
+		return 0
 	_wake_pending = false
 	var wide: int = maxi(_total, (ActiveScript.QUEUE_BIN + 1) * _group_count())
-	_fire(rd, cl, _grain_set, GRAIN_ROW, cc, PASS_ACT_SEED, cell_m, dt_s, Vector3.ZERO,
-		_group_count(), 0, RID(), int(ceil(float(wide) / 64.0)))
+	return int(ceil(float(wide) / 64.0))
 
 
-## THE LEVEL FIELD, once per group over the cells it holds: clear it, seed each row's own need, then
-## relax 2:1 against the neighbours. The counting sort that turns it into a dispatch list is the
-## active-cell rebuild below, which runs every substep because the bubble grows every substep.
-func _build_levels(rd: RenderingDevice, cl: int, group: PackedInt32Array, cc: int, cell_m: float,
-		dt_s: float, sun: Vector3, levels: int, g: int) -> void:
-	_act(rd, cl, _sets[group[0]], _rows[group[0]], cc, PASS_LEVEL_RESET, cell_m, dt_s, sun, g, 0, 0)
-	if levels <= 0:
-		return
-	for gi in group:
-		_act(rd, cl, _sets[gi], _rows[gi], cc, PASS_LEVEL_SEED, cell_m, dt_s, sun, g, 0, 0)
-	# The fixed point of "no neighbour is more than one level finer" is `levels` sweeps away at most.
-	for _i in levels:
-		_act(rd, cl, _sets[group[0]], _rows[group[0]], cc, PASS_LEVEL_RELAX, cell_m, dt_s, sun, g, 0, 0)
-
-
-## THE ACTIVE LIST for one group and substep, sorted by temporal level. Every dispatch here is over
-## the list itself, so what it costs is what is moving, never what the box holds.
-func _rebuild_active(rd: RenderingDevice, cl: int, uset: RID, row: Dictionary, cc: int,
-		cell_m: float, dt_s: float, sun: Vector3, g: int, level: int, take_wake: bool) -> void:
-	_act(rd, cl, uset, row, cc, PASS_ACT_AGE, cell_m, dt_s, sun, g, level, 0)
-	if take_wake:
-		_fire(rd, cl, uset, row, cc, PASS_ACT_WAKE, cell_m, dt_s, sun, g, level, _wake_args_rid, 0)
-	_act(rd, cl, uset, row, cc, PASS_ACT_MARK, cell_m, dt_s, sun, g, level, 0)
-	_fire(rd, cl, uset, row, cc, PASS_LEVEL_SCAN, cell_m, dt_s, sun, g, level, RID(), 1)
-	_act(rd, cl, uset, row, cc, PASS_LEVEL_SORT, cell_m, dt_s, sun, g, level, ActiveScript.QUEUE_BIN)
-
-
-## One dispatch over a group's own cell list, indirect off the bin's argument slot.
-func _act(rd: RenderingDevice, cl: int, uset: RID, row: Dictionary, cc: int, pass_id: int,
-		cell_m: float, dt_s: float, sun: Vector3, g: int, level: int, bin: int) -> void:
-	_fire(rd, cl, uset, row, cc, pass_id, cell_m, dt_s, sun, g, level, _args_rid,
-		ActiveScript.args_offset(g, bin))
-
-
-## THE ONE DISPATCH SITE for everything but a row: indirect off `args` at `off`, or `off` workgroups
-## straight when `args` names no buffer.
-func _fire(rd: RenderingDevice, cl: int, uset: RID, row: Dictionary, cc: int, pass_id: int,
-		cell_m: float, dt_s: float, sun: Vector3, g: int, level: int, args: RID, off: int) -> void:
-	if not uset.is_valid():
-		return
-	rd.compute_list_bind_compute_pipeline(cl, _pipe)
-	rd.compute_list_bind_uniform_set(cl, uset, 0)
-	var pc: PackedByteArray = _pc(row, cc, pass_id, cell_m, dt_s, sun, level, 0, 1, g)
-	rd.compute_list_set_push_constant(cl, pc, pc.size())
-	if args.is_valid():
-		rd.compute_list_dispatch_indirect(cl, args, off)
-	else:
-		rd.compute_list_dispatch(cl, off, 1, 1)
-	rd.compute_list_add_barrier(cl)
+## THE LEVEL FIELD, once per group over the cells it holds. The counting sort that turns it into a
+## dispatch list is the active-cell rebuild, which the driver runs every substep.
+func build_levels(cl: int, g: int, cc: int, cell_m: float, dt_s: float, sun: Vector3,
+		levels: int) -> void:
+	_driver.build_levels(cl, g, _pc_rows(cc, cell_m, dt_s, sun), levels)
 
 
 ## Every cell changed at once, from outside any kernel: the one seam a CPU writer has into the mask.
 ## The next step seeds every list with the whole box again, and the bubbles regrow from there.
 func wake_all() -> void:
 	_wake_pending = true
-
-
-## Hand the device what is recorded so far and open the next list; the id is the same either way.
-func _flush(rd: RenderingDevice) -> int:
-	rd.compute_list_end()
-	rd.submit()
-	rd.sync()
-	_recorded = 0
-	return rd.compute_list_begin()
 
 
 ## THE PEAK LEVEL PER GROUP, before the step records: a submit of its own, so the loop bounds come from
@@ -311,11 +232,28 @@ func pre_step(rd: RenderingDevice, ctx: Dictionary, cc: int, _groups: int) -> vo
 	var cell_m: float = _ctx_cell_size(ctx)
 	var dt_s: float = _ctx_num(ctx, "dt_s")
 	rd.buffer_clear(_peak_rid, 0, _row_groups.size() * 4)
-	var cl: int = rd.compute_list_begin()
-	_seed_lists(rd, cl, cc, cell_m, dt_s)
+	var usets: Array = []
+	var pcs: Array = []
+	var wgs: PackedInt32Array = PackedInt32Array()
+	var args: Array = []
+	var offs: PackedInt32Array = PackedInt32Array()
+	var seed: int = _seed_workgroups()
+	if seed > 0:
+		usets.append(_grain_set)
+		pcs.append(_pc(GRAIN_ROW, cc, PASS_ACT_SEED, cell_m, dt_s, Vector3.ZERO, 0, 0, 1,
+			_group_count()))
+		wgs.append(seed)
+		args.append(RID())
+		offs.append(0)
 	for g in _row_groups.size():
 		for gi in _row_groups[g]:
-			_act(rd, cl, _sets[gi], _rows[gi], cc, PASS_LEVEL_PEAK, cell_m, dt_s, Vector3.ZERO, g, g, 0)
+			usets.append(_sets[gi])
+			pcs.append(_pc(_rows[gi], cc, PASS_LEVEL_PEAK, cell_m, dt_s, Vector3.ZERO, g, 0, 1, g))
+			wgs.append(0)
+			args.append(_args_rid)
+			offs.append(ActiveScript.args_offset(g, 0))
+	var cl: int = rd.compute_list_begin()
+	_driver.run(cl, _pipe, usets, pcs, wgs, args, offs, true)
 	rd.compute_list_end()
 	rd.submit()
 	rd.sync()
@@ -324,37 +262,13 @@ func pre_step(rd: RenderingDevice, ctx: Dictionary, cc: int, _groups: int) -> vo
 	# Its state is broken, no subdivision integrates it, and its group does not move this step.
 	var lim: int = LevelsScript.light_level(dt_s, cell_m)
 	_peak_top = 0
-	for g in _peaks.size():
-		_peak_top = maxi(_peak_top, _peaks[g])
-		if _peaks[g] < lim:
+	for g2 in _peaks.size():
+		_peak_top = maxi(_peak_top, _peaks[g2])
+		if _peaks[g2] < lim:
 			continue
-		_peaks[g] = -1
+		_peaks[g2] = -1
 		push_error("TransportPass: the %s row's own cells carry a signal speed at or past light, so "
-			% String(_rows[_row_groups[g][0]]["channel"]) + "no timestep integrates them.")
-
-
-## One row's outflow+gather pair; the RADIATE row runs a third pass, PASS_SW, marching the upwelling
-## its gather stamped. The rim's nudge is a per-STEP fraction, so only the last substep carries RELAX.
-func _run_row(rd: RenderingDevice, cl: int, r: int, cc: int, cell_m: float, dt_s: float,
-		sun: Vector3, level: int, k: int, n: int, only: Array = []) -> void:
-	var uset: RID = _sets[r]
-	if not uset.is_valid() or not _args_rid.is_valid():
-		return
-	var passes: Array = only
-	if passes.is_empty():
-		passes = [PASS_OUTFLOW, PASS_GATHER]
-		if int(_rows[r]["mode"]) == LATransportRecords.RADIATE:
-			passes.append(PASS_SW)
-	for pass_id in passes:
-		rd.compute_list_bind_compute_pipeline(cl, _pipe)
-		rd.compute_list_bind_uniform_set(cl, uset, 0)
-		var pc: PackedByteArray = _pc_at(r, cc, pass_id, cell_m, dt_s, sun, level, k, n)
-		rd.compute_list_set_push_constant(cl, pc, pc.size())
-		# THE ROW WALKS ITS GROUP'S ACTIVE CELLS at this level, ghost tail included: what it costs is
-		# what is moving. There is no path here that dispatches over the box.
-		rd.compute_list_dispatch_indirect(cl, _args_rid,
-			ActiveScript.args_offset(_row_group[r], level))
-		rd.compute_list_add_barrier(cl)
+			% String(_rows[_row_groups[g2][0]]["channel"]) + "no timestep integrates them.")
 
 
 ## A signed per-axis momentum row, whose gather refreshes its velocity component.
@@ -507,22 +421,78 @@ const NAMED: Array = [["drive", LATransportRecords.Flag.DRIVEN],
 	["frac", LATransportRecords.Flag.FRACTION]]
 
 
-## A substep only moves the level and its index along, so the rest of the block is built once per row,
-## pass and level class per step: at thousands of substeps the encoding IS the dispatch cost.
-var _pc_cache: Dictionary = {}
+## One push-constant block per row per slot the driver may issue, built once per step. The driver
+## rewrites only the level and the substep pair, so a substep costs no encoding at all.
+func _pc_rows(cc: int, cell_m: float, dt_s: float, sun: Vector3) -> Array:
+	var out: Array = []
+	for _r in _rows.size():
+		var t: Array = []
+		t.resize(LAFieldDriver.SLOT_COUNT)
+		t.fill(PackedByteArray())
+		out.append(t)
+	for g in _row_groups.size():
+		var group: PackedInt32Array = _row_groups[g]
+		var head: Dictionary = _rows[group[0]]
+		var ht: Array = out[group[0]]
+		ht[LAFieldDriver.SLOT_LEVEL_RESET] = _pc(head, cc, PASS_LEVEL_RESET, cell_m, dt_s, sun, 0, 0, 1, g)
+		ht[LAFieldDriver.SLOT_LEVEL_RELAX] = _pc(head, cc, PASS_LEVEL_RELAX, cell_m, dt_s, sun, 0, 0, 1, g)
+		ht[LAFieldDriver.SLOT_ACT_AGE] = _pc(head, cc, PASS_ACT_AGE, cell_m, dt_s, sun, 0, 0, 1, g)
+		ht[LAFieldDriver.SLOT_ACT_WAKE] = _pc(head, cc, PASS_ACT_WAKE, cell_m, dt_s, sun, 0, 0, 1, g)
+		ht[LAFieldDriver.SLOT_ACT_MARK] = _pc(head, cc, PASS_ACT_MARK, cell_m, dt_s, sun, 0, 0, 1, g)
+		ht[LAFieldDriver.SLOT_LEVEL_SCAN] = _pc(head, cc, PASS_LEVEL_SCAN, cell_m, dt_s, sun, 0, 0, 1, g)
+		ht[LAFieldDriver.SLOT_LEVEL_SORT] = _pc(head, cc, PASS_LEVEL_SORT, cell_m, dt_s, sun, 0, 0, 1, g)
+		for gi in group:
+			var row: Dictionary = _rows[gi]
+			var rt: Array = out[gi]
+			rt[LAFieldDriver.SLOT_LEVEL_SEED] = _pc(row, cc, PASS_LEVEL_SEED, cell_m, dt_s, sun, 0, 0, 1, g)
+			rt[LAFieldDriver.SLOT_OUTFLOW] = _pc(row, cc, PASS_OUTFLOW, cell_m, dt_s, sun, 0, 0, 1, g)
+			rt[LAFieldDriver.SLOT_GATHER] = _pc(row, cc, PASS_GATHER, cell_m, dt_s, sun, 0, 0, 1, g)
+			if int(row["mode"]) == LATransportRecords.RADIATE:
+				rt[LAFieldDriver.SLOT_SW] = _pc(row, cc, PASS_SW, cell_m, dt_s, sun, 0, 0, 1, g)
+		# The acoustic pair rides the group's last row, so that row carrying velocity IS the test.
+		var last: int = group[group.size() - 1]
+		if _vel_row(_rows[last]):
+			var lt: Array = out[last]
+			lt[LAFieldDriver.SLOT_ACOUSTIC] = _pc(_rows[last], cc, PASS_ACOUSTIC, cell_m, dt_s, sun, 0, 0, 1, g)
+			lt[LAFieldDriver.SLOT_ACOUSTIC_APPLY] = _pc(_rows[last], cc, PASS_ACOUSTIC_APPLY, cell_m,
+				dt_s, sun, 0, 0, 1, g)
+	return out
 
 
-func _pc_at(r: int, cc: int, pass_id: int, cell_m: float, dt_s: float, sun: Vector3,
-		level: int, k: int, n: int) -> PackedByteArray:
-	var key: int = r * 32 + pass_id
-	var pc: PackedByteArray = _pc_cache.get(key, PackedByteArray())
-	if pc.is_empty():
-		pc = _pc(_rows[r], cc, pass_id, cell_m, dt_s, sun, level, k, n, _row_group[r])
-		_pc_cache[key] = pc
-	pc.encode_u32(104, level)
-	pc.encode_u32(108, k)
-	pc.encode_u32(112, n)
-	return pc
+## The grain prologue's own blocks, plus the whole-box seed and the wake-queue reset.
+func _pc_grain(cc: int, cell_m: float, dt_s: float, sun: Vector3) -> Array:
+	var t: Array = []
+	t.resize(LAFieldDriver.SLOT_COUNT)
+	t.fill(PackedByteArray())
+	if not _grain_set.is_valid():
+		return t
+	var gslot: int = _group_count() - 1
+	t[LAFieldDriver.SLOT_LEVEL_RESET] = _pc(GRAIN_ROW, cc, PASS_LEVEL_RESET, cell_m, dt_s, sun, 0, 0, 1, gslot)
+	t[LAFieldDriver.SLOT_ACT_AGE] = _pc(GRAIN_ROW, cc, PASS_ACT_AGE, cell_m, dt_s, sun, 0, 0, 1, gslot)
+	t[LAFieldDriver.SLOT_ACT_WAKE] = _pc(GRAIN_ROW, cc, PASS_ACT_WAKE, cell_m, dt_s, sun, 0, 0, 1, gslot)
+	t[LAFieldDriver.SLOT_ACT_MARK] = _pc(GRAIN_ROW, cc, PASS_ACT_MARK, cell_m, dt_s, sun, 0, 0, 1, gslot)
+	t[LAFieldDriver.SLOT_LEVEL_SCAN] = _pc(GRAIN_ROW, cc, PASS_LEVEL_SCAN, cell_m, dt_s, sun, 0, 0, 1, gslot)
+	t[LAFieldDriver.SLOT_LEVEL_SORT] = _pc(GRAIN_ROW, cc, PASS_LEVEL_SORT, cell_m, dt_s, sun, 0, 0, 1, gslot)
+	t[LAFieldDriver.SLOT_GRAIN] = _pc(GRAIN_ROW, cc, PASS_GRAIN, cell_m, dt_s, sun, 0, 0, 1, gslot)
+	t[LAFieldDriver.SLOT_ACT_SEED] = _pc(GRAIN_ROW, cc, PASS_ACT_SEED, cell_m, dt_s, Vector3.ZERO,
+		0, 0, 1, _group_count())
+	t[LAFieldDriver.SLOT_ACT_WAKE_RESET] = _pc(GRAIN_ROW, cc, PASS_ACT_WAKE_RESET, cell_m, dt_s, sun)
+	return t
+
+
+## THE DETECTOR LISTS: where the strikes and the non-finite values are. A detector looks everywhere
+## because a value it has never seen can sit anywhere; no row dispatches over one.
+func _pc_lists(cc: int, cell_m: float, dt_s: float, sun: Vector3) -> Array:
+	var out: Array = []
+	for r in _list_rows.size():
+		var t: Array = []
+		t.resize(LAFieldDriver.SLOT_COUNT)
+		t.fill(PackedByteArray())
+		t[LAFieldDriver.SLOT_LIST_RESET] = _pc(_list_rows[r], cc, PASS_LIST_RESET, cell_m, dt_s, sun)
+		t[LAFieldDriver.SLOT_LIST_APPEND] = _pc(_list_rows[r], cc, PASS_LIST_APPEND, cell_m, dt_s, sun)
+		t[LAFieldDriver.SLOT_LIST_ARGS] = _pc(_list_rows[r], cc, PASS_LIST_ARGS, cell_m, dt_s, sun)
+		out.append(t)
+	return out
 
 
 ## transport.glsl's Params block, in its declared order.
@@ -582,9 +552,9 @@ func _pc(row: Dictionary, cc: int, pass_id: int, cell_m: float, dt_s: float,
 	# XUV irradiance AT THIS BODY, already distance-corrected by the star that emitted it; the zenith
 	# cosine is what still scales it in-kernel.
 	pc.encode_float(100, _xuv_w_m2)
-	pc.encode_u32(104, level)
-	pc.encode_u32(108, substep_k)
-	pc.encode_u32(112, substep_n)
+	pc.encode_u32(PC_LEVEL, level)
+	pc.encode_u32(PC_K, substep_k)
+	pc.encode_u32(PC_N, substep_n)
 	pc.encode_u32(116, act_group)
 	# A row carrying silicate also wakes the prologue that derives where that mineral sits.
 	pc.encode_u32(120, _group_count() - 1 if String(row["channel"]) == "silicate" else NO_GROUP)

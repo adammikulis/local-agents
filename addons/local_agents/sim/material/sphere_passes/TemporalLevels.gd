@@ -31,13 +31,3 @@ static func light_level(dt_s: float, cell_m: float) -> int:
 	if dt_s <= 0.0 or cell_m <= 0.0:
 		return BINS
 	return int(ceil(log(dt_s * LAPhysical.SPEED_OF_LIGHT_M_S / cell_m) / log(2.0)))
-
-
-## The coarsest level advancing on substep k of a 2^levels axis: level L steps when k is a multiple
-## of 2^(levels-L), so the coarsest is levels minus k's trailing zeros.
-static func coarsest_at(k: int, levels: int) -> int:
-	var l: int = levels
-	while k > 0 and (k & 1) == 0:
-		k >>= 1
-		l -= 1
-	return 0 if k <= 0 else maxi(l, 0)
