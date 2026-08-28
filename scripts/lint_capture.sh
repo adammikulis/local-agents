@@ -63,7 +63,7 @@ fi
 # The rung is written beside the capture, because a face state replayed into another rung's interior is
 # an exterior from a different world.
 printf '%s\n' "$CAP_RUNG" > "$CAP/rung"
-"$SCRIPT_DIR/sim_run.sh" --path "$ROOT" --frames "$FRAMES" --seed "$SEED" --rung "$CAP_RUNG" --keep --raw \
+"$SCRIPT_DIR/sim_run.sh" --path "$ROOT" --frames "$FRAMES" --seed "$SEED" --rung "$CAP_RUNG" --from-seal --keep --raw \
 	--slice-capture "$CAP/slice_state.json" > "$CAP/report.raw" 2> "$CAP/sim_run.err"
 SIM_RC=$?
 if [ -n "$POLL" ]; then kill "$POLL" 2>/dev/null; wait "$POLL" 2>/dev/null; fi

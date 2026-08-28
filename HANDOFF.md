@@ -144,18 +144,6 @@ stanzas. Mutation-test it both ways. Delete the claim below with this item.
 
 ---
 
-## 9. Every run pays for the whole seeding walk, and a one-step run costs what a twenty-step run costs
-
-`scripts/sim_run.sh --frames 1 --rung 8` takes as long as `scripts/sim_run.sh --frames 20 --rung 8`.
-
-`LAMaterialFieldSphereStep3D.seed_tick` runs the gravity solve, the regolith walk, the hydrosphere flood,
-the lithostatic march and the enthalpy seed on every boot, and `LAMaterialFieldSnapshot3D.capture` /
-`restore` already serialise the whole field. Bake the sealed state beside the solid mask in
-`LAMaterialFieldSolidCache3D` — one owner, keyed the way that file already keys the mask, plus the seed,
-the rung and the box — and put `--from-seal` on `scripts/sim_run.sh`. The acceptance test is a new gate
-under `scripts/` that seeds, saves, loads, and compares `world_seed`, `creation_after_seal` and the step-0
-conservation rows; corrupt one channel in the saved state and it must go red.
-
 ## How to run
 
 Reproduce at the LOWEST rung that shows the defect: `scripts/agent_harness.sh sim --rung=N --frames 20`

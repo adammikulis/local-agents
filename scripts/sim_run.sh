@@ -6,6 +6,7 @@
 
 # USAGE
 #   scripts/sim_run.sh [--frames N] [--seed N] [--rung N] [--path DIR] [--fauna] [--full] [--keep]
+#                      [--from-seal]
 #                      [--slice] [--slice-box SPEC] [--slice-state FILE] [--slice-capture FILE]
 #                      [--report k1,k2,...] [--raw] [-- <extra scene args>]
 
@@ -17,6 +18,7 @@
 #   --slice-state F | --slice-capture F  consume a face-state capture in a slice / record one in a GLOBAL run
 #   --report LIST  comma-separated SIM_REPORT keys to print (default: the conservation set)
 #   --raw | --keep  print the whole SIM_REPORT as formatted JSON / keep the log file and print its path
+#   --from-seal    seed the world from the bake this arm's key names, writing one on a miss
 
 # EXIT 0 clean · 3 stale shaders · 4 the run logged engine errors, numbers withheld · 5 a UI node was
 # built without --ui · 124 never reported · 125 hung after reporting · 126 CONSERVATION_VIOLATION.
@@ -35,6 +37,7 @@ SLICE=0
 SLICE_BOX=""
 SLICE_STATE=""
 SLICE_CAPTURE=""
+FROM_SEAL=0
 REPORT_KEYS="conservation,conservation_failed,conservation_audited,energy_run_drift,energy_stock_first,energy_residual,energy_booked,o2_first,o2_total,mineral_first,mineral_total,h2o_first,h2o_total,element_C_total_first,element_C_total,temp_ground_mean,phenomena_kinds,field_ms,transport_levels"
 EXTRA=()
 
@@ -52,6 +55,7 @@ while [ $# -gt 0 ]; do
     --slice-box) SLICE=1; SLICE_BOX="$2"; shift 2 ;;
     --slice-state) SLICE_STATE="$2"; shift 2 ;;
     --slice-capture) SLICE_CAPTURE="$2"; shift 2 ;;
+    --from-seal) FROM_SEAL=1; shift ;;
     --raw) RAW=1; shift ;;
     --keep) KEEP=1; shift ;;
     --report) REPORT_KEYS="$2"; shift 2 ;;
@@ -106,6 +110,19 @@ ARGS=(--sandbox "--run-frames=${FRAMES}" "--seed=${SEED}")
 [ "$FULL" -eq 0 ] && ARGS+=(--planet-only)
 [ "$FAUNA" -eq 0 ] && ARGS+=(--no-fauna)
 [ "${#EXTRA[@]}" -gt 0 ] && ARGS+=("${EXTRA[@]}")
+
+# THE SEEDING WALKS ARE A FUNCTION OF THIS ARM, NOT OF ITS LENGTH: the frame count is left out of the key
+# on purpose, so every arm over one world shares one bake.
+if [ "$FROM_SEAL" -eq 1 ]; then
+  SEAL_KEY="$("$SCRIPT_DIR/cache_key.sh" capture --path "$PROJ" "seed=$SEED" "rung=${RUNG:-default}" \
+    "full=$FULL" "fauna=$FAUNA" "slice=$SLICE" \
+    "box=$(if [ "$SLICE" -eq 1 ]; then printf '%s' "$SLICE_BOX"; fi)" 2>/dev/null || echo "")"
+  if [ -n "$SEAL_KEY" ]; then
+    export LA_SEAL_KEY="$SEAL_KEY"
+  else
+    echo "sim_run: --from-seal, but no content key describes this tree, so this arm seeds." >&2
+  fi
+fi
 
 LOG="$(mktemp "${TMPDIR:-/tmp}/la_sim_run.XXXXXX")"
 echo "sim_run: ${FRAMES} steps, seed ${SEED}${FULL:+}$([ "$FULL" -eq 0 ] && echo ' --planet-only')$([ "$FAUNA" -eq 0 ] && echo ' --no-fauna')" >&2

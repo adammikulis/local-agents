@@ -11,6 +11,7 @@
 #include "LAMixtureEnthalpy.hpp"
 #include "LABodySystem.hpp"
 #include "LAFieldCellMass.hpp"
+#include "LAFieldStateCache.hpp"
 #include "LAFieldHydrosphereSeed.hpp"
 #include "LAFieldLithostaticSeed.hpp"
 #include "LAPlanetTables.hpp"
@@ -68,6 +69,7 @@ void initialize_local_agents(ModuleInitializationLevel p_level) {
     ClassDB::register_class<LAOrbitState>();
     ClassDB::register_class<LABodySeeds>();
     ClassDB::register_class<LAFieldCellMass3D>();
+    ClassDB::register_class<LAFieldStateCache>();
     ClassDB::register_class<LABodyMeasure>();
     ClassDB::register_class<LAFieldHydrosphereSeed>();
     ClassDB::register_class<LAFieldLithostaticSeed>();
