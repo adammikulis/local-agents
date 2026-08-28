@@ -237,10 +237,8 @@ not, and keeps working in a project that never installed it. Asking for SPHERE w
 - `build_on_ready` (bool, default `true`).
 
 #### Exports, group Sphere bounds, subgroup Shape
-- `radius` (float, default `250.0`, range 25.0 to 2000.0 or greater, suffix m). Relief, feature size and the field shell all scale
-  from this. The numbers were tuned at 250, so 500 gives the same looking planet at twice the size.
-- `ocean_bias` (float, default `3.0`, range -30.0 to 60.0, suffix m). How far the whole surface is pushed inward before relief is
-  added, so a larger number means more ocean. Negative pushes outward for a drier planet.
+- `body_seed` (String, default `planet`). Which row of `LABodySeeds` the world is built from. The radius is not an export: it
+  follows from that row's mass and composition, and the relief follows the hypsographic curve in `LAPlanetShape`.
 - `caves_enabled` (bool, default `true`).
 - `tides_enabled` (bool, default `false`). Passed straight through to the planet body. Nothing reads it yet, because this facade
   builds no ocean shell.

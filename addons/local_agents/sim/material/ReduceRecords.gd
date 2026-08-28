@@ -49,6 +49,8 @@ static func rows() -> Array:
 		out.append({"key": "open_" + name, "source": name, "op": Op.SUM, "mask": Mask.OPEN, "weight": true})
 	out.append({"key": "energy_stock", "source": "h_j_m3", "op": Op.SUM, "mask": Mask.ALL, "weight": true})
 	out.append({"key": "energy_kinetic", "source": "ke_j_m3", "op": Op.SUM, "weight": true})
+	# The third store: mass in the potential, gravitational and rotating-frame alike.
+	out.append({"key": "energy_potential", "source": "pe_j_m3", "op": Op.SUM, "mask": Mask.ALL, "weight": true})
 	# Coulombs over the box; `charge_gross` is the charge that EXISTS, the scale a net is a fraction of.
 	out.append({"key": "charge_stock", "source": "charge", "op": Op.SUM, "mask": Mask.ALL, "weight": true})
 	out.append({"key": "charge_gross", "source": "charge", "op": Op.SUM_ABS, "weight": true})

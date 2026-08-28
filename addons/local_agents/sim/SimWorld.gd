@@ -19,18 +19,6 @@ const SLOW_BUILD_CELLS: int = 250000
 # near the 100 km turbopause; above it the remaining mass is negligible against the crust in the same box.
 const MODELLED_ATMOSPHERE_HEIGHT_M: float = 1.0e5
 
-# The body's shape, METRES, because the grid and the gravity solve are SI. Terrestrial continental relief
-# and its wavelength; basins, ridges and cave tunnels are the same lengths one order down.
-const RELIEF_M: float = 9.4e3
-const FEATURE_M: float = 5.2e4
-const BASIN_RELIEF_M: float = 4.0e3
-const BASIN_SIZE_M: float = 4.4e4
-const RIDGE_RELIEF_M: float = 1.35e3
-const RIDGE_SIZE_M: float = 3.2e4
-const DETAIL_RELIEF_M: float = 3.4e2
-const CAVE_SIZE_M: float = 2.0e4
-const CAVE_DEPTH_FADE_M: float = 4.7e3
-
 @export_group("World")
 @export var world_type: WorldType = WorldType.SPHERE: set = _set_world_type
 ## Build the world automatically in _ready(). Turn it off to choose the moment yourself by calling
@@ -45,7 +33,6 @@ const CAVE_DEPTH_FADE_M: float = 4.7e3
 ## Which row of LABodySeeds this world is built from. A body's SIZE is not set here: it follows from the
 ## mass and composition that row declares, and after the seal it is measured off the matter itself.
 @export var body_seed: String = "planet"
-@export_range(-1.0e4, 1.0e4, 10.0, "or_less", "or_greater", "suffix:m") var ocean_bias: float = 1.0e3
 ## Carve winding cave tunnels into the crust while the terrain generates.
 @export var caves_enabled: bool = true
 @export var tides_enabled: bool = false
@@ -173,14 +160,7 @@ func _build_sphere() -> bool:
 	_body.name = "PlanetBody"
 	add_child(_body)
 	_body.setup({
-		"radius": seed_radius(), "sea_radius": seed_radius(), "ocean_bias": ocean_bias,
-		"seed_key": body_seed,
-		"relief": RELIEF_M, "feature_size": FEATURE_M,
-		"basin_relief": BASIN_RELIEF_M, "basin_size": BASIN_SIZE_M,
-		"ridge_relief": RIDGE_RELIEF_M, "ridge_size": RIDGE_SIZE_M, "ridge_octaves": 2,
-		"detail_relief": DETAIL_RELIEF_M,
-		"caves_enabled": caves_enabled, "cave_size": CAVE_SIZE_M, "cave_threshold": 0.09,
-		"cave_strength": 40.0, "cave_depth_fade": CAVE_DEPTH_FADE_M,
+		"radius": seed_radius(), "seed_key": body_seed, "caves_enabled": caves_enabled,
 		"tides_enabled": tides_enabled, "seed": world_seed,
 	})
 	_terrain = _body.terrain()

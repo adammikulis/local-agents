@@ -8,28 +8,11 @@ const RenderLayerScene: PackedScene = preload("res://addons/local_agents/game/Re
 const UiLayerScene: PackedScene = preload("res://addons/local_agents/game/UiLayer.tscn")
 const StreamerHostScript: GDScript = preload("res://addons/local_agents/streamer/StreamerHost.gd")
 
-# THE BODY THIS WORLD IS SEEDED WITH. Every length below is METRES, because the grid is metres. The
-# RADIUS is not among them: it is the mass over the density of what the body is made of, and after the
-# seal it is whatever LABodyMeasure reads off the matter that ended up there.
-const PLANET_RELIEF: float = 9.4e3                # peak-to-trough continental relief; LA_RELIEF overrides
-const PLANET_FEATURE: float = 5.2e4               # continental wavelength
-# OCEAN-heavy world: sea shell at the mean radius.
+# THE BODY THIS WORLD IS SEEDED WITH. Its RADIUS is the mass over the density of what it is made of, and
+# after the seal it is whatever LABodyMeasure reads off the matter that ended up there. Its SHAPE is
+# LAPlanetShape's, which is the only place the body's relief is declared.
 static func planet_radius() -> float:
 	return LABodySeeds.seed_radius_m("planet")
-const PLANET_OCEAN_BIAS: float = 1.0e3
-# BASIN relief.
-const PLANET_BASIN_RELIEF: float = 4.0e3
-const PLANET_BASIN_SIZE: float = 4.4e4
-# RIDGES: ridged-multifractal mountain layer.
-const PLANET_RIDGE_RELIEF: float = 1.35e3               # LA_RIDGE overrides
-const PLANET_RIDGE_SIZE: float = 3.2e4
-const PLANET_RIDGE_OCTAVES: int = 2
-const PLANET_DETAIL_RELIEF: float = 3.4e2               # fine surface grain (LA_DETAIL overrides)
-# CAVES: emergent fractal spaghetti tunnels carved into the SDF underground. LA_CAVES=0 disables.
-const PLANET_CAVE_SIZE: float = 2.0e4                    # tunnel wavelength, metres
-const PLANET_CAVE_THRESHOLD: float = 0.09                # near-zero band => tunnel fatness (scale-free)
-const PLANET_CAVE_STRENGTH: float = 40.0                 # void-SDF wall sharpness (0 disables)
-const PLANET_CAVE_DEPTH_FADE: float = 4.7e3
 
 const FPS_PROBE_FRAMES: int = 150
 
@@ -69,36 +52,8 @@ var _phys_ms_accum: float = 0.0
 var _frame_dt_accum: float = 0.0
 
 
-# Terrain-roughness live knobs (pre-scale units, per-launch, no edit).
-func _ocean_bias() -> float:
-	if OS.has_environment("LA_OCEAN_BIAS"):
-		return float(OS.get_environment("LA_OCEAN_BIAS"))
-	return PLANET_OCEAN_BIAS
-
-func _relief() -> float:
-	return float(OS.get_environment("LA_RELIEF")) if OS.has_environment("LA_RELIEF") else PLANET_RELIEF
-
-func _ridge_relief() -> float:
-	return float(OS.get_environment("LA_RIDGE")) if OS.has_environment("LA_RIDGE") else PLANET_RIDGE_RELIEF
-
-func _detail_relief() -> float:
-	return float(OS.get_environment("LA_DETAIL")) if OS.has_environment("LA_DETAIL") else PLANET_DETAIL_RELIEF
-
-func _caves_enabled() -> bool:
-	if OS.has_environment("LA_CAVES"):
-		return OS.get_environment("LA_CAVES") != "0"
-	return true
-
-
 func _planet_opts() -> Dictionary:
-	return {"radius": planet_radius(), "relief": _relief(), "feature_size": PLANET_FEATURE,
-		"basin_relief": PLANET_BASIN_RELIEF, "basin_size": PLANET_BASIN_SIZE,
-		"ridge_relief": _ridge_relief(), "ridge_size": PLANET_RIDGE_SIZE,
-		"ridge_octaves": PLANET_RIDGE_OCTAVES, "detail_relief": _detail_relief(),
-		"caves_enabled": _caves_enabled(), "cave_size": PLANET_CAVE_SIZE,
-		"cave_threshold": PLANET_CAVE_THRESHOLD, "cave_strength": PLANET_CAVE_STRENGTH,
-		"cave_depth_fade": PLANET_CAVE_DEPTH_FADE, "sea_radius": planet_radius(),
-		"ocean_bias": _ocean_bias(), "seed": 1337}
+	return {"radius": planet_radius(), "caves_enabled": true, "seed": 1337}
 
 
 func _ready() -> void:

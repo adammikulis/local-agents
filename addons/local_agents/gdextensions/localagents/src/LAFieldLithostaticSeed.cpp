@@ -385,55 +385,27 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c, 
 	Object *terrain = Object::cast_to<Object>(p_field->get("_terrain"));
 	const double datum = terrain ? double(terrain->call("sea_radius")) : 0.0;
 	const PackedInt32Array nbr = grid->get("neighbours");
-	const PackedFloat32Array h2o = p_field->get("_h2o");
-	const PackedFloat32Array sil = p_field->get("_silicate");
-	const double full_h2o = LASubstances::full_mol_m3("h2o");
-	// Saturated vapour at the seed temperature, mol/m^3: h2o past this is a condensed phase, and a
-	// condensed phase is what a column has a SURFACE at. A trace of vapour is not one.
-	const double n_sat = LASubstances::saturation_p_at("h2o", p_temp_c)
-			/ (la_physical("GAS_CONSTANT_J_MOL_K") * (p_temp_c + la_physical("KELVIN_OFFSET")));
-	const double full_sil = LASubstances::full_mol_m3("silicate");
 	// A ghost tail rides after the interior block, so the table is at least the interior's six slots.
-	if (nbr.size() < cc * 6 || h2o.size() != cc || sil.size() != cc || !(datum > 0.0)
-			|| !(full_h2o > 0.0) || !(full_sil > 0.0) || !(edge > 0.0)) {
-		UtilityFunctions::push_error("LAFieldLithostaticSeed.shape_atmosphere: no neighbour table or no "
-				"condensed amounts, so no column knows where its own surface is.");
+	if (nbr.size() < cc * 6 || !(datum > 0.0) || !(edge > 0.0)
+			|| !terrain->has_method("surface_radius")) {
+		UtilityFunctions::push_error("LAFieldLithostaticSeed.shape_atmosphere: no neighbour table, no sea "
+				"datum, or a body that cannot state where its own surface is.");
 		return;
 	}
 	const Vector3 centre = field_centre(p_field);
-	// Height along the LOCAL VERTICAL, the axis the column is stacked along, and the slot that steps
-	// DOWN it. A rotating body's plumb line is not its radius.
+	// Height along the LOCAL VERTICAL, the axis the column is stacked along. A rotating body's plumb
+	// line is not its radius.
 	std::vector<double> h(cc, 0.0), scale(cc, 0.0);
-	std::vector<double> cond(cc, 0.0);
-	std::vector<int> below(cc, -1);
+	std::vector<Vector3> ray(cc, Vector3());
 	for (int c = 0; c < cc; c++) {
 		const Vector3 g(p_gravity[c * 3], p_gravity[c * 3 + 1], p_gravity[c * 3 + 2]);
 		const double gm = double(g.length());
 		if (!(gm > 0.0)) {
 			continue;
 		}
-		const Vector3 up = -g / gm;
-		h[c] = double((Vector3(grid->call("cell_world_pos", c)) - centre).dot(up));
-		below[c] = nbr[c * 6 + (slot_toward(up) ^ 1)];
+		ray[c] = Vector3(grid->call("cell_world_pos", c)) - centre;
+		h[c] = double(ray[c].dot(-g / gm));
 		scale[c] = m->scale_height_at(p_temp_c, gm);
-		cond[c] = solid[c] != 0 ? 1.0
-				: MIN(MAX(double(MAX(h2o[c], 0.0f)) - n_sat, 0.0) / full_h2o
-						+ double(MAX(sil[c], 0.0f)) / full_sil, 1.0);
-	}
-	// THE LOCAL SURFACE, low to high so a cell reads the column under it: the top of the condensed matter
-	// standing in this cell, or the surface the cell below it stands at. Over ocean that is the water the
-	// hydrosphere seed laid, over land the rock, and it is the same interface stack.glsli reconstructs at.
-	std::vector<int> up_order(cc);
-	std::iota(up_order.begin(), up_order.end(), 0);
-	std::sort(up_order.begin(), up_order.end(), [&h](int a2, int b2) { return h[a2] < h[b2]; });
-	const double nowhere = -std::numeric_limits<double>::infinity();
-	std::vector<double> surf(cc, nowhere);
-	for (int c : up_order) {
-		if (cond[c] > 0.0) {
-			surf[c] = h[c] - 0.5 * edge + cond[c] * edge;
-		} else if (below[c] >= 0 && below[c] < cc) {
-			surf[c] = surf[below[c]];
-		}
 	}
 	// AIR IS WHAT THE OUTSIDE REACHES, which is CONNECTIVITY and not a direction: flooded through open
 	// faces from every open cell the box edge touches. A void the flood never reaches is sealed under
@@ -467,9 +439,14 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c, 
 	PackedFloat32Array f = unit_factor(cc);
 	f.fill(-1.0f);
 	for (int c = 0; c < cc; c++) {
-		if (sky[c] == 0 || !std::isfinite(scale[c]) || scale[c] <= 0.0 || !std::isfinite(surf[c])) {
+		if (sky[c] == 0 || !std::isfinite(scale[c]) || scale[c] <= 0.0) {
 			continue;
 		}
+		// THE TOP OF THIS COLUMN'S CONDENSED MATTER, off the body's own shape: the rock where it stands
+		// above the sea, the sea surface where it does not. A cell fraction cannot say it -- it resolves
+		// the interface no finer than a cell edge, which is hundreds of kilometres.
+		const double rock = double(terrain->call("surface_radius", ray[c]));
+		const double surf = std::isfinite(rock) ? MAX(rock, datum) : datum;
 		// THE CELL'S OWN SHARE OF THE COLUMN OVER ITS OWN SURFACE, which is the MEAN of exp(-z/H) over
 		// the height it spans, not the density at its centre. state_derive.glsl states a cell's pressure
 		// off the amounts it holds and kernels3d/stack.glsli reads that pressure as the gas layer's own
@@ -480,13 +457,9 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c, 
 		// pressure surface is level, so a column over a mountain holds less air rather than holding
 		// sea-level air higher up. The span starts at this column's own surface where that cuts the
 		// cell, so a half-buried cell holds the air over its rock and not the rock's worth of it.
-		const double z_bot = MAX(h[c] - 0.5 * edge, surf[c]);
+		const double z_bot = MAX(h[c] - 0.5 * edge, surf);
 		const double z_top = h[c] + 0.5 * edge;
-		// A COLUMN WHOSE SURFACE IS UNDER THE DATUM IS NOT UNDER THE SKY IT IS FLOODED FROM. The flood
-		// reaches deep open ground through the box's own outside, and the barometric height of such a
-		// cell is its distance along THAT path, not the rock it happens to sit over: measured the second
-		// way it states tens of atmospheres and takes the rest of the atmosphere with it.
-		if (!(z_top > z_bot) || surf[c] < datum) {
+		if (!(z_top > z_bot)) {
 			continue;
 		}
 		f[c] = float((scale[c] / edge) * (std::exp(-(z_bot - datum) / scale[c])

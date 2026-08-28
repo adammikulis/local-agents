@@ -92,6 +92,8 @@ func _solve(grid, fill: PackedFloat32Array) -> Array:
 	bufs["nbr"] = nbr
 	bufs["pos"] = _vec3_flat(grid)
 	bufs["gravity"] = _f32(cc * 3)
+	# The potential this solve writes; StateDerivePass declares it, so a rig without that pass makes it.
+	bufs["grav_phi"] = _f32(cc)
 	for name in LAMatterChannels.CHANNELS:
 		bufs[String(name)] = _f32(cc)
 	var src_bytes: PackedByteArray = fill.to_byte_array()
