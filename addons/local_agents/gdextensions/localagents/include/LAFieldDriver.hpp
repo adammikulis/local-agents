@@ -67,7 +67,7 @@ public:
 	void setup_transport(const Dictionary &p_plan);
 	int64_t run_transport(int64_t p_cl, const PackedInt32Array &p_peaks, const Array &p_pc_rows,
 			const Array &p_pc_grain, const Array &p_pc_lists, int p_seed_workgroups,
-			int p_list_workgroups);
+			int p_list_workgroups, const Dictionary &p_restate);
 	void build_levels(int64_t p_cl, int p_group, const Array &p_pc_rows, int p_levels);
 
 	Dictionary fold_reduce(const RID &p_partials, const PackedInt32Array &p_folds,
@@ -105,12 +105,23 @@ private:
 	int _recorded = 0;
 
 	PackedByteArray _scratch;
+	// THE EQUATION OF STATE, restated inside the substep. Its kernel, bindings and block belong to the
+	// derive pass; this holds only where in the block the list slot and the group's list base go.
+	RID _eos_pipe;
+	RID _eos_set;
+	PackedByteArray _eos_pc;
+	int _eos_slot_off = -1;
+	int _eos_base_off = -1;
+	int _eos_total = 0;
 
 	int _args_offset(int p_group, int p_bin) const;
 	// Copies one block into the scratch and writes this substep's level, index and count into it.
 	const PackedByteArray &_block(const Array &p_table, int p_slot, int p_level, int p_k, int p_n);
 	void _fire(int64_t p_cl, const RID &p_uset, const PackedByteArray &p_pc, const RID &p_args,
 			int p_offset);
+	void _fire_on(int64_t p_cl, const RID &p_pipe, const RID &p_uset, const PackedByteArray &p_pc,
+			const RID &p_args, int p_offset);
+	void _restate(int64_t p_cl, int p_group, int p_level);
 	void _act(int64_t p_cl, const RID &p_uset, const Array &p_table, int p_slot, int p_group,
 			int p_level, int p_bin);
 	void _rebuild_active(int64_t p_cl, const RID &p_uset, const Array &p_table, int p_group,

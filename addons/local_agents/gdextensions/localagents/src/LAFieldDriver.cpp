@@ -198,12 +198,12 @@ const PackedByteArray &LAFieldDriver::_block(const Array &p_table, int p_slot, i
 	return _scratch;
 }
 
-void LAFieldDriver::_fire(int64_t p_cl, const RID &p_uset, const PackedByteArray &p_pc,
-		const RID &p_args, int p_offset) {
-	if (!p_uset.is_valid() || p_pc.is_empty()) {
+void LAFieldDriver::_fire_on(int64_t p_cl, const RID &p_pipe, const RID &p_uset,
+		const PackedByteArray &p_pc, const RID &p_args, int p_offset) {
+	if (!p_pipe.is_valid() || !p_uset.is_valid() || p_pc.is_empty()) {
 		return;
 	}
-	_rd->compute_list_bind_compute_pipeline(p_cl, _pipe);
+	_rd->compute_list_bind_compute_pipeline(p_cl, p_pipe);
 	_rd->compute_list_bind_uniform_set(p_cl, p_uset, 0);
 	_rd->compute_list_set_push_constant(p_cl, p_pc, p_pc.size());
 	if (p_args.is_valid()) {
@@ -212,6 +212,24 @@ void LAFieldDriver::_fire(int64_t p_cl, const RID &p_uset, const PackedByteArray
 		_rd->compute_list_dispatch(p_cl, (uint32_t)p_offset, 1, 1);
 	}
 	_rd->compute_list_add_barrier(p_cl);
+}
+
+void LAFieldDriver::_fire(int64_t p_cl, const RID &p_uset, const PackedByteArray &p_pc,
+		const RID &p_args, int p_offset) {
+	_fire_on(p_cl, _pipe, p_uset, p_pc, p_args, p_offset);
+}
+
+// THE MATTER THIS SUBSTEP MOVED IS AT A NEW PRESSURE. The derive's own kernel says what pressure, over
+// the same cells the substep walked, before the next substep's faces read one.
+void LAFieldDriver::_restate(int64_t p_cl, int p_group, int p_level) {
+	if (!_eos_pipe.is_valid() || !_eos_set.is_valid() || _eos_pc.is_empty()) {
+		return;
+	}
+	const int offset = _args_offset(p_group, p_level);
+	uint8_t *w = _eos_pc.ptrw();
+	put_u32(w, _eos_slot_off, (uint32_t)(offset / 4));
+	put_u32(w, _eos_base_off, (uint32_t)(p_group * _eos_total));
+	_fire_on(p_cl, _eos_pipe, _eos_set, _eos_pc, _args, offset);
 }
 
 void LAFieldDriver::_act(int64_t p_cl, const RID &p_uset, const Array &p_table, int p_slot,
@@ -305,9 +323,23 @@ int64_t LAFieldDriver::_flush(int64_t p_cl) {
 
 int64_t LAFieldDriver::run_transport(int64_t p_cl, const PackedInt32Array &p_peaks,
 		const Array &p_pc_rows, const Array &p_pc_grain, const Array &p_pc_lists,
-		int p_seed_workgroups, int p_list_workgroups) {
+		int p_seed_workgroups, int p_list_workgroups, const Dictionary &p_restate) {
 	if (_rd == nullptr || !_pipe.is_valid()) {
 		return p_cl;
+	}
+	_eos_pipe = plan_rid(p_restate, "pipe");
+	_eos_set = plan_rid(p_restate, "set");
+	_eos_pc = p_restate.get("pc", PackedByteArray());
+	_eos_total = plan_int(p_restate, "total", 0);
+	// THE RESTATE'S OWN THREE WORDS ARE THE TAIL of the derive's block: the flag that says this solve is
+	// the substep's, the level-args slot it walks, and where its group's sorted list starts.
+	const int n = _eos_pc.size();
+	if (n < 12) {
+		_eos_pipe = RID();
+	} else {
+		put_u32(_eos_pc.ptrw(), n - 12, 1u);
+		_eos_slot_off = n - 8;
+		_eos_base_off = n - 4;
 	}
 	int64_t cl = p_cl;
 	_recorded = 0;
@@ -370,7 +402,8 @@ int64_t LAFieldDriver::run_transport(int64_t p_cl, const PackedInt32Array &p_pea
 			if (acoustic) {
 				_run_row(cl, last, p_pc_rows, lk, k, n, true);
 			}
-			_recorded += group.size() + 4;
+			_restate(cl, g, lk);
+			_recorded += group.size() + 5;
 			if (_recorded > _flush_every) {
 				cl = _flush(cl);
 			}
@@ -470,7 +503,7 @@ void LAFieldDriver::_bind_methods() {
 			&LAFieldDriver::step);
 	ClassDB::bind_method(D_METHOD("setup_transport", "plan"), &LAFieldDriver::setup_transport);
 	ClassDB::bind_method(D_METHOD("run_transport", "compute_list", "peaks", "pc_rows", "pc_grain",
-								  "pc_lists", "seed_workgroups", "list_workgroups"),
+								  "pc_lists", "seed_workgroups", "list_workgroups", "restate"),
 			&LAFieldDriver::run_transport);
 	ClassDB::bind_method(D_METHOD("build_levels", "compute_list", "group", "pc_rows", "levels"),
 			&LAFieldDriver::build_levels);

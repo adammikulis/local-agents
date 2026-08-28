@@ -68,7 +68,7 @@ if not isinstance(rows, dict) or not isinstance(allowed, dict):
     print("ERROR: the run published no conservation rows.", file=sys.stderr)
     raise SystemExit(2)
 for key, v in sorted(rows.items()):
-    if key == "energy_stock" and v == "unmeasured":
+    if key == "energy_held" and v == "unmeasured":
         continue
     # A row with no number, or no floor to judge it against, EXAMINED NOTHING: that is exit 2.
     # A violation is a stock that was measured and moved.

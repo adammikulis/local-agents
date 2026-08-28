@@ -45,21 +45,18 @@ func fold() -> Dictionary:
 	if r.has("crust_moved") and int(r.get("crust_ref_step", -1.0)) >= 0:
 		out["crust_moved"] = float(r["crust_moved"]) * 0.5
 		out["crust_ref_step"] = int(r["crust_ref_step"])
-	if r.has("energy_stock"):
-		out["energy_missing"] = PackedStringArray()
-		out["energy_stock"] = float(r["energy_stock"])
-	else:
-		out["energy_missing"] = PackedStringArray(["h_j_m3"])
 	if r.has("charge_stock") and r.has("charge_gross"):
 		out["charge_stock"] = float(r["charge_stock"])
 		out["charge_gross"] = float(r["charge_gross"])
-	# Joules over one step, volume-weighted. A book the device did not deliver is NAMED, never skipped:
-	# skipping one nulls the whole radiative block and the conservation row reads UNMEASURED instead of red.
-	var absent: PackedStringArray = out.get("energy_missing", PackedStringArray())
+	# The three stores the world's energy is the sum of, then the joules over one step that move it,
+	# volume-weighted. One the device did not deliver is NAMED, never skipped: a total short one of its
+	# stores is not a total, and skipping a book reads UNMEASURED instead of red.
+	var want: PackedStringArray = PackedStringArray(["energy_stock", "energy_kinetic", "energy_potential"])
 	for row: Dictionary in LAProcessSet.reduce_rows():
-		if not bool(row.get("energy_book", false)):
-			continue
-		var key: String = String(row["key"])
+		if bool(row.get("energy_book", false)):
+			want.append(String(row["key"]))
+	var absent: PackedStringArray = PackedStringArray()
+	for key: String in want:
 		if r.has(key):
 			out[key] = float(r[key])
 		else:
