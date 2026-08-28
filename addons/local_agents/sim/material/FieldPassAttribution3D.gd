@@ -192,9 +192,7 @@ func _mass_scalars(f: Dictionary, channels: PackedStringArray) -> Dictionary:
 		"all": LAFieldLedgerRecords.sum_of(all_by, channels)}
 
 
-## The stock is the enthalpy the cells hold. There is no heat/capacity split to take: that decomposition
-## existed only to separate "temperature moved" from "the capacity mix moved", and with h as the state
-## there is no capacity mix.
+## The stock is the enthalpy the cells hold.
 func _energy_scalars(f: Dictionary) -> Dictionary:
 	return {"stock": float(f["energy_stock"])}
 

@@ -67,6 +67,22 @@ Array walk(Object *p_field, const String &p_key, const String &p_value, bool p_n
 // Kilograms of each substance in one cell, keyed by LASubstances id: mol/m^3 times molar mass times the
 // cell's own volume. Gas is matter with heat capacity like any other and is counted with the rest. EMPTY
 // for a cell under the bulk-density floor state_derive.glsl empties on: it holds no bulk state at all.
+// The solid mask as the kernels read it: 1.0 where the cell is lattice rock.
+void LAFieldCellMass3D::upload_solid(RenderingDevice *p_rd, const Dictionary &p_bufs, Object *p_field) {
+	if (!p_rd || !p_field || !p_bufs.has("solid")) {
+		return;
+	}
+	const PackedByteArray m = p_field->get("_solid");
+	PackedFloat32Array f;
+	f.resize(m.size());
+	float *w = f.ptrw();
+	for (int i = 0; i < m.size(); i++) {
+		w[i] = m[i] != 0 ? 1.0f : 0.0f;
+	}
+	PackedByteArray b = f.to_byte_array();
+	p_rd->buffer_update(RID(p_bufs["solid"]), 0, b.size(), b);
+}
+
 void LAFieldCellMass3D::upload_regolith(RenderingDevice *p_rd, const Dictionary &p_bufs, Object *p_field) {
 	if (!p_rd || !p_field) {
 		return;
@@ -237,7 +253,7 @@ double LAFieldCellMass3D::gas_moles_at(Object *p_field, int p_c, double p_cell_m
 
 Dictionary LAFieldCellMass3D::seed_enthalpy(Object *p_field, Object *p_grid,
 		const PackedFloat32Array &p_profile, double p_r_body, double p_t_surface_c,
-		const PackedFloat32Array &p_p_pa) {
+		const PackedFloat32Array &p_p_pa, const PackedFloat32Array &p_depth) {
 	Dictionary out;
 	if (!p_field || !p_grid) {
 		return out;
@@ -290,9 +306,12 @@ Dictionary LAFieldCellMass3D::seed_enthalpy(Object *p_field, Object *p_grid,
 		if (!(cell_m3 > 0.0) || c >= p_p_pa.size() || c >= centres.size()) {
 			continue;
 		}
-		const double r = double((centres[c] - centre).length());
+		// THE GEOTHERM RUNS DOWN FROM THE LOCAL GROUND: an ocean floor or valley is at the surface's
+		// temperature, whatever its radius; a cell above its ground holds the surface air's.
+		const double depth = c < p_depth.size() ? double(p_depth[c]) : p_r_body - double((centres[c] - centre).length());
+		const double r = p_r_body - depth;
 		double t_c = p_t_surface_c;
-		if (samples >= 2 && p_r_body > 0.0 && r < p_r_body) {
+		if (samples >= 2 && p_r_body > 0.0 && depth > 0.0 && r > 0.0) {
 			const double x = r / p_r_body * double(samples - 1);
 			int i = int(std::floor(x));
 			i = std::min(std::max(i, 0), samples - 2);
@@ -363,13 +382,15 @@ double LAFieldCellMass3D::kg_m3_at(const Array &p_mirrors, int p_c) {
 void LAFieldCellMass3D::_bind_methods() {
 	ClassDB::bind_static_method("LAFieldCellMass3D",
 			D_METHOD("upload_regolith", "rd", "bufs", "field"), &LAFieldCellMass3D::upload_regolith);
+	ClassDB::bind_static_method("LAFieldCellMass3D",
+			D_METHOD("upload_solid", "rd", "bufs", "field"), &LAFieldCellMass3D::upload_solid);
 	ClassDB::bind_static_method("LAFieldCellMass3D", D_METHOD("regolith", "field", "shells"), &LAFieldCellMass3D::regolith);
 	ClassDB::bind_static_method("LAFieldCellMass3D",
 			D_METHOD("masses_at", "field", "cell", "cell_m3"), &LAFieldCellMass3D::masses_at);
 	ClassDB::bind_static_method("LAFieldCellMass3D",
 			D_METHOD("gas_moles_at", "field", "cell", "cell_m3"), &LAFieldCellMass3D::gas_moles_at);
 	ClassDB::bind_static_method("LAFieldCellMass3D",
-			D_METHOD("seed_enthalpy", "field", "grid", "profile", "r_body", "t_surface_c", "p_pa"),
+			D_METHOD("seed_enthalpy", "field", "grid", "profile", "r_body", "t_surface_c", "p_pa", "depth"),
 			&LAFieldCellMass3D::seed_enthalpy);
 	ClassDB::bind_static_method("LAFieldCellMass3D", D_METHOD("mirrors", "field"),
 			&LAFieldCellMass3D::mirrors);

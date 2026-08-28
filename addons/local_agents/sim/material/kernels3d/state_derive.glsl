@@ -38,6 +38,11 @@ layout(set = 0, binding = 90, std430) restrict writeonly buffer KinBuf { float k
 layout(set = 0, binding = 78, std430) restrict readonly buffer GravPhi { float grav_phi[]; };   // deviation from grav_ref
 layout(set = 0, binding = 95, std430) restrict readonly buffer GravRef { float grav_ref[]; };   // J/kg, the monopole reference  // J/kg
 layout(set = 0, binding = 91, std430) restrict writeonly buffer PotBuf { float pe_j_m3[]; };
+// The cell's condensed matter other than water: volume fraction and kg/m^3, every lithic channel summed.
+layout(set = 0, binding = 96, std430) restrict writeonly buffer LithicFrac { float lithic_frac[]; };
+layout(set = 0, binding = 97, std430) restrict writeonly buffer LithicKg { float lithic_kg[]; };
+// An open cell's fluid pV per cell volume, J/m^3: its pressure over the volume its grains leave.
+layout(set = 0, binding = 98, std430) restrict writeonly buffer PvFluid { float pv_fluid[]; };
 // Radiogenic power of this cell's own matter, W/m^3: sum over channels of amount * M * W/kg(mix, epoch).
 // flux.glsl's RADIOGENIC leg deposits it into the enthalpy.
 layout(set = 0, binding = 65, std430) restrict writeonly buffer RadW { float rad_w_m3[]; };
@@ -296,6 +301,7 @@ void main() {
 	float rad_w = 0.0;       // radiogenic power of the cell's matter, W/m^3
 	// EOS sums: b* the unstressed condensed volume of everything but h2o, c* its compressibility.
 	float b0 = 0.0; float b1 = 0.0; float b2 = 0.0;
+	float lith_frac = 0.0; float lith_kg = 0.0;
 	float c0 = 0.0; float c1 = 0.0; float c2 = 0.0;
 	float mol_h2o = 0.0;
 
@@ -315,6 +321,10 @@ void main() {
 		v_lambda += vf * props[base + PROP_LAMBDA];
 		v_used += vf;
 		v_lithic += props[base + PROP_LITHIC] > 0.0 ? vf : 0.0;
+		if (props[base + PROP_CONDENSED] > 0.0 && entry != E_H2O) {
+			lith_frac += vf;
+			lith_kg += m;
+		}
 		v_sil += entry == E_SILICATE ? vf : 0.0;
 		rad_w += f * props[base + PROP_M] * rad_w_kg(int(props[base + PROP_RAD_GROUP]));
 		n_gas_mol += m * props[base + PROP_MOL_PER_KG];
@@ -354,6 +364,8 @@ void main() {
 	conductivity[g] = (v_used > 0.0) ? v_lambda / v_used : 0.0;
 	float rho = total * inv_vol;     // kg/m^3, gas included: gravity pulls on all of it
 	rho_bulk[g] = rho;
+	lithic_frac[g] = clamp(lith_frac, 0.0, 1.0);
+	lithic_kg[g] = lith_kg * inv_vol;
 	vec3 v_frame = cross(omega, r_vec);
 	pe_j_m3[g] = rho * (params.grav_self * (grav_phi[g] + grav_ref[g]) - 0.5 * dot(v_frame, v_frame));
 	ke_j_m3[g] = 0.0;
@@ -382,6 +394,7 @@ void main() {
 		h_sensible[g] = 0.0;
 		cap_sensible[g] = 0.0;
 		k_cond[g] = 0.0;
+		pv_fluid[g] = 0.0;
 		if (params.restate == 0u) {
 			bodyf_x[g] = 0.0;
 			bodyf_y[g] = 0.0;
@@ -392,14 +405,14 @@ void main() {
 		return;   // no mass, so the frame terms deliver no momentum either
 	}
 	mom_orphan[g] = 0.0;
-	// v = p/rho, momentum density over mass density. Dividing by the density rather than multiplying by
-	// vol/total keeps the intermediate inside float range on a grid whose cells are kilometres wide.
-	v = vec3(mom_x[g], mom_y[g], mom_z[g]) / rho;
+	// v = p/rho over the matter that moves: the lattice's grains stand still.
+	float rho_f = max(rho - lith_kg * inv_vol, 0.0);
+	v = rho_f > 0.0 ? vec3(mom_x[g], mom_y[g], mom_z[g]) / rho_f : vec3(0.0);
 	vel_x[g] = v.x;
 	vel_y[g] = v.y;
 	vel_z[g] = v.z;
 	speed[g] = length(v);
-	ke_j_m3[g] = 0.5 * rho * dot(v, v);
+	ke_j_m3[g] = 0.5 * rho_f * dot(v, v);
 
 	SubstanceTh subs[LA_MIX_MAX];
 	subs[E_H2O] = la_h2o();
@@ -516,8 +529,11 @@ void main() {
 	temp[g] = t_c;
 	if (solid[g] == 0.0) {
 		pressure[g] = p_pa;
+		// dH = V dp over the fluid's own volume: the grains stand at ambient pressure.
+		float room_f = 1.0 - clamp(lith_frac, 0.0, 1.0);
+		pv_fluid[g] = p_pa * room_f;
 		if (dpdt) {
-			h_j_m3[g] += p_pa - p_prev;
+			h_j_m3[g] += (p_pa - p_prev) * room_f;
 		}
 	}
 
@@ -589,7 +605,7 @@ void main() {
 	if (w_len > 0.0) {
 		acc += -2.0 * cross(omega, v);
 	}
-	vec3 dp = acc * rho * params.dt_s;
+	vec3 dp = acc * rho_f * params.dt_s;
 	bodyf_x[g] = dp.x;
 	bodyf_y[g] = dp.y;
 	bodyf_z[g] = dp.z;

@@ -52,6 +52,7 @@ public:
 	static double core_radius_frac(double p_t_c, double p_p_pa);
 	static PackedFloat32Array rock_fraction(Object *p_grid, Object *p_terrain, const Vector3 &p_centre);
 	static PackedByteArray solid_of(const PackedFloat32Array &p_fraction);
+	static PackedFloat32Array surface_depth(Object *p_grid, Object *p_terrain, const Vector3 &p_centre);
 	static double radius_for_mass(double p_mass_kg, double p_t_c);
 	static double core_radius_m(double p_radius_m, double p_t_c);
 	static Dictionary body_field(Object *p_grid, const Vector3 &p_centre, double p_radius_m, double p_t_c);

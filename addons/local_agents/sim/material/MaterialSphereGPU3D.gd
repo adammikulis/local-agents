@@ -111,7 +111,8 @@ func setup(field) -> void:
 	gh.fill(-1)
 	var gh_bytes: PackedByteArray = gh.to_byte_array()
 	_bufs["ghost"] = _rd.storage_buffer_create(gh_bytes.size(), gh_bytes)
-	_bufs["pos"] = _make_vec3_flat(func(c: int) -> Vector3: return _grid.cell_world_pos(c))
+	var pos_b: PackedByteArray = _grid.centres.to_byte_array()
+	_bufs["pos"] = _rd.storage_buffer_create(pos_b.size(), pos_b)
 	# The SOLVED gravity, flat cell*3, m/s^2. GravityPass writes it, every kernel that asks which way is
 	# down reads it, and nothing anywhere holds a gravity constant.
 	_bufs["gravity"] = _new_f(tc * 3)
@@ -127,7 +128,7 @@ func setup(field) -> void:
 	for gas in ["h2", "co", "so2", "h2s", "ch4"]:
 		seed_field(String(gas), field.get("_" + String(gas)), field._seal)
 	_seed("h2o", field._h2o)            # the ocean basin + the primed water table
-	_seed_solid()
+	LAFieldCellMass3D.upload_solid(_rd, _bufs, _field)
 	_seed_silicate()
 	_seed_regolith()                    # aquifer permeability mask + grain-size field (static)
 
@@ -214,10 +215,10 @@ func begin_frame(h: PackedFloat32Array, water: PackedFloat32Array) -> void:
 	if _water_dirty:
 		_upload_f(_bufs["h2o"], water)
 		_water_dirty = false
-	# solid + static masks change only on an SDF edit (volcano stamp, terrain edit) — NOT per step. _seed_solid
+	# solid + static masks change only on an SDF edit (volcano stamp, terrain edit) — NOT per step. The solid upload
 	# rebuilt + uploaded BOTH full-grid buffers every frame; gate it so it only fires when the CPU mask changed.
 	if _solid_dirty:
-		_seed_solid()
+		LAFieldCellMass3D.upload_solid(_rd, _bufs, _field)
 		_solid_dirty = false
 	_ctx["dt"] = LAMaterialFieldSphereStep3D.real_seconds_per_step()   # simulated seconds, not the cadence
 	_ctx["cell_size"] = _grid.cell_size
@@ -704,17 +705,6 @@ func _new_f(n: int) -> RID:
 	var z: PackedByteArray = _zeros(n)
 	return _rd.storage_buffer_create(z.size(), z)
 
-func _make_vec3_flat(getter: Callable) -> RID:
-	var f: PackedFloat32Array = PackedFloat32Array()
-	f.resize(_cc * 3)
-	for c in _cc:
-		var v: Vector3 = getter.call(c)
-		f[c * 3 + 0] = v.x
-		f[c * 3 + 1] = v.y
-		f[c * 3 + 2] = v.z
-	var b: PackedByteArray = f.to_byte_array()
-	return _rd.storage_buffer_create(b.size(), b)
-
 ## Seed a channel from its CPU mirror.
 func _seed(name: String, arr: PackedFloat32Array) -> void:
 	if not _bufs.has(name) or arr.size() == 0 or arr.size() % _cc != 0:
@@ -722,14 +712,6 @@ func _seed(name: String, arr: PackedFloat32Array) -> void:
 		return
 	var bytes: PackedByteArray = arr.to_byte_array()
 	_rd.buffer_update(_bufs[name], 0, bytes.size(), bytes)
-
-func _seed_solid() -> void:
-	var f: PackedFloat32Array = PackedFloat32Array()
-	f.resize(_cc)
-	for i in _cc:
-		f[i] = 1.0 if _field._solid[i] != 0 else 0.0
-	var b: PackedByteArray = f.to_byte_array()
-	_rd.buffer_update(_bufs["solid"], 0, b.size(), b)
 
 func _seed_regolith() -> void:
 	LAFieldCellMass3D.upload_regolith(_rd, _bufs, _field)

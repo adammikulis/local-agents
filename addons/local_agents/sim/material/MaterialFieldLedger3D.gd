@@ -236,8 +236,8 @@ func _publish_energy(out: Dictionary, f: Dictionary, step: int) -> void:
 	# THE FIRST LAW'S TOTAL: internal energy (the stored enthalpy less its pV) plus motion plus potential.
 	out["energy_stock"] = float(f["energy_stock"])
 	out["energy_stock_open"] = float(f["energy_stock_open"]) if f.has("energy_stock_open") else null
-	out["energy_held"] = float(f["energy_stock"]) - float(f["energy_pv"]) + float(f["energy_kinetic"]) \
-		+ float(f["energy_potential"])
+	out["energy_held"] = float(f["energy_stock"]) - float(f["energy_pv_solid"]) - float(f["energy_pv_fluid"]) \
+		+ float(f["energy_kinetic"]) + float(f["energy_potential"])
 
 	# WATTS, off the device. flux.glsl's RADIATE row writes what each cell took in and sent out as
 	# J/m^3 for one step; the two reduce rows weight those by cell volume, so the pair arrives in joules

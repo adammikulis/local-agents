@@ -23,6 +23,7 @@ var _cell_count: int = 0
 
 var _solid: PackedByteArray = PackedByteArray()          # 1 = rock (holds no fluid), 0 = void (air/water)
 var _rock_fraction: PackedFloat32Array = PackedFloat32Array()   # share of the cell's volume inside the terrain
+var _surface_depth: PackedFloat32Array = PackedFloat32Array()   # m below the local ground, negative above it
 # One h2o channel, every phase; mol/m^3 of the cell. Phase is derived per cell.
 var _h2o: PackedFloat32Array = PackedFloat32Array()
 var _h2o_solid: PackedFloat32Array = PackedFloat32Array()    # share of _h2o that is ice
@@ -373,16 +374,17 @@ func sample_solidity() -> void:
 	if _terrain == null or not _terrain.has_method("is_solid") or _grid == null:
 		return
 	var k: String = "" if _terrain_opts.is_empty() else FieldCacheScript.key(_terrain_opts, _grid)
+	var cached: Dictionary = LAFieldStateCache.load_blob(k)
 	_rock_fraction = FieldCacheScript.load_fraction(k, _cell_count, self)
-	if _rock_fraction.size() != _cell_count:
+	_surface_depth = cached.get("surface_depth", PackedFloat32Array())
+	if _rock_fraction.size() != _cell_count or _surface_depth.size() != _cell_count:
 		_rock_fraction = LAPlanetComposition.rock_fraction(_grid, _terrain, centre())
-		LAFieldStateCache.save_blob(k, {"rock_fraction": _rock_fraction})
+		_surface_depth = LAPlanetComposition.surface_depth(_grid, _terrain, centre())
+		LAFieldStateCache.save_blob(k, {"rock_fraction": _rock_fraction, "surface_depth": _surface_depth})
 	_solid = LAPlanetComposition.solid_of(_rock_fraction)
 	_seed_silicate()
 
-## Mineral amounts mirror the sampled mask, so the gravity solve has mass to read before the first step.
-## Seeded rock is fully consolidated bedrock, layered as the differentiated planet LAPlanetComposition
-## derives from the element registry.
+## Mineral amounts mirror the sampled mask: consolidated bedrock layered as LAPlanetComposition derives.
 func _seed_silicate() -> void:
 	if _silicate.size() != _cell_count or _cement.size() != _cell_count or _solid.size() != _cell_count:
 		return

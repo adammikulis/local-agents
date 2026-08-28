@@ -128,7 +128,9 @@ layout(set = 0, binding = 76, std430) readonly buffer N2Buf { float n2_gas[]; };
 layout(set = 0, binding = 77, std430) readonly buffer H2Buf { float h2_gas[]; };
 layout(set = 0, binding = 78, std430) restrict readonly buffer GravPhi { float grav_phi[]; };  // J/kg
 layout(set = 0, binding = 95, std430) restrict readonly buffer GravRef { float grav_ref[]; };  // J/kg
-layout(set = 0, binding = 91, std430) restrict buffer PotBuf { float pe_j_m3[]; };  // the cell's own potential energy per volume
+layout(set = 0, binding = 91, std430) restrict buffer PotBuf { float pe_j_m3[]; };
+layout(set = 0, binding = 96, std430) restrict readonly buffer LithicFrac { float lithic_frac[]; };
+layout(set = 0, binding = 97, std430) restrict readonly buffer LithicKg { float lithic_kg[]; };  // the cell's own potential energy per volume
 // The charge riding a crossing, C/m^3 per step.
 layout(set = 0, binding = 79, std430) buffer BndQ { float bnd_q[]; };
 
@@ -205,7 +207,7 @@ float h_per_unit(uint c) {
 // Charge per unit of THIS substance in cell `c`: the cell's charge shared out by mass, so a mole
 // leaving takes the charge its mass was carrying.
 float charge_per_unit(uint c) {
-	float rb = rho_bulk[c];
+	float rb = rho_fluid(c);
 	return rb > 0.0 ? sub_kg_mol() * charge[c] / rb : 0.0;
 }
 
@@ -234,8 +236,13 @@ float drift_at(uint c, uint n, uint d, float dist) {
 		if (k <= 0.0 || gm <= 0.0 || params.fluid_rho <= 0.0) {
 			return 0.0;
 		}
-		// Piezometric head, m: elevation plus the pore pressure the fluid stands under.
-		float dh = (-la_dphi(c, n, d) + (max(pressure[c], 0.0) - max(pressure[n], 0.0)) / params.fluid_rho) / gm;
+		// Piezometric head, m: elevation, plus the pressure the fluid stands under where BOTH cells are
+		// open. A locked cell's pressure is its lattice's stress; the water in its pores stands at
+		// hydrostatic head. LA_APPROX: hydrostatic_pore_pressure
+		float p_c = solid[c] == 0.0 ? max(pressure[c], 0.0) : 0.0;
+		float p_n = solid[n] == 0.0 ? max(pressure[n], 0.0) : 0.0;
+		bool both_open = solid[c] == 0.0 && solid[n] == 0.0;
+		float dh = (-la_dphi(c, n, d) + (both_open ? (p_c - p_n) / params.fluid_rho : 0.0)) / gm;
 		return k * dh / dist;
 	}
 	if (params.law == LAW_SHALLOW) {
@@ -262,8 +269,9 @@ float drift_at(uint c, uint n, uint d, float dist) {
 // homogenises the MIXING RATIO, relaxed exactly over the substep at the rate the pair's masses set.
 float diffusive_at(uint c, uint n, float dist, float open) {
 	if (params.law == LAW_EDDY) {
-		float rc = max(rho_bulk[c], 0.0);
-		float rn = max(rho_bulk[n], 0.0);
+		// The FLUID each side holds: the bulk less its lithic grains, which do not mix with a gas.
+		float rc = rho_fluid(c);
+		float rn = rho_fluid(n);
 		if (rc <= 0.0 || rn <= 0.0) {
 			return 0.0;
 		}
@@ -315,7 +323,7 @@ void face_states(uint c) {
 	}
 	float fc = condensed_frac(c);
 	float mu_mol = mix(params.mu_air, params.mu_water, fc);
-	float rb = max(rho_bulk[c], 0.0);
+	float rb = rho_fluid(c);
 	float mixl = SMAGORINSKY_COEFF * cell_edge[c];
 	nu_t[c] = (rb > 0.0 ? mu_mol / rb : 0.0) + mixl * mixl * strain_rate(c);
 
@@ -542,7 +550,7 @@ void row_apply(uint c) {
 	if (carries) {
 		charge[c] += d_q;
 		// MOTION IS BOOKED WITH THE MASS: the kinetic energy the merged momentum cannot hold is heat.
-		float rb0 = max(rho_bulk[c], 0.0);
+		float rb0 = rho_fluid(c);
 		vec3 m0 = vec3(mom_x[c], mom_y[c], mom_z[c]);
 		float ke0 = rb0 > 0.0 ? 0.5 * dot(m0, m0) / rb0 : 0.0;
 		mom_x[c] += d_m.x;
@@ -552,7 +560,7 @@ void row_apply(uint c) {
 		float pe_kg_c = rb0 > 0.0 ? pe_j_m3[c] / rb0 : 0.0;
 		pe_j_m3[c] += d_amt * kg_mol * pe_kg_c;
 		rho_bulk[c] += d_amt * kg_mol;
-		float rb1 = max(rho_bulk[c], 0.0);
+		float rb1 = rho_fluid(c);
 		vec3 m1 = m0 + d_m;
 		float ke1 = rb1 > 0.0 ? 0.5 * dot(m1, m1) / rb1 : 0.0;
 		h[c] += ke0 + ke_ride - ke1;
@@ -660,8 +668,8 @@ void move_momentum(uint c) {
 		// EXACTLY over the substep: the pair's velocity difference decays at the rate the two masses set,
 		// so a thin cell beside a dense one relaxes onto it instead of overshooting.
 		float nu = n < params.cell_count ? 0.5 * (nu_t[c] + nu_t[n]) : nu_t[c];
-		float rc = max(rho_bulk[c], 0.0);
-		float rn = max(rho_bulk[n], 0.0);
+		float rc = rho_fluid(c);
+		float rn = rho_fluid(n);
 		float mu = 0.5 * (rc + rn) * nu;
 		float dt_f = la_level_dt(min(tlevel[c], tlevel[n]));
 		float dist = la_face_dist(c, inb);
@@ -679,11 +687,9 @@ void move_momentum(uint c) {
 	mom_y[c] += dm.y + bodyf_y[c] * sf;
 	mom_z[c] += dm.z + bodyf_z[c] * sf;
 	// v = p/rho off the momentum this pass settled, so the next substep's faces read the new field.
-	float rb = rho_bulk[c];
+	float rb = rho_fluid(c);
 	vec3 v = rb > 0.0 ? vec3(mom_x[c], mom_y[c], mom_z[c]) / rb : vec3(0.0);
-	// THE WORK THE FACES DID: what the pressure and viscous impulse gave to motion, the enthalpy
-	// loses (rho Dh/Dt = v.grad p). A stacked cell's departure impulse carries its weight, and that
-	// leg is the potential book's, so it is taken back out before the debit.
+	// rho Dh/Dt = v.grad p: the faces' work, less the weight leg the potential book carries.
 	vec3 gv = g_at(c);
 	vec3 fg = (max(pressure[c], 0.0) > 0.0 && length(gv) > 0.0) ? rb * gv * la_level_dt(tlevel[c]) : vec3(0.0);
 	h[c] -= dot(0.5 * (v_old + v), dm - fg);
