@@ -10,6 +10,31 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 require_tool rg
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
 
+# ARM ONE, ON THE KERNEL. The face scratch is one buffer for every row, so a gather that trusts a
+# neighbour's slot without knowing whose dispatch wrote it reads another row's units as its own: that is
+# how joules of radiated heat arrived in a rock cell as moles of gas. The outflow stamps what it zeroed
+# and the gather reads only its own stamp.
+T="$ROOT/addons/local_agents/sim/material/kernels3d/transport.glsl"
+[ -f "$T" ] || { echo "check_gas_in_rock: MISSING ${T#"$ROOT"/}" >&2; exit 2; }
+rg -q -e 'send_group\[gidx\] = la_stamp\(\)' "$T" || {
+	echo "check_gas_in_rock: transport.glsl's outflow no longer stamps the face slots it zeroed." >&2
+	exit 1
+}
+rg -q -e 'if \(!la_fresh\(nb\)\)' "$T" || {
+	echo "check_gas_in_rock: transport.glsl's gather no longer refuses a face its own outflow did not" >&2
+	echo "                   write, so it reads whatever row wrote that slot last." >&2
+	exit 1
+}
+# The wall belongs to the FACE, so the same test stands on both sides of it: the outflow refuses to send
+# and the gather refuses to receive.
+sides="$(rg -N -c -e 'solid\[gidx\] != 0\.0 && blocks_solid' "$T" || true)"
+[ "${sides:-0}" -ge 2 ] || {
+	echo "check_gas_in_rock: transport.glsl states the solid wall on one side of the face only, so stone" >&2
+	echo "                   may take delivery of what it would never be sent." >&2
+	exit 1
+}
+
+# ARM TWO, ON THE WORLD.
 CH="$ROOT/addons/local_agents/sim/material/Channels.gd"
 [ -f "$CH" ] || { echo "check_gas_in_rock: MISSING Channels.gd" >&2; exit 2; }
 GASES="$(rg -N -o -e '^\s*"([a-z0-9_]+)":.*"phase": "gas"' -r '$1' "$CH")"
@@ -17,7 +42,10 @@ GASES="$(rg -N -o -e '^\s*"([a-z0-9_]+)":.*"phase": "gas"' -r '$1' "$CH")"
 
 keys=""
 for g in $GASES; do keys="${keys}all_${g},open_${g},"; done
-out="$(la_report "${keys%,}" --path "$ROOT" --frames "${LA_GAS_FRAMES:-2}" 2>&1)" || true
+# The gap opens over the run, so an arm short enough to miss it is a gate that cannot fail: this is the
+# shared capture's own length, rung and seed.
+out="$(la_report "${keys%,}" --path "$ROOT" --frames "${LA_GAS_FRAMES:-20}" \
+	--rung "${LA_GAS_RUNG:-8}" --seed 4242 --from-seal 2>&1)" || true
 # A gauge publishes {'cur': x, 'min': y, 'max': z}; the stock now is 'cur'.
 reading() {
 	printf '%s\n' "$out" | sed -n "s/^$1  *= *//p" | head -1 \

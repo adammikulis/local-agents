@@ -151,6 +151,7 @@ layout(set = 0, binding = 86, std430) buffer ActQueue { uint act_q[]; };
 // Cells another kernel changed, slot 3 of the args carrying their count.
 layout(set = 0, binding = 87, std430) buffer WakeQueue { uint wake_q[]; };
 layout(set = 0, binding = 88, std430) buffer WakeArgs { uint wake_args[]; };
+layout(set = 0, binding = 90, std430) restrict buffer SendGroup { uint send_group[]; };
 
 #include "march.glsli"
 
@@ -206,6 +207,10 @@ uint args_base() { return params.act_group * (ACT_QUEUE_BIN + 1u) * LEVEL_SLOTS;
 
 // Matter crossed this cell recently enough that it may still donate.
 bool awake(uint c) { return quiet[act_base() + c] < ACT_QUIET_SUBSTEPS; }
+
+// A gather may read a face only where this dispatch's own outflow zeroed it.
+uint la_stamp() { return params.act_group + 1u; }
+bool la_fresh(uint c) { return send_group[c] == la_stamp(); }
 
 float la_level_dt(uint lv) {
 	return params.dt_s * exp2(-float(lv));
@@ -878,7 +883,11 @@ void main() {
 	if (params.pass_id == PASS_ACT_AGE) {
 		if (gidx < act_listed()) {
 			uint c = level_idx[act_base() + gidx];
-			quiet[act_base() + c] = la_outside_driven(c) ? 0u : quiet[act_base() + c] + 1u;
+			uint q = la_outside_driven(c) ? 0u : quiet[act_base() + c] + 1u;
+			quiet[act_base() + c] = q;
+			if (q >= ACT_QUIET_SUBSTEPS) {
+				send_group[c] = 0u;
+			}
 		}
 		return;
 	}
@@ -1092,6 +1101,7 @@ void main() {
 			send_my[base + d] = 0.0;
 			send_mz[base + d] = 0.0;
 		}
+		send_group[gidx] = la_stamp();
 		// DETECTORS ONLY, stamped in pass 0 off the one pre-drain state the OHMIC mobility acts on.
 		if ((params.flags & TF_EFIELD) != 0u && gidx < params.cell_count) {
 			float e_here = column_field(gidx);
@@ -1334,8 +1344,8 @@ void main() {
 	}
 
 	// Pass 1: gather.
-	// Rock is quasi-static: a wall's normal push goes to the body, never into a solid cell's momentum.
-	if (is_signed && solid[gidx] != 0.0) {
+	// The wall is the FACE'S: what a solid cell refuses to be sent it also refuses to receive.
+	if (solid[gidx] != 0.0 && blocks_solid) {
 		return;
 	}
 	float gained = 0.0;
@@ -1389,28 +1399,26 @@ void main() {
 			continue;
 		}
 		if (exterior && params.mode != MODE_RADIATE) {
-			float in_a = awake(nb) ? send[nb * N_SLOTS + (d ^ 1u)] : 0.0;
+			float in_a = la_fresh(nb) ? send[nb * N_SLOTS + (d ^ 1u)] : 0.0;
 			bnd_amt[gidx] += in_a - send[base + d];
 			// A signed row (momentum) is not matter and carries no heat leg.
 			if (!is_signed) {
 				uint nbo = nb * N_SLOTS + (d ^ 1u);
-				float in_h = awake(nb) ? send_h[nbo] : 0.0;
+				float in_h = la_fresh(nb) ? send_h[nbo] : 0.0;
 				bnd_h[gidx] += (params.flags & TF_ENTHALPY) != 0u
 					? in_a - send[base + d]
 					: in_h - send_h[base + d];
-				float in_q = awake(nb) ? send_q[nbo] : 0.0;
+				float in_q = la_fresh(nb) ? send_q[nbo] : 0.0;
 				bnd_q[gidx] += in_q - send_q[base + d];
 				// The momentum the crossing mass carries, booked on its own signed legs.
-				vec3 in_m = awake(nb)
+				vec3 in_m = la_fresh(nb)
 					? vec3(send_mx[nbo], send_my[nbo], send_mz[nbo]) : vec3(0.0);
 				bnd_mom_x[gidx] += in_m.x - send_mx[base + d];
 				bnd_mom_y[gidx] += in_m.y - send_my[base + d];
 				bnd_mom_z[gidx] += in_m.z - send_mz[base + d];
 			}
 		}
-		// ONLY AN AWAKE CELL RAN THE OUTFLOW, so only its face scratch is this substep's; a sleeping
-		// cell's still holds whatever row wrote it last.
-		if (!awake(nb)) {
+		if (!la_fresh(nb)) {
 			continue;
 		}
 		// Radiation arrives from the whole grid line behind this face, not just from the cell touching it.
@@ -1464,8 +1472,7 @@ void main() {
 	}
 	// LA_APPROX: boundary_relaxation_zone
 	bool la_last = params.substep_k + (params.substep_n >> la_lv) >= params.substep_n;
-	if ((params.flags & TF_RELAX) != 0u && la_last && rim_w[gidx] > 0.0
-			&& !(solid[gidx] != 0.0 && blocks_solid)) {
+	if ((params.flags & TF_RELAX) != 0u && la_last && rim_w[gidx] > 0.0) {
 		int rg = rim_ghost[gidx];
 		if (rg >= int(params.cell_count) && rg < int(params.total_count)) {
 			uint rgu = uint(rg);
