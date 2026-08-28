@@ -257,7 +257,8 @@ fi
 echo "$line"
 
 # --- arm three: the seeded world runs this driver ----------------------------------------------------
-out2="$(la_report field_step --frames 20 --rung 2 2>&1)"
+# A declared second arm: the shared capture is the full world, this arm boots the playable rung.
+out2="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --from-seal --rung 2 --frames 20 --report field_step 2>&1)"
 rc2=$?
 line2="$(printf '%s\n' "$out2" | grep -m1 'field_step')"
 if [ -z "$line2" ] || printf '%s' "$line2" | grep -q 'ABSENT'; then
