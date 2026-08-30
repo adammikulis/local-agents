@@ -1,7 +1,7 @@
 class_name LATemporalLevels
 extends RefCounted
 
-## LEVELS IN TIME: a row group subdivides the field step to the finest level any listed cell asks for.
+## LEVELS IN TIME: a cell subdivides its own timestep, and hands its level to its neighbours.
 
 ## Slots per level in the args buffer: FluxPass.Arg. 0-2 the indirect uvec3, 3 the histogram count,
 ## 4 the sorted offset, 5 the scatter cursor, 6 the suffix count at this level or finer.

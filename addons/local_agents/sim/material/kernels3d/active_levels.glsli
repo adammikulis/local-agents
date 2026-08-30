@@ -9,7 +9,7 @@
 // a full-grid row binds one buffer into all three slots.
 layout(set = 0, binding = 34, std430) buffer ActiveIdx { uint active_idx[]; };
 layout(set = 0, binding = 35, std430) buffer ActiveArgs { uint active_args[]; };
-// TEMPORAL LEVELS. A listed cell's timestep is dt/2^tlevel, the group's peak; the ghost tail is level 0. `level_idx`
+// TEMPORAL LEVELS. A cell's own stable timestep is dt/2^tlevel; the ghost tail is level 0. `level_idx`
 // holds every cell sorted by level, and `level_args` per level: indirect groups, the histogram count,
 // the sorted offset, the scatter cursor and the suffix count of cells at that level or finer.
 layout(set = 0, binding = 80, std430) buffer TLevel { uint tlevel[]; };
@@ -41,15 +41,17 @@ const uint ACT_NO_GROUP = ~0u;
 const uint PASS_LIST_RESET = 3u;
 const uint PASS_LIST_APPEND = 4u;
 const uint PASS_LIST_ARGS = 5u;
-const uint PASS_LEVEL_RESET = 9u;
-const uint PASS_LEVEL_SCAN = 10u;
-const uint PASS_LEVEL_SORT = 11u;
-const uint PASS_LEVEL_PEAK = 12u;
-const uint PASS_ACT_AGE = 13u;
-const uint PASS_ACT_WAKE = 14u;
-const uint PASS_ACT_MARK = 15u;
-const uint PASS_ACT_WAKE_RESET = 16u;
-const uint PASS_ACT_SEED = 17u;
+const uint PASS_LEVEL_SEED = 9u;
+const uint PASS_LEVEL_RELAX = 10u;
+const uint PASS_LEVEL_RESET = 11u;
+const uint PASS_LEVEL_SCAN = 12u;
+const uint PASS_LEVEL_SORT = 13u;
+const uint PASS_LEVEL_PEAK = 14u;
+const uint PASS_ACT_AGE = 15u;
+const uint PASS_ACT_WAKE = 16u;
+const uint PASS_ACT_MARK = 17u;
+const uint PASS_ACT_WAKE_RESET = 18u;
+const uint PASS_ACT_SEED = 19u;
 
 // Where this dispatch's group starts in the per-cell activity counter and in the per-level args.
 uint act_base() { return params.act_group * params.total_count; }
@@ -116,15 +118,7 @@ void act_claim_append(uint n) {
 		return;
 	}
 	act_q[slot] = n;
-	// ONE CLOCK PER GROUP: whatever is listed steps at the finest level the group asked for, so no face
-	// joins two clocks. The substep count carries the level; a ghost tail cell keeps level 0.
-	uint lv = uint(findMSB(max(params.substep_n, 1u)));
-	if (n < params.cell_count) {
-		tlevel[n] = lv;
-	} else {
-		lv = 0u;
-	}
-	atomicAdd(level_args[args_base() + min(lv, ACT_BINS - 1u) * LEVEL_SLOTS + 3u], 1u);
+	atomicAdd(level_args[args_base() + min(tlevel[n], ACT_BINS - 1u) * LEVEL_SLOTS + 3u], 1u);
 }
 
 
@@ -254,6 +248,32 @@ bool la_active_levels(uint gidx) {
 				if (rnb < 0) { rnb = ghost[f]; }
 				if (rnb >= 0 && uint(rnb) < params.total_count) {
 					tlevel[uint(rnb)] = 0u;
+				}
+			}
+		}
+		return true;
+	}
+	// EACH CELL'S OWN CLOCK, and every face's clock fine enough for both its cells: a cell takes the
+	// level its own state asks for, then hands it to each neighbour, so a face on the coarser of the
+	// pair's clocks still stays inside the finer cell's bound. A ring cell inherits its awake neighbour's.
+	if (params.pass_id == PASS_LEVEL_SEED) {
+		if (gidx < act_listed()) {
+			uint c = level_idx[act_base() + gidx];
+			if (c < params.cell_count) {
+				tlevel[c] = max(tlevel[c], la_row_level(c));
+			}
+		}
+		return true;
+	}
+	if (params.pass_id == PASS_LEVEL_RELAX) {
+		if (gidx < act_listed()) {
+			uint c = level_idx[act_base() + gidx];
+			uint lv = tlevel[c];
+			for (uint f = la_face_lo(c); f < la_face_hi(c); ++f) {
+				int rnb = nbr[f];
+				if (rnb < 0) { rnb = ghost[f]; }
+				if (rnb >= 0 && rnb < int(params.cell_count)) {
+					atomicMax(tlevel[uint(rnb)], lv);
 				}
 			}
 		}

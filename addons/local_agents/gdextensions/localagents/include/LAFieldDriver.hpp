@@ -33,13 +33,15 @@ public:
 		SLOT_LEVEL_SCAN = 8,
 		SLOT_LEVEL_SORT = 9,
 		SLOT_LEVEL_RESET = 10,
-		SLOT_GRAIN = 11,
-		SLOT_ACT_SEED = 12,
-		SLOT_ACT_WAKE_RESET = 13,
-		SLOT_LIST_RESET = 14,
-		SLOT_LIST_APPEND = 15,
-		SLOT_LIST_ARGS = 16,
-		SLOT_COUNT = 17,
+		SLOT_LEVEL_SEED = 11,
+		SLOT_LEVEL_RELAX = 12,
+		SLOT_GRAIN = 13,
+		SLOT_ACT_SEED = 14,
+		SLOT_ACT_WAKE_RESET = 15,
+		SLOT_LIST_RESET = 16,
+		SLOT_LIST_APPEND = 17,
+		SLOT_LIST_ARGS = 18,
+		SLOT_COUNT = 19,
 	};
 
 	// How a reduce row's workgroup partials combine. LAReduceRecords owns the op table; this is the
@@ -119,7 +121,7 @@ private:
 	void _act(int64_t p_cl, const RID &p_uset, const Array &p_table, int p_slot, int p_group,
 			int p_level, int p_bin);
 	void _rebuild_active(int64_t p_cl, const RID &p_uset, const Array &p_table, int p_group,
-			int p_level, bool p_take_wake, int p_levels);
+			int p_level, bool p_take_wake);
 	void _run_row(int64_t p_cl, int p_row, const Array &p_pc_rows, int p_level, int p_k, int p_n);
 	void _run_slot(int64_t p_cl, int p_row, const Array &p_pc_rows, int p_slot, int p_level, int p_k,
 			int p_n);

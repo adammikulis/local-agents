@@ -28,7 +28,7 @@ if rg -q -e 'la_back_face\(' "$T"; then
 fi
 # The wall belongs to the FACE, so the same test stands on both halves of the record: the flux refuses
 # to write and the apply refuses to receive.
-sides="$(rg -N -c -e 'if \(solid\[c\] != 0\.0 && !pores && !heat\)' "$T" || true)"
+sides="$(rg -N -c -e 'if \(\(?solid\[c\] != 0\.0( \|\| collisionless\(c\))?\)? && !pores && !heat\)' "$T" || true)"
 [ "${sides:-0}" -ge 2 ] || {
 	echo "check_gas_in_rock: flux.glsl states the solid wall on one half of the record only, so stone" >&2
 	echo "                   may take delivery of what it would never be sent." >&2

@@ -505,7 +505,8 @@ void row_flux(uint c) {
 		}
 		float dist_f = la_face_dist(c, inb);
 		float div_f = la_face_div(c, inb);
-		// ONE OPENNESS PER FACE, read the same by both sides: the harder of the pair's resistances.
+		// LA_APPROX: level_seam_coarse_clock
+		// ONE OPENNESS AND ONE CLOCK PER FACE, read the same by both sides: the harder resistance, the coarser clock.
 		float open = min(open_c, 1.0 - clamp(resist[n], 0.0, 1.0));
 		la_dt = la_level_dt(min(lv_c, tlevel[n]));
 		float u = rides ? (water_row ? face_uw[f] : face_u[f]) : 0.0;

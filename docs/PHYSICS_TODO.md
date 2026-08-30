@@ -186,10 +186,6 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
 
 ## D. Transport and geometry
 
-- [ ] **The temporal levels are one clock per row group.** Every listed cell steps at the finest level any
-      cell of the group asks for; the Berger-Oliger reflux that lets a quiet cell keep a coarse clock beside a
-      fine neighbour with the books closing is not written. **Reproduce:** `scripts/sim_run.sh --rung 3
-      --frames 3 --report transport_levels,active_cells`.
 - [ ] **The momentum pass wakes every open cell.** A departure of one float32 ulp at a face at rest wakes
       the cell and its ring, so the active list is the whole box. **Reproduce:** the same command, `active_cells`.
 

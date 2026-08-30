@@ -19,20 +19,12 @@ is measured, and no item about a higher rung is examined until the rungs below i
 
 ---
 
-## 1. THE RUNG-3 PLANET ARM DOES NOT FINISH INSIDE THE RUN CEILING
-
-`scripts/sim_run.sh --rung 3 --frames 8` never reports inside `docs/RUN_TIMEOUT_CEILING`; `scripts/sim_run.sh
---rung 3 --frames 3 --report field_ms,active_cells,transport_levels` reads tens of seconds per step with every
-cell of the box listed in both row groups at the group's one level. The column slab at the planet's own
-cells, `LA_BOUNDARY_FACES=shut,shut,shut,shut,shut,shut scripts/sim_run.sh --slice --rung 3 --slice-box
-"0,surface,0,1,8,1,68665" --frames 6`, holds its seeded temperature with its books closed.
-
-## 1b. OPEN CELLS AT THE CONTINUUM'S EDGE OUTRUN THEIR SOUND SPEED
+## 1. OPEN CELLS AT THE CONTINUUM'S EDGE OUTRUN THEIR SOUND SPEED
 
 `scripts/sim_run.sh --rung 3 --frames 3 --report wind_speed_max,celerity_max` reads a wind above the
 celerity in the thin cells just under the collisionless cut, and `check_rung_acoustic.sh` fails on it.
 
-## 1c. THE VENTED COLUMN'S ENERGY BOOK DOES NOT CLOSE
+## 1b. THE VENTED COLUMN'S ENERGY BOOK DOES NOT CLOSE
 
 `scripts/check_atmosphere_at_rest.sh`: the rest arm is at rest; the vent arm (top face to space) reads an
 energy residual near a tenth of the turnover against its float bar.

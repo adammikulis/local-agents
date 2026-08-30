@@ -91,7 +91,7 @@ const char *const RADIATION_REDUCE[] = { "rad_absorbed", "rad_emitted", "sw_refl
 	"rad_sb_rel_max", nullptr };
 
 const char *const CHEMISTRY_GATES[] = { "check_reaction_balance.sh", "check_conservation.sh",
-	"check_weathering_rate_law.sh", "check_escape_law.sh", nullptr };
+	"check_weathering_rate_law.sh", "check_escape_law.sh", "check_gas_in_rock.sh", nullptr };
 const char *const CHEMISTRY_REACTIONS[] = { "BioRecords.gd", "GeoRecords.gd", "CombustionRecords.gd",
 	"LightningRecords.gd", nullptr };
 const char *const CHEMISTRY_TRANSPORT[] = { "escape_*", nullptr };

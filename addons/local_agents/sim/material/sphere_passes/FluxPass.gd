@@ -13,7 +13,7 @@ const ActiveScript: GDScript = preload("res://addons/local_agents/sim/material/s
 ## reflected-shortwave march, the face solve, the momentum close, the temporal levels and the list.
 enum { PASS_FLUX, PASS_APPLY, PASS_GRAIN, PASS_LIST_RESET, PASS_LIST_APPEND, PASS_LIST_ARGS,
 	PASS_SW, PASS_FACE, PASS_MOMENTUM,
-	PASS_LEVEL_RESET, PASS_LEVEL_SCAN,
+	PASS_LEVEL_SEED, PASS_LEVEL_RELAX, PASS_LEVEL_RESET, PASS_LEVEL_SCAN,
 	PASS_LEVEL_SORT, PASS_LEVEL_PEAK,
 	PASS_ACT_AGE, PASS_ACT_WAKE, PASS_ACT_MARK, PASS_ACT_WAKE_RESET, PASS_ACT_SEED }
 
@@ -435,6 +435,7 @@ func _pc_rows(cc: int, dt_s: float, sun: Vector3) -> Array:
 		var head: Dictionary = _rows[group[0]]
 		var ht: Array = out[group[0]]
 		ht[LAFieldDriver.SLOT_LEVEL_RESET] = _pc(head, cc, PASS_LEVEL_RESET, dt_s, sun, 0, 0, 1, g)
+		ht[LAFieldDriver.SLOT_LEVEL_RELAX] = _pc(head, cc, PASS_LEVEL_RELAX, dt_s, sun, 0, 0, 1, g)
 		ht[LAFieldDriver.SLOT_ACT_AGE] = _pc(head, cc, PASS_ACT_AGE, dt_s, sun, 0, 0, 1, g)
 		ht[LAFieldDriver.SLOT_ACT_WAKE] = _pc(head, cc, PASS_ACT_WAKE, dt_s, sun, 0, 0, 1, g)
 		ht[LAFieldDriver.SLOT_ACT_MARK] = _pc(head, cc, PASS_ACT_MARK, dt_s, sun, 0, 0, 1, g)
@@ -445,6 +446,7 @@ func _pc_rows(cc: int, dt_s: float, sun: Vector3) -> Array:
 		for gi in group:
 			var row: Dictionary = _rows[gi]
 			var rt: Array = out[gi]
+			rt[LAFieldDriver.SLOT_LEVEL_SEED] = _pc(row, cc, PASS_LEVEL_SEED, dt_s, sun, 0, 0, 1, g)
 			# The momentum record moves no matter of its own: it has no flux or apply half.
 			if not _vel_row(row):
 				rt[LAFieldDriver.SLOT_OUTFLOW] = _pc(row, cc, PASS_FLUX, dt_s, sun, 0, 0, 1, g)
