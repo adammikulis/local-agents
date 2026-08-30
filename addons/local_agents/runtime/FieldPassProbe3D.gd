@@ -64,7 +64,7 @@ func _peak() -> Dictionary:
 			at = i
 	var out: Dictionary = {"idx": at, "v": String.num(one[at])}
 	var nans: Dictionary = {}
-	for name in ["rho_bulk", "mom_x", "mom_y", "mom_z", "vel_y", "pressure", "celerity", "h2o",
+	for name in ["rho_bulk", "mom_x", "mom_y", "mom_z", "vel_y", "pressure", "h2o",
 			"e_j_m3", "solid", "temp", "o2", "n2", "co2", "silicate", "h_sensible", "cap_sensible"]:
 		var b: PackedFloat32Array = _f._gpu.read_raw(String(name))
 		if b.size() != _f._cell_count:

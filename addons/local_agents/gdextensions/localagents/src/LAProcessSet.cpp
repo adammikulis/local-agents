@@ -64,7 +64,7 @@ const char *const ACOUSTIC_GATES[] = { "check_rung_acoustic.sh", "check_atmosphe
 const char *const ACOUSTIC_PASSES[] = { "FluxPass.gd", nullptr };
 const char *const ACOUSTIC_TRANSPORT[] = { "h2o_liquid_advect", "h2o_vapour_eddy", "o2_eddy", "co2_eddy",
 	"n2_eddy", "h2_eddy", "co_eddy", "so2_eddy", "h2s_eddy", "ch4_eddy", "mom_flux", nullptr };
-const char *const ACOUSTIC_REDUCE[] = { "open_mom_*", "momentum_*", "celerity_max", "rho_max_open",
+const char *const ACOUSTIC_REDUCE[] = { "open_mom_*", "momentum_*", "mach_max", "rho_max_open",
 	"wind_speed_max", "wind_x_sum", "wind_z_sum", nullptr };
 
 const char *const CONDUCTION_GATES[] = { "check_rung_conduction.sh", nullptr };

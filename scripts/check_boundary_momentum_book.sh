@@ -95,8 +95,8 @@ func _run(p_ghost: float, mode: int = LAFieldBoundary3D.CONSTANT, vel: Vector3 =
 		bufs[String(name)] = _f32(_filled(tc, 0.0), owned)
 	for name in LAChannels.derived_buffers():
 		bufs[String(name)] = _f32(_filled(tc, 0.0), owned)
-	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "celerity", "k_cond", "speed", "rad_w_m3",
-			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi", "grav_ref"]:
+	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "k_cond", "speed", "rad_w_m3",
+			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi", "grav_ref", "gas_r", "gas_gamma", "ground_d"]:
 		bufs[name] = _f32(_filled(tc, 0.0), owned)
 	bufs["gravity"] = _f32(_filled(tc * 3, 0.0), owned)
 	bufs["g_rest"] = _f32(_filled(tc * 3, 0.0), owned)
@@ -128,7 +128,8 @@ func _run(p_ghost: float, mode: int = LAFieldBoundary3D.CONSTANT, vel: Vector3 =
 	# Air of that pressure holds this mass: a cell at P with zero density is not a state matter has, and
 	# the gas layer's sound speed follows from the pressure and the mass rather than being typed beside it.
 	var rho_air: float = P_IN / (LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK * (T_C + LAPhysical.KELVIN_OFFSET))
-	for pair: Array in [["pressure", P_IN], ["temp", T_C], ["rho_bulk", rho_air]]:
+	for pair: Array in [["pressure", P_IN], ["temp", T_C], ["rho_bulk", rho_air],
+			["gas_r", LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK], ["gas_gamma", LAPhysical.AIR_ADIABATIC_INDEX]]:
 		var vals: PackedByteArray = _filled(tc, float(pair[1])).to_byte_array()
 		_rd.buffer_update(bufs[String(pair[0])], 0, vals.size(), vals)
 

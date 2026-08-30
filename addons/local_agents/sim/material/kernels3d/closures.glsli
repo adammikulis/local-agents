@@ -9,8 +9,6 @@ const float KELVIN = 273.15;                        // LAPhysical.KELVIN_OFFSET
 const float STEFAN = 5.670374419e-8;                // LAPhysical.STEFAN_BOLTZMANN
 const float KOZENY_CARMAN_C = 180.0;                // LAPhysical.KOZENY_CARMAN_C
 const float SMAGORINSKY_COEFF = 0.1650789493;       // LAPhysical.SMAGORINSKY_COEFF
-const float DRY_AIR_R = 287.0222603;                // LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK
-const float AIR_GAMMA = 1.399764846;                // LAPhysical.AIR_ADIABATIC_INDEX
 const float AIR_DENSITY = 1.225;                    // LAPhysical.AIR_DENSITY_KG_M3
 const float EPS0 = 8.8541878128e-12;                // LAPhysical.VACUUM_PERMITTIVITY_F_M
 const float RREA_THRESHOLD = 2.84e5;                // LAPhysical.RREA_THRESHOLD_V_M
@@ -87,7 +85,7 @@ float t_k(uint c) {
 
 // Ideal-gas air density from the cell's own pressure and temperature, kg/m^3.
 float air_rho(uint c) {
-	return max(pressure[c], 0.0) / (DRY_AIR_R * t_k(c));
+	return gas_r[c] > 0.0 ? max(pressure[c], 0.0) / (gas_r[c] * t_k(c)) : 0.0;
 }
 
 // The full potential of a cell, J/kg.
@@ -199,7 +197,8 @@ float face_p_gas(uint c, uint d) {
 
 vec2 face_layer(uint c, uint d) {
 	float pg = max(face_p_gas(c, d), 0.0);
-	return vec2(pg / (DRY_AIR_R * t_k(c)), AIR_GAMMA * pg);
+	float r = gas_r[c];
+	return r > 0.0 ? vec2(pg / (r * t_k(c)), gas_gamma[c] * pg) : vec2(0.0);
 }
 
 // --- the water band -------------------------------------------------------------------------------
@@ -230,7 +229,12 @@ float water_top(uint c) {
 // Face d's wet share (x), ground share (y) and the water's mean pressure over the wet share (z), Pa.
 vec3 water_face(uint c, uint d, float top) {
 	vec3 gd = down_at(c);
-	if (top >= 1.0e29 || gd == vec3(0.0)) {
+	if (gd == vec3(0.0)) {
+		// No vertical: the liquid is dispersed, and wets every face by its volume share.
+		float e = cell_edge[c];
+		return vec3(min(water_m3(c) / (e * e * e), 1.0), 0.0, max(pressure[c], 0.0));
+	}
+	if (top >= 1.0e29) {
 		return vec3(0.0, 0.0, 0.0);
 	}
 	vec3 f = la_band_face(gd, face_normal(d), 0.5 * cell_edge[c], top, ground_d[c]);
@@ -263,18 +267,18 @@ float impedance(uint c, uint d) {
 
 // THE SONIC STATE of a gas layer (p, c, u along the normal) expanding into vacuum: velocity (x) and
 // pressure (y) of the exact rarefaction, u* = c* = (2c + (gamma-1) u)/(gamma+1), p* = p (c*/c)^(2g/(g-1)).
-vec2 la_sonic_vacuum(float p, float c, float u) {
+vec2 la_sonic_vacuum(float p, float c, float u, float gam) {
 	if (!(c > 0.0) || !(p > 0.0)) {
 		return vec2(max(u, 0.0), 0.0);
 	}
-	float cs = (2.0 * c + (AIR_GAMMA - 1.0) * u) / (AIR_GAMMA + 1.0);
+	float cs = (2.0 * c + (gam - 1.0) * u) / (gam + 1.0);
 	if (cs <= 0.0) {
 		return vec2(0.0, 0.0);
 	}
 	if (u >= c) {
 		return vec2(u, p);
 	}
-	return vec2(cs, p * pow(cs / c, 2.0 * AIR_GAMMA / (AIR_GAMMA - 1.0)));
+	return vec2(cs, p * pow(cs / c, 2.0 * gam / (gam - 1.0)));
 }
 
 // --- eddy viscosity --------------------------------------------------------------------------------

@@ -32,6 +32,9 @@ layout(set = 0, binding = 51, std430) restrict writeonly buffer BodyFY { float b
 layout(set = 0, binding = 52, std430) restrict writeonly buffer BodyFZ { float bodyf_z[]; };
 // The mixture's sound speed, m/s: Wood's one-pressure compressibility sum over the cell's own matter.
 layout(set = 0, binding = 53, std430) restrict buffer KCond { float k_cond[]; };
+layout(set = 0, binding = 66, std430) restrict writeonly buffer GasR { float gas_r[]; };        // J/(kg K), the gas mixture
+layout(set = 0, binding = 67, std430) restrict writeonly buffer GasGamma { float gas_gamma[]; };
+layout(set = 0, binding = 68, std430) restrict writeonly buffer Mach { float mach[]; };         // |v| over the cell's own sound speed
 // The energy of MOTION, J/m^3, which the enthalpy state does not hold. A function of state and nothing
 // else, read only by the reduce, so a book can weigh it against the enthalpy it trades with.
 layout(set = 0, binding = 90, std430) restrict writeonly buffer KinBuf { float ke_j_m3[]; };
@@ -294,6 +297,7 @@ void main() {
 	float mass[LA_MIX_MAX] = float[LA_MIX_MAX](0.0, 0.0, 0.0, 0.0);
 	float mc = 0.0;          // sum of m*c over the sensible-heat substances, J/K
 	float cp_gas = 0.0;      // sum of m*cp over the non-condensable gases, J/K: the mixture gamma's cp
+	float m_gas = 0.0;       // kg of non-condensable gas
 	float n_gas_mol = 0.0;   // moles of non-condensable gas: the Dalton denominator of the vapour split
 	float v_lambda = 0.0;    // volume-weighted conductivity, W/m/K
 	float v_used = 0.0;
@@ -333,6 +337,7 @@ void main() {
 		n_gas_mol += m * props[base + PROP_MOL_PER_KG];
 		if (props[base + PROP_MOL_PER_KG] > 0.0) {
 			cp_gas += m * props[base + PROP_C];
+			m_gas += m;
 		}
 		// v0(T) is linear in T, so its mass sum splits into three T-independent pieces gathered here
 		// and combined once the solve has a temperature. h2o is kept apart: its vapour share is gas.
@@ -401,6 +406,9 @@ void main() {
 		h_sensible[g] = 0.0;
 		cap_sensible[g] = 0.0;
 		k_cond[g] = 0.0;
+		gas_r[g] = 0.0;
+		gas_gamma[g] = 0.0;
+		mach[g] = 0.0;
 		if (params.restate == 0u) {
 			bodyf_x[g] = 0.0;
 			bodyf_y[g] = 0.0;
@@ -554,6 +562,21 @@ void main() {
 	// The condensed FLUID's bulk modulus: its own volume over its own compressibility.
 	float fluid_vol = b_vol - (l0 + t_c * l1 - l2);
 	k_cond[g] = (c_comp > 0.0 && fluid_vol > 0.0) ? fluid_vol / c_comp : 0.0;
+	// The gas mixture's own specific gas constant and gamma, vapour included; its sound speed where gas
+	// stands, the condensed fluid's own where none does.
+	float m_g = m_gas + f_vapour * m_h2o;
+	float n_g = n_gas_mol + f_vapour * mol_h2o;
+	float cp_g = cp_gas + f_vapour * m_h2o * subs[E_H2O].c_gas;
+	float nr = n_g * LA_R_J_MOL_K;
+	float r_s = m_g > 0.0 ? nr / m_g : 0.0;
+	float gam = cp_g > nr ? cp_g / (cp_g - nr) : 0.0;
+	gas_r[g] = r_s;
+	gas_gamma[g] = gam;
+	float k_f = (c_comp > 0.0 && fluid_vol > 0.0) ? fluid_vol / c_comp : 0.0;
+	float c_cell = (r_s > 0.0 && gam > 0.0) ? sqrt(gam * r_s * (t_c + LA_KELVIN_OFFSET))
+		: ((k_f > 0.0 && rho_f > 0.0) ? sqrt(k_f / rho_f) : 0.0);
+	float spd = length(v);
+	mach[g] = c_cell > 0.0 ? spd / c_cell : (spd > 0.0 ? 1.0 / 0.0 : 0.0);
 
 	// THE MELT SHARE OF THIS CELL'S SILICATE, off the SAME ladder. Rock has a melting INTERVAL, so the
 	// lever rule the enthalpy curve already integrates over reads back as a linear share of the interval —
@@ -593,6 +616,7 @@ void main() {
 		vel_y[g] = 0.0;
 		vel_z[g] = 0.0;
 		speed[g] = 0.0;
+		mach[g] = 0.0;
 		ke_j_m3[g] = 0.0;
 		if (params.restate == 0u) {
 			bodyf_x[g] = 0.0;

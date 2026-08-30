@@ -48,7 +48,9 @@ const DT: float = 1.0
 const P: float = 101325.0
 const T: float = 15.0
 const V: float = 20.0
-const C_STIFF: float = 4000.0
+const T_STIFF: float = 4000.0
+const GAS_R: float = 287.0
+const GAS_GAMMA: float = 1.4
 const RHO: float = 10.0
 const STEPS: int = 3
 
@@ -82,7 +84,7 @@ func _write(bufs: Dictionary, key: String, vals: PackedFloat32Array) -> void:
 	_rd.buffer_update(bufs[key], 0, b.size(), b)
 
 
-## The seam box of check_active_rows: a stiff right half whose own sound speed earns it a finer clock
+## The seam box of check_active_rows: a hot right half whose own sound speed earns it a finer clock
 ## than the left's, and matter crossing every face.
 func _build() -> Dictionary:
 	var grid: LAVoxelGrid = LAVoxelGrid.new()
@@ -93,10 +95,11 @@ func _build() -> Dictionary:
 		bufs[String(name)] = _f32(_filled(cc, 0.0))
 	for name in LAChannels.derived_buffers():
 		bufs[String(name)] = _f32(_filled(cc, 0.0))
-	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "celerity", "speed", "rad_w_m3",
+	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "speed", "rad_w_m3",
 			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi", "grav_ref", "k_cond", "mom_orphan"]:
 		bufs[name] = _f32(_filled(cc, 0.0))
 	bufs["gravity"] = _f32(_filled(cc * 3, 0.0))
+	bufs["ground_d"] = _f32(_filled(cc, 0.0))
 	bufs["slot_off"] = _i32(grid.slot_off)
 	bufs["face_partner"] = _i32(grid.partners)
 	bufs["cell_edge"] = _f32(grid.cell_edges())
@@ -119,7 +122,7 @@ func _build() -> Dictionary:
 	ghost_tbl.fill(-1)
 	bufs["ghost"] = _i32(ghost_tbl)
 
-	var cel: PackedFloat32Array = PackedFloat32Array()
+	var tmp: PackedFloat32Array = PackedFloat32Array()
 	var h2o: PackedFloat32Array = PackedFloat32Array()
 	var o2: PackedFloat32Array = PackedFloat32Array()
 	var co2: PackedFloat32Array = PackedFloat32Array()
@@ -127,7 +130,7 @@ func _build() -> Dictionary:
 	var velz: PackedFloat32Array = PackedFloat32Array()
 	var spd: PackedFloat32Array = PackedFloat32Array()
 	for c in cc:
-		cel.append(C_STIFF if c >= cc / 2 else 0.0)
+		tmp.append(T_STIFF if c >= cc / 2 else T)
 		h2o.append(500.0 - 40.0 * float(c))
 		o2.append(200.0 + 10.0 * float(c))
 		co2.append(50.0 + 3.0 * float(c))
@@ -138,14 +141,16 @@ func _build() -> Dictionary:
 	_write(bufs, "vel_z", velz)
 	_write(bufs, "mom_z", momz)
 	_write(bufs, "speed", spd)
-	_write(bufs, "celerity", cel)
+	_write(bufs, "gas_r", _filled(cc, GAS_R))
+	_write(bufs, "gas_gamma", _filled(cc, GAS_GAMMA))
 	_write(bufs, "h2o", h2o)
 	_write(bufs, "o2", o2)
 	_write(bufs, "co2", co2)
 	_write(bufs, "h2o_liquid", _filled(cc, 1.0))
+	_write(bufs, "k_cond", _filled(cc, LAPhysical.WATER_BULK_MODULUS_PA))
 	_write(bufs, "rho_bulk", _filled(cc, RHO))
 	_write(bufs, "pressure", _filled(cc, P))
-	_write(bufs, "temp", _filled(cc, T))
+	_write(bufs, "temp", tmp)
 	return bufs
 
 

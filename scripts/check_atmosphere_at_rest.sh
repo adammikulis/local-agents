@@ -22,7 +22,7 @@ VENT_FRAMES="${LA_REST_VENT_FRAMES:-4}"
 column() {
 	LA_BOUNDARY_FACES="$1" "$ROOT/scripts/sim_run.sh" --path "$ROOT" --slice --rung 3 \
 		--slice-box "0,surface,0,1,${CELLS},1,${CELL}" --frames "${2:-$FRAMES}" \
-		--report wind_speed_max,celerity_max,pressure_rest_rel,transport_levels,bnd_n2,energy_residual_rel,energy_held,energy_turnover_j,energy_stock,energy_stock_open 2>&1
+		--report mach_max,momentum_mass_kg,pressure_rest_rel,transport_levels,bnd_n2,energy_residual_rel,energy_held,energy_turnover_j,energy_stock,energy_stock_open 2>&1
 }
 
 # `max` off one gauge line of sim_run's report; empty when the gauge is absent.
@@ -50,8 +50,8 @@ numeric() { printf '%s' "$1" | rg -N -q -e '^[+-]?[0-9]+(\.[0-9]+)?([eE][+-]?[0-
 measure() {
 	local out wind cel prel lv
 	out="$(column "$1" "${2:-$FRAMES}")"
-	wind="$(reading wind_speed_max "$out")"
-	cel="$(reading celerity_max "$out")"
+	wind="$(reading mach_max "$out")"
+	cel="$(reading momentum_mass_kg "$out")"
 	prel="$(reading pressure_rest_rel "$out")"
 	lv="$(reading transport_levels "$out")"
 	local left eres held turn ebar
@@ -88,11 +88,11 @@ measure() {
 		return 1
 	fi
 	if ! awk -v c="$cel" 'BEGIN{exit !(c > 0)}'; then
-		echo "check_atmosphere_at_rest: celerity_max is not positive; the column holds no matter." >&2
+		echo "check_atmosphere_at_rest: momentum_mass_kg is not positive; the column holds no matter." >&2
 		return 1
 	fi
 	awk -v w="$wind" -v c="$cel" -v p="$prel" -v l="$lv" -v x="$left" -v e="$eres" -v b="$ebar" \
-		'BEGIN{printf "1 %.12g %.12g %d %.12g %.12g %.12g", w / c, p, l, x, e, b}'
+		'BEGIN{printf "1 %.12g %.12g %d %.12g %.12g %.12g", w, p, l, x, e, b}'
 }
 
 # True when this arm stayed at rest: finite, and both readings inside the arithmetic's own bar — the
@@ -103,7 +103,7 @@ at_rest() {
 }
 
 rest="$(measure "shut,shut,shut,shut,shut,shut")" || {
-	echo "check_atmosphere_at_rest: the resting column published no wind_speed_max/celerity_max/pressure_rest_rel." >&2
+	echo "check_atmosphere_at_rest: the resting column published no mach_max/momentum_mass_kg/pressure_rest_rel." >&2
 	exit 2
 }
 read -r REST_FIN REST_MACH REST_PREL REST_LV REST_LEFT REST_ERES REST_EBAR <<EOF

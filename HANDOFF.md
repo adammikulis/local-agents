@@ -21,8 +21,8 @@ is measured, and no item about a higher rung is examined until the rungs below i
 
 ## 1. OPEN CELLS AT THE CONTINUUM'S EDGE OUTRUN THEIR SOUND SPEED
 
-`scripts/sim_run.sh --rung 3 --frames 3 --report wind_speed_max,celerity_max` reads a wind above the
-celerity in the thin cells just under the collisionless cut, and `check_rung_acoustic.sh` fails on it.
+`scripts/sim_run.sh --rung 3 --frames 3 --report mach_max` reads a Mach number above one in the thin
+cells just under the collisionless cut, and `check_rung_acoustic.sh` fails on it.
 
 ## 1b. THE VENTED COLUMN'S ENERGY BOOK DOES NOT CLOSE
 

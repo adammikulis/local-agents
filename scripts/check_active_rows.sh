@@ -144,14 +144,17 @@ func _build(owned: Array[RID]) -> Dictionary:
 		bufs[String(name)] = _f32(_filled(cc, 0.0), owned)
 	for name in LAChannels.derived_buffers():
 		bufs[String(name)] = _f32(_filled(cc, 0.0), owned)
-	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "celerity", "k_cond", "speed", "rad_w_m3",
-			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi", "grav_ref"]:
+	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "k_cond", "speed", "rad_w_m3",
+			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi", "grav_ref", "gas_r", "gas_gamma", "ground_d"]:
 		bufs[name] = _f32(_filled(cc, 0.0), owned)
 	bufs["gravity"] = _f32(_filled(cc * 3, 0.0), owned)
 	bufs["g_rest"] = _f32(_filled(cc * 3, 0.0), owned)
 	_geometry(grid, bufs, owned)
 	_write(bufs, "rho_bulk", _filled(cc, RHO_BULK))
+	_write(bufs, "gas_r", _filled(cc, LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK))
+	_write(bufs, "gas_gamma", _filled(cc, LAPhysical.AIR_ADIABATIC_INDEX))
 	_write(bufs, "h2o_liquid", _filled(cc, 1.0))
+	_write(bufs, "k_cond", _filled(cc, LAPhysical.WATER_BULK_MODULUS_PA))
 	return bufs
 
 
@@ -187,8 +190,8 @@ func _seam() -> void:
 		bufs[String(name)] = _f32(_filled(cc, 0.0), owned)
 	for name in LAChannels.derived_buffers():
 		bufs[String(name)] = _f32(_filled(cc, 0.0), owned)
-	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "celerity", "k_cond", "speed", "rad_w_m3",
-			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi", "grav_ref"]:
+	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "k_cond", "speed", "rad_w_m3",
+			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi", "grav_ref", "gas_r", "gas_gamma", "ground_d"]:
 		bufs[name] = _f32(_filled(cc, 0.0), owned)
 	bufs["gravity"] = _f32(_filled(cc * 3, 0.0), owned)
 	bufs["g_rest"] = _f32(_filled(cc * 3, 0.0), owned)
@@ -226,9 +229,12 @@ func _seam() -> void:
 	_write(bufs, "o2", o2)
 	_write(bufs, "co2", co2)
 	_write(bufs, "h2o_liquid", _filled(cc, 1.0))
+	_write(bufs, "k_cond", _filled(cc, LAPhysical.WATER_BULK_MODULUS_PA))
 	_write(bufs, "rho_bulk", _filled(cc, SEAM_RHO))
 	_write(bufs, "pressure", _filled(cc, SEAM_P))
 	_write(bufs, "temp", temps)
+	_write(bufs, "gas_r", _filled(cc, LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK))
+	_write(bufs, "gas_gamma", _filled(cc, LAPhysical.AIR_ADIABATIC_INDEX))
 
 	p.setup(_rd, bufs, cc)
 	var checked: PackedStringArray = PackedStringArray(["h2o", "o2", "co2"])

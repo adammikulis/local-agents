@@ -118,7 +118,8 @@ layout(set = 0, binding = 62, std430) restrict buffer XAmt { float x_amt[]; };
 layout(set = 0, binding = 63, std430) restrict buffer XH { float x_h[]; };
 layout(set = 0, binding = 90, std430) restrict buffer XQ { float x_q[]; };
 // The mixture's own sound speed, m/s, off the layer each face presents.
-layout(set = 0, binding = 64, std430) restrict buffer CelerityBuf { float cel_m_s[]; };
+layout(set = 0, binding = 101, std430) restrict readonly buffer GasR { float gas_r[]; };
+layout(set = 0, binding = 102, std430) restrict readonly buffer GasGamma { float gas_gamma[]; };
 layout(set = 0, binding = 89, std430) restrict readonly buffer KCondBuf { float k_cond[]; };
 // |v| refreshed by the momentum pass, so the drained CFL peak is next step's read.
 layout(set = 0, binding = 65, std430) restrict buffer SpeedBuf { float speed[]; };
@@ -365,7 +366,7 @@ void face_states(uint c) {
 		}
 		// A FACE ONTO SPACE meets vacuum: the exact rarefaction puts the SONIC state at the face.
 		if (inb == GHOST_SPACE) {
-			vec2 sonic = la_sonic_vacuum(pc, face_c(c, d), dot(vel_at(c), face_normal(d)));
+			vec2 sonic = la_sonic_vacuum(pc, face_c(c, d), dot(vel_at(c), face_normal(d)), gas_gamma[c]);
 			fp_star[f] = sonic.y;
 			face_u[f] = sonic.x;
 			continue;
@@ -407,7 +408,7 @@ void face_states(uint c) {
 				bool own = zc > 0.0;
 				uint src = own ? c : n;
 				uint sd = own ? d : dn;
-				vec2 sonic = la_sonic_vacuum(face_p(src, sd), face_c(src, sd), dot(vel_at(src), face_normal(sd)));
+				vec2 sonic = la_sonic_vacuum(face_p(src, sd), face_c(src, sd), dot(vel_at(src), face_normal(sd)), gas_gamma[src]);
 				fp_star[f] = sonic.y;
 				face_u[f] = own ? sonic.x : -sonic.x;
 			}
@@ -708,12 +709,10 @@ void row_apply(uint c) {
 // substep's share of the body impulse. At rest the first is exactly the cell's own weight and the
 // third is exactly minus it, so a column in balance stays in it.
 void move_momentum(uint c) {
-	cel_m_s[c] = 0.0;
 	if (solid[c] != 0.0 || collisionless(c)) {
 		return;   // locked matter holds no bulk momentum, and a collisionless cell is no fluid
 	}
 	vec3 dm = vec3(0.0);
-	float cel_top = 0.0;
 	uint f_lo = la_face_lo(c);
 	uint f_hi = la_face_hi(c);
 	for (uint f = f_lo; f < f_hi; ++f) {
@@ -722,7 +721,6 @@ void move_momentum(uint c) {
 		if (inb < 0) {
 			inb = ghost[f];
 		}
-		cel_top = max(cel_top, face_c(c, d));
 		float div_f = la_face_div(c, inb);
 		// WHAT THE FACE STATES OVER WHAT THIS CELL'S OWN STACK STATES THERE: the six faces integrate to
 		// the cell's weight, so only the DEPARTURE is a net force, each layer's over the share of the
@@ -778,7 +776,6 @@ void move_momentum(uint c) {
 	vel_y[c] = v.y;
 	vel_z[c] = v.z;
 	speed[c] = length(v);
-	cel_m_s[c] = no_matter(c) ? 0.0 : cel_top;
 	if (dm != vec3(0.0)) {
 		quiet[act_base() + c] = 0u;
 	}

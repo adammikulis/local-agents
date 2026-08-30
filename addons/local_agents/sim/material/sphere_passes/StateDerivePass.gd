@@ -18,7 +18,7 @@ const BOUND: Dictionary = {
 	"h2o_vapour": 36, "silicate_melt": 37, "org_fresh": 38, "cell_edge": 94, "speed": 41, "lat": 42,
 	"alt": 43, "nonfinite": 44, "h_h2o": 45, "h_silicate": 46, "h_sensible": 47, "cap_sensible": 48,
 	"gravity": 49, "bodyf_x": 50, "bodyf_y": 51, "bodyf_z": 52, "k_cond": 53, "rad_w_m3": 65,
-	"g_rest": 39, "level_idx": 81, "mom_orphan": 92, "lithic_frac": 96, "lithic_kg": 97, "unconverged": 99}
+	"g_rest": 39, "level_idx": 81, "mom_orphan": 92, "lithic_frac": 96, "lithic_kg": 97, "unconverged": 99, "gas_r": 66, "gas_gamma": 67, "mach": 68}
 
 ## props row layout — state_derive.glsl PROP_*.
 const PROP_STRIDE: int = 12
@@ -61,7 +61,8 @@ func _buffers(cc: int) -> Dictionary:
 		"h_sensible": {"n": cc, "ghosts": true}, "cap_sensible": {"n": cc, "ghosts": true},
 		"org_hc": cc, "org_oc": cc, "org_fresh": cc,
 		"bodyf_x": cc, "bodyf_y": cc, "bodyf_z": cc,
-		"k_cond": {"n": cc, "ghosts": true}, "g_rest": {"n": cc * 3, "ghosts": true},
+		"k_cond": {"n": cc, "ghosts": true}, "gas_r": {"n": cc, "ghosts": true},
+		"gas_gamma": {"n": cc, "ghosts": true}, "mach": cc, "g_rest": {"n": cc * 3, "ghosts": true},
 		"rad_w_m3": {"n": cc, "ghosts": true}, "ke_j_m3": cc, "pe_j_m3": cc, "grav_phi": cc, "grav_ref": cc, "lithic_frac": {"n": cc, "ghosts": true}, "lithic_kg": {"n": cc, "ghosts": true}})
 
 
