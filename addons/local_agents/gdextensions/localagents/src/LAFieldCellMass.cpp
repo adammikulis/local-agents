@@ -295,6 +295,9 @@ Dictionary LAFieldCellMass3D::seed_enthalpy(Object *p_field, Object *p_grid,
 	}
 	const PackedVector3Array centres = p_grid->get("centres");
 	const PackedFloat32Array vol = p_grid->call("cell_volumes");
+	const PackedFloat32Array edges = p_grid->call("cell_edges");
+	const PackedFloat32Array rock_fr = p_field->get("_rock_fraction");
+	const PackedFloat32Array water_fr = p_field->get("_water_fraction");
 	const Vector3 centre = p_field->call("centre");
 	const double kelvin = la_physical("KELVIN_OFFSET");
 	const int samples = p_profile.size();
@@ -308,19 +311,32 @@ Dictionary LAFieldCellMass3D::seed_enthalpy(Object *p_field, Object *p_grid,
 		if (!(cell_m3 > 0.0) || c >= p_p_pa.size() || c >= centres.size()) {
 			continue;
 		}
-		// THE GEOTHERM RUNS DOWN FROM THE LOCAL GROUND: an ocean floor or valley is at the surface's
-		// temperature, whatever its radius; a cell above its ground holds the surface air's.
+		// THE GEOTHERM RUNS DOWN FROM THE LOCAL GROUND, and the cell's rock spans a depth range of it: the
+		// rock and the pore water hold the profile's mean over that span, the sea and the air above the
+		// ground hold the surface's. Energy is extensive, so a cut cell's is the sum of its parts' at
+		// their own temperatures.
 		const double depth = c < p_depth.size() ? double(p_depth[c]) : p_r_body - double((centres[c] - centre).length());
-		const double r = p_r_body - depth;
-		double t_c = p_t_surface_c;
-		if (samples >= 2 && p_r_body > 0.0 && depth > 0.0 && r > 0.0) {
-			const double x = r / p_r_body * double(samples - 1);
-			int i = int(std::floor(x));
-			i = std::min(std::max(i, 0), samples - 2);
-			t_c = double(p_profile[i]) + (double(p_profile[i + 1]) - double(p_profile[i])) * (x - double(i)) - kelvin;
+		const double e = c < edges.size() ? double(edges[c]) : 0.0;
+		const double d_lo = std::max(depth - 0.5 * e, 0.0);
+		const double d_hi = depth + 0.5 * e;
+		double t_rock = p_t_surface_c;
+		if (samples >= 2 && p_r_body > 0.0 && d_hi > d_lo) {
+			const int n_s = 16;
+			double acc = 0.0;
+			for (int k = 0; k < n_s; k++) {
+				const double d = d_lo + (d_hi - d_lo) * (double(k) + 0.5) / double(n_s);
+				const double x = std::max(p_r_body - d, 0.0) / p_r_body * double(samples - 1);
+				int i = int(std::floor(x));
+				i = std::min(std::max(i, 0), samples - 2);
+				acc += double(p_profile[i]) + (double(p_profile[i + 1]) - double(p_profile[i])) * (x - double(i));
+			}
+			t_rock = acc / double(n_s) - kelvin;
 		}
+		const double f_rock = c < rock_fr.size() ? std::max(double(rock_fr[c]), 0.0) : 0.0;
+		const double f_sea = c < water_fr.size() ? std::max(double(water_fr[c]), 0.0) : 0.0;
+		const double t_gas = f_rock < 1.0 ? p_t_surface_c : t_rock;
 		const double p_pa = std::max(double(p_p_pa[c]), 0.0);
-		double n_gas = 0.0, m_h2o = 0.0, m_sil = 0.0, mc = 0.0, total_kg = 0.0;
+		double v_cond = 0.0, m_h2o_sea = 0.0, m_h2o_pore = 0.0, m_sil = 0.0, mc_rock = 0.0, mc_gas = 0.0, total_kg = 0.0;
 		for (const Chan &ch : chans) {
 			const double a = double(ch.arr[c]);
 			if (!(a > 0.0)) {
@@ -328,26 +344,35 @@ Dictionary LAFieldCellMass3D::seed_enthalpy(Object *p_field, Object *p_grid,
 			}
 			const double m = a * ch.molar * cell_m3;
 			total_kg += m;
-			if (ch.gas) {
-				n_gas += a * cell_m3;
+			if (!ch.gas && ch.full > 0.0) {
+				v_cond += a / ch.full;
 			}
 			if (ch.entry == 0) {
-				m_h2o += m;
+				const double sea = ch.full > 0.0 ? std::min(a, f_sea * ch.full) : 0.0;
+				m_h2o_sea += sea * ch.molar * cell_m3;
+				m_h2o_pore += (a - sea) * ch.molar * cell_m3;
 			} else if (ch.entry == 1) {
 				m_sil += m;
+			} else if (ch.gas) {
+				mc_gas += m * ch.cap;
 			} else {
-				mc += m * ch.cap;
+				mc_rock += m * ch.cap;
 			}
 		}
 		if (!(total_kg > 0.0)) {
 			continue;   // no matter, no joules to hold
 		}
-		double h_j = mc * (t_c + kelvin);
-		if (m_h2o > 0.0) {
-			h_j += m_h2o * LAMixtureEnthalpy::specific_enthalpy("h2o", t_c, p_pa, m_h2o, n_gas);
+		// The gas room: the cell less every condensed volume, where the vapour stands at saturation.
+		const double room = cell_m3 * std::max(1.0 - v_cond, 0.0);
+		double h_j = mc_rock * (t_rock + kelvin) + mc_gas * (t_gas + kelvin);
+		if (m_h2o_sea > 0.0) {
+			h_j += m_h2o_sea * LAMixtureEnthalpy::specific_enthalpy("h2o", p_t_surface_c, p_pa, m_h2o_sea, room);
+		}
+		if (m_h2o_pore > 0.0) {
+			h_j += m_h2o_pore * LAMixtureEnthalpy::specific_enthalpy("h2o", t_rock, p_pa, m_h2o_pore, room);
 		}
 		if (m_sil > 0.0) {
-			h_j += m_sil * LAMixtureEnthalpy::specific_enthalpy("silicate", t_c, p_pa, m_sil, n_gas);
+			h_j += m_sil * LAMixtureEnthalpy::specific_enthalpy("silicate", t_rock, p_pa, m_sil, room);
 		}
 		// THE CELL KEEPS INTERNAL ENERGY: U = H - pV over the room the lithic matter leaves, the same
 		// room state_derive.glsl reads the enthalpy back over.

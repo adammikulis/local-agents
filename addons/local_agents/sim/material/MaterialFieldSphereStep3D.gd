@@ -84,8 +84,7 @@ func seed_tick() -> bool:
 	var g_solved: PackedFloat32Array = LAFieldLithostaticSeed.vertical(_f, _f._gpu.read_raw("g_rest"))
 	# The barometric profile is a function of the SOLVED POTENTIAL, so the solve's own phi goes with it.
 	if LAProcessSet.has_record("pass", GRAVITY_PASS):
-		LAFieldLithostaticSeed.shape_atmosphere(_f, LAMaterialField3D.INITIAL_TEMP, _f._body_measure,
-			g_solved, _f._gravity.phi_abs())
+		LAFieldLithostaticSeed.shape_atmosphere(_f, LAMaterialField3D.INITIAL_TEMP, g_solved, _f._gravity.phi_abs())
 	var p_marched: PackedFloat32Array = LAFieldLithostaticSeed.compress(_f, g_solved)
 	LAFieldEnthalpySeed.seed(_f, LAFieldGeothermSeed.profile(_f, LAMaterialField3D.INITIAL_TEMP), p_marched)
 	# WEIGH THE BODY once the march has compressed the rock it stands on.
@@ -150,9 +149,7 @@ func _seed_under_gravity() -> void:
 		push_error("The regolith walk marked no cell permeable, so every rock cell has zero porosity, the "
 			+ "water table is unprimed and darcy_resistance() makes the groundwater row inert. The walk "
 			+ "reads `below` from solved gravity: it ran before the solve was dispatched and drained.")
-	LAFieldHydrosphereSeed.seed(_f)   # the body's own water, priority-flooded into its basins
-	# The water landed in already-seeded cells: displace the gas it occupies.
-	LAFieldLithostaticSeed.displace_gas_from_water(_f)
+	LAFieldHydrosphereSeed.seed(_f)   # the body's own water, in its basins and its pores
 
 
 ## ONE step: SIM_SECONDS_PER_STEP of simulated time. Every per-step term happens once here, so a

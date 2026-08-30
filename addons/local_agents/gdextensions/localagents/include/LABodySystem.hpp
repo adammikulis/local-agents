@@ -99,9 +99,6 @@ public:
 	void measure(Object *p_field, const Vector3 &p_spin_axis);
 	double surface_gravity_m_s2() const;
 	double angular_velocity_rad_s(double p_spin_l_kg_m2_s) const;
-	// R_specific T over the gravity SOLVED at the place asked about, m. A mass sum over whatever is in
-	// the box is not a body's gravity: a slice holds a slab, and a slab's own pull is not the planet's.
-	double scale_height_at(double p_temp_c, double p_g_m_s2) const;
 
 protected:
 	static void _bind_methods();

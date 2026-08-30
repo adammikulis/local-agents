@@ -295,6 +295,13 @@ func read_raw(name: String) -> PackedFloat32Array:
 	return _rd.buffer_get_data(_bufs[name]).to_float32_array()
 
 
+## Raw device readback of one buffer as bytes, for integer buffers. Diagnostic only.
+func read_raw_bytes(name: String) -> PackedByteArray:
+	if _rd == null or not _bufs.has(name):
+		return PackedByteArray()
+	return _rd.buffer_get_data(_bufs[name])
+
+
 ## A channel this drain did not read is ABSENT from the result, never an empty stand-in.
 func end_frame() -> Dictionary:
 	return {} if _rd == null else _cached

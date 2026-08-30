@@ -33,6 +33,9 @@ constexpr double LUNAR_MASS_KG = 7.346e22;          // Williams et al. 2014, LLR
 constexpr double EARTH_HYDROSPHERE_KG = 1.386e21;
 // The share of it standing in pore space rather than on the surface (Gleick 1996, Table 2.1).
 constexpr double EARTH_GROUNDWATER_KG = 2.34e19;
+// N2 in the atmosphere, kg: dry air 5.1352e18 kg (Trenberth & Smith 2005, J. Climate 18:864) at the
+// N2 mass fraction of dry air, 0.7552. The other prebiotic gases stand in mole ratio to it.
+constexpr double EARTH_ATMOSPHERE_N2_KG = 3.878e18;
 
 // Total angular momentum of the Earth-Moon pair. Tides move it between spin and orbit; they do not change
 // the sum, so this one number holds for the epoch as it does for today (Canup 2012, Science 338:1052;
@@ -168,6 +171,7 @@ Dictionary LABodySeeds::rows() {
 	planet["mass_kg"] = EARTH_MASS_KG;
 	planet["hydrosphere_kg"] = EARTH_HYDROSPHERE_KG;
 	planet["groundwater_kg"] = EARTH_GROUNDWATER_KG;
+	planet["atmosphere_n2_kg"] = EARTH_ATMOSPHERE_N2_KG;
 	planet["position_m"] = Vector3();
 	planet["velocity_m_s"] = Vector3(0.0, 0.0, v_orbit);
 	planet["spin_axis"] = spin;
@@ -358,21 +362,12 @@ double LABodyMeasure::angular_velocity_rad_s(double p_spin_l_kg_m2_s) const {
 	return inertia_kg_m2 <= 0.0 ? NAN : p_spin_l_kg_m2_s / inertia_kg_m2;
 }
 
-double LABodyMeasure::scale_height_at(double p_temp_c, double p_g_m_s2) const {
-	if (gas_constant_j_kgk <= 0.0 || !(p_g_m_s2 > 0.0)) {
-		return NAN;
-	}
-	return gas_constant_j_kgk * (p_temp_c + la_physical("KELVIN_OFFSET")) / p_g_m_s2;
-}
-
 void LABodyMeasure::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("measured"), &LABodyMeasure::measured);
 	ClassDB::bind_method(D_METHOD("measure", "field", "spin_axis"), &LABodyMeasure::measure);
 	ClassDB::bind_method(D_METHOD("surface_gravity_m_s2"), &LABodyMeasure::surface_gravity_m_s2);
 	ClassDB::bind_method(D_METHOD("angular_velocity_rad_s", "spin_l_kg_m2_s"),
 			&LABodyMeasure::angular_velocity_rad_s);
-	ClassDB::bind_method(D_METHOD("scale_height_at", "temp_c", "g_m_s2"),
-			&LABodyMeasure::scale_height_at);
 #define LA_MEASURE_READING(m, t)                                              \
 	ClassDB::bind_method(D_METHOD("get_" #m), &LABodyMeasure::get_##m);        \
 	ADD_PROPERTY(PropertyInfo(t, #m), "", "get_" #m)

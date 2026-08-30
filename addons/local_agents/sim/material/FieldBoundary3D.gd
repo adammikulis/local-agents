@@ -293,7 +293,7 @@ func _derive(st: Dictionary, d: int) -> Dictionary:
 	var table: Dictionary = LASubstances.table()
 	var out: Dictionary = {}
 	var mass_total: float = 0.0
-	var n_gas: float = 0.0
+	var v_cond: float = 0.0
 	var v_lambda: float = 0.0
 	var v_used: float = 0.0
 	var m_by_id: Dictionary = {}
@@ -312,13 +312,14 @@ func _derive(st: Dictionary, d: int) -> Dictionary:
 		var m: float = amount * mm * vol
 		m_by_id[id] = float(m_by_id.get(id, 0.0)) + m
 		mass_total += m
-		if LAMatterChannels.GASES.has(id):
-			n_gas += amount * vol
 		var vf: float = amount / full
+		if not LAMatterChannels.GASES.has(id):
+			v_cond += vf
 		v_lambda += vf * float(entry.get("conductivity", 0.0))
 		v_used += vf
 	var m_h2o: float = float(m_by_id.get("h2o", 0.0))
-	var e: Dictionary = LAFieldEnthalpySeed.entry_enthalpies(m_by_id, n_gas, t_c, p_pa)
+	var room: float = vol * maxf(1.0 - v_cond, 0.0)
+	var e: Dictionary = LAFieldEnthalpySeed.entry_enthalpies(m_by_id, room, t_c, p_pa)
 	out["h_h2o"] = float(e["h_h2o"]) / vol
 	out["h_silicate"] = float(e["h_silicate"]) / vol
 	out["h_sensible"] = float(e["h_sensible"]) / vol
@@ -337,7 +338,7 @@ func _derive(st: Dictionary, d: int) -> Dictionary:
 	var f_v: float = 0.0
 	var molten: float = _melt_share("h2o", t_c, p_pa)
 	if m_h2o > 0.0:
-		f_v = LAMixtureEnthalpy.vapour_fraction("h2o", t_c, p_pa, m_h2o, n_gas)
+		f_v = LAMixtureEnthalpy.vapour_fraction("h2o", t_c, p_pa, m_h2o, room)
 	out["h2o_vapour"] = f_v
 	out["h2o_liquid"] = (1.0 - f_v) * molten
 	out["h2o_solid"] = (1.0 - f_v) * (1.0 - molten)

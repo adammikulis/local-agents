@@ -52,7 +52,7 @@ const char *const GRAVITY_REDUCE[] = { "@amounts", "energy_stock", "energy_stock
 	"solid_detritus", "solid_fuel", "solid_org_h", "solid_org_o",
 	"organic_hc_min", "organic_oc_min", "organic_coalified", nullptr };
 
-const char *const HYDRO_GATES[] = { "check_hydrostatic_seed.sh", nullptr };
+const char *const HYDRO_GATES[] = { "check_hydrostatic_seed.sh", "check_atmosphere_mass.sh", nullptr };
 const char *const HYDRO_PASSES[] = { "PressurePass.gd", nullptr };
 const char *const HYDRO_REDUCE[] = { "pressure_*", nullptr };
 

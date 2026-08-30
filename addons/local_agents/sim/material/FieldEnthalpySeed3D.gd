@@ -8,8 +8,9 @@ const PC: GDScript = preload("res://addons/local_agents/sim/material/PhysicalCon
 
 
 ## The cell's enthalpy at (t, p) decomposed the way state_derive.glsl carries it: the two ladder entries
-## off their own curves, everything else lumped sensible at LAMatterChannels' capacities. Joules and J/K.
-static func entry_enthalpies(masses: Dictionary, n_gas_mol: float, t_c: float, p_pa: float) -> Dictionary:
+## off their own curves over the gas room `room_m3`, everything else lumped sensible at LAMatterChannels'
+## capacities. Joules and J/K.
+static func entry_enthalpies(masses: Dictionary, room_m3: float, t_c: float, p_pa: float) -> Dictionary:
 	var h_h2o: float = 0.0
 	var h_sil: float = 0.0
 	var mc: float = 0.0
@@ -19,9 +20,9 @@ static func entry_enthalpies(masses: Dictionary, n_gas_mol: float, t_c: float, p
 			continue
 		match LAMatterChannels.entry_of(String(id)):
 			LAMatterChannels.Entry.H2O:
-				h_h2o += m * LAMixtureEnthalpy.specific_enthalpy(String(id), t_c, p_pa, m, n_gas_mol)
+				h_h2o += m * LAMixtureEnthalpy.specific_enthalpy(String(id), t_c, p_pa, m, room_m3)
 			LAMatterChannels.Entry.SILICATE:
-				h_sil += m * LAMixtureEnthalpy.specific_enthalpy(String(id), t_c, p_pa, m, n_gas_mol)
+				h_sil += m * LAMixtureEnthalpy.specific_enthalpy(String(id), t_c, p_pa, m, room_m3)
 			_:
 				mc += m * LAMatterChannels.specific_heat(String(id))
 	return {"h_h2o": h_h2o, "h_silicate": h_sil,

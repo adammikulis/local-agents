@@ -35,13 +35,6 @@ var _h2o_vapour: PackedFloat32Array = PackedFloat32Array()   # share that is vap
 const INITIAL_TEMP: float = 15.0
 # Gas channel seeds, mol/m^3.
 const O2_AMBIENT: float = 0.0
-const CO2_AMBIENT: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.PREBIOTIC_MOLE_FRAC_CO2
-const N2_AMBIENT: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.PREBIOTIC_MOLE_FRAC_N2
-const H2_AMBIENT: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.PREBIOTIC_MOLE_FRAC_H2
-const CO_AMBIENT: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.PREBIOTIC_MOLE_FRAC_CO
-const SO2_AMBIENT: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.PREBIOTIC_MOLE_FRAC_SO2
-const H2S_AMBIENT: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.PREBIOTIC_MOLE_FRAC_H2S
-const CH4_AMBIENT: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.PREBIOTIC_MOLE_FRAC_CH4
 const SNOW_PRESENT: float = 1.9e-4 * MAX_MASS
 const ICE_DEPTH: float = 0.5 * MAX_MASS
 const FOG_MAX_TEMP: float = 12.0
@@ -266,15 +259,15 @@ func _alloc_channels() -> void:
 	_apatite = _cells_filled(0.0)
 	_fuel = _cells_filled(0.0)
 	_fire = _cells_filled(0.0)
-	# THE AIR, seeded once and finite thereafter, in mol/m^3.
-	_o2 = _cells_filled(O2_AMBIENT)
-	_co2 = _cells_filled(CO2_AMBIENT)
-	_n2 = _cells_filled(N2_AMBIENT)
-	_h2 = _cells_filled(H2_AMBIENT)
-	_co = _cells_filled(CO_AMBIENT)
-	_so2 = _cells_filled(SO2_AMBIENT)
-	_h2s = _cells_filled(H2S_AMBIENT)
-	_ch4 = _cells_filled(CH4_AMBIENT)
+	# THE AIR: the body's declared inventory, laid by LAFieldLithostaticSeed.shape_atmosphere, mol/m^3.
+	_o2 = _cells_filled(0.0)
+	_co2 = _cells_filled(0.0)
+	_n2 = _cells_filled(0.0)
+	_h2 = _cells_filled(0.0)
+	_co = _cells_filled(0.0)
+	_so2 = _cells_filled(0.0)
+	_h2s = _cells_filled(0.0)
+	_ch4 = _cells_filled(0.0)
 	# Detritus + fungus start empty; carcasses/ash deposit detritus, fungus grows on it (decomposer loop).
 	_detritus = _cells_filled(0.0)
 	_org_h = _cells_filled(0.0)
@@ -393,9 +386,6 @@ func _seed_silicate() -> void:
 	if _silicate.size() != _cell_count or _cement.size() != _cell_count or _solid.size() != _cell_count:
 		return
 	LAPlanetComposition.seed(self, INITIAL_TEMP)
-	# Shape the CPU arrays BEFORE the driver's seed_field reads them. The hydrostatic balance waits for
-	# the gravity solve; LAMaterialFieldSphereStep3D.seed_tick marches it once g exists.
-	LAFieldLithostaticSeed.clear_gas_in_rock(self)
 	_body_measure = LABodyMeasure.new()
 	_body_measure.measure(self, LABodySeeds.spin_axis_of(_body_key))
 

@@ -151,6 +151,7 @@ func _body_block() -> Dictionary:
 		"body_measured": m.measured(),
 		"body_seed_mass_kg": float(LABodySeeds.of("planet").get("mass_kg", 0.0)),
 		"body_seed_hydrosphere_kg": float(LABodySeeds.of("planet").get("hydrosphere_kg", 0.0)),
+		"body_seed_atmosphere_n2_kg": float(LABodySeeds.of("planet").get("atmosphere_n2_kg", 0.0)),
 		"body_seed_spin_l": LABodySeeds.spin_l_of("planet"),
 		"body_mass_kg": m.mass_kg,
 		"body_radius_m": m.surface_r_m,

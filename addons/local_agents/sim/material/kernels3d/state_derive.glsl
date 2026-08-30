@@ -192,13 +192,13 @@ SubstanceTh la_sensible_only(float c_j_kgk) {
 }
 
 // The enthalpy one mixture entry holds at the state the solve landed on, J.
-float la_entry_h(SubstanceTh s, float m_kg, float t_c, float p_pa, float n_gas_mol, bool pinned,
+float la_entry_h(SubstanceTh s, float m_kg, float t_c, float p_pa, float room_m3, bool pinned,
 		float progress) {
 	if (m_kg <= 0.0) {
 		return 0.0;
 	}
-	float h = m_kg * la_mix_specific_enthalpy(s, t_c, p_pa, m_kg, n_gas_mol, 0.0);
-	return pinned ? h + progress * la_mix_jump_of(s, m_kg, t_c, p_pa, n_gas_mol, 0.0) : h;
+	float h = m_kg * la_mix_specific_enthalpy(s, t_c, p_pa, m_kg, room_m3, 0.0);
+	return pinned ? h + progress * la_mix_jump_of(s, m_kg, t_c, p_pa, room_m3, 0.0) : h;
 }
 
 // Cementation and the solid flag, from the melt share this cell just derived. No mass moves here, and the
@@ -438,8 +438,8 @@ void main() {
 	// No channel carries a dissolved solute, so the freezing point is not depressed.
 	bool pinned = false;
 	float progress = 0.0;
-	float p_sat = 0.0;
 	float m_h2o = mass[E_H2O];
+	float mol_sil = subs[E_SILICATE].molar_mass > 0.0 ? mass[E_SILICATE] / subs[E_SILICATE].molar_mass : 0.0;
 	float t_c = temp[g];
 	float p_pa = max(pressure[g], 0.0);
 	// The fluid's room: the cell less what its condensed lithic matter fills. H = U + pV over it.
@@ -447,8 +447,11 @@ void main() {
 	float f_solid = 0.0;
 	float f_liquid = 0.0;
 	float f_vapour = 0.0;
+	float f_vap_sil = 0.0;
 	float b_vol = 0.0;
 	float c_comp = 0.0;
+	// THE GAS ROOM: the cell less every condensed volume, where the vapour stands at saturation.
+	float room_gas = max(vol - (b0 + t_c * b1 - b2) - m_h2o * la_water_liquid_v_m3_kg(t_c), 0.0);
 	// ONE STATE: the ladder gives T(h, p) and the EOS p(T) off the same matter, so they solve together.
 	float p_lo = 0.0;
 	float p_hi = 0.0;
@@ -458,71 +461,57 @@ void main() {
 	float f_prev = 0.0;
 	bool converged = false;
 	for (int it = 0; it < LA_STATE_STEPS; ++it) {
-		// CONDENSED PHASE IS PRESENT when the cell holds more h2o than saturated vapour would fill it.
-		p_sat = 0.0;
-		if (mol_h2o > 0.0) {
-			float ps = la_saturation_p_at(subs[E_H2O], t_c);
-			float tk_last = max(t_c + LA_KELVIN_OFFSET, 1.0);
-			if (mol_h2o > ps * vol / (LA_R_J_MOL_K * tk_last)) {
-				p_sat = ps;
-			}
-		}
-		// THE VOID OVER A CONDENSED PHASE IS ITS OWN VAPOUR, at the most volatile's saturation pressure.
-		if (mass[E_SILICATE] > 0.0) {
-			p_sat = max(p_sat, la_saturation_p_at(subs[E_SILICATE], t_c));
-		}
-		p_pa = max(p_pa, p_sat);
-		pinned = false;
-		progress = 0.0;
-		t_c = la_mix_state(subs, mass, N_ENTRIES, (e_j_m3[g] + p_pa * room_f) * vol, p_pa, n_gas_mol, 0.0,
-			pinned, progress);
-
-		// THE PHASE SPLIT OF THIS CELL'S H2O, off the SAME ladder. `progress` is where inside a latent
-		// plateau the enthalpy landed, so a cell at the melting point reports a partial solid share.
-		f_solid = 0.0;
-		f_liquid = 0.0;
-		f_vapour = 0.0;
-		if (m_h2o > 0.0) {
-			SubstanceTh w = subs[E_H2O];
-			bool has_vap = false;
-			float vap_t = la_mix_vapour_boundary_c(w, p_pa, has_vap);
-			float melt_t = la_melt_c_at(w, p_pa, 0.0);
-			float molten = 0.0;
-			// The plateau pinned on is the boundary the temperature is NEARER: no tolerance needed.
-			bool at_vapour = pinned && has_vap && abs(t_c - vap_t) <= abs(t_c - melt_t);
-			if (at_vapour) {
-				f_vapour = progress;
-				// Below the triple point the condensate leaving is SOLID; above it, liquid.
-				molten = la_sublimes_at(w, p_pa) ? 0.0 : 1.0;
-			} else {
-				f_vapour = la_mix_vapour_fraction(w, t_c, p_pa, m_h2o, n_gas_mol, 0.0);
-				molten = pinned ? progress : (t_c < melt_t ? 0.0 : 1.0);
-			}
-			float condensed = max(1.0 - f_vapour, 0.0);
-			f_solid = condensed * (1.0 - molten);
-			f_liquid = condensed * molten;
-		}
-
-		// The vapour share joins the gas term; the condensed water fills the liquid's volume off Kell's
-		// curve and the ice its own, each squeezed on its own bulk modulus.
+		// T and the room settle together at this p, so the residual below is a function of p alone.
 		float vw = 0.0;
 		float cw = 0.0;
-		if (m_h2o > 0.0) {
-			float v_liq = la_water_liquid_v_m3_kg(t_c);
-			float v_ice = (1.0 + ICE_ALPHA * (t_c - ICE_T_REF_C)) / subs[E_H2O].rho_sol;
-			vw = m_h2o * (f_liquid * v_liq + f_solid * v_ice);
-			cw = m_h2o * (f_liquid * v_liq * WATER_COMPRESS + f_solid * v_ice / ICE_BULK);
+		for (int k = 0; k < 8; ++k) {
+			pinned = false;
+			progress = 0.0;
+			t_c = la_mix_state(subs, mass, N_ENTRIES, (e_j_m3[g] + p_pa * room_f) * vol, p_pa, room_gas, 0.0,
+				pinned, progress);
+
+			// The h2o split: the room's vapour, the rest solid or liquid by the melting point.
+			f_solid = 0.0;
+			f_liquid = 0.0;
+			f_vapour = 0.0;
+			if (m_h2o > 0.0) {
+				SubstanceTh w = subs[E_H2O];
+				f_vapour = la_mix_vapour_fraction(w, t_c, p_pa, m_h2o, room_gas, 0.0);
+				float melt_t = la_melt_c_at(w, p_pa, 0.0);
+				float molten = pinned ? progress : (t_c < melt_t ? 0.0 : 1.0);
+				float condensed = max(1.0 - f_vapour, 0.0);
+				f_solid = condensed * (1.0 - molten);
+				f_liquid = condensed * molten;
+			}
+			f_vap_sil = mass[E_SILICATE] > 0.0
+				? la_mix_vapour_fraction(subs[E_SILICATE], t_c, p_pa, mass[E_SILICATE], room_gas, 0.0) : 0.0;
+
+			// Liquid and ice volumes, each squeezed on its own bulk modulus.
+			vw = 0.0;
+			cw = 0.0;
+			if (m_h2o > 0.0) {
+				float v_liq = la_water_liquid_v_m3_kg(t_c);
+				float v_ice = (1.0 + ICE_ALPHA * (t_c - ICE_T_REF_C)) / subs[E_H2O].rho_sol;
+				vw = m_h2o * (f_liquid * v_liq + f_solid * v_ice);
+				cw = m_h2o * (f_liquid * v_liq * WATER_COMPRESS + f_solid * v_ice / ICE_BULK);
+			}
+			b_vol = (b0 + t_c * b1 - b2) + vw;
+			c_comp = (c0 + t_c * c1 - c2) + cw;
+			float room_next = max(vol - b_vol, 0.0);
+			bool settled = abs(room_next - room_gas) <= 1.0e-6 * vol;
+			room_gas = room_next;
+			if (settled) {
+				break;
+			}
 		}
-		b_vol = (b0 + t_c * b1 - b2) + vw;
-		c_comp = (c0 + t_c * c1 - c2) + cw;
-		float n_gas = n_gas_mol + f_vapour * mol_h2o;
+		float n_gas = n_gas_mol + f_vapour * mol_h2o + f_vap_sil * mol_sil;
 		float tk = max(t_c + LA_KELVIN_OFFSET, 1.0);
 		// Rock's pressure is PressurePass's: its T is read at that column and nothing here iterates.
 		if (solid[g] != 0.0) {
 			converged = true;
 			break;
 		}
-		float p_next = la_eos_p(vol, n_gas * LA_R_J_MOL_K * tk, b_vol, c_comp, LA_P_STD, p_sat);
+		float p_next = la_eos_p(vol, n_gas * LA_R_J_MOL_K * tk, b_vol, c_comp, LA_P_STD);
 		float f = p_next - p_pa;
 		if (abs(f) <= LA_STATE_TOL * max(p_pa, 1.0)) {
 			converged = true;
@@ -532,6 +521,11 @@ void main() {
 		if (f > 0.0) { p_lo = p_pa; has_lo = true; } else { p_hi = p_pa; has_hi = true; }
 		float p_step = p_next;
 		if (has_lo && has_hi) {
+			// The root is found when the bracket is: the residual carries T's rounding through p_sat(T).
+			if (p_hi - p_lo <= LA_STATE_TOL * max(p_pa, 1.0)) {
+				converged = true;
+				break;
+			}
 			if (abs(f - f_prev) > 1.0e-30 * max(p_pa, 1.0)) {
 				p_step = p_pa - f * (p_pa - p_prev_it) / (f - f_prev);
 			}
@@ -549,10 +543,10 @@ void main() {
 	}
 
 	// The decomposition la_mix_enthalpy_at sums, kept per entry so transport moves heat with matter.
-	h_h2o[g] = la_entry_h(subs[E_H2O], mass[E_H2O], t_c, p_pa, n_gas_mol, pinned, progress) * inv_vol;
-	h_silicate[g] = la_entry_h(subs[E_SILICATE], mass[E_SILICATE], t_c, p_pa, n_gas_mol, pinned,
+	h_h2o[g] = la_entry_h(subs[E_H2O], mass[E_H2O], t_c, p_pa, room_gas, pinned, progress) * inv_vol;
+	h_silicate[g] = la_entry_h(subs[E_SILICATE], mass[E_SILICATE], t_c, p_pa, room_gas, pinned,
 		progress) * inv_vol;
-	h_sensible[g] = la_entry_h(subs[E_SENSIBLE], mass[E_SENSIBLE], t_c, p_pa, n_gas_mol, pinned,
+	h_sensible[g] = la_entry_h(subs[E_SENSIBLE], mass[E_SENSIBLE], t_c, p_pa, room_gas, pinned,
 		progress) * inv_vol;
 	cap_sensible[g] = mc * inv_vol;
 	h2o_solid[g] = f_solid;

@@ -63,7 +63,8 @@ measure() {
 	stock="$(reading energy_stock "$out")"
 	sopen="$(reading energy_stock_open "$out")"
 	numeric "$left" || left=0
-	numeric "$eres" || eres=-1
+	# The residual is SIGNED; an absent reading is the empty string, never a number standing in for it.
+	numeric "$eres" || eres=""
 	numeric "$held" || held=0
 	numeric "$turn" || turn=0
 	numeric "$stock" || stock=0
@@ -76,11 +77,11 @@ measure() {
 	# sim_run then withholds every number. That IS the reading — the column did not stay at rest.
 	# A row the clock refuses because its own cells signal at light is the same reading by another name.
 	if printf '%s\n' "$out" | rg -N -q -e 'reduced to (inf|-inf|nan)|signal speed at or past light'; then
-		echo "0 0 0 0 0 -1 -1"
+		echo "0 0 0 0 0 none -1"
 		return 0
 	fi
 	if printf '%s %s %s' "$wind" "$cel" "$prel" | rg -N -q -i -e 'nan|inf'; then
-		echo "0 0 0 0 0 -1 -1"
+		echo "0 0 0 0 0 none -1"
 		return 0
 	fi
 	if ! numeric "$wind" || ! numeric "$cel" || ! numeric "$prel" || ! numeric "$lv"; then
@@ -91,8 +92,8 @@ measure() {
 		echo "check_atmosphere_at_rest: momentum_mass_kg is not positive; the column holds no matter." >&2
 		return 1
 	fi
-	awk -v w="$wind" -v c="$cel" -v p="$prel" -v l="$lv" -v x="$left" -v e="$eres" -v b="$ebar" \
-		'BEGIN{printf "1 %.12g %.12g %d %.12g %.12g %.12g", w, p, l, x, e, b}'
+	awk -v w="$wind" -v c="$cel" -v p="$prel" -v l="$lv" -v x="$left" -v e="${eres:-none}" -v b="$ebar" \
+		'BEGIN{printf "1 %.12g %.12g %d %.12g %s %.12g", w, p, l, x, e, b}'
 }
 
 # True when this arm stayed at rest: finite, and both readings inside the arithmetic's own bar — the
@@ -131,7 +132,13 @@ EOF
 		echo "the instrument reads no venting. This gate cannot fail." >&2
 		exit 2
 	fi
-	if ! awk -v r="$VENT_ERES" -v b="$VENT_EBAR" 'BEGIN{exit !(r >= 0 && r <= b)}'; then
+	if ! numeric "$VENT_ERES"; then
+		echo >&2
+		echo "check_atmosphere_at_rest: the vented column published no energy_residual_rel, so its book" >&2
+		echo "was never read." >&2
+		exit 2
+	fi
+	if ! awk -v r="$VENT_ERES" -v b="$VENT_EBAR" 'BEGIN{a = r < 0 ? -r : r; exit !(a <= b)}'; then
 		echo >&2
 		echo "check_atmosphere_at_rest: the vented column's energy book does not close: residual $VENT_ERES of" >&2
 		echo "the turnover against a bar of $VENT_EBAR. Enthalpy, motion and what left through the face disagree." >&2
