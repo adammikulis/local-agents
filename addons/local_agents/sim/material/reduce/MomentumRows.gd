@@ -21,8 +21,8 @@ static func rows() -> Array:
 	# Momentum in a cell that holds no mass. Gated by check_momentum_orphans.sh.
 	out.append({"key": "momentum_orphan_cells", "source": "mom_orphan",
 		"op": Rec.Op.COUNT_GT, "mask": Rec.Mask.OPEN, "threshold": 0.0})
-	# The peak mixture sound speed, which sets the momentum rows' acoustic substep count.
-	out.append({"key": "celerity_max", "source": "celerity", "op": Rec.Op.MAX, "mask": Rec.Mask.OPEN})
+	# The peak Mach number: a cell's speed over its own sound speed. Gated by check_rung_acoustic.sh.
+	out.append({"key": "mach_max", "source": "mach", "op": Rec.Op.MAX, "mask": Rec.Mask.OPEN})
 	out.append({"key": "rho_max_open", "source": "rho_bulk", "op": Rec.Op.MAX, "mask": Rec.Mask.OPEN})
 	# WHERE the non-finite values sit, so a NaN population names its cell class.
 	out.append({"key": "nonfinite_solid", "source": "nonfinite", "op": Rec.Op.SUM, "mask": Rec.Mask.SOLID})

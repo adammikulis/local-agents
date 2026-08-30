@@ -15,7 +15,7 @@ enum Fluid { VACUUM, WATER, AIR }
 
 ## Per-record switches, packed into the kernel's `flags`. Matches the TF_* constants in flux.glsl.
 enum Flag { SETTLE = 2, EFIELD = 4, FRACTION = 16, DILUTE = 32,
-	RADIOGENIC = 64, ENTHALPY = 128, RELAX = 256, VEL = 512, LEVEL = 1024 }
+	RADIOGENIC = 64, ENERGY = 128, RELAX = 256, VEL = 512, LEVEL = 1024, WATER = 2048 }
 
 
 ## `settle` adds the grain's terminal velocity; `frac` is the derived share moved; `relax` carries
@@ -57,10 +57,10 @@ static func rows() -> Array:
 
 		# The heat equation: conduction down the temperature gradient, and the rock's own decay as the
 		# volumetric source term beside it.
-		{"label": "heat_conduct", "channel": "h_j_m3", "substance": "", "mode": CONDUCT,
+		{"label": "heat_conduct", "channel": "e_j_m3", "substance": "", "mode": CONDUCT,
 			"drive": "temp", "aux": "conductivity", "radiogenic": true, "relax": true},
 
-		{"label": "heat_radiate", "channel": "h_j_m3", "substance": "", "mode": RADIATE},
+		{"label": "heat_radiate", "channel": "e_j_m3", "substance": "", "mode": RADIATE},
 
 		# THE ACOUSTIC GROUP: every compressible substance rides the one interface velocity the face
 		# solved, and the momentum record closes it with the pressure that velocity came from.

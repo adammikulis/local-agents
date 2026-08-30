@@ -9,8 +9,6 @@ const float KELVIN = 273.15;                        // LAPhysical.KELVIN_OFFSET
 const float STEFAN = 5.670374419e-8;                // LAPhysical.STEFAN_BOLTZMANN
 const float KOZENY_CARMAN_C = 180.0;                // LAPhysical.KOZENY_CARMAN_C
 const float SMAGORINSKY_COEFF = 0.1650789493;       // LAPhysical.SMAGORINSKY_COEFF
-const float DRY_AIR_R = 287.0222603;                // LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK
-const float AIR_GAMMA = 1.399764846;                // LAPhysical.AIR_ADIABATIC_INDEX
 const float AIR_DENSITY = 1.225;                    // LAPhysical.AIR_DENSITY_KG_M3
 const float EPS0 = 8.8541878128e-12;                // LAPhysical.VACUUM_PERMITTIVITY_F_M
 const float RREA_THRESHOLD = 2.84e5;                // LAPhysical.RREA_THRESHOLD_V_M
@@ -61,6 +59,9 @@ const float XUV_EFF = 0.15;                         // LAPhysical.XUV_HEATING_EF
 const float SQRT_PI = sqrt(radians(180.0));
 const int GHOST_SPACE = -2;                         // LAFieldBoundary3D.SPACE_REDIRECT
 const float C_LIGHT = 299792458.0;                  // LAPhysical.SPEED_OF_LIGHT_M_S
+const float N2_DIAMETER = 3.64e-10;                 // LAPhysical.N2_KINETIC_DIAMETER_M
+const float AVOGADRO = 6.02214076e23;               // LAPhysical.AVOGADRO_PER_MOL
+const float KNUDSEN_LIMIT = 0.1;                    // LAPhysical.KNUDSEN_CONTINUUM_LIMIT
 
 
 vec3 g_at(uint c) {
@@ -84,7 +85,7 @@ float t_k(uint c) {
 
 // Ideal-gas air density from the cell's own pressure and temperature, kg/m^3.
 float air_rho(uint c) {
-	return max(pressure[c], 0.0) / (DRY_AIR_R * t_k(c));
+	return gas_r[c] > 0.0 ? max(pressure[c], 0.0) / (gas_r[c] * t_k(c)) : 0.0;
 }
 
 // The full potential of a cell, J/kg.
@@ -119,6 +120,20 @@ float h2o_gas(uint c)    { return max(h2o[c], 0.0) * clamp(h2o_vapour[c], 0.0, 1
 // CONDENSED cloud water, droplets and ice alike, kg/m^3.
 float cloud_water_kg_m3(uint c) {
 	return (h2o_water(c) + h2o_ice(c)) * M_H2O;
+}
+
+// Gas molecules per m^3 in the cell, every gas channel summed.
+float gas_number_density(uint c) {
+	return (h2o_gas(c) + max(co2[c], 0.0) + max(ch4[c], 0.0) + max(co_gas[c], 0.0) + max(so2[c], 0.0)
+		+ max(h2s[c], 0.0) + max(o2_gas[c], 0.0) + max(n2_gas[c], 0.0) + max(h2_gas[c], 0.0)) * AVOGADRO;
+}
+
+// PAST THE CONTINUUM THERE IS NO FLUID: a cell whose gas has a mean free path past the Knudsen limit
+// of its own edge holds molecules on ballistic paths; its faces are walls to the fluid below.
+bool collisionless(uint c) {
+	float n = gas_number_density(c);
+	float sigma = sqrt(2.0) * radians(180.0) * N2_DIAMETER * N2_DIAMETER;
+	return cloud_water_kg_m3(c) <= 0.0 && n * sigma * cell_edge[c] * KNUDSEN_LIMIT < 1.0;
 }
 
 // Volume fraction of the cell that is condensed, so a beam meets it geometrically.
@@ -164,19 +179,9 @@ float face_z(uint c, uint d) {
 	return 0.5 * cell_edge[c] * (1.0 + face_cos(c, d));
 }
 
-// The cell's MEAN pressure over face d, off the matter it holds.
+// THE GAS ALONE at face d, Pa: the gas column in its exponential over the cell. Condensed water is a
+// band under it that the water pair states for itself (band.glsli), never a layer the gas presents.
 float face_p(uint c, uint d) {
-	vec3 gv = g_at(c);
-	float gm = length(gv);
-	if (gm <= 0.0) {
-		return max(pressure[c], 0.0);
-	}
-	return la_stack_face_p(face_cos(c, d), cell_edge[c], gm, cond_kg_m3(c),
-		rho_fluid(c), max(pressure[c], 0.0));
-}
-
-// The GAS alone at face d, Pa: the same reconstruction with the condensed head left off.
-float face_p_gas(uint c, uint d) {
 	vec3 gv = g_at(c);
 	float gm = length(gv);
 	if (gm <= 0.0) {
@@ -186,11 +191,66 @@ float face_p_gas(uint c, uint d) {
 	return la_stack_face_p(face_cos(c, d), cell_edge[c], gm, 0.0, m_gas, max(pressure[c], 0.0));
 }
 
-// The layer this cell presents at face d, stated AT THAT FACE: density in x, bulk modulus in y.
+float face_p_gas(uint c, uint d) {
+	return face_p(c, d);
+}
+
 vec2 face_layer(uint c, uint d) {
 	float pg = max(face_p_gas(c, d), 0.0);
-	return la_stack_layer(face_z(c, d), cell_edge[c], condensed_frac(c), cond_kg_m3(c),
-		pg / (DRY_AIR_R * t_k(c)), pg, max(k_cond[c], 0.0), AIR_GAMMA);
+	float r = gas_r[c];
+	return r > 0.0 ? vec2(pg / (r * t_k(c)), gas_gamma[c] * pg) : vec2(0.0);
+}
+
+// --- the water band -------------------------------------------------------------------------------
+
+// Unit vector down the cell's own vertical, or zero where nothing pulls.
+vec3 down_at(uint c) {
+	vec3 gv = g_at(c);
+	float gm = length(gv);
+	return gm > 0.0 ? gv / gm : vec3(0.0);
+}
+
+// The water this cell's band holds, m^3: its liquid water at the liquid's own density.
+float water_m3(uint c) {
+	float e = cell_edge[c];
+	return h2o_water(c) * M_H2O / RHO_WATER * e * e * e;
+}
+
+// Depth of the free surface below the cell centre, m; +inf where there is no water or no vertical.
+float water_top(uint c) {
+	float vol = water_m3(c);
+	vec3 gd = down_at(c);
+	if (vol <= 0.0 || gd == vec3(0.0)) {
+		return 1.0e30;
+	}
+	return la_band_top(gd, 0.5 * cell_edge[c], ground_d[c], vol);
+}
+
+// Face d's wet share (x), ground share (y) and the water's mean pressure over the wet share (z), Pa.
+vec3 water_face(uint c, uint d, float top) {
+	vec3 gd = down_at(c);
+	if (gd == vec3(0.0)) {
+		// No vertical: the liquid is dispersed, and wets every face by its volume share.
+		float e = cell_edge[c];
+		return vec3(min(water_m3(c) / (e * e * e), 1.0), 0.0, max(pressure[c], 0.0));
+	}
+	if (top >= 1.0e29) {
+		return vec3(0.0, 0.0, 0.0);
+	}
+	vec3 f = la_band_face(gd, face_normal(d), 0.5 * cell_edge[c], top, ground_d[c]);
+	float p_w = max(pressure[c], 0.0) + RHO_WATER * length(g_at(c)) * f.z;
+	return vec3(f.x, f.y, p_w);
+}
+
+// Sound speed and impedance of the cell's liquid water.
+float water_c(uint c) {
+	float k = max(k_cond[c], 0.0);
+	return k > 0.0 ? sqrt(k / RHO_WATER) : 0.0;
+}
+
+float water_z(uint c) {
+	float k = max(k_cond[c], 0.0);
+	return k > 0.0 ? sqrt(k * RHO_WATER) : 0.0;
 }
 
 // Signal speed of the layer at face d, m/s: sqrt(K/rho) of what touches it, never a mixture mean.
@@ -203,6 +263,22 @@ float face_c(uint c, uint d) {
 float impedance(uint c, uint d) {
 	vec2 lay = face_layer(c, d);
 	return (lay.x > 0.0 && lay.y > 0.0) ? sqrt(lay.x * lay.y) : 0.0;
+}
+
+// THE SONIC STATE of a gas layer (p, c, u along the normal) expanding into vacuum: velocity (x) and
+// pressure (y) of the exact rarefaction, u* = c* = (2c + (gamma-1) u)/(gamma+1), p* = p (c*/c)^(2g/(g-1)).
+vec2 la_sonic_vacuum(float p, float c, float u, float gam) {
+	if (!(c > 0.0) || !(p > 0.0)) {
+		return vec2(max(u, 0.0), 0.0);
+	}
+	float cs = (2.0 * c + (gam - 1.0) * u) / (gam + 1.0);
+	if (cs <= 0.0) {
+		return vec2(0.0, 0.0);
+	}
+	if (u >= c) {
+		return vec2(u, p);
+	}
+	return vec2(cs, p * pow(cs / c, 2.0 * gam / (gam - 1.0)));
 }
 
 // --- eddy viscosity --------------------------------------------------------------------------------

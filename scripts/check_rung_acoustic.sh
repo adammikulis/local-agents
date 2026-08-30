@@ -9,25 +9,25 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_rung.sh"
 
 FRAMES="${LA_RUNG_FRAMES:-8}"
-KEYS="celerity_max,wind_speed_max,momentum_cells,h2o_rel_drift,energy_run_drift_rel,field_cells"
+KEYS="mach_max,momentum_mass_kg,momentum_cells,h2o_rel_drift,energy_run_drift_rel,field_cells"
 KEYS="$KEYS,energy_stock,energy_kinetic,energy_potential"
 out="$(la_rung_report 3 "$FRAMES" "$KEYS")"
-printf '%s\n' "$out" | grep -E '^(celerity_max|wind_speed_max|momentum_cells|h2o_rel_drift|energy_run_drift_rel|field_cells|energy_stock|energy_kinetic|energy_potential)' || true
-la_rung_require "$out" celerity_max wind_speed_max momentum_cells h2o_rel_drift energy_run_drift_rel field_cells energy_stock energy_kinetic energy_potential || exit 2
+printf '%s\n' "$out" | grep -E '^(mach_max|momentum_mass_kg|momentum_cells|h2o_rel_drift|energy_run_drift_rel|field_cells|energy_stock|energy_kinetic|energy_potential)' || true
+la_rung_require "$out" mach_max momentum_mass_kg momentum_cells h2o_rel_drift energy_run_drift_rel field_cells energy_stock energy_kinetic energy_potential || exit 2
 
 
-cel="$(la_rung_value "$out" celerity_max)"
-wind="$(la_rung_value "$out" wind_speed_max)"
+mach="$(la_rung_value "$out" mach_max)"
+mass="$(la_rung_value "$out" momentum_mass_kg)"
 cells="$(la_rung_value "$out" momentum_cells)"
 h2o="$(la_rung_value "$out" h2o_rel_drift)"
 resid="$(la_rung_value "$out" energy_run_drift_rel)"
 n="$(la_rung_value "$out" field_cells)"
 
-awk -v cel="$cel" -v wind="$wind" -v cells="$cells" -v h2o="$h2o" -v resid="$resid" -v n="$n" 'BEGIN {
+awk -v mach="$mach" -v mass="$mass" -v cells="$cells" -v h2o="$h2o" -v resid="$resid" -v n="$n" 'BEGIN {
 	floor_rel = sqrt(n) / 16777216.0
 	fail = 0
-	if (!(cel > 0)) { print "The mixture has no sound speed, so nothing here is compressible." > "/dev/stderr"; fail = 1 }
-	if (wind > cel) { print "A cell is moving faster than its own sound speed." > "/dev/stderr"; fail = 1 }
+	if (!(mass > 0)) { print "No open cell holds matter, so nothing here is compressible." > "/dev/stderr"; fail = 1 }
+	if (!(mach <= 1)) { print "A cell is moving faster than its own sound speed (mach_max " mach ")." > "/dev/stderr"; fail = 1 }
 	if (!(cells > 0)) { print "No open cell carries motion: the acoustic group never moved anything." > "/dev/stderr"; fail = 1 }
 	if (!(h2o <= floor_rel && h2o >= -floor_rel)) { print "The h2o total moved on a box with every wall shut." > "/dev/stderr"; fail = 1 }
 	if (!(resid <= floor_rel && resid >= -floor_rel)) { print "The heat and the motion do not sum to a constant on a box with nothing outside it." > "/dev/stderr"; fail = 1 }

@@ -33,7 +33,7 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	var defs_ssbo: RID = _storage_buffer(LAReactionDefs.serialize(recs))
 
 	var temp: RID = _single(bufs, "temp")        # derived C, read-only
-	var h: RID = _single(bufs, "h_j_m3")         # the state, J/m^3
+	var h: RID = _single(bufs, "e_j_m3")         # the state, J/m^3
 	var h2o: RID = _single(bufs, "h2o")
 	var o2: RID = _single(bufs, "o2")
 	var co2: RID = _single(bufs, "co2")

@@ -10,7 +10,8 @@ layout(local_size_x = 64) in;
 #include "matter_channels.glsli"
 #include "eos.glsli"
 
-layout(set = 0, binding = 21, std430) restrict buffer Enthalpy { float h_j_m3[]; };
+// THE STATE: internal energy per volume, J/m^3. Enthalpy is derived from it at the pressure solved.
+layout(set = 0, binding = 21, std430) restrict buffer Energy { float e_j_m3[]; };
 layout(set = 0, binding = 22, std430) restrict buffer Pressure { float pressure[]; };
 // Read as well as written: this pass is the ONE writer, and reads the temperature it replaces.
 layout(set = 0, binding = 23, std430) restrict buffer Temp { float temp[]; };
@@ -31,6 +32,9 @@ layout(set = 0, binding = 51, std430) restrict writeonly buffer BodyFY { float b
 layout(set = 0, binding = 52, std430) restrict writeonly buffer BodyFZ { float bodyf_z[]; };
 // The mixture's sound speed, m/s: Wood's one-pressure compressibility sum over the cell's own matter.
 layout(set = 0, binding = 53, std430) restrict buffer KCond { float k_cond[]; };
+layout(set = 0, binding = 66, std430) restrict writeonly buffer GasR { float gas_r[]; };        // J/(kg K), the gas mixture
+layout(set = 0, binding = 67, std430) restrict writeonly buffer GasGamma { float gas_gamma[]; };
+layout(set = 0, binding = 68, std430) restrict writeonly buffer Mach { float mach[]; };         // |v| over the cell's own sound speed
 // The energy of MOTION, J/m^3, which the enthalpy state does not hold. A function of state and nothing
 // else, read only by the reduce, so a book can weigh it against the enthalpy it trades with.
 layout(set = 0, binding = 90, std430) restrict writeonly buffer KinBuf { float ke_j_m3[]; };
@@ -41,8 +45,6 @@ layout(set = 0, binding = 91, std430) restrict writeonly buffer PotBuf { float p
 // The cell's condensed matter other than water: volume fraction and kg/m^3, every lithic channel summed.
 layout(set = 0, binding = 96, std430) restrict writeonly buffer LithicFrac { float lithic_frac[]; };
 layout(set = 0, binding = 97, std430) restrict writeonly buffer LithicKg { float lithic_kg[]; };
-// An open cell's fluid pV per cell volume, J/m^3: its pressure over the volume its grains leave.
-layout(set = 0, binding = 98, std430) restrict writeonly buffer PvFluid { float pv_fluid[]; };
 // Radiogenic power of this cell's own matter, W/m^3: sum over channels of amount * M * W/kg(mix, epoch).
 // flux.glsl's RADIOGENIC leg deposits it into the enthalpy.
 layout(set = 0, binding = 65, std430) restrict writeonly buffer RadW { float rad_w_m3[]; };
@@ -89,6 +91,8 @@ layout(set = 0, binding = 43, std430) restrict writeonly buffer Alt { float alt[
 // Reduced by the `nonfinite_cells` row.
 layout(set = 0, binding = 44, std430) restrict writeonly buffer NonFinite { float nonfinite[]; };
 layout(set = 0, binding = 92, std430) restrict writeonly buffer MomOrphan { float mom_orphan[]; };
+// 1 where the (T, p) solve spent its budget without meeting LA_STATE_TOL; the derive_unconverged_cells row sums it.
+layout(set = 0, binding = 99, std430) restrict writeonly buffer Unconverged { float unconverged[]; };
 
 // The enthalpy each mixture entry holds, J/m^3, and the sensible entry's capacity, J/m^3/K.
 layout(set = 0, binding = 45, std430) restrict writeonly buffer HH2O { float h_h2o[]; };
@@ -267,7 +271,7 @@ void main() {
 			float v = channel_at(i, g);
 			nf += (isnan(v) || isinf(v)) ? 1.0 : 0.0;
 		}
-		float hv = h_j_m3[g];
+		float hv = e_j_m3[g];
 		nf += (isnan(hv) || isinf(hv)) ? 1.0 : 0.0;
 		vec3 pv = vec3(mom_x[g], mom_y[g], mom_z[g]);
 		nf += (isnan(pv.x) || isinf(pv.x)) ? 1.0 : 0.0;
@@ -293,6 +297,7 @@ void main() {
 	float mass[LA_MIX_MAX] = float[LA_MIX_MAX](0.0, 0.0, 0.0, 0.0);
 	float mc = 0.0;          // sum of m*c over the sensible-heat substances, J/K
 	float cp_gas = 0.0;      // sum of m*cp over the non-condensable gases, J/K: the mixture gamma's cp
+	float m_gas = 0.0;       // kg of non-condensable gas
 	float n_gas_mol = 0.0;   // moles of non-condensable gas: the Dalton denominator of the vapour split
 	float v_lambda = 0.0;    // volume-weighted conductivity, W/m/K
 	float v_used = 0.0;
@@ -301,6 +306,8 @@ void main() {
 	float rad_w = 0.0;       // radiogenic power of the cell's matter, W/m^3
 	// EOS sums: b* the unstressed condensed volume of everything but h2o, c* its compressibility.
 	float b0 = 0.0; float b1 = 0.0; float b2 = 0.0;
+	// The lattice's share of b*: it takes volume and is never squeezed, so the fluid's modulus leaves it out.
+	float l0 = 0.0; float l1 = 0.0; float l2 = 0.0;
 	float lith_frac = 0.0; float lith_kg = 0.0;
 	float c0 = 0.0; float c1 = 0.0; float c2 = 0.0;
 	float mol_h2o = 0.0;
@@ -330,6 +337,7 @@ void main() {
 		n_gas_mol += m * props[base + PROP_MOL_PER_KG];
 		if (props[base + PROP_MOL_PER_KG] > 0.0) {
 			cp_gas += m * props[base + PROP_C];
+			m_gas += m;
 		}
 		// v0(T) is linear in T, so its mass sum splits into three T-independent pieces gathered here
 		// and combined once the solve has a temperature. h2o is kept apart: its vapour share is gas.
@@ -346,8 +354,12 @@ void main() {
 			b0 += is_water ? 0.0 : w0;
 			b1 += is_water ? 0.0 : w1;
 			b2 += is_water ? 0.0 : w1 * tr;
+			bool lattice = props[base + PROP_LITHIC] > 0.0;
+			l0 += (is_water || !lattice) ? 0.0 : w0;
+			l1 += (is_water || !lattice) ? 0.0 : w1;
+			l2 += (is_water || !lattice) ? 0.0 : w1 * tr;
 			// LOOSE GRAINS PRESS NOTHING: they take volume; the fluid alone is compressed in the rest.
-			if (kk > 0.0 && !is_water && props[base + PROP_LITHIC] <= 0.0) {
+			if (kk > 0.0 && !is_water && !lattice) {
 				float q0 = w0 / kk;
 				float q1 = w1 / kk;
 				c0 += q0;
@@ -394,12 +406,15 @@ void main() {
 		h_sensible[g] = 0.0;
 		cap_sensible[g] = 0.0;
 		k_cond[g] = 0.0;
-		pv_fluid[g] = 0.0;
+		gas_r[g] = 0.0;
+		gas_gamma[g] = 0.0;
+		mach[g] = 0.0;
 		if (params.restate == 0u) {
 			bodyf_x[g] = 0.0;
 			bodyf_y[g] = 0.0;
 			bodyf_z[g] = 0.0;
 			nonfinite[g] = nf;
+			unconverged[g] = 0.0;
 			lithify(g, f_melt, v_lithic);
 		}
 		return;   // no mass, so the frame terms deliver no momentum either
@@ -427,9 +442,8 @@ void main() {
 	float m_h2o = mass[E_H2O];
 	float t_c = temp[g];
 	float p_pa = max(pressure[g], 0.0);
-	// rho Dh/Dt = Dp/Dt, the Eulerian leg: the enthalpy takes this restate's pressure change.
-	bool dpdt = params.restate != 0u && solid[g] == 0.0;
-	float p_prev = p_pa;
+	// The fluid's room: the cell less what its condensed lithic matter fills. H = U + pV over it.
+	float room_f = 1.0 - clamp(lith_frac, 0.0, 1.0);
 	float f_solid = 0.0;
 	float f_liquid = 0.0;
 	float f_vapour = 0.0;
@@ -442,6 +456,7 @@ void main() {
 	bool has_hi = false;
 	float p_prev_it = p_pa;
 	float f_prev = 0.0;
+	bool converged = false;
 	for (int it = 0; it < LA_STATE_STEPS; ++it) {
 		// CONDENSED PHASE IS PRESENT when the cell holds more h2o than saturated vapour would fill it.
 		p_sat = 0.0;
@@ -459,7 +474,7 @@ void main() {
 		p_pa = max(p_pa, p_sat);
 		pinned = false;
 		progress = 0.0;
-		t_c = la_mix_state(subs, mass, N_ENTRIES, h_j_m3[g] * vol, p_pa, n_gas_mol, 0.0,
+		t_c = la_mix_state(subs, mass, N_ENTRIES, (e_j_m3[g] + p_pa * room_f) * vol, p_pa, n_gas_mol, 0.0,
 			pinned, progress);
 
 		// THE PHASE SPLIT OF THIS CELL'S H2O, off the SAME ladder. `progress` is where inside a latent
@@ -504,11 +519,13 @@ void main() {
 		float tk = max(t_c + LA_KELVIN_OFFSET, 1.0);
 		// Rock's pressure is PressurePass's: its T is read at that column and nothing here iterates.
 		if (solid[g] != 0.0) {
+			converged = true;
 			break;
 		}
 		float p_next = la_eos_p(vol, n_gas * LA_R_J_MOL_K * tk, b_vol, c_comp, LA_P_STD, p_sat);
 		float f = p_next - p_pa;
 		if (abs(f) <= LA_STATE_TOL * max(p_pa, 1.0)) {
+			converged = true;
 			break;
 		}
 		// Full steps of p_eos(T(h, p)) until the residual changes sign, then secant inside the bracket.
@@ -529,12 +546,6 @@ void main() {
 	temp[g] = t_c;
 	if (solid[g] == 0.0) {
 		pressure[g] = p_pa;
-		// dH = V dp over the fluid's own volume: the grains stand at ambient pressure.
-		float room_f = 1.0 - clamp(lith_frac, 0.0, 1.0);
-		pv_fluid[g] = p_pa * room_f;
-		if (dpdt) {
-			h_j_m3[g] += (p_pa - p_prev) * room_f;
-		}
 	}
 
 	// The decomposition la_mix_enthalpy_at sums, kept per entry so transport moves heat with matter.
@@ -548,7 +559,24 @@ void main() {
 	h2o_liquid[g] = f_liquid;
 	h2o_vapour[g] = f_vapour;
 	liquid[g] = max(h2o[g], 0.0) * f_liquid;
-	k_cond[g] = c_comp > 0.0 ? b_vol / c_comp : 0.0;
+	// The condensed FLUID's bulk modulus: its own volume over its own compressibility.
+	float fluid_vol = b_vol - (l0 + t_c * l1 - l2);
+	k_cond[g] = (c_comp > 0.0 && fluid_vol > 0.0) ? fluid_vol / c_comp : 0.0;
+	// The gas mixture's own specific gas constant and gamma, vapour included; its sound speed where gas
+	// stands, the condensed fluid's own where none does.
+	float m_g = m_gas + f_vapour * m_h2o;
+	float n_g = n_gas_mol + f_vapour * mol_h2o;
+	float cp_g = cp_gas + f_vapour * m_h2o * subs[E_H2O].c_gas;
+	float nr = n_g * LA_R_J_MOL_K;
+	float r_s = m_g > 0.0 ? nr / m_g : 0.0;
+	float gam = cp_g > nr ? cp_g / (cp_g - nr) : 0.0;
+	gas_r[g] = r_s;
+	gas_gamma[g] = gam;
+	float k_f = (c_comp > 0.0 && fluid_vol > 0.0) ? fluid_vol / c_comp : 0.0;
+	float c_cell = (r_s > 0.0 && gam > 0.0) ? sqrt(gam * r_s * (t_c + LA_KELVIN_OFFSET))
+		: ((k_f > 0.0 && rho_f > 0.0) ? sqrt(k_f / rho_f) : 0.0);
+	float spd = length(v);
+	mach[g] = c_cell > 0.0 ? spd / c_cell : (spd > 0.0 ? 1.0 / 0.0 : 0.0);
 
 	// THE MELT SHARE OF THIS CELL'S SILICATE, off the SAME ladder. Rock has a melting INTERVAL, so the
 	// lever rule the enthalpy curve already integrates over reads back as a linear share of the interval —
@@ -575,6 +603,7 @@ void main() {
 			nf += (isnan(dv[i]) || isinf(dv[i])) ? 1.0 : 0.0;
 		}
 		nonfinite[g] = nf;
+		unconverged[g] = converged ? 0.0 : 1.0;
 	}
 
 	// QUASI-STATIC ROCK: the lattice carries its weight (LA_APPROX quasi_static_solid_pressure), so
@@ -587,6 +616,7 @@ void main() {
 		vel_y[g] = 0.0;
 		vel_z[g] = 0.0;
 		speed[g] = 0.0;
+		mach[g] = 0.0;
 		ke_j_m3[g] = 0.0;
 		if (params.restate == 0u) {
 			bodyf_x[g] = 0.0;

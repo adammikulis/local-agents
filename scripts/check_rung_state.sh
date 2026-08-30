@@ -142,7 +142,7 @@ func _init() -> void:
 	for i3 in PROBES:
 		air[i3] = n2_amount
 	_upload(bufs["n2"], air)
-	_upload(bufs["h_j_m3"], h_cells)
+	_upload(bufs["e_j_m3"], h_cells)
 	# The solve reads the pressure standing in the cell and writes the EOS one after; the reference below
 	# is taken at the pressure it READ, so both ladders answer the same question.
 	var p_cells: PackedFloat32Array = PackedFloat32Array()

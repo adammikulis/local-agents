@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <vector>
 
 #include "LAPhysicalRead.hpp"
@@ -681,43 +682,63 @@ void LAPlanetComposition::seed(Object *p_field, double p_t_c) {
 }
 
 // THE ROCK FRACTION, one walk: the share of each cell's volume inside the terrain's signed distance.
-PackedFloat32Array LAPlanetComposition::rock_fraction(Object *p_grid, Object *p_terrain, const Vector3 &p_centre) {
-	PackedFloat32Array out;
+// THE CUT CELL'S GEOMETRY, BY RADIAL CHORDS. The terrain is a height field over the sphere, so along a
+// line through the cell in the local vertical the ground is one crossing and the sea a second: the rock
+// is the chord below the ground, the water the chord between the ground and the sea shell, the rest is
+// air. SUB^2 such lines cover the cell's projection; every fraction is a ratio of chords, so a cell wholly
+// inside rock reads exactly one. "rock" and "water" are each the cell's volume share.
+// LA_APPROX: chord_quadrature_lattice
+Dictionary LAPlanetComposition::surface_fractions(Object *p_grid, Object *p_terrain, const Vector3 &p_centre,
+		double p_sea_r) {
+	Dictionary out;
 	if (!p_grid || !p_terrain) {
 		return out;
 	}
 	const int cc = int(p_grid->get("cell_count"));
 	const PackedVector3Array cw = p_grid->get("centres");
-	// Only the relief band asks the terrain: below its lowest surface every cell is rock, above its
-	// highest every cell is open, and a cell's own diagonal pads the band.
 	double lo = -1.0, hi = -1.0;
 	if (p_terrain->has_method("min_surface_radius") && p_terrain->has_method("max_surface_radius")) {
 		lo = double(p_terrain->call("min_surface_radius"));
 		hi = double(p_terrain->call("max_surface_radius"));
 	}
 	const PackedFloat32Array edge = p_grid->call("cell_edges");
-	out.resize(cc);
-	float *w = out.ptrw();
+	PackedFloat32Array rock, water, ground;
+	rock.resize(cc);
+	water.resize(cc);
+	ground.resize(cc);
+	float *rw = rock.ptrw();
+	float *ww = water.ptrw();
+	float *gw = ground.ptrw();
 	std::vector<int> ask;
 	for (int c = 0; c < cc; c++) {
 		const double r = double((cw[c] - p_centre).length());
 		const double pad = c < edge.size() ? 0.5 * std::sqrt(3.0) * double(edge[c]) : 0.0;
+		ww[c] = 0.0f;
+		// The ground under a cell the relief never reaches: the cell's own bottom along the vertical,
+		// so a band of water in it starts at its lowest corner.
+		{
+			const Vector3 rel = cw[c] - p_centre;
+			const double r0 = double(rel.length());
+			const Vector3 up = r0 > 0.0 ? rel / float(r0) : Vector3(0, 1, 0);
+			const double e = c < edge.size() ? double(edge[c]) : 0.0;
+			gw[c] = float(0.5 * e * (std::abs(up.x) + std::abs(up.y) + std::abs(up.z)));
+		}
 		if (lo > 0.0 && hi > 0.0 && r + pad < lo) {
-			w[c] = 1.0f;
-		} else if (lo > 0.0 && hi > 0.0 && r - pad > hi) {
-			w[c] = 0.0f;
+			rw[c] = 1.0f;
+		} else if (lo > 0.0 && hi > 0.0 && r - pad > hi && r - pad > p_sea_r) {
+			rw[c] = 0.0f;
 		} else {
-			w[c] = 0.0f;
+			rw[c] = 0.0f;
 			ask.push_back(c);
 		}
 	}
-	// The band reads the terrain's lattice at SUB points per axis inside the cell, by SIGN: away from
-	// the surface the generator fills a block with a constant, so only the sign is a measurement.
 	if (ask.empty()) {
+		out["rock_fraction"] = rock;
+		out["water_fraction"] = water;
+		out["ground_d"] = ground;
 		return out;
 	}
 	const Vector3 origin = p_grid->get("origin");
-	// The lattice spans the box's LONGEST side: a column is one cell wide and many tall.
 	const int span = std::max(int(p_grid->get("nx")), std::max(int(p_grid->get("ny")), int(p_grid->get("nz"))));
 	const double base = double(p_grid->get("cell_size"));
 	const LATerrainLattice &lat = LATerrainLattice::build(p_terrain, origin, base * span, LATerrainLattice::lod_for(base * span), 32, p_centre, lo, hi);
@@ -725,27 +746,144 @@ PackedFloat32Array LAPlanetComposition::rock_fraction(Object *p_grid, Object *p_
 		UtilityFunctions::push_error("LAPlanetComposition: the terrain lattice did not build; no rock is seeded in the relief band.");
 		return out;
 	}
-	const int SUB = 3;
+	const int SUB = 6;
+	const int BISECT = 20;
 	for (int c : ask) {
 		const double e = c < edge.size() ? double(edge[c]) : base;
-		const double se = e / double(SUB);
-		double acc = 0.0;
+		const double h = 0.5 * e;
+		const Vector3 rel = cw[c] - p_centre;
+		const double r0 = double(rel.length());
+		if (!(r0 > 0.0)) {
+			continue;
+		}
+		const Vector3 up = rel / float(r0);
+		// A lateral basis across the vertical.
+		Vector3 a = std::abs(up.y) < 0.9 ? Vector3(0, 1, 0).cross(up) : Vector3(1, 0, 0).cross(up);
+		a = a.normalized();
+		const Vector3 b = up.cross(a).normalized();
+		const double reach = std::sqrt(3.0) * h;
+		double chord = 0.0, chord_rock = 0.0, chord_water = 0.0;
+		double ground_sum = 0.0;
+		int ground_n = 0;
 		for (int i = 0; i < SUB; i++) {
 			for (int j = 0; j < SUB; j++) {
-				for (int k = 0; k < SUB; k++) {
-					const Vector3 p = cw[c] + Vector3(float((i + 0.5) * se - 0.5 * e), float((j + 0.5) * se - 0.5 * e),
-							float((k + 0.5) * se - 0.5 * e));
-					acc += lat.sample(p) < 0.0 ? 1.0 : 0.0;
+				const double s = ((i + 0.5) / double(SUB) * 2.0 - 1.0) * reach;
+				const double t = ((j + 0.5) / double(SUB) * 2.0 - 1.0) * reach;
+				const Vector3 q = cw[c] + a * float(s) + b * float(t);
+				// The line q + x up against the cube: a slab test per axis.
+				double x_in = -std::numeric_limits<double>::infinity();
+				double x_out = std::numeric_limits<double>::infinity();
+				bool miss = false;
+				for (int k = 0; k < 3 && !miss; k++) {
+					const double d = double(up[k]);
+					const double o = double(q[k] - cw[c][k]);
+					if (std::abs(d) < 1e-12) {
+						if (std::abs(o) > h) {
+							miss = true;
+						}
+						continue;
+					}
+					double x1 = (-h - o) / d, x2 = (h - o) / d;
+					if (x1 > x2) {
+						std::swap(x1, x2);
+					}
+					x_in = std::max(x_in, x1);
+					x_out = std::min(x_out, x2);
+				}
+				if (miss || !(x_out > x_in)) {
+					continue;
+				}
+				chord += x_out - x_in;
+				// Where the ground crosses this line: rock below it. The lattice sign at both ends brackets it.
+				const bool rock_in = lat.sample(q + up * float(x_in)) < 0.0;
+				const bool rock_out = lat.sample(q + up * float(x_out)) < 0.0;
+				double x_ground = x_out;
+				if (rock_in && rock_out) {
+					x_ground = x_out;
+				} else if (!rock_in && !rock_out) {
+					x_ground = x_in;
+				} else {
+					double lo_x = x_in, hi_x = x_out;
+					for (int it = 0; it < BISECT; it++) {
+						const double m = 0.5 * (lo_x + hi_x);
+						if (lat.sample(q + up * float(m)) < 0.0) {
+							lo_x = m;
+						} else {
+							hi_x = m;
+						}
+					}
+					x_ground = 0.5 * (lo_x + hi_x);
+				}
+				chord_rock += x_ground - x_in;
+				// The ground's depth below the centre along this line: the rock top, or the cube's bottom.
+				ground_sum += -x_ground;
+				ground_n += 1;
+				// The sea shell along this line: r(x) = |q - centre + x up|.
+				const Vector3 qr = q - p_centre;
+				const double par = double(qr.dot(up));
+				const double perp2 = std::max(double(qr.length_squared()) - par * par, 0.0);
+				const double inside = p_sea_r * p_sea_r - perp2;
+				if (p_sea_r > 0.0 && inside > 0.0) {
+					const double x_sea = std::sqrt(inside) - par;
+					const double w_lo = std::max(x_ground, x_in);
+					const double w_hi = std::min(x_sea, x_out);
+					if (w_hi > w_lo) {
+						chord_water += w_hi - w_lo;
+					}
 				}
 			}
 		}
-		w[c] = float(acc / double(SUB * SUB * SUB));
+		if (chord > 0.0) {
+			rw[c] = float(std::min(std::max(chord_rock / chord, 0.0), 1.0));
+			ww[c] = float(std::min(std::max(chord_water / chord, 0.0), 1.0));
+		}
+		if (ground_n > 0) {
+			gw[c] = float(ground_sum / double(ground_n));
+		}
 	}
+	out["rock_fraction"] = rock;
+	out["water_fraction"] = water;
+	out["ground_d"] = ground;
 	return out;
 }
 
-// DEPTH BELOW THE LOCAL GROUND per cell, m, negative above it: the surface on the cell's own ray,
-// found by bisecting the sign of the terrain's distance between the relief band's bounds.
+// SEA LEVEL IS WHERE THE WATER REACHES: the elevation against the hypsographic curve's zero at which
+// the curve holds `p_ocean_m3` on a body of radius `p_r_m`, bisected over the curve's own range. The
+// curve is piecewise linear in cumulative area, so each segment's wet volume is exact.
+double LAPlanetComposition::sea_level_m(double p_r_m, double p_ocean_m3, const PackedFloat64Array &p_area_below,
+		const PackedFloat64Array &p_elevation_m) {
+	const int n = std::min(p_area_below.size(), p_elevation_m.size());
+	if (n < 2 || !(p_r_m > 0.0)) {
+		return 0.0;
+	}
+	auto volume = [&](double e_sea) {
+		double acc = 0.0;
+		for (int i = 1; i < n; i++) {
+			const double d0 = std::max(e_sea - p_elevation_m[i - 1], 0.0);
+			const double d1 = std::max(e_sea - p_elevation_m[i], 0.0);
+			const double span = p_area_below[i] - p_area_below[i - 1];
+			if (d0 > 0.0 && d1 > 0.0) {
+				acc += 0.5 * (d0 + d1) * span;
+			} else if (d0 > 0.0 || d1 > 0.0) {
+				const double rise = std::abs(p_elevation_m[i] - p_elevation_m[i - 1]);
+				const double wet = rise > 0.0 ? span * std::max(d0, d1) / rise : 0.0;
+				acc += 0.5 * std::max(d0, d1) * wet;
+			}
+		}
+		return 4.0 * kPi * p_r_m * p_r_m * acc;
+	};
+	double lo = p_elevation_m[0], hi = p_elevation_m[n - 1];
+	for (int i = 0; i < 64; i++) {
+		const double mid = 0.5 * (lo + hi);
+		if (volume(mid) < p_ocean_m3) {
+			lo = mid;
+		} else {
+			hi = mid;
+		}
+	}
+	return 0.5 * (lo + hi);
+}
+
 PackedFloat32Array LAPlanetComposition::surface_depth(Object *p_grid, Object *p_terrain, const Vector3 &p_centre) {
 	PackedFloat32Array out;
 	if (!p_grid || !p_terrain) {
@@ -805,9 +943,10 @@ PackedByteArray LAPlanetComposition::solid_of(const PackedFloat32Array &p_fracti
 
 void LAPlanetComposition::_bind_methods() {
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("shell_channels"), &shell_channels);
-	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("rock_fraction", "grid", "terrain", "centre"), &rock_fraction);
+	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("surface_fractions", "grid", "terrain", "centre", "sea_r"), &surface_fractions);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("solid_of", "fraction"), &solid_of);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("surface_depth", "grid", "terrain", "centre"), &surface_depth);
+	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("sea_level_m", "r_m", "ocean_m3", "area_below", "elevation_m"), &sea_level_m);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("mg_number"), &mg_number);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("an_fraction"), &an_fraction);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("apatite_f_fraction"), &apatite_f_fraction);

@@ -132,8 +132,8 @@ func _init() -> void:
 		bufs[String(name)] = _f32(_filled(tc, 0.0), owned)
 	for name in LAChannels.derived_buffers():
 		bufs[String(name)] = _f32(_filled(tc, 0.0), owned)
-	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "celerity", "k_cond", "speed", "rad_w_m3",
-			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi", "grav_ref"]:
+	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "k_cond", "speed", "rad_w_m3",
+			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi", "grav_ref", "gas_r", "gas_gamma", "ground_d"]:
 		bufs[name] = _f32(_filled(tc, 0.0), owned)
 	bufs["gravity"] = _f32(_filled(tc * 3, 0.0), owned)
 	bufs["g_rest"] = _f32(_filled(tc * 3, 0.0), owned)
@@ -162,7 +162,8 @@ func _init() -> void:
 		owned.append(r)
 		bufs[String(key)] = r
 
-	for pair: Array in [["pressure", P_IN], ["temp", T_C]]:
+	for pair: Array in [["pressure", P_IN], ["temp", T_C], ["gas_r", LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK],
+			["gas_gamma", LAPhysical.AIR_ADIABATIC_INDEX]]:
 		var vals: PackedByteArray = _filled(tc, float(pair[1])).to_byte_array()
 		_rd.buffer_update(bufs[String(pair[0])], 0, vals.size(), vals)
 
@@ -182,7 +183,7 @@ func _init() -> void:
 	_rd.sync()
 
 	# Matter closes per channel. The thermal field closes across every heat leg: matter that crosses
-	# carries its joules into h_j_m3, booked under the MATTER channel's bnd_h_<ch>.
+	# carries its joules into e_j_m3, booked under the MATTER channel's bnd_h_<ch>.
 	var channels: PackedStringArray = LAReduceBoundaryRows.BOOKED.duplicate()
 	channels.append_array(LAReduceBoundaryRows.BOOKED_SIGNED)
 	var nonzero: int = 0
@@ -197,10 +198,10 @@ func _init() -> void:
 			booked += book[c]
 		if booked != 0.0:
 			nonzero += 1
-		if String(ch) == "h_j_m3":
+		if String(ch) == "e_j_m3":
 			heat_booked += booked
 			for hch in LAReduceBoundaryRows.BOOKED:
-				if String(hch) == "h_j_m3":
+				if String(hch) == "e_j_m3":
 					continue
 				var hb: PackedFloat32Array = _rd.buffer_get_data(
 					bufs["bnd_h_" + String(hch)]).to_float32_array()
@@ -216,7 +217,7 @@ func _init() -> void:
 			for c in cc:
 				heat_booked -= re[c]
 			_expect(absf(gained - heat_booked) <= TOL * maxf(absf(gained), 1.0),
-				"h_j_m3: the thermal field changed by %s and the heat legs plus the radiative pair "
+				"e_j_m3: the thermal field changed by %s and the heat legs plus the radiative pair "
 				% String.num_scientific(gained)
 				+ "account for %s." % String.num_scientific(heat_booked))
 			continue

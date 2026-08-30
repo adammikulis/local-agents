@@ -161,7 +161,8 @@ bool la_active_levels(uint gidx) {
 		if (gidx < act_listed()) {
 			uint c = level_idx[act_base() + gidx];
 			if (c < params.cell_count) {
-				atomicMax(level_peak[params.level], la_row_level(c));
+				uint lv = la_row_level(c);
+				atomicMax(level_peak[params.level], lv);
 			}
 		}
 		return true;
@@ -252,6 +253,9 @@ bool la_active_levels(uint gidx) {
 		}
 		return true;
 	}
+	// EACH CELL'S OWN CLOCK, and every face's clock fine enough for both its cells: a cell takes the
+	// level its own state asks for, then hands it to each neighbour, so a face on the coarser of the
+	// pair's clocks still stays inside the finer cell's bound. A ring cell inherits its awake neighbour's.
 	if (params.pass_id == PASS_LEVEL_SEED) {
 		if (gidx < act_listed()) {
 			uint c = level_idx[act_base() + gidx];
@@ -262,20 +266,16 @@ bool la_active_levels(uint gidx) {
 		return true;
 	}
 	if (params.pass_id == PASS_LEVEL_RELAX) {
-		// 2:1 IN TIME. A level only ever rises here, so an in-place sweep converges whichever order
-		// the invocations land in.
 		if (gidx < act_listed()) {
 			uint c = level_idx[act_base() + gidx];
-			uint mx = tlevel[c];
+			uint lv = tlevel[c];
 			for (uint f = la_face_lo(c); f < la_face_hi(c); ++f) {
 				int rnb = nbr[f];
 				if (rnb < 0) { rnb = ghost[f]; }
 				if (rnb >= 0 && rnb < int(params.cell_count)) {
-					uint ln = tlevel[uint(rnb)];
-					mx = max(mx, ln > 0u ? ln - 1u : 0u);
+					atomicMax(tlevel[uint(rnb)], lv);
 				}
 			}
-			tlevel[c] = mx;
 		}
 		return true;
 	}

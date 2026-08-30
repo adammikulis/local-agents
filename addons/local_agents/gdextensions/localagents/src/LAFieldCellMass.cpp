@@ -263,7 +263,7 @@ Dictionary LAFieldCellMass3D::seed_enthalpy(Object *p_field, Object *p_grid,
 	const Dictionary table = LASubstances::table();
 	const char *MATTER_GD = "res://addons/local_agents/sim/material/MatterChannels.gd";
 	// Every matter channel once: its mirror, substance, molar mass, entry, sensible capacity, gas flag.
-	struct Chan { PackedFloat32Array arr; String sub; double molar; int entry; double cap; bool gas; };
+	struct Chan { PackedFloat32Array arr; String sub; double molar; int entry; double cap; bool gas; double full; };
 	std::vector<Chan> chans;
 	const Array names = rows.keys();
 	for (int i = 0; i < names.size(); i++) {
@@ -289,6 +289,8 @@ Dictionary LAFieldCellMass3D::seed_enthalpy(Object *p_field, Object *p_grid,
 		ch.entry = int(la_call_gd(MATTER_GD, "entry_of", a1));
 		ch.cap = double(la_call_gd(MATTER_GD, "specific_heat", a1));
 		ch.gas = String(row.get("phase", "")) == "gas";
+		// mol/m^3 at which a cell is full of it: the same full amount state_derive.glsl's props carry.
+		ch.full = LASubstances::full_mol_m3(sub);
 		chans.push_back(ch);
 	}
 	const PackedVector3Array centres = p_grid->get("centres");
@@ -347,10 +349,22 @@ Dictionary LAFieldCellMass3D::seed_enthalpy(Object *p_field, Object *p_grid,
 		if (m_sil > 0.0) {
 			h_j += m_sil * LAMixtureEnthalpy::specific_enthalpy("silicate", t_c, p_pa, m_sil, n_gas);
 		}
-		hw[c] = float(h_j / cell_m3);
-		total_j += h_j;
+		// THE CELL KEEPS INTERNAL ENERGY: U = H - pV over the room the lithic matter leaves, the same
+		// room state_derive.glsl reads the enthalpy back over.
+		double v_lith = 0.0;
+		for (const Chan &ch : chans) {
+			const double a = double(ch.arr[c]);
+			if (!(a > 0.0) || ch.gas || ch.entry == 0 || !(ch.full > 0.0)) {
+				continue;
+			}
+			v_lith += a / ch.full;
+		}
+		const double room_f = std::max(1.0 - std::min(v_lith, 1.0), 0.0);
+		const double e_j = h_j - p_pa * room_f * cell_m3;
+		hw[c] = float(e_j / cell_m3);
+		total_j += e_j;
 	}
-	out["h"] = h;
+	out["e"] = h;
 	out["total_j"] = total_j;
 	return out;
 }

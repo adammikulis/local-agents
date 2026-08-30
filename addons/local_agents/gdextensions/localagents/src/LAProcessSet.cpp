@@ -40,6 +40,7 @@ const char *const GRAVITY_REDUCE[] = { "@amounts", "energy_stock", "energy_stock
 	"energy_potential", "energy_pv_solid", "energy_pv_fluid",
 	"solid_cells", "carbonate_cells",
 	"snow_cells", "ice_cells", "crust_latch", "crust_moved", "nonfinite_cells", "nonfinite_*",
+	"derive_unconverged_cells",
 	"bodyf_*",
 	"open_temp_*", "all_temp_max", "ground_cells", "temp_ground_sum", "hot_cells",
 	"geo_grad_*", "air_grad_*", "clim_ground_*", "clim_air_*", "clim_lat*", "clim_alt*",
@@ -63,7 +64,7 @@ const char *const ACOUSTIC_GATES[] = { "check_rung_acoustic.sh", "check_atmosphe
 const char *const ACOUSTIC_PASSES[] = { "FluxPass.gd", nullptr };
 const char *const ACOUSTIC_TRANSPORT[] = { "h2o_liquid_advect", "h2o_vapour_eddy", "o2_eddy", "co2_eddy",
 	"n2_eddy", "h2_eddy", "co_eddy", "so2_eddy", "h2s_eddy", "ch4_eddy", "mom_flux", nullptr };
-const char *const ACOUSTIC_REDUCE[] = { "open_mom_*", "momentum_*", "celerity_max", "rho_max_open",
+const char *const ACOUSTIC_REDUCE[] = { "open_mom_*", "momentum_*", "mach_max", "rho_max_open",
 	"wind_speed_max", "wind_x_sum", "wind_z_sum", nullptr };
 
 const char *const CONDUCTION_GATES[] = { "check_rung_conduction.sh", nullptr };
@@ -90,7 +91,7 @@ const char *const RADIATION_REDUCE[] = { "rad_absorbed", "rad_emitted", "sw_refl
 	"rad_sb_rel_max", nullptr };
 
 const char *const CHEMISTRY_GATES[] = { "check_reaction_balance.sh", "check_conservation.sh",
-	"check_weathering_rate_law.sh", "check_escape_law.sh", nullptr };
+	"check_weathering_rate_law.sh", "check_escape_law.sh", "check_gas_in_rock.sh", nullptr };
 const char *const CHEMISTRY_REACTIONS[] = { "BioRecords.gd", "GeoRecords.gd", "CombustionRecords.gd",
 	"LightningRecords.gd", nullptr };
 const char *const CHEMISTRY_TRANSPORT[] = { "escape_*", nullptr };

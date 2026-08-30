@@ -119,8 +119,11 @@ func setup(field) -> void:
 	# kernels3d/cellvol.glsli, binding 94: metres of edge per cell, the one geometry the kernels read.
 	var edge_bytes: PackedByteArray = _grid.cell_edges().to_byte_array()
 	_bufs["cell_edge"] = _rd.storage_buffer_create(edge_bytes.size(), edge_bytes)
+	var gd: PackedFloat32Array = field._ground_d.duplicate()   # flux.glsl binding 99: ground depth below the centre, m
+	gd.resize(tc)
+	_bufs["ground_d"] = _rd.storage_buffer_create(gd.to_byte_array().size(), gd.to_byte_array())
 
-	_seed("h_j_m3", field._h)
+	_seed("e_j_m3", field._e)
 	seed_field("o2", field._o2, field._seal)
 	seed_field("co2", field._co2, field._seal)   # the atmosphere's carbon — finite, at Earth's mole fraction
 	seed_field("n2", field._n2, field._seal)     # the atmosphere's nitrogen — finite, at Earth's mole fraction
@@ -207,7 +210,7 @@ func begin_frame(h: PackedFloat32Array, water: PackedFloat32Array) -> void:
 	_drain_pending()
 	# The only CPU writer of _h is injection (meteors / lava / geotherm), which marks it dirty.
 	if _h_dirty:
-		_upload_f(_bufs["h_j_m3"], h)
+		_upload_f(_bufs["e_j_m3"], h)
 		_h_dirty = false
 	# water is only CPU-modified by injection (add_water / lakes seed), never per-step; after the readback the CPU
 	# copy already equals the GPU's evolved water, so re-uploading it every step is redundant. Gate it on a dirty
@@ -438,7 +441,7 @@ func _gather(names: PackedStringArray) -> Dictionary:
 
 ## The channels THIS drain reads. A name absent from it is absent from `end_frame`, never zero.
 func _channel_names(read_slow: bool) -> PackedStringArray:
-	var out: PackedStringArray = PackedStringArray(["h_j_m3", "h2o", "o2"])
+	var out: PackedStringArray = PackedStringArray(["e_j_m3", "h2o", "o2"])
 	# Derived: recomputed by StateDerivePass this step rather than carried.
 	for k in LAChannels.derived_buffers():
 		if _bufs.has(k) and not out.has(k):
@@ -522,7 +525,7 @@ func seed_field(name: String, arr, seal) -> void:
 	_seed_totals[name] = total
 	if _audit_mirror and arr is PackedFloat32Array:
 		_audit_mirror_upload(name, arr)
-	if name == "h_j_m3":
+	if name == "e_j_m3":
 		_h_dirty = true         # keep the gated begin_frame upload in step with a whole-mirror seed
 	_upload_f(_bufs[name], arr)
 

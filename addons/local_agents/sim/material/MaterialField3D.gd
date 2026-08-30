@@ -24,6 +24,8 @@ var _cell_count: int = 0
 var _solid: PackedByteArray = PackedByteArray()          # 1 = rock (holds no fluid), 0 = void (air/water)
 var _rock_fraction: PackedFloat32Array = PackedFloat32Array()   # share of the cell's volume inside the terrain
 var _surface_depth: PackedFloat32Array = PackedFloat32Array()   # m below the local ground, negative above it
+var _water_fraction: PackedFloat32Array = PackedFloat32Array()  # share of the cell's volume under the sea shell and over its ground
+var _ground_d: PackedFloat32Array = PackedFloat32Array()        # depth of the ground under the cell's fluid below its centre, m
 # One h2o channel, every phase; mol/m^3 of the cell. Phase is derived per cell.
 var _h2o: PackedFloat32Array = PackedFloat32Array()
 var _h2o_solid: PackedFloat32Array = PackedFloat32Array()    # share of _h2o that is ice
@@ -45,7 +47,7 @@ const ICE_DEPTH: float = 0.5 * MAX_MASS
 const FOG_MAX_TEMP: float = 12.0
 # Condensate at which a cell counts as covered, mol/m^3.
 const CONDENSE_COVER_MIN: float = 5.0e-5 / LAPhysical.MOLAR_MASS_WATER_KG_MOL
-var _h: PackedFloat32Array = PackedFloat32Array()        # THE STATE: enthalpy J/m^3 per cell
+var _e: PackedFloat32Array = PackedFloat32Array()        # THE STATE: internal energy J/m^3 per cell
 var _temp: PackedFloat32Array = PackedFloat32Array()     # DERIVED °C, rewritten by StateDerivePass each step
 # The mineral amounts, mol/m^3 of the cell. Silicate melt and suspended shares are derived on the GPU;
 # how much of a cell's rock is consolidated is `_cement`.
@@ -251,7 +253,7 @@ func _alloc_channels() -> void:
 	_h2o_solid = _cells_filled(0.0)
 	_h2o_liquid = _cells_filled(0.0)
 	_h2o_vapour = _cells_filled(0.0)
-	_h = _cells_filled(0.0)
+	_e = _cells_filled(0.0)
 	_temp = _cells_filled(INITIAL_TEMP)
 	# Mineral amounts: seeded from the solid mask on activate; the silicate is GPU-owned thereafter.
 	_silicate = _cells_filled(0.0)
@@ -374,13 +376,15 @@ func sample_solidity() -> void:
 	if _terrain == null or not _terrain.has_method("is_solid") or _grid == null:
 		return
 	var k: String = "" if _terrain_opts.is_empty() else FieldCacheScript.key(_terrain_opts, _grid)
-	var cached: Dictionary = LAFieldStateCache.load_blob(k)
-	_rock_fraction = FieldCacheScript.load_fraction(k, _cell_count, self)
-	_surface_depth = cached.get("surface_depth", PackedFloat32Array())
-	if _rock_fraction.size() != _cell_count or _surface_depth.size() != _cell_count:
-		_rock_fraction = LAPlanetComposition.rock_fraction(_grid, _terrain, centre())
-		_surface_depth = LAPlanetComposition.surface_depth(_grid, _terrain, centre())
-		LAFieldStateCache.save_blob(k, {"rock_fraction": _rock_fraction, "surface_depth": _surface_depth})
+	var fr: Dictionary = FieldCacheScript.load_fractions(k, _cell_count)
+	if fr.is_empty():
+		fr = LAPlanetComposition.surface_fractions(_grid, _terrain, centre(), sea_radius())
+		fr["surface_depth"] = LAPlanetComposition.surface_depth(_grid, _terrain, centre())
+		LAFieldStateCache.save_blob(k, fr)
+	_rock_fraction = fr.get("rock_fraction", PackedFloat32Array())
+	_water_fraction = fr.get("water_fraction", PackedFloat32Array())
+	_ground_d = fr.get("ground_d", PackedFloat32Array())
+	_surface_depth = fr.get("surface_depth", PackedFloat32Array())
 	_solid = LAPlanetComposition.solid_of(_rock_fraction)
 	_seed_silicate()
 

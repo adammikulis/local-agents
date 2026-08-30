@@ -26,7 +26,7 @@ const OXIDANT: PackedStringArray = ["o2", "co2"]
 
 ## The energy stock is one channel.
 static func energy() -> PackedStringArray:
-	return PackedStringArray(["h_j_m3"])
+	return PackedStringArray(["e_j_m3"])
 
 
 ## Moles of each element held by a set of channel amounts, from the same declaration the load-time reaction

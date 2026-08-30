@@ -5,6 +5,7 @@
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/variant/variant.hpp>
+#include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/vector3.hpp>
 #include <godot_cpp/variant/vector3i.hpp>
@@ -129,9 +130,42 @@ struct LATerrainLattice {
 					for (int z = 0; z < p_block && bz + z < out.n; z++) {
 						for (int y = 0; y < p_block && by + y < out.n; y++) {
 							for (int x = 0; x < p_block && bx + x < out.n; x++) {
+								// VoxelBuffer stores ZXY: y runs fastest, then x, then z.
 								out.d[size_t(bx + x) + size_t(out.n) * (size_t(by + y) + size_t(out.n) * size_t(bz + z))]
-										= src[x + p_block * (y + p_block * z)];
+										= src[y + p_block * (x + p_block * z)];
 							}
+						}
+					}
+				}
+			}
+		}
+		// THE LATTICE IS CHECKED AGAINST THE TERRAIN IT WAS BUILT FROM: lattice points inside the box that
+		// lie in the relief band, the terrain's own signed distance against the lattice's. The generator
+		// clips the distance a few voxels from the surface, so the sign is held everywhere and the value
+		// only within a spacing of the surface; a layout, origin or spacing defect flips signs.
+		if (p_terrain->has_method("sdf_at") && p_r_lo > 0.0 && p_r_hi > 0.0) {
+			int checked = 0;
+			const int stride = std::max(out.n / 24, 1);
+			for (int z = 0; z < out.n && checked < 64; z += stride) {
+				for (int y = 0; y < out.n && checked < 64; y += stride) {
+					for (int x = 0; x < out.n && checked < 64; x += stride) {
+						const Vector3 pt = p_origin + Vector3(float(x), float(y), float(z)) * float(out.spacing);
+						const double r = double((pt - p_centre).length());
+						if (r < p_r_lo || r > p_r_hi) {
+							continue;
+						}
+						const double want = double(p_terrain->call("sdf_at", pt));
+						const double got = double(out.at(x, y, z));
+						checked++;
+						const bool sign_off = (want < 0.0) != (got < 0.0) && std::abs(want) > out.spacing;
+						const bool near_off = std::abs(want) <= out.spacing && std::abs(want - got) > out.spacing;
+						if (!std::isfinite(want) || sign_off || near_off) {
+							UtilityFunctions::push_error(String("LATerrainLattice: the lattice disagrees with the terrain by ")
+									+ String::num(std::abs(want - got)) + " m at a band point (spacing "
+									+ String::num(out.spacing) + " m), so it is not the terrain's distance and nothing reads it.");
+							out.d.clear();
+							out.n = 0;
+							return out;
 						}
 					}
 				}

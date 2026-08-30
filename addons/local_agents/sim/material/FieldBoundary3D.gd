@@ -323,7 +323,7 @@ func _derive(st: Dictionary, d: int) -> Dictionary:
 	out["h_silicate"] = float(e["h_silicate"]) / vol
 	out["h_sensible"] = float(e["h_sensible"]) / vol
 	out["cap_sensible"] = float(e["cap_sensible"]) / vol
-	out["h_j_m3"] = (float(e["h_h2o"]) + float(e["h_silicate"]) + float(e["h_sensible"])) / vol
+	out["e_j_m3"] = (float(e["h_h2o"]) + float(e["h_silicate"]) + float(e["h_sensible"])) / vol
 	out["temp"] = t_c
 	out["pressure"] = p_pa
 	out["rho_bulk"] = mass_total / vol

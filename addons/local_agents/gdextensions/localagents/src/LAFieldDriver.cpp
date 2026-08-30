@@ -270,10 +270,8 @@ void LAFieldDriver::build_levels(int64_t p_cl, int p_group, const Array &p_pc_ro
 		const int gi = group[i];
 		_act(p_cl, rid_at(_row_sets, gi), p_pc_rows[gi], SLOT_LEVEL_SEED, p_group, 0, 0);
 	}
-	// The fixed point of "no neighbour is more than one level finer" is `levels` sweeps away at most.
-	for (int i = 0; i < p_levels; ++i) {
-		_act(p_cl, head, head_pc, SLOT_LEVEL_RELAX, p_group, 0, 0);
-	}
+	// One outward sweep: every neighbour of a listed cell takes at least that cell's level.
+	_act(p_cl, head, head_pc, SLOT_LEVEL_RELAX, p_group, 0, 0);
 }
 
 // ONE SLOT OF ONE RECORD, over its group's active cells at this level: what it costs is what moves.

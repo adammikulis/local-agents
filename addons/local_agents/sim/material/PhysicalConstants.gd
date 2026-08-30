@@ -267,6 +267,8 @@ const IONISATION_EV_AL: float = 5.986
 
 const PLANCK_J_S: float = 6.62607015e-34             # CODATA, exact
 const BOLTZMANN_J_K: float = 1.380649e-23            # CODATA, exact
+const N2_KINETIC_DIAMETER_M: float = 3.64e-10   # kinetic diameter of N2, m: Ismail, Khulbe & Matsuura 2015, table 2.1
+const KNUDSEN_CONTINUUM_LIMIT: float = 0.1      # slip flow ends, the transition regime begins: Schaaf & Chambre 1961; Bird 1994
 const ELECTRON_MASS_KG: float = 9.1093837015e-31     # CODATA
 const AVOGADRO_PER_MOL: float = 6.02214076e23        # CODATA, exact
 

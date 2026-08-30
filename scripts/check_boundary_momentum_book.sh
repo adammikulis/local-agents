@@ -95,8 +95,8 @@ func _run(p_ghost: float, mode: int = LAFieldBoundary3D.CONSTANT, vel: Vector3 =
 		bufs[String(name)] = _f32(_filled(tc, 0.0), owned)
 	for name in LAChannels.derived_buffers():
 		bufs[String(name)] = _f32(_filled(tc, 0.0), owned)
-	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "celerity", "k_cond", "speed", "rad_w_m3",
-			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi", "grav_ref"]:
+	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "k_cond", "speed", "rad_w_m3",
+			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi", "grav_ref", "gas_r", "gas_gamma", "ground_d"]:
 		bufs[name] = _f32(_filled(tc, 0.0), owned)
 	bufs["gravity"] = _f32(_filled(tc * 3, 0.0), owned)
 	bufs["g_rest"] = _f32(_filled(tc * 3, 0.0), owned)
@@ -128,7 +128,8 @@ func _run(p_ghost: float, mode: int = LAFieldBoundary3D.CONSTANT, vel: Vector3 =
 	# Air of that pressure holds this mass: a cell at P with zero density is not a state matter has, and
 	# the gas layer's sound speed follows from the pressure and the mass rather than being typed beside it.
 	var rho_air: float = P_IN / (LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK * (T_C + LAPhysical.KELVIN_OFFSET))
-	for pair: Array in [["pressure", P_IN], ["temp", T_C], ["rho_bulk", rho_air]]:
+	for pair: Array in [["pressure", P_IN], ["temp", T_C], ["rho_bulk", rho_air],
+			["gas_r", LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK], ["gas_gamma", LAPhysical.AIR_ADIABATIC_INDEX]]:
 		var vals: PackedByteArray = _filled(tc, float(pair[1])).to_byte_array()
 		_rd.buffer_update(bufs[String(pair[0])], 0, vals.size(), vals)
 
@@ -153,7 +154,7 @@ func _run(p_ghost: float, mode: int = LAFieldBoundary3D.CONSTANT, vel: Vector3 =
 	_rd.sync()
 	var out: Dictionary = {}
 	for key in ["bnd_mom_x", "bnd_mom_y", "bnd_mom_z", "bnd_n2",
-			"mom_x", "mom_y", "mom_z", "h_j_m3"]:
+			"mom_x", "mom_y", "mom_z", "e_j_m3"]:
 		out[key] = _rd.buffer_get_data(bufs[String(key)]).to_float32_array()
 	p.dispose(_rd)
 	for r in owned:
@@ -229,7 +230,7 @@ func _init() -> void:
 			% [a, String.num_scientific(dm), String.num_scientific(db)] + "or part-unbooked.")
 	_expect(float(rim_on["bnd_mom_x"][1]) - float(rim_off["bnd_mom_x"][1]) > 0.0,
 		"the rim reaches inward of the face, yet the second rim cell's nudge never reached bnd_mom_x.")
-	_expect(_sum(rim_on["h_j_m3"]) == _sum(rim_off["h_j_m3"]),
+	_expect(_sum(rim_on["e_j_m3"]) == _sum(rim_off["e_j_m3"]),
 		"the momentum rim moved enthalpy — momentum is not matter and carries no heat leg.")
 
 	# The matter/energy books never promise a heat leg for a signed channel, and still name a matter

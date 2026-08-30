@@ -48,27 +48,27 @@ esac
 # face pressure that overflows or divides by nothing on a state the rig never holds passes it. Only the
 # seeded world sends those states, and what they leave behind is non-finite derived state. Read off the
 # lint's SHARED arm: a per-rung run of its own is the ladder's job, not a gate's.
-world="$(la_report nonfinite_cells,celerity_max --path "$ROOT" --rung 3 --frames 4 2>&1)" || true
+world="$(la_report nonfinite_cells,momentum_mass_kg --path "$ROOT" --rung 3 --frames 4 2>&1)" || true
 read -r NF CEL <<EOF
 $(printf '%s\n' "$world" | python3 -c "
 import re, sys
 out = {}
 for ln in sys.stdin:
-    for key in ('nonfinite_cells', 'celerity_max'):
+    for key in ('nonfinite_cells', 'momentum_mass_kg'):
         if ln.startswith(key):
             m = re.search(r\"'max': *([-+0-9.eE]+)\", ln)
             if m:
                 out[key] = m.group(1)
-print(out.get('nonfinite_cells', ''), out.get('celerity_max', ''))
+print(out.get('nonfinite_cells', ''), out.get('momentum_mass_kg', ''))
 ")
 EOF
 if [ -z "${NF:-}" ] || [ -z "${CEL:-}" ]; then
-	echo "check_stack_balance: the seeded world published no nonfinite_cells/celerity_max, so the" >&2
+	echo "check_stack_balance: the seeded world published no nonfinite_cells/momentum_mass_kg, so the" >&2
 	echo "                     reconstruction was never asked for a face on the sim's own state." >&2
 	printf '%s\n' "$world" | tail -20 >&2
 	exit 2
 fi
-echo "STACK_WORLD={\"nonfinite_cells\":$NF,\"celerity_max\":$CEL}"
+echo "STACK_WORLD={\"nonfinite_cells\":$NF,\"momentum_mass_kg\":$CEL}"
 if ! awk -v n="$NF" -v c="$CEL" 'BEGIN{exit !(n == 0 && c > 0)}'; then
 	echo "check_stack_balance: the seeded world left non-finite derived state behind, or states no" >&2
 	echo "                     signal speed at all. A face returned something that is not a pressure." >&2

@@ -158,7 +158,7 @@ func _sample() -> Dictionary:
 		ch[name] = gpu.read_raw(String(name))
 	if energy:
 		# The stock is enthalpy; temperature is derived and books nothing.
-		ch["h_j_m3"] = gpu.read_raw("h_j_m3")
+		ch["e_j_m3"] = gpu.read_raw("e_j_m3")
 	var f: Dictionary = _sums(ch, gpu.read_raw("solid"), cc, energy)
 	if f.is_empty():
 		_missing = PackedStringArray(["solid"])
@@ -168,8 +168,8 @@ func _sample() -> Dictionary:
 	for name in channels:
 		if not bool(live.get(name, false)):
 			absent.append(String(name))
-	if energy and int(ch.get("h_j_m3", PackedFloat32Array()).size()) < cc and not absent.has("h_j_m3"):
-		absent.append("h_j_m3")
+	if energy and int(ch.get("e_j_m3", PackedFloat32Array()).size()) < cc and not absent.has("e_j_m3"):
+		absent.append("e_j_m3")
 	_missing = absent
 	if absent.size() > 0:
 		return {}
@@ -226,7 +226,7 @@ func _sums(ch: Dictionary, solid: PackedFloat32Array, cc: int, energy: bool) -> 
 		open_by[name] = s_open
 	var out: Dictionary = {"live": live, "all": all_by, "open": open_by, "solid_cells": solid_cells}
 	if energy:
-		out["energy_stock"] = float(all_by.get("h_j_m3", 0.0))
+		out["energy_stock"] = float(all_by.get("e_j_m3", 0.0))
 	return out
 
 

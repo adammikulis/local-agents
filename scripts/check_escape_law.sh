@@ -95,6 +95,8 @@ func _arm(p: RefCounted, depth: float, sun: Vector3, xuv_w_m2: float = 0.0) -> D
 	_upload("grav_phi", _filled(_cc, -depth))
 	_upload("temp", _filled(_cc, T_C))
 	_upload("pressure", _filled(_cc, 101325.0))
+	_upload("gas_r", _filled(_cc, LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK))
+	_upload("gas_gamma", _filled(_cc, LAPhysical.AIR_ADIABATIC_INDEX))
 	for key in _bufs:
 		if String(key).begins_with("bnd_"):
 			_rd.buffer_clear(_bufs[key], 0, _cc * 4)
@@ -126,8 +128,8 @@ func _init() -> void:
 		_bufs[String(name)] = _f32(_filled(_cc, 0.0), owned)
 	for name in LAChannels.derived_buffers():
 		_bufs[String(name)] = _f32(_filled(_cc, 0.0), owned)
-	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "celerity", "k_cond", "speed", "rad_w_m3",
-			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi", "grav_ref"]:
+	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "k_cond", "speed", "rad_w_m3",
+			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi", "grav_ref", "gas_r", "gas_gamma", "ground_d"]:
 		_bufs[String(name)] = _f32(_filled(_cc, 0.0), owned)
 	_upload("cap_sensible", _filled(_cc, 1.0))
 	var grav: PackedFloat32Array = PackedFloat32Array()

@@ -79,10 +79,11 @@
 #define TF_FRACTION 16u
 #define TF_DILUTE 32u
 #define TF_RADIOGENIC 64u
-#define TF_ENTHALPY 128u
+#define TF_ENERGY 128u
 #define TF_RELAX 256u
 #define TF_VEL 512u
 #define TF_LEVEL 1024u
+#define TF_WATER 2048u
 
 // ReduceRecords.gd Op enum
 #define OP_SUM 0u

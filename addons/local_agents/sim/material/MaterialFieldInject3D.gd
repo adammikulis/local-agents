@@ -42,7 +42,7 @@ func _device_ready() -> bool:
 # --- Local field injection (add_heat_energy) -----------------------------------------
 
 func add_heat_energy(world_pos: Vector3, joules: float, radius: float = 0.0) -> float:
-	if joules == 0.0 or _f._h.size() != _f._cell_count:
+	if joules == 0.0 or _f._e.size() != _f._cell_count:
 		return 0.0
 	return _inject_energy(_cells_within(world_pos, radius), joules)
 
@@ -71,7 +71,7 @@ func _apply_h(cells: PackedInt32Array, dh: float) -> void:
 		# The box/CPU reference field has no device and nothing flushes the queue there, so the mirror IS the
 		# field.
 		for c in cells:
-			_f._h[c] = _f._h[c] + dh
+			_f._e[c] = _f._e[c] + dh
 		return
 	var deltas: PackedFloat32Array = PackedFloat32Array()
 	deltas.resize(cells.size())
