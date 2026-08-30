@@ -153,7 +153,7 @@ func _run(p_ghost: float, mode: int = LAFieldBoundary3D.CONSTANT, vel: Vector3 =
 	_rd.sync()
 	var out: Dictionary = {}
 	for key in ["bnd_mom_x", "bnd_mom_y", "bnd_mom_z", "bnd_n2",
-			"mom_x", "mom_y", "mom_z", "h_j_m3"]:
+			"mom_x", "mom_y", "mom_z", "e_j_m3"]:
 		out[key] = _rd.buffer_get_data(bufs[String(key)]).to_float32_array()
 	p.dispose(_rd)
 	for r in owned:
@@ -229,7 +229,7 @@ func _init() -> void:
 			% [a, String.num_scientific(dm), String.num_scientific(db)] + "or part-unbooked.")
 	_expect(float(rim_on["bnd_mom_x"][1]) - float(rim_off["bnd_mom_x"][1]) > 0.0,
 		"the rim reaches inward of the face, yet the second rim cell's nudge never reached bnd_mom_x.")
-	_expect(_sum(rim_on["h_j_m3"]) == _sum(rim_off["h_j_m3"]),
+	_expect(_sum(rim_on["e_j_m3"]) == _sum(rim_off["e_j_m3"]),
 		"the momentum rim moved enthalpy — momentum is not matter and carries no heat leg.")
 
 	# The matter/energy books never promise a heat leg for a signed channel, and still name a matter

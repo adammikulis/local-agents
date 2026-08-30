@@ -13,7 +13,7 @@ const ActiveScript: GDScript = preload("res://addons/local_agents/sim/material/s
 ## reflected-shortwave march, the face solve, the momentum close, the temporal levels and the list.
 enum { PASS_FLUX, PASS_APPLY, PASS_GRAIN, PASS_LIST_RESET, PASS_LIST_APPEND, PASS_LIST_ARGS,
 	PASS_SW, PASS_FACE, PASS_MOMENTUM,
-	PASS_LEVEL_SEED, PASS_LEVEL_RELAX, PASS_LEVEL_RESET, PASS_LEVEL_SCAN,
+	PASS_LEVEL_RESET, PASS_LEVEL_SCAN,
 	PASS_LEVEL_SORT, PASS_LEVEL_PEAK,
 	PASS_ACT_AGE, PASS_ACT_WAKE, PASS_ACT_MARK, PASS_ACT_WAKE_RESET, PASS_ACT_SEED }
 
@@ -68,7 +68,7 @@ var _scr: Dictionary = {}
 ## resist 0 and aux 1 for a record that names neither.
 var _zero: RID = RID()
 var _one: RID = RID()
-## Enthalpy of transported enthalpy: none, so a record moving `h_j_m3` carries this zero buffer.
+## Enthalpy of transported enthalpy: none, so a record moving `e_j_m3` carries this zero buffer.
 var _no_h: RID = RID()
 ## Band edges, absorption coefficients and the Planck CDF the RADIATE record reads.
 var _rad_table: RID = RID()
@@ -320,12 +320,12 @@ const BINDINGS: Dictionary = {
 	"bodyf_z": 68, "co": 72, "so2": 73, "h2s": 74, "o2": 75, "n2": 76, "h2": 77, "grav_phi": 78, "grav_ref": 95, "pe_j_m3": 91, "lithic_frac": 96, "lithic_kg": 97,
 	"tlevel": 80, "level_idx": 81, "level_args": 82, "level_peak": 83, "act_quiet": 84, "act_claim": 85,
 	"act_queue": 86, "act_wake": 87, "act_wake_args": 88, "k_cond": 89,
-	"slot_off": 92, "face_partner": 93, "cell_edge": 94
+	"slot_off": 92, "face_partner": 93, "cell_edge": 94, "ground_d": 99
 }
 
 ## Pass-owned scratch, in binding order: the first FACE_SCRATCH ride a face, the rest are per cell.
-const SCRATCH: Dictionary = {0: 8, 1: 9, 2: 14, 3: 62, 4: 63, 5: 90, 6: 44, 7: 45, 8: 52, 9: 53, 10: 61}
-const FACE_SCRATCH: int = 6
+const SCRATCH: Dictionary = {0: 8, 1: 9, 2: 14, 3: 62, 4: 63, 5: 90, 6: 36, 7: 98, 8: 44, 9: 45, 10: 52, 11: 53, 12: 61, 13: 100}
+const FACE_SCRATCH: int = 8
 
 
 ## The uniform set for one record, or RID() when a buffer it names does not exist.
@@ -335,7 +335,7 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 	var resist: String = String(row.get("resist", ""))
 	var aux: String = String(row.get("aux", ""))
 	var frac: String = String(row.get("frac", ""))
-	var moves_enthalpy: bool = channel == "h_j_m3"
+	var moves_enthalpy: bool = channel == "e_j_m3"
 	# Mass does not move without its heat, so the enthalpy field is required of every record carrying mass.
 	# The detector-list buffers a synthetic record compacts into; empty for an ordinary record.
 	var list: Dictionary = LATransportRecords.list_buffers(String(row.get("list", "")))
@@ -344,7 +344,7 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 			"h_sensible", "bnd_void", "bnd_h_void", String(list.get("idx", "")),
 			String(list.get("args", ""))]:
 		var name: String = String(key)
-		if name == "" or (name == "h_j_m3" and moves_enthalpy):
+		if name == "" or (name == "e_j_m3" and moves_enthalpy):
 			continue
 		if not bufs.has(name):
 			push_error("FluxPass: no \"%s\" buffer, so the %s record does not move." % [name, channel])
@@ -356,7 +356,7 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 	var amount: RID = _single(bufs, channel)
 	entries += [
 		[0, amount],
-		[1, _no_h if moves_enthalpy else _single(bufs, "h_j_m3")],
+		[1, _no_h if moves_enthalpy else _single(bufs, "e_j_m3")],
 		[10, _zero if resist == "" else _single(bufs, resist)],
 		[11, amount if drive == "" else _single(bufs, drive)],
 		[12, _one if aux == "" else _single(bufs, aux)],
@@ -435,7 +435,6 @@ func _pc_rows(cc: int, dt_s: float, sun: Vector3) -> Array:
 		var head: Dictionary = _rows[group[0]]
 		var ht: Array = out[group[0]]
 		ht[LAFieldDriver.SLOT_LEVEL_RESET] = _pc(head, cc, PASS_LEVEL_RESET, dt_s, sun, 0, 0, 1, g)
-		ht[LAFieldDriver.SLOT_LEVEL_RELAX] = _pc(head, cc, PASS_LEVEL_RELAX, dt_s, sun, 0, 0, 1, g)
 		ht[LAFieldDriver.SLOT_ACT_AGE] = _pc(head, cc, PASS_ACT_AGE, dt_s, sun, 0, 0, 1, g)
 		ht[LAFieldDriver.SLOT_ACT_WAKE] = _pc(head, cc, PASS_ACT_WAKE, dt_s, sun, 0, 0, 1, g)
 		ht[LAFieldDriver.SLOT_ACT_MARK] = _pc(head, cc, PASS_ACT_MARK, dt_s, sun, 0, 0, 1, g)
@@ -446,7 +445,6 @@ func _pc_rows(cc: int, dt_s: float, sun: Vector3) -> Array:
 		for gi in group:
 			var row: Dictionary = _rows[gi]
 			var rt: Array = out[gi]
-			rt[LAFieldDriver.SLOT_LEVEL_SEED] = _pc(row, cc, PASS_LEVEL_SEED, dt_s, sun, 0, 0, 1, g)
 			# The momentum record moves no matter of its own: it has no flux or apply half.
 			if not _vel_row(row):
 				rt[LAFieldDriver.SLOT_OUTFLOW] = _pc(row, cc, PASS_FLUX, dt_s, sun, 0, 0, 1, g)
@@ -515,8 +513,9 @@ func _pc(row: Dictionary, cc: int, pass_id: int, dt_s: float,
 		if String(row.get(String(pair2[0]), "")) != "":
 			flags |= int(pair2[1])
 	# The record whose amount IS enthalpy books joules on both boundary legs.
-	if String(row["channel"]) == "h_j_m3":
-		flags |= LATransportRecords.Flag.ENTHALPY
+	if String(row["channel"]) == "e_j_m3":
+		flags |= LATransportRecords.Flag.ENERGY
+	flags |= LATransportRecords.Flag.WATER if int(row.get("fluid", LATransportRecords.Fluid.VACUUM)) == LATransportRecords.Fluid.WATER else 0
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(PC_BYTES)
 	pc.encode_u32(0, cc)

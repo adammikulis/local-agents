@@ -6,7 +6,7 @@ const Rec: GDScript = preload("res://addons/local_agents/sim/material/ReduceReco
 ## Channels whose boundary crossings flux.glsl books. Every transportable conserved channel is here;
 ## a channel that can cross and is not booked reads as drift and the conservation gate fires.
 const BOOKED: PackedStringArray = ["h2o", "silicate", "o2", "co2", "n2", "h2", "co", "so2", "h2s",
-	"ch4", "fungus", "fert", "h_j_m3"]
+	"ch4", "fungus", "fert", "e_j_m3"]
 
 ## Channels booked amount-only: neither momentum nor charge is matter, so neither carries a heat leg.
 const BOOKED_SIGNED: PackedStringArray = ["mom_x", "mom_y", "mom_z", "charge"]

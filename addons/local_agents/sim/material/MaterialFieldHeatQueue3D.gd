@@ -70,7 +70,7 @@ func is_empty() -> bool:
 func flush(gpu) -> void:
 	if gpu != null and _t_cells.size() > 0:
 		heat_cells += _t_cells.size()
-		heat_applied_j_m3 += gpu.add_field_sparse("h_j_m3", _t_cells, _t_deltas)
+		heat_applied_j_m3 += gpu.add_field_sparse("e_j_m3", _t_cells, _t_deltas)
 		_t_cells = PackedInt32Array()
 		_t_deltas = PackedFloat32Array()
 	if gpu != null and not _c_ops.is_empty():

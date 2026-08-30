@@ -112,6 +112,9 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       dissolution leg from the halite channel into a dissolved amount the enthalpy ladder's molality reads
       (CPU and `enthalpy.glsli` twin together), and either accept the ideal van 't Hoff law or carry an
       osmotic coefficient — ideal gives −2.16 °C for sea water against the measured −1.86.
+- [ ] **`t_k()` floors every temperature at 1 K** in `closures.glsli`, `enthalpy.glsli`, `state_derive.glsl`
+      and `reactions_sphere3d.glsl`: a cell whose energy solve lands below absolute zero reads 1 K instead of
+      failing. Delete the floor; count such cells in a detector row gated to zero.
 - [ ] **`carbonate` has an expansivity and no bulk modulus, and `cellulose` has neither,** so their
       cells report an incompressible volume in the equation of state. Cite both moduli in `LASubstances`.
 - [ ] **No phase carries a measured `bulk_modulus_deriv`,** so every one of them compresses on `K0' = 4` —
@@ -183,10 +186,12 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
 
 ## D. Transport and geometry
 
-- [ ] **An open cell leaves the pressure it was seeded at as soon as the world is stepped.** The seed
-      publishes a pressure field and `state_derive.glsl` states its own from the matter in the cell; on the
-      default box the two are not the same field, and nothing has moved.
-      **Reproduce:** `scripts/sim_run.sh --rung 2 --frames 6 --report pressure_rest_rel`.
+- [ ] **The temporal levels are one clock per row group.** Every listed cell steps at the finest level any
+      cell of the group asks for; the Berger-Oliger reflux that lets a quiet cell keep a coarse clock beside a
+      fine neighbour with the books closing is not written. **Reproduce:** `scripts/sim_run.sh --rung 3
+      --frames 3 --report transport_levels,active_cells`.
+- [ ] **The momentum pass wakes every open cell.** A departure of one float32 ulp at a face at rest wakes
+      the cell and its ring, so the active list is the whole box. **Reproduce:** the same command, `active_cells`.
 
 ## E. Conservation, open
 
@@ -215,6 +220,10 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
 
 ## F. Prescribed where it should emerge
 
+- [ ] **The geotherm's adiabats use the expansivity at one atmosphere.** `FieldGeothermSeed3D.gd`
+      integrates both adiabats with each substance's STP `expansion_per_k`, so the inner core seeds far above
+      the real ~6000 K. The Anderson-Gruneisen relation alpha(P) = alpha0 K0 / K(P) off the same compression
+      the EOS carries is the law; cite it.
 - [ ] **The core is seeded, and the seeded phases cannot yet move or melt on the GPU.** The planet now
       seeds differentiated — a metal core whose radius follows from the core mass fraction, one silicate
       shell of the registry's own mineral mix (maintainer's decision: differentiation at ~10^13 steps is

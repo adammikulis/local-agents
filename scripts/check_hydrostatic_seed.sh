@@ -8,11 +8,24 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_rung.sh"
 
 FRAMES="${LA_HYDROSTATIC_FRAMES:-6}"
-KEYS="pressure_inversions,pressure_audited,pressure_empty,pressure_inv_open,pressure_inv_rock,pressure_inv_surface,pressure_aud_open,pressure_aud_rock,pressure_aud_surface"
+KEYS="pressure_inversions,pressure_audited,pressure_empty,pressure_rest_rel,derive_unconverged_cells,pressure_inv_open,pressure_inv_rock,pressure_inv_surface,pressure_aud_open,pressure_aud_rock,pressure_aud_surface"
 
 out="$(la_rung_report 2 "$FRAMES" "$KEYS")"
 rc=$?
-la_rung_require "$out" pressure_inversions pressure_audited pressure_empty || exit 2
+la_rung_require "$out" pressure_inversions pressure_audited pressure_empty pressure_rest_rel derive_unconverged_cells || exit 2
+
+# AT REST MEANS THE DERIVE IS A FIXED POINT OF THE SEED: with nothing moving, an open cell's own EOS pressure
+# may drift from its first reading by no more than the solve's stopping tolerance per frame
+# (state_derive.glsl LA_STATE_TOL), and no cell may exhaust the solve's budget.
+rest="$(la_rung_value "$out" pressure_rest_rel)"
+unc="$(la_rung_value "$out" derive_unconverged_cells)"
+printf 'HYDROSTATIC_REST={"pressure_rest_rel":%s,"derive_unconverged_cells":%s}\n' "$rest" "$unc"
+if ! awk -v r="$rest" -v u="$unc" -v n="$FRAMES" 'BEGIN{exit !(r <= n * 1.0e-6 && u == 0)}'; then
+	echo "check_hydrostatic_seed: the seeded world is not at rest: an open cell's EOS pressure moves with no" >&2
+	echo "                        matter moving, or the (T, p) solve ran out of budget somewhere." >&2
+	echo "Reproduce with: scripts/sim_run.sh --rung 2 --frames $FRAMES --report pressure_rest_rel,derive_unconverged_cells" >&2
+	exit 1
+fi
 
 inv="$(la_rung_value "$out" pressure_inversions)"
 aud="$(la_rung_value "$out" pressure_audited)"

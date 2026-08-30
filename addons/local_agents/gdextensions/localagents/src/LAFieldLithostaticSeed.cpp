@@ -531,6 +531,40 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c, 
 		vol[c] = e * e * e;
 	}
 	redistribute_gases(p_field, f, vol);
+	// ABOVE THE EXOBASE THERE IS NO FLUID. Where the barometric law leaves so little gas that a molecule
+	// crosses the whole cell without a collision, the continuum equations say nothing about the cell,
+	// and what stands there is the escape law's, not the grid's. The mean free path against the cell:
+	// lambda = 1 / (sqrt(2) pi d^2 n).
+	{
+		std::vector<Mirror> gases = channel_mirrors(p_field, "phase", "gas");
+		const double d = la_physical("N2_KINETIC_DIAMETER_M");
+		const double n_a = la_physical("AVOGADRO_PER_MOL");
+		const double sigma = std::sqrt(2.0) * 3.14159265358979 * d * d;
+		const double kn_limit = la_physical("KNUDSEN_CONTINUUM_LIMIT");
+		std::vector<double> n_m3(cc, 0.0);
+		for (const Mirror &m : gases) {
+			for (int c = 0; c < cc && c < m.arr.size(); c++) {
+				n_m3[c] += std::max(double(m.arr[c]), 0.0) * n_a;
+			}
+		}
+		int cut = 0;
+		for (Mirror &m : gases) {
+			float *w = m.arr.ptrw();
+			for (int c = 0; c < cc && c < m.arr.size(); c++) {
+				if (sky[c] == 0 || solid[c] != 0) {
+					continue;
+				}
+				const double e = c < edges.size() ? double(edges[c]) : 0.0;
+				const bool collisionless = !(n_m3[c] > 0.0) || 1.0 / (sigma * n_m3[c]) > e * kn_limit;
+				if (collisionless && w[c] != 0.0f) {
+					w[c] = 0.0f;
+					cut++;
+				}
+			}
+			p_field->set("_" + m.name, m.arr);
+		}
+		(void)cut;
+	}
 }
 
 void LAFieldLithostaticSeed::displace_gas_from_water(Object *p_field) {

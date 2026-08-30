@@ -49,7 +49,7 @@ func fold() -> Dictionary:
 		out["charge_stock"] = float(r["charge_stock"])
 		out["charge_gross"] = float(r["charge_gross"])
 	# The stores the world's energy is the sum of; one the device did not deliver is named, never skipped.
-	var want: PackedStringArray = PackedStringArray(["energy_stock", "energy_stock_open", "energy_kinetic", "energy_potential", "energy_pv_solid", "energy_pv_fluid"])
+	var want: PackedStringArray = PackedStringArray(["energy_stock", "energy_stock_open", "energy_kinetic", "energy_potential"])
 	for row: Dictionary in LAProcessSet.reduce_rows():
 		if bool(row.get("energy_book", false)):
 			want.append(String(row["key"]))

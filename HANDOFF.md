@@ -19,14 +19,23 @@ is measured, and no item about a higher rung is examined until the rungs below i
 
 ---
 
-## 1. RUNG 3 DOES NOT COMPLETE ON THE GRADED PLANET (the first red rung; the slab's gate is green both arms)
+## 1. THE RUNG-3 PLANET ARM DOES NOT FINISH INSIDE THE RUN CEILING
 
-`scripts/sim_run.sh --rung 3 --frames 2` exits 4: the first frame completes and the second is refused
-with `FluxPass: the h2o record's own cells carry a signal speed at or past light`. After the first
-frame, cells seeded empty about 480 km above the ground (cell indices 383, 384, 397 on the default
-seed) hold matter below 1e-16 kg/m^3 at temperatures between 1e5 and 1e7 K, their kinetic energy
-density above their enthalpy density; `rho_max_open`, `pressure_worst_open`, `open_temp_max` and
-`energy_pv_fluid` read inf.
+`scripts/sim_run.sh --rung 3 --frames 8` never reports inside `docs/RUN_TIMEOUT_CEILING`; `scripts/sim_run.sh
+--rung 3 --frames 3 --report field_ms,active_cells,transport_levels` reads tens of seconds per step with every
+cell of the box listed in both row groups at the group's one level. The column slab at the planet's own
+cells, `LA_BOUNDARY_FACES=shut,shut,shut,shut,shut,shut scripts/sim_run.sh --slice --rung 3 --slice-box
+"0,surface,0,1,8,1,68665" --frames 6`, holds its seeded temperature with its books closed.
+
+## 1b. OPEN CELLS AT THE CONTINUUM'S EDGE OUTRUN THEIR SOUND SPEED
+
+`scripts/sim_run.sh --rung 3 --frames 3 --report wind_speed_max,celerity_max` reads a wind above the
+celerity in the thin cells just under the collisionless cut, and `check_rung_acoustic.sh` fails on it.
+
+## 1c. THE VENTED COLUMN'S ENERGY BOOK DOES NOT CLOSE
+
+`scripts/check_atmosphere_at_rest.sh`: the rest arm is at rest; the vent arm (top face to space) reads an
+energy residual near a tenth of the turnover against its float bar.
 
 ## 2. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the books above it
 
@@ -49,13 +58,7 @@ camera is never built inside the run's frames, at any rung.
 checkpoint replaces it. Three shapes refused a row and say why: `sea_surface_stats`, `lava_shell_diag`,
 `rock_radial_profile`.
 
-## 5. Move what the device cannot take into the GDExtension
-
-Still GDScript on the seed path: `MaterialFieldSolidCache3D`'s SDF spot check and file hashing,
-`MaterialFieldRegolith3D.compute`'s burial march, `LAFieldEnthalpySeed.seed`'s per-cell mixture loop.
-Do not move `PhysicalConstants.gd`: godot-cpp binds only integer class constants.
-
-## 6. Build the binding registry
+## 5. Build the binding registry
 
 SSBO binding numbers are a bare integer in GLSL and a second bare integer in each uniform-set builder.
 Build `addons/local_agents/sim/material/Bindings.gd` on `Channels.gd`'s shape and one gate absorbing the

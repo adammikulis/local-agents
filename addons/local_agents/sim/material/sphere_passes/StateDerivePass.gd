@@ -1,7 +1,7 @@
 extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 
 ## EVERYTHING A CELL DERIVES FROM ITS OWN INDEX. Writes `temp`, `vel_*`, `rho_bulk`,
-## `conductivity` and the h2o/silicate phase shares off `h_j_m3` and `pressure`; cements and sets `solid`,
+## `conductivity` and the h2o/silicate phase shares off `e_j_m3` and `pressure`; cements and sets `solid`,
 ## `regolith`, `grain` off that melt share; adds weight, Coriolis and centrifugal to `mom_*`.
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/state_derive.glsl"
@@ -12,13 +12,13 @@ const FluxPassScript: GDScript = preload("res://addons/local_agents/sim/material
 ## declaration: the absence check and the uniform set ask the same list.
 const BOUND: Dictionary = {
 	"solid": 14, "cement": 15, "regolith": 16, "grain": 17, "pos": 18, "liquid": 19, "org_hc": 20,
-	"h_j_m3": 21, "pressure": 22, "ke_j_m3": 90, "pe_j_m3": 91, "grav_phi": 78, "grav_ref": 95, "level_args": 82,
+	"e_j_m3": 21, "pressure": 22, "ke_j_m3": 90, "pe_j_m3": 91, "grav_phi": 78, "grav_ref": 95, "level_args": 82,
 	"temp": 23, "mom_x": 25, "mom_y": 26, "mom_z": 27, "vel_x": 28, "vel_y": 29, "vel_z": 30,
 	"org_oc": 31, "rho_bulk": 32, "conductivity": 33, "h2o_solid": 34, "h2o_liquid": 35,
 	"h2o_vapour": 36, "silicate_melt": 37, "org_fresh": 38, "cell_edge": 94, "speed": 41, "lat": 42,
 	"alt": 43, "nonfinite": 44, "h_h2o": 45, "h_silicate": 46, "h_sensible": 47, "cap_sensible": 48,
 	"gravity": 49, "bodyf_x": 50, "bodyf_y": 51, "bodyf_z": 52, "k_cond": 53, "rad_w_m3": 65,
-	"g_rest": 39, "level_idx": 81, "mom_orphan": 92, "lithic_frac": 96, "lithic_kg": 97, "pv_fluid": 98}
+	"g_rest": 39, "level_idx": 81, "mom_orphan": 92, "lithic_frac": 96, "lithic_kg": 97, "unconverged": 99}
 
 ## props row layout — state_derive.glsl PROP_*.
 const PROP_STRIDE: int = 12
@@ -56,13 +56,13 @@ func _buffers(cc: int) -> Dictionary:
 	# The temporal levels come with the derive rather than with transport: the restate walks the same
 	# sorted list, and this pass runs at rungs below the one that moves anything.
 	return LATemporalLevels.buffers(cc + ghost_count, FluxPassScript.group_count()).merged({"speed": cc,
-		"lat": cc, "alt": cc, "nonfinite": cc, "mom_orphan": cc,
+		"lat": cc, "alt": cc, "nonfinite": cc, "mom_orphan": cc, "unconverged": cc,
 		"h_h2o": {"n": cc, "ghosts": true}, "h_silicate": {"n": cc, "ghosts": true},
 		"h_sensible": {"n": cc, "ghosts": true}, "cap_sensible": {"n": cc, "ghosts": true},
 		"org_hc": cc, "org_oc": cc, "org_fresh": cc,
 		"bodyf_x": cc, "bodyf_y": cc, "bodyf_z": cc,
 		"k_cond": {"n": cc, "ghosts": true}, "g_rest": {"n": cc * 3, "ghosts": true},
-		"rad_w_m3": {"n": cc, "ghosts": true}, "ke_j_m3": cc, "pe_j_m3": cc, "grav_phi": cc, "grav_ref": cc, "lithic_frac": {"n": cc, "ghosts": true}, "lithic_kg": {"n": cc, "ghosts": true}, "pv_fluid": cc})
+		"rad_w_m3": {"n": cc, "ghosts": true}, "ke_j_m3": cc, "pe_j_m3": cc, "grav_phi": cc, "grav_ref": cc, "lithic_frac": {"n": cc, "ghosts": true}, "lithic_kg": {"n": cc, "ghosts": true}})
 
 
 func _setup(bufs: Dictionary, _cc: int) -> void:

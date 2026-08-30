@@ -95,7 +95,7 @@ func seed_tick() -> bool:
 		# The march's own pressure, so the first state derive reads the world at it rather than at zero,
 		# where every condensed phase would be asked to boil.
 		_f._gpu._seed("pressure", p_marched)
-		_f._gpu._seed("h_j_m3", _f._h)
+		_f._gpu._seed("e_j_m3", _f._e)
 		# Every matter channel, not a hand-written subset: the balance march touched all of them.
 		for name in LAFieldCellMass3D.mirror_names(_f):
 			_f._gpu.seed_field(String(name), _f.get("_" + String(name)), _f._seal)
@@ -164,7 +164,7 @@ func step() -> void:
 	_f.sync_body_frame()
 	var t0: int = Time.get_ticks_usec()
 	var t_begin: int = t0
-	_f._gpu.begin_frame(_f._h, _f._h2o)      # drains prev step (sync+readback) + uploads
+	_f._gpu.begin_frame(_f._e, _f._h2o)      # drains prev step (sync+readback) + uploads
 	if LAProcessSet.has_record("pass", GRAVITY_PASS):
 		_f._gravity.solve_step(_f._gpu._step_index)   # the potential of the mass that moved, converged; the device is idle here
 	LASimReport.gauge("field_begin_ms", float(Time.get_ticks_usec() - t_begin) / 1000.0)
@@ -220,7 +220,7 @@ func step() -> void:
 ## StateDerivePass every step, never conserved and never uploaded; `vel_*` is the emergent wind
 ## field that wind3_at reads.
 const MIRRORS: Dictionary = {
-	"h_j_m3": "_h", "temp": "_temp", "h2o": "_h2o", "h2o_solid": "_h2o_solid",
+	"e_j_m3": "_e", "temp": "_temp", "h2o": "_h2o", "h2o_solid": "_h2o_solid",
 	"h2o_liquid": "_h2o_liquid", "h2o_vapour": "_h2o_vapour", "silicate": "_silicate",
 	"porosity": "_porosity", "fire": "_fire", "fuel": "_fuel", "fert": "_fert", "o2": "_o2",
 	"co2": "_co2", "biomass": "_biomass", "cement": "_cement", "silicate_melt": "_silicate_melt",

@@ -1,0 +1,127 @@
+// THE WATER BAND IN A CUBE: liquid water stands between the ground under it and a free surface, two
+// planes across the local vertical cutting the cube obliquely. Every quantity is that geometry's exact
+// integral, so two neighbours whose surfaces coincide state one pressure at their shared face.
+#ifndef LA_BAND_GLSLI
+#define LA_BAND_GLSLI
+
+const float LA_BAND_EPS = 1.0e-4;   // a plane coefficient below this share of the vertical is parallel to that axis
+const float LA_FLOAT_EPS = 1.1920929e-7;   // float32 epsilon: two depths closer than this share of the cube coincide
+
+// Length of {a s + c >= 0} over [-h, h].
+float la_seg_len(float a, float c, float h) {
+	if (a < LA_BAND_EPS) {
+		return c >= 0.0 ? 2.0 * h : 0.0;
+	}
+	return (max(c + a * h, 0.0) - max(c - a * h, 0.0)) / a;
+}
+
+// Integral of (a s + c)+ over [-h, h].
+float la_seg_int(float a, float c, float h) {
+	if (a < LA_BAND_EPS) {
+		return max(c, 0.0) * 2.0 * h;
+	}
+	float p = max(c + a * h, 0.0);
+	float m = max(c - a * h, 0.0);
+	return (p * p - m * m) / (2.0 * a);
+}
+
+// Area of {a s + b t + c >= 0} over the square [-h, h]^2; a, b >= 0.
+float la_sq_area(float a, float b, float c, float h) {
+	if (b < LA_BAND_EPS) {
+		return la_seg_len(a, c, h) * 2.0 * h;
+	}
+	if (a < LA_BAND_EPS) {
+		return la_seg_len(b, c, h) * 2.0 * h;
+	}
+	float pp = max(c + a * h + b * h, 0.0);
+	float pm = max(c + a * h - b * h, 0.0);
+	float mp = max(c - a * h + b * h, 0.0);
+	float mm = max(c - a * h - b * h, 0.0);
+	return (pp * pp - pm * pm - mp * mp + mm * mm) / (2.0 * a * b);
+}
+
+// Integral of (a s + b t + c)+ over the square [-h, h]^2; a, b >= 0.
+float la_sq_int(float a, float b, float c, float h) {
+	if (b < LA_BAND_EPS) {
+		return la_seg_int(a, c, h) * 2.0 * h;
+	}
+	if (a < LA_BAND_EPS) {
+		return la_seg_int(b, c, h) * 2.0 * h;
+	}
+	float pp = max(c + a * h + b * h, 0.0);
+	float pm = max(c + a * h - b * h, 0.0);
+	float mp = max(c - a * h + b * h, 0.0);
+	float mm = max(c - a * h - b * h, 0.0);
+	return (pp * pp * pp - pm * pm * pm - mp * mp * mp + mm * mm * mm) / (6.0 * a * b);
+}
+
+// Volume of {n . x + c >= 0} over the cube [-h, h]^3, n with non-negative components.
+float la_cube_vol(vec3 n, float c, float h) {
+	if (n.z < LA_BAND_EPS) {
+		return la_sq_area(n.x, n.y, c, h) * 2.0 * h;
+	}
+	if (n.y < LA_BAND_EPS) {
+		return la_sq_area(n.x, n.z, c, h) * 2.0 * h;
+	}
+	if (n.x < LA_BAND_EPS) {
+		return la_sq_area(n.y, n.z, c, h) * 2.0 * h;
+	}
+	float acc = 0.0;
+	for (int i = 0; i < 8; ++i) {
+		float sx = (i & 1) != 0 ? 1.0 : -1.0;
+		float sy = (i & 2) != 0 ? 1.0 : -1.0;
+		float sz = (i & 4) != 0 ? 1.0 : -1.0;
+		float v = max(c + h * (sx * n.x + sy * n.y + sz * n.z), 0.0);
+		acc += sx * sy * sz * v * v * v;
+	}
+	return acc / (6.0 * n.x * n.y * n.z);
+}
+
+// The cube's share below the free surface and above the ground: depth d runs down the vertical `gd`
+// from the cell centre, the band is d in [d_top, d_ground]. Volume, m^3.
+float la_band_volume(vec3 gd, float h, float d_top, float d_ground) {
+	vec3 n = abs(gd);
+	return max(la_cube_vol(n, -d_top, h) - la_cube_vol(n, -d_ground, h), 0.0);
+}
+
+// The depth of the free surface that puts `vol` m^3 of water on the ground: bisected over the cube.
+float la_band_top(vec3 gd, float h, float d_ground, float vol) {
+	float reach = h * (abs(gd.x) + abs(gd.y) + abs(gd.z));
+	// A band thinner than the cube's own depth resolution has no top float32 can tell from its ground.
+	if (vol < 8.0 * h * h * h * LA_FLOAT_EPS) {
+		return 1.0e30;
+	}
+	float lo = -reach;
+	float hi = min(d_ground, reach);
+	if (la_band_volume(gd, h, lo, d_ground) <= vol) {
+		return lo;
+	}
+	for (int i = 0; i < 24; ++i) {
+		float mid = 0.5 * (lo + hi);
+		if (la_band_volume(gd, h, mid, d_ground) > vol) {
+			lo = mid;
+		} else {
+			hi = mid;
+		}
+	}
+	return 0.5 * (lo + hi);
+}
+
+// One face of the cube, outward normal `nrm`, its share in the band (x) and in the ground (y), and the
+// mean depth below the free surface over the wet share (z), m.
+vec3 la_band_face(vec3 gd, vec3 nrm, float h, float d_top, float d_ground) {
+	float d0 = dot(nrm, gd) * h;
+	vec3 ag = abs(gd);
+	float a = abs(nrm.x) > 0.5 ? ag.y : ag.x;
+	float b = abs(nrm.z) > 0.5 ? ag.y : ag.z;
+	float area = 4.0 * h * h;
+	float wet_plus = la_sq_area(a, b, d0 - d_top, h);
+	float ground = la_sq_area(a, b, d0 - d_ground, h);
+	float wet = max(wet_plus - ground, 0.0);
+	float depth_int = la_sq_int(a, b, d0 - d_top, h) - la_sq_int(a, b, d0 - d_ground, h)
+		- (d_ground - d_top) * ground;
+	float mean_depth = wet > 0.0 ? max(depth_int, 0.0) / wet : 0.0;
+	return vec3(wet / area, ground / area, mean_depth);
+}
+
+#endif

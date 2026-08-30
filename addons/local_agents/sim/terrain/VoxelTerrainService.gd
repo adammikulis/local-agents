@@ -49,8 +49,14 @@ func build_planet(parent: Node3D, opts: Dictionary = {}) -> void:
 	var pg: RefCounted = PlanetGenScript.new()
 	# THE SHAPE IS LAPlanetShape'S, WHOLE. A default written here would be a second declaration of the
 	# body, and the one nobody reads.
-	var gen_opts: Dictionary = LAPlanetShape.opts(float(opts.get("radius", 0.0)),
-		int(opts.get("seed", 1337)), bool(opts.get("caves_enabled", true)))
+	var body: Dictionary = LABodySeeds.of(String(opts.get("seed_key", "planet")))
+	var rho_w: float = float(LASubstances.table().get("h2o", {}).get("density", 0.0))
+	if rho_w <= 0.0 or not body.has("hydrosphere_kg") or not body.has("groundwater_kg"):
+		push_error("VoxelTerrainService: no hydrosphere declared or no water density, so the sea has no level.")
+		return
+	var sea_level: float = LAPlanetComposition.sea_level_m(float(opts.get("radius", 0.0)), (float(body["hydrosphere_kg"]) - float(body["groundwater_kg"])) / rho_w,
+		PackedFloat64Array(LAPhysical.HYPSOMETRY_AREA_BELOW), PackedFloat64Array(LAPhysical.HYPSOMETRY_ELEVATION_M))
+	var gen_opts: Dictionary = LAPlanetShape.opts(float(opts.get("radius", 0.0)), int(opts.get("seed", 1337)), bool(opts.get("caves_enabled", true)), sea_level)
 	var gen: VoxelGeneratorGraph = pg.build(gen_opts)
 	_planet_radius = pg.radius()
 	_sea_radius = pg.sea_radius()

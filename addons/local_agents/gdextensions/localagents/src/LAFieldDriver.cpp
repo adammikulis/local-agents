@@ -241,12 +241,14 @@ void LAFieldDriver::_act(int64_t p_cl, const RID &p_uset, const Array &p_table, 
 }
 
 void LAFieldDriver::_rebuild_active(int64_t p_cl, const RID &p_uset, const Array &p_table,
-		int p_group, int p_level, bool p_take_wake) {
+		int p_group, int p_level, bool p_take_wake, int p_levels) {
+	// The marking passes carry the group's level in the substep count: every cell they list takes it.
+	const int n = 1 << p_levels;
 	_act(p_cl, p_uset, p_table, SLOT_ACT_AGE, p_group, p_level, 0);
 	if (p_take_wake) {
-		_fire(p_cl, p_uset, _block(p_table, SLOT_ACT_WAKE, p_level, 0, 1), _wake_args, 0);
+		_fire(p_cl, p_uset, _block(p_table, SLOT_ACT_WAKE, p_level, 0, n), _wake_args, 0);
 	}
-	_act(p_cl, p_uset, p_table, SLOT_ACT_MARK, p_group, p_level, 0);
+	_fire(p_cl, p_uset, _block(p_table, SLOT_ACT_MARK, p_level, 0, n), _args, _args_offset(p_group, 0));
 	_fire(p_cl, p_uset, _block(p_table, SLOT_LEVEL_SCAN, p_level, 0, 1), RID(), 1);
 	_act(p_cl, p_uset, p_table, SLOT_LEVEL_SORT, p_group, p_level, _queue_bin);
 }
@@ -262,18 +264,8 @@ void LAFieldDriver::build_levels(int64_t p_cl, int p_group, const Array &p_pc_ro
 	const int first = group[0];
 	const RID head = rid_at(_row_sets, first);
 	const Array head_pc = p_pc_rows[first];
+	(void)p_levels;
 	_act(p_cl, head, head_pc, SLOT_LEVEL_RESET, p_group, 0, 0);
-	if (p_levels <= 0) {
-		return;
-	}
-	for (int i = 0; i < group.size(); ++i) {
-		const int gi = group[i];
-		_act(p_cl, rid_at(_row_sets, gi), p_pc_rows[gi], SLOT_LEVEL_SEED, p_group, 0, 0);
-	}
-	// The fixed point of "no neighbour is more than one level finer" is `levels` sweeps away at most.
-	for (int i = 0; i < p_levels; ++i) {
-		_act(p_cl, head, head_pc, SLOT_LEVEL_RELAX, p_group, 0, 0);
-	}
 }
 
 // ONE SLOT OF ONE RECORD, over its group's active cells at this level: what it costs is what moves.
@@ -366,7 +358,7 @@ int64_t LAFieldDriver::run_transport(int64_t p_cl, const PackedInt32Array &p_pea
 	if (_grain_set.is_valid()) {
 		const int gslot = _group_count - 1;
 		_act(cl, _grain_set, p_pc_grain, SLOT_LEVEL_RESET, gslot, 0, 0);
-		_rebuild_active(cl, _grain_set, p_pc_grain, gslot, 0, true);
+		_rebuild_active(cl, _grain_set, p_pc_grain, gslot, 0, true, 0);
 		_act(cl, _grain_set, p_pc_grain, SLOT_GRAIN, gslot, 0, 0);
 	}
 	// EACH GROUP ON ITS OWN TIME AXIS.
@@ -388,7 +380,7 @@ int64_t LAFieldDriver::run_transport(int64_t p_cl, const PackedInt32Array &p_pea
 		for (int k = 0; k < n; ++k) {
 			const int lk = coarsest_at(k, levels);
 			// THE BUBBLE, one substep at a time.
-			_rebuild_active(cl, head, head_pc, g, lk, k == 0);
+			_rebuild_active(cl, head, head_pc, g, lk, k == 0, levels);
 			// EVERY FACE STATES ITSELF ONCE, before any record reads one: the pair's interface
 			// pressure and velocity, off the state this substep starts in.
 			_run_slot(cl, first, p_pc_rows, SLOT_FACE, lk, k, n);
@@ -524,8 +516,6 @@ void LAFieldDriver::_bind_methods() {
 	BIND_ENUM_CONSTANT(SLOT_LEVEL_SCAN);
 	BIND_ENUM_CONSTANT(SLOT_LEVEL_SORT);
 	BIND_ENUM_CONSTANT(SLOT_LEVEL_RESET);
-	BIND_ENUM_CONSTANT(SLOT_LEVEL_SEED);
-	BIND_ENUM_CONSTANT(SLOT_LEVEL_RELAX);
 	BIND_ENUM_CONSTANT(SLOT_GRAIN);
 	BIND_ENUM_CONSTANT(SLOT_ACT_SEED);
 	BIND_ENUM_CONSTANT(SLOT_ACT_WAKE_RESET);

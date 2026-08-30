@@ -16,7 +16,6 @@ layout(set = 0, binding = 2, std430) restrict readonly buffer Solid { float soli
 layout(set = 0, binding = 3, std430) restrict readonly buffer Grav { float g_field[]; };
 // GravityPass's one vertical relation; marching it is what makes the column monotone.
 layout(set = 0, binding = 4, std430) restrict readonly buffer VertUp { int vert_up[]; };
-layout(set = 0, binding = 5, std430) restrict buffer Enthalpy { float h_j_m3[]; };
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
@@ -73,6 +72,5 @@ void main() {
 		acc += la_load(uint(a));
 		a = vert_up[uint(a)];
 	}
-	h_j_m3[g] += (top + acc) - pressure[g];   // dH = V dp: the lattice holds its enthalpy at its column
 	pressure[g] = top + acc;
 }

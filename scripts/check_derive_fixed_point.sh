@@ -115,7 +115,7 @@ func _run() -> void:
 		h.append(kg * LASubstances.enthalpy_at("h2o", 15.0, pres[c]))
 	_upload(bufs["h2o"], h2o)
 	_upload(bufs["n2"], n2)
-	_upload(bufs["h_j_m3"], h)
+	_upload(bufs["e_j_m3"], h)
 	_upload(bufs["pressure"], pres)
 
 	p.setup(_rd, bufs, cc)

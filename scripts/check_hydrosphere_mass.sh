@@ -7,7 +7,11 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_rung.sh"
 
-TOL="${LA_HYDRO_TOL:-0.0001}"
+# THE SEA STANDS WHERE THE SHAPE PUTS IT, read at the grid's own resolution: the quadrature's departure
+# is a ratchet, docs/HYDROSPHERE_SEED_REL, never a budget the seed scales to.
+CEIL="$ROOT/docs/HYDROSPHERE_SEED_REL"
+[ -f "$CEIL" ] || { echo "check_hydrosphere_mass: MISSING ${CEIL#"$ROOT"/}" >&2; exit 2; }
+TOL="$(grep -v '^#' "$CEIL" | tr -d '[:space:]')"
 FRAMES="${LA_HYDRO_FRAMES:-6}"
 CONST="$ROOT/addons/local_agents/sim/material/PhysicalConstants.gd"
 
@@ -47,8 +51,8 @@ if awk -v r="$REL" -v t="$TOL" 'BEGIN{exit !(r <= t)}'; then
 	exit 0
 fi
 echo >&2
-echo "The seeded hydrosphere is not the body's. Water is laid into the basins the terrain gives as a" >&2
-echo "partial fill under the free-surface reconstruction, so the amount is the body's own mass and the" >&2
-echo "cell size decides only how thin the film is. A cell written brim-full instead makes the ocean as" >&2
-echo "deep as a grid cell." >&2
+echo "The seeded hydrosphere departs from the body's by more than docs/HYDROSPHERE_SEED_REL. The sea" >&2
+echo "level is solved from the water on the declared shape (LAPlanetShape.sea_level_m) and the field" >&2
+echo "reads that shape by chords over the terrain lattice; a departure past the ratchet is a lattice or" >&2
+echo "chord defect, never a budget to scale the water to." >&2
 exit 1

@@ -47,21 +47,19 @@ static func rows() -> Array:
 	for name in AMOUNTS:
 		out.append({"key": "all_" + name, "source": name, "op": Op.SUM, "mask": Mask.ALL, "weight": true})
 		out.append({"key": "open_" + name, "source": name, "op": Op.SUM, "mask": Mask.OPEN, "weight": true})
-	out.append({"key": "energy_stock", "source": "h_j_m3", "op": Op.SUM, "mask": Mask.ALL, "weight": true})
+	out.append({"key": "energy_stock", "source": "e_j_m3", "op": Op.SUM, "mask": Mask.ALL, "weight": true})
 	# The same stock split by who updates it: open cells every substep, rock once a step.
-	out.append({"key": "energy_stock_open", "source": "h_j_m3", "op": Op.SUM, "mask": Mask.OPEN, "weight": true})
+	out.append({"key": "energy_stock_open", "source": "e_j_m3", "op": Op.SUM, "mask": Mask.OPEN, "weight": true})
 	out.append({"key": "energy_kinetic", "source": "ke_j_m3", "op": Op.SUM, "weight": true})
 	# The third store: mass in the potential, gravitational and rotating-frame alike.
 	out.append({"key": "energy_potential", "source": "pe_j_m3", "op": Op.SUM, "mask": Mask.ALL, "weight": true})
-	# The pV between stored enthalpy and internal energy, J: the lattice's whole cell, the fluid's own volume.
-	out.append({"key": "energy_pv_solid", "source": "pressure", "op": Op.SUM, "mask": Mask.SOLID, "weight": true})
-	out.append({"key": "energy_pv_fluid", "source": "pv_fluid", "op": Op.SUM, "mask": Mask.OPEN, "weight": true})
 	# Coulombs over the box; `charge_gross` is the charge that EXISTS, the scale a net is a fraction of.
 	out.append({"key": "charge_stock", "source": "charge", "op": Op.SUM, "mask": Mask.ALL, "weight": true})
 	out.append({"key": "charge_gross", "source": "charge", "op": Op.SUM_ABS, "weight": true})
 	out.append({"key": "solid_cells", "source": "solid", "op": Op.COUNT_GT, "threshold": 0.0})
 	# Conserved amounts are finite reals; state_derive.glsl counts a cell's NaN and infinite ones.
 	out.append({"key": "nonfinite_cells", "source": "nonfinite", "op": Op.SUM, "mask": Mask.ALL})
+	out.append({"key": "derive_unconverged_cells", "source": "unconverged", "op": Op.SUM, "mask": Mask.ALL})
 	out.append({"key": "carbonate_cells", "source": "carbonate", "op": Op.COUNT_GT, "threshold": 0.0})
 	# The frozen share of the one h2o channel: the ladder's own solid fraction, not a separate stock.
 	out.append({"key": "snow_cells", "source": "h2o", "aux": "h2o_solid", "op": Op.COUNT_GT,
