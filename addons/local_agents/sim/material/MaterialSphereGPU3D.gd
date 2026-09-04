@@ -4,6 +4,8 @@ extends RefCounted
 
 ## Views of LAChannels, the one declaration of what a channel is.
 static func channels() -> PackedStringArray: return LAChannels.channels()
+## Device buffers the seed writes once and the first derive of a restored world reads.
+const SEED_PRODUCTS: PackedStringArray = ["pressure", "p_fluid"]
 static func situational_channels() -> PackedStringArray: return LAChannels.situational_channels()
 static func slow_channels() -> PackedStringArray: return LAChannels.slow_channels()
 
@@ -667,8 +669,13 @@ func snapshot_channels() -> Dictionary:
 	if _rd == null:
 		return out
 	_flush_pending()        # a step submit may be in flight (async pipeline) — sync before reading the buffers
-	for name in channels():
-		out[name] = _rd.buffer_get_data(_bufs[name]).to_float32_array()
+	# The interior cells of every state channel, and the seed's own two pressure products: the balance
+	# march's column and the fluid's pressure, which the first derive of a restored world reads.
+	var names: PackedStringArray = channels()
+	names.append_array(SEED_PRODUCTS)
+	for name in names:
+		if _bufs.has(name):
+			out[name] = _rd.buffer_get_data(_bufs[name], 0, _cc * 4).to_float32_array()
 	return out
 
 
@@ -683,6 +690,8 @@ func restore_channels(data: Dictionary) -> void:
 			continue
 		var arr: PackedFloat32Array = data[key]
 		if arr.size() != _cc:
+			push_error("MaterialSphereGPU3D.restore_channels: %s holds %d cells against %d, so the bake is not this world's."
+				% [key, arr.size(), _cc])
 			continue
 		var bytes: PackedByteArray = arr.to_byte_array()
 		_rd.buffer_update(_bufs[key], 0, bytes.size(), bytes)
