@@ -573,6 +573,19 @@ kind = "gpu"
 marker = "^SHOT_SAVED="
 
 [[gate]]
+name = "check_lakc"
+script = "scripts/check_lakc.sh"
+kind = "text"
+marker = "^check_lakc: OK"
+mutation = "printf 'void la_mut( {\\n' >> addons/local_agents/sim/material/kernels3d/pressure.glsl"
+
+[[gate]]
+name = "check_native_device"
+script = "scripts/check_native_device.sh"
+kind = "gpu"
+marker = "^check_native_device: OK"
+
+[[gate]]
 name = "check_shaders_compile"
 script = "scripts/check_shaders_compile.sh"
 kind = "headless"

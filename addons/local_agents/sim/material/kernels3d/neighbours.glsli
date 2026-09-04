@@ -7,10 +7,10 @@ const uint N_SLOTS = 6u;   // LAVoxelGrid.SLOTS — a box has six faces
 // A SLOT is an axis tag; a FACE is what carries a flux, and a coarse cell has four of them on the slot
 // where it meets fine cells. `int nbr[]` and the per-face scratch are indexed by FACE.
 // LAVoxelGrid.slot_off: absolute face index where cell c's slot-d faces begin, 7 per cell.
-layout(set = 0, binding = 92, std430) restrict readonly buffer SlotOff { uint slot_off[]; };
+layout(set = 0, binding = LA_BIND_SLOT_OFF, std430) restrict readonly buffer SlotOff { uint slot_off[]; };
 // LAVoxelGrid.partners: per face, the face pointing back. A 2:1 seam makes that a different question
 // from `d ^ 1`, which stays the reverse AXIS TAG and never an index.
-layout(set = 0, binding = 93, std430) restrict readonly buffer FacePartner { int partner[]; };
+layout(set = 0, binding = LA_BIND_FACE_PARTNER, std430) restrict readonly buffer FacePartner { int partner[]; };
 
 uint opposite_slot(uint d) { return d ^ 1u; }
 

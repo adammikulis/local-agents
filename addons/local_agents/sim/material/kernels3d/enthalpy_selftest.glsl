@@ -1,6 +1,8 @@
 #[compute]
 #version 450
 
+#include "bindings.glsli"
+
 // The two enthalpy headers are libraries no kernel has adopted yet, so nothing would compile them and a
 // syntax error in either would sit there unseen. This kernel exists to be COMPILED, not dispatched;
 // test_enthalpy_roundtrip.gd reads its SPIR-V and fails on a compile error.
@@ -9,7 +11,7 @@
 
 layout(local_size_x = 64) in;
 
-layout(set = 0, binding = 0, std430) restrict buffer Probe { float probe[]; };
+layout(set = 0, binding = LA_BIND_ENTHALPY_PROBE, std430) restrict buffer Probe { float probe[]; };
 
 void main() {
 	uint i = gl_GlobalInvocationID.x * 5u;

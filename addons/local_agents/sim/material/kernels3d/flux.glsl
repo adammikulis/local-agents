@@ -1,6 +1,8 @@
 #[compute]
 #version 450
 
+#include "bindings.glsli"
+
 // ONE CONSERVATIVE FACE FLUX. Every face states one interface pressure and velocity, solved once from
 // the pair; mass, momentum, enthalpy and charge ride it, and a column in balance produces zero flux.
 // The cell keeps internal energy; a crossing's enthalpy is the energy flux, pressure work included.
@@ -13,141 +15,142 @@
 
 layout(local_size_x = 64) in;
 
-layout(set = 0, binding = 0, std430) buffer Amount   { float amount[]; };
-layout(set = 0, binding = 1, std430) restrict buffer Energy { float e[]; };
-layout(set = 0, binding = 2, std430) restrict readonly buffer Neigh { int nbr[]; };
-layout(set = 0, binding = 3, std430) restrict readonly buffer Solid { float solid[]; };
+layout(set = 0, binding = LA_BIND_FLUX_AMOUNT, std430) buffer Amount   { float amount[]; };
+// No `restrict`: a record whose channel IS an energy reservoir binds one buffer here and at Amount.
+layout(set = 0, binding = LA_BIND_FLUX_ENERGY, std430) buffer Energy { float e[]; };
+layout(set = 0, binding = LA_BIND_NBR, std430) restrict readonly buffer Neigh { int nbr[]; };
+layout(set = 0, binding = LA_BIND_SOLID, std430) restrict readonly buffer Solid { float solid[]; };
 // Solved gravity per cell, flat cell*3, m/s^2, the rotating frame's terms already in it.
-layout(set = 0, binding = 4, std430) restrict readonly buffer Grav { float g_field[]; };
+layout(set = 0, binding = LA_BIND_G_REST, std430) restrict readonly buffer Grav { float g_field[]; };
 
-layout(set = 0, binding = 5, std430) restrict buffer VelX { float vel_x[]; };
-layout(set = 0, binding = 6, std430) restrict buffer VelY { float vel_y[]; };
-layout(set = 0, binding = 7, std430) restrict buffer VelZ { float vel_z[]; };
+layout(set = 0, binding = LA_BIND_VEL_X, std430) restrict buffer VelX { float vel_x[]; };
+layout(set = 0, binding = LA_BIND_VEL_Y, std430) restrict buffer VelY { float vel_y[]; };
+layout(set = 0, binding = LA_BIND_VEL_Z, std430) restrict buffer VelZ { float vel_z[]; };
 // THE FACE STATE, indexed by FACE: the interface velocity along the owning cell's outward normal and
 // the interface pressure. LAVoxelGrid.slot_off says where a cell's own faces begin.
-layout(set = 0, binding = 8, std430) restrict buffer FaceU { float face_u[]; };
-layout(set = 0, binding = 9, std430) restrict buffer FaceP { float fp_star[]; };
+layout(set = 0, binding = LA_BIND_FLUX_FACE_U, std430) restrict buffer FaceU { float face_u[]; };
+layout(set = 0, binding = LA_BIND_FLUX_FP_STAR, std430) restrict buffer FaceP { float fp_star[]; };
 // The WATER PAIR of the same face: the band's interface velocity and pressure, stated where both
 // sides are wet.
-layout(set = 0, binding = 36, std430) restrict buffer FaceUW { float face_uw[]; };
-layout(set = 0, binding = 98, std430) restrict buffer FacePW { float fpw_star[]; };
+layout(set = 0, binding = LA_BIND_FLUX_FACE_UW, std430) restrict buffer FaceUW { float face_uw[]; };
+layout(set = 0, binding = LA_BIND_FLUX_FPW_STAR, std430) restrict buffer FacePW { float fpw_star[]; };
 // Depth of the ground under the cell's fluid below its centre, m, along its own vertical: the seeded
 // shape, until something moves rock.
-layout(set = 0, binding = 99, std430) restrict readonly buffer GroundD { float ground_d[]; };
+layout(set = 0, binding = LA_BIND_GROUND_D, std430) restrict readonly buffer GroundD { float ground_d[]; };
 // The free surface each cell solved this substep, depth below its centre, m.
-layout(set = 0, binding = 100, std430) restrict buffer WaterTop { float w_top[]; };
+layout(set = 0, binding = LA_BIND_FLUX_W_TOP, std430) restrict buffer WaterTop { float w_top[]; };
 // Charge rides the mass, exactly as enthalpy does: it is carried, never created by a move.
-layout(set = 0, binding = 13, std430) buffer Charge { float charge[]; };
+layout(set = 0, binding = LA_BIND_CHARGE, std430) buffer Charge { float charge[]; };
 // The RADIATE march's own per-face scratch: what each face emits, J/m^3.
-layout(set = 0, binding = 14, std430) restrict buffer Send { float send[]; };
+layout(set = 0, binding = LA_BIND_FLUX_SEND, std430) restrict buffer Send { float send[]; };
 // Flow resistance 0..1 per cell.
-layout(set = 0, binding = 10, std430) restrict readonly buffer Resist { float resist[]; };
+layout(set = 0, binding = LA_BIND_FLUX_RESIST, std430) restrict readonly buffer Resist { float resist[]; };
 // What a potential-driven row runs down; `amount` when a record names none. No `restrict`: the
 // conduction row binds temperature here and reads it under another name too.
-layout(set = 0, binding = 11, std430) readonly buffer Drive { float drive[]; };
+layout(set = 0, binding = LA_BIND_FLUX_DRIVE, std430) readonly buffer Drive { float drive[]; };
 // Whatever else the row's law reads per cell: conductivity for MODE_CONDUCT, cloud water for LAW_OHMIC.
-layout(set = 0, binding = 12, std430) restrict readonly buffer Aux { float aux[]; };
+layout(set = 0, binding = LA_BIND_FLUX_AUX, std430) restrict readonly buffer Aux { float aux[]; };
 
-layout(set = 0, binding = 15, std430) restrict readonly buffer TempBuf     { float temp[]; };
+layout(set = 0, binding = LA_BIND_TEMP, std430) restrict readonly buffer TempBuf     { float temp[]; };
 // The lattice reservoir: temperature, sensible capacity, volume share.
-layout(set = 0, binding = 104, std430) restrict readonly buffer TempLith { float temp_lith[]; };
-layout(set = 0, binding = 103, std430) restrict readonly buffer CapLith { float cap_lith[]; };
-layout(set = 0, binding = 105, std430) restrict readonly buffer LatticeFrac { float lattice_frac[]; };
+layout(set = 0, binding = LA_BIND_TEMP_LITH, std430) restrict readonly buffer TempLith { float temp_lith[]; };
+layout(set = 0, binding = LA_BIND_CAP_LITH, std430) restrict readonly buffer CapLith { float cap_lith[]; };
+layout(set = 0, binding = LA_BIND_LATTICE_FRAC, std430) restrict readonly buffer LatticeFrac { float lattice_frac[]; };
 // READ ONLY. An open cell's pressure is state_derive.glsl's equation of state and nothing else's.
-layout(set = 0, binding = 16, std430) readonly buffer PressureBuf { float pressure[]; };
-layout(set = 0, binding = 17, std430) restrict readonly buffer PorosityBuf { float porosity[]; };
-layout(set = 0, binding = 18, std430) restrict readonly buffer GrainBuf    { float grain[]; };
-layout(set = 0, binding = 19, std430) readonly buffer CO2Buf      { float co2[]; };
+layout(set = 0, binding = LA_BIND_PRESSURE, std430) readonly buffer PressureBuf { float pressure[]; };
+layout(set = 0, binding = LA_BIND_POROSITY, std430) restrict readonly buffer PorosityBuf { float porosity[]; };
+layout(set = 0, binding = LA_BIND_GRAIN, std430) restrict readonly buffer GrainBuf    { float grain[]; };
+layout(set = 0, binding = LA_BIND_CO2, std430) readonly buffer CO2Buf      { float co2[]; };
 // ONE H2O CHANNEL plus the three DERIVED shares state_derive.glsl publishes; they differ optically.
-layout(set = 0, binding = 20, std430) readonly buffer H2OBuf       { float h2o[]; };
+layout(set = 0, binding = LA_BIND_H2O, std430) readonly buffer H2OBuf       { float h2o[]; };
 // LAAbsorptionBands.packed(), the band table.
-layout(set = 0, binding = 21, std430) restrict readonly buffer RadTable { float rad_table[]; };
-layout(set = 0, binding = 22, std430) restrict readonly buffer H2OSolidBuf  { float h2o_solid[]; };
-layout(set = 0, binding = 23, std430) restrict readonly buffer H2OLiquidBuf { float h2o_liquid[]; };
-layout(set = 0, binding = 24, std430) readonly buffer SilicateBuf { float silicate[]; };
-layout(set = 0, binding = 25, std430) restrict readonly buffer BiomassBuf  { float biomass[]; };
-layout(set = 0, binding = 26, std430) restrict readonly buffer SilicateMeltBuf { float silicate_melt[]; };
+layout(set = 0, binding = LA_BIND_FLUX_RAD_TABLE, std430) restrict readonly buffer RadTable { float rad_table[]; };
+layout(set = 0, binding = LA_BIND_H2O_SOLID, std430) restrict readonly buffer H2OSolidBuf  { float h2o_solid[]; };
+layout(set = 0, binding = LA_BIND_H2O_LIQUID, std430) restrict readonly buffer H2OLiquidBuf { float h2o_liquid[]; };
+layout(set = 0, binding = LA_BIND_SILICATE, std430) readonly buffer SilicateBuf { float silicate[]; };
+layout(set = 0, binding = LA_BIND_BIOMASS, std430) restrict readonly buffer BiomassBuf  { float biomass[]; };
+layout(set = 0, binding = LA_BIND_SILICATE_MELT, std430) restrict readonly buffer SilicateMeltBuf { float silicate_melt[]; };
 // Boundary redirect per face: a wrapped interior cell, a prescribed ghost tail cell, or -1 = shut wall.
-layout(set = 0, binding = 27, std430) restrict readonly buffer Ghost { int ghost[]; };
-layout(set = 0, binding = 28, std430) restrict readonly buffer H2OVapourBuf { float h2o_vapour[]; };
+layout(set = 0, binding = LA_BIND_GHOST, std430) restrict readonly buffer Ghost { int ghost[]; };
+layout(set = 0, binding = LA_BIND_H2O_VAPOUR, std430) restrict readonly buffer H2OVapourBuf { float h2o_vapour[]; };
 // TF_FRACTION records move only this share of `amount`, 0..1. No `restrict`: the grain prologue
 // writes the very buffers three silicate records bind as their `frac`.
-layout(set = 0, binding = 29, std430) readonly buffer FracBuf { float frac[]; };
+layout(set = 0, binding = LA_BIND_FLUX_FRAC, std430) readonly buffer FracBuf { float frac[]; };
 // Consolidated share of the cell's silicate. A TF_DILUTE row rescales it when matter arrives.
-layout(set = 0, binding = 30, std430) restrict buffer CementBuf { float cement[]; };
+layout(set = 0, binding = LA_BIND_CEMENT, std430) restrict buffer CementBuf { float cement[]; };
 // Where the cell's loose mineral grains are, written by the PASS_GRAIN prologue.
-layout(set = 0, binding = 31, std430) writeonly buffer SuspWater { float silicate_susp_water[]; };
-layout(set = 0, binding = 32, std430) writeonly buffer SuspAir { float silicate_susp_air[]; };
-layout(set = 0, binding = 33, std430) writeonly buffer Bed { float silicate_bed[]; };
+layout(set = 0, binding = LA_BIND_SILICATE_SUSP_WATER, std430) writeonly buffer SuspWater { float silicate_susp_water[]; };
+layout(set = 0, binding = LA_BIND_SILICATE_SUSP_AIR, std430) writeonly buffer SuspAir { float silicate_susp_air[]; };
+layout(set = 0, binding = LA_BIND_SILICATE_BED, std430) writeonly buffer Bed { float silicate_bed[]; };
 // MODE_RADIATE's own books, J/m^3, assigned in the gather so each is a per-step rate needing no clear.
-layout(set = 0, binding = 37, std430) restrict buffer RadAbs { float rad_absorbed[]; };
-layout(set = 0, binding = 38, std430) restrict writeonly buffer RadEmit { float rad_emitted[]; };
+layout(set = 0, binding = LA_BIND_RAD_ABSORBED, std430) restrict buffer RadAbs { float rad_absorbed[]; };
+layout(set = 0, binding = LA_BIND_RAD_EMITTED, std430) restrict writeonly buffer RadEmit { float rad_emitted[]; };
 // The column field and the breakdown it decides, published rather than re-derived on the CPU.
-layout(set = 0, binding = 39, std430) restrict writeonly buffer ColE { float col_e[]; };
-layout(set = 0, binding = 40, std430) restrict writeonly buffer Strike { float strike[]; };
-layout(set = 0, binding = 41, std430) restrict readonly buffer RadW { float rad_w_m3[]; };  // W/m^3
+layout(set = 0, binding = LA_BIND_COL_E, std430) restrict writeonly buffer ColE { float col_e[]; };
+layout(set = 0, binding = LA_BIND_STRIKE, std430) restrict writeonly buffer Strike { float strike[]; };
+layout(set = 0, binding = LA_BIND_RAD_W_M3, std430) restrict readonly buffer RadW { float rad_w_m3[]; };  // W/m^3
 // The greenhouse trace gases the band table resolves, mol/m^3.
-layout(set = 0, binding = 42, std430) readonly buffer Ch4Buf { float ch4[]; };
-layout(set = 0, binding = 43, std430) restrict writeonly buffer Radiogenic { float radiogenic[]; };
-layout(set = 0, binding = 44, std430) restrict buffer LwEmis { float lw_emis[]; };
-layout(set = 0, binding = 45, std430) restrict buffer SwAbs { float sw_absorbed[]; };
+layout(set = 0, binding = LA_BIND_CH4, std430) readonly buffer Ch4Buf { float ch4[]; };
+layout(set = 0, binding = LA_BIND_RADIOGENIC, std430) restrict writeonly buffer Radiogenic { float radiogenic[]; };
+layout(set = 0, binding = LA_BIND_FLUX_LW_EMIS, std430) restrict buffer LwEmis { float lw_emis[]; };
+layout(set = 0, binding = LA_BIND_FLUX_SW_ABSORBED, std430) restrict buffer SwAbs { float sw_absorbed[]; };
 // Heat of the entry this row's substance sits in, and that entry's capacity, J/m^3 and J/m^3/K.
-layout(set = 0, binding = 46, std430) restrict buffer HCarried { float h_carried[]; };
-layout(set = 0, binding = 47, std430) restrict buffer CapSensible { float cap_sensible[]; };
+layout(set = 0, binding = LA_BIND_FLUX_H_CARRIED, std430) restrict buffer HCarried { float h_carried[]; };
+layout(set = 0, binding = LA_BIND_CAP_SENSIBLE, std430) restrict buffer CapSensible { float cap_sensible[]; };
 // What crossed an OPEN box edge this step, per interior cell: amount in, joules riding along.
-layout(set = 0, binding = 48, std430) restrict buffer BndAmt { float bnd_amt[]; };
-layout(set = 0, binding = 49, std430) restrict buffer BndH { float bnd_h[]; };
+layout(set = 0, binding = LA_BIND_FLUX_BND_AMT, std430) restrict buffer BndAmt { float bnd_amt[]; };
+layout(set = 0, binding = LA_BIND_FLUX_BND_H, std430) restrict buffer BndH { float bnd_h[]; };
 // The REPLAY relaxation rim: the driving ghost cell and the per-step nudge fraction; 0 = outside it.
-layout(set = 0, binding = 50, std430) restrict readonly buffer RimGhost { int rim_ghost[]; };
-layout(set = 0, binding = 51, std430) restrict readonly buffer RimW { float rim_w[]; };
+layout(set = 0, binding = LA_BIND_RIM_GHOST, std430) restrict readonly buffer RimGhost { int rim_ghost[]; };
+layout(set = 0, binding = LA_BIND_RIM_W, std430) restrict readonly buffer RimW { float rim_w[]; };
 // The reflected-shortwave field: what a cell keeps, its reflected source W/m^2, what escapes.
-layout(set = 0, binding = 52, std430) restrict buffer SwKeep { float sw_keep[]; };
-layout(set = 0, binding = 53, std430) restrict buffer SwSrc { float sw_src[]; };
-layout(set = 0, binding = 54, std430) restrict writeonly buffer SwSpace { float sw_space[]; };
-layout(set = 0, binding = 55, std430) restrict writeonly buffer RadResid { float rad_residual[]; };
+layout(set = 0, binding = LA_BIND_FLUX_SW_KEEP, std430) restrict buffer SwKeep { float sw_keep[]; };
+layout(set = 0, binding = LA_BIND_FLUX_SW_SRC, std430) restrict buffer SwSrc { float sw_src[]; };
+layout(set = 0, binding = LA_BIND_SW_SPACE, std430) restrict writeonly buffer SwSpace { float sw_space[]; };
+layout(set = 0, binding = LA_BIND_RAD_RESIDUAL, std430) restrict writeonly buffer RadResid { float rad_residual[]; };
 // O3 partial density, kg/m^3. Zeros until a photochemical o3 channel exists to swap in.
-layout(set = 0, binding = 56, std430) restrict readonly buffer O3Buf { float o3[]; };
+layout(set = 0, binding = LA_BIND_FLUX_O3, std430) restrict readonly buffer O3Buf { float o3[]; };
 // Mass density per cell, kg/m^3, written by every mass row's own delta.
-layout(set = 0, binding = 57, std430) restrict buffer RhoBulk { float rho_bulk[]; };
+layout(set = 0, binding = LA_BIND_RHO_BULK, std430) restrict buffer RhoBulk { float rho_bulk[]; };
 // MASS MOVES WITH ITS MOMENTUM. No `restrict`: a record's own channel may be one of these three.
-layout(set = 0, binding = 58, std430) buffer MomX { float mom_x[]; };
-layout(set = 0, binding = 59, std430) buffer MomY { float mom_y[]; };
-layout(set = 0, binding = 60, std430) buffer MomZ { float mom_z[]; };
+layout(set = 0, binding = LA_BIND_MOM_X, std430) buffer MomX { float mom_x[]; };
+layout(set = 0, binding = LA_BIND_MOM_Y, std430) buffer MomY { float mom_y[]; };
+layout(set = 0, binding = LA_BIND_MOM_Z, std430) buffer MomZ { float mom_z[]; };
 // The mixture's own kinematic eddy viscosity, m^2/s, stated once per cell so both sides of a face
 // read one number and the viscous flux is antisymmetric.
-layout(set = 0, binding = 61, std430) restrict buffer NuT { float nu_t[]; };
+layout(set = 0, binding = LA_BIND_FLUX_NU_T, std430) restrict buffer NuT { float nu_t[]; };
 // THIS RECORD'S FLUX THROUGH EACH FACE, positive OUT of the cell that owns it: matter, the heat
 // riding it, the charge riding it. Read in one canonical order, so a face's two entries negate.
-layout(set = 0, binding = 62, std430) restrict buffer XAmt { float x_amt[]; };
-layout(set = 0, binding = 63, std430) restrict buffer XH { float x_h[]; };
-layout(set = 0, binding = 90, std430) restrict buffer XQ { float x_q[]; };
+layout(set = 0, binding = LA_BIND_FLUX_X_AMT, std430) restrict buffer XAmt { float x_amt[]; };
+layout(set = 0, binding = LA_BIND_FLUX_X_H, std430) restrict buffer XH { float x_h[]; };
+layout(set = 0, binding = LA_BIND_FLUX_X_Q, std430) restrict buffer XQ { float x_q[]; };
 // The mixture's own sound speed, m/s, off the layer each face presents.
-layout(set = 0, binding = 101, std430) restrict readonly buffer GasR { float gas_r[]; };
-layout(set = 0, binding = 102, std430) restrict readonly buffer GasGamma { float gas_gamma[]; };
-layout(set = 0, binding = 89, std430) restrict readonly buffer KCondBuf { float k_cond[]; };
+layout(set = 0, binding = LA_BIND_GAS_R, std430) restrict readonly buffer GasR { float gas_r[]; };
+layout(set = 0, binding = LA_BIND_GAS_GAMMA, std430) restrict readonly buffer GasGamma { float gas_gamma[]; };
+layout(set = 0, binding = LA_BIND_K_COND, std430) restrict readonly buffer KCondBuf { float k_cond[]; };
 // |v| refreshed by the momentum pass, so the drained CFL peak is next step's read.
-layout(set = 0, binding = 65, std430) restrict buffer SpeedBuf { float speed[]; };
+layout(set = 0, binding = LA_BIND_SPEED, std430) restrict buffer SpeedBuf { float speed[]; };
 // The step's body impulse per cell, kg/(m^2 s), booked by state_derive.
-layout(set = 0, binding = 66, std430) restrict readonly buffer BodyFX { float bodyf_x[]; };
-layout(set = 0, binding = 67, std430) restrict readonly buffer BodyFY { float bodyf_y[]; };
-layout(set = 0, binding = 68, std430) restrict readonly buffer BodyFZ { float bodyf_z[]; };
+layout(set = 0, binding = LA_BIND_BODYF_X, std430) restrict readonly buffer BodyFX { float bodyf_x[]; };
+layout(set = 0, binding = LA_BIND_BODYF_Y, std430) restrict readonly buffer BodyFY { float bodyf_y[]; };
+layout(set = 0, binding = LA_BIND_BODYF_Z, std430) restrict readonly buffer BodyFZ { float bodyf_z[]; };
 // The momentum riding a crossing, booked beside the mass leg.
-layout(set = 0, binding = 69, std430) buffer BndMomX { float bnd_mom_x[]; };
-layout(set = 0, binding = 70, std430) buffer BndMomY { float bnd_mom_y[]; };
-layout(set = 0, binding = 71, std430) buffer BndMomZ { float bnd_mom_z[]; };
-layout(set = 0, binding = 72, std430) readonly buffer CoBuf { float co_gas[]; };
-layout(set = 0, binding = 73, std430) readonly buffer So2Buf { float so2[]; };
-layout(set = 0, binding = 74, std430) readonly buffer H2sBuf { float h2s[]; };
-layout(set = 0, binding = 75, std430) readonly buffer O2Buf { float o2_gas[]; };
-layout(set = 0, binding = 76, std430) readonly buffer N2Buf { float n2_gas[]; };
-layout(set = 0, binding = 77, std430) readonly buffer H2Buf { float h2_gas[]; };
-layout(set = 0, binding = 78, std430) restrict readonly buffer GravPhi { float grav_phi[]; };  // J/kg
-layout(set = 0, binding = 95, std430) restrict readonly buffer GravRef { float grav_ref[]; };  // J/kg
-layout(set = 0, binding = 91, std430) restrict buffer PotBuf { float pe_j_m3[]; };
-layout(set = 0, binding = 96, std430) restrict readonly buffer LithicFrac { float lithic_frac[]; };
-layout(set = 0, binding = 97, std430) restrict readonly buffer LithicKg { float lithic_kg[]; };  // the cell's own potential energy per volume
+layout(set = 0, binding = LA_BIND_FLUX_BND_MOM_X, std430) buffer BndMomX { float bnd_mom_x[]; };
+layout(set = 0, binding = LA_BIND_FLUX_BND_MOM_Y, std430) buffer BndMomY { float bnd_mom_y[]; };
+layout(set = 0, binding = LA_BIND_FLUX_BND_MOM_Z, std430) buffer BndMomZ { float bnd_mom_z[]; };
+layout(set = 0, binding = LA_BIND_CO, std430) readonly buffer CoBuf { float co_gas[]; };
+layout(set = 0, binding = LA_BIND_SO2, std430) readonly buffer So2Buf { float so2[]; };
+layout(set = 0, binding = LA_BIND_H2S, std430) readonly buffer H2sBuf { float h2s[]; };
+layout(set = 0, binding = LA_BIND_O2, std430) readonly buffer O2Buf { float o2_gas[]; };
+layout(set = 0, binding = LA_BIND_N2, std430) readonly buffer N2Buf { float n2_gas[]; };
+layout(set = 0, binding = LA_BIND_H2, std430) readonly buffer H2Buf { float h2_gas[]; };
+layout(set = 0, binding = LA_BIND_GRAV_PHI, std430) restrict readonly buffer GravPhi { float grav_phi[]; };  // J/kg
+layout(set = 0, binding = LA_BIND_GRAV_REF, std430) restrict readonly buffer GravRef { float grav_ref[]; };  // J/kg
+layout(set = 0, binding = LA_BIND_PE_J_M3, std430) restrict buffer PotBuf { float pe_j_m3[]; };
+layout(set = 0, binding = LA_BIND_LITHIC_FRAC, std430) restrict readonly buffer LithicFrac { float lithic_frac[]; };
+layout(set = 0, binding = LA_BIND_LITHIC_KG, std430) restrict readonly buffer LithicKg { float lithic_kg[]; };  // the cell's own potential energy per volume
 // The charge riding a crossing, C/m^3 per step.
-layout(set = 0, binding = 79, std430) buffer BndQ { float bnd_q[]; };
+layout(set = 0, binding = LA_BIND_FLUX_BND_Q, std430) buffer BndQ { float bnd_q[]; };
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;

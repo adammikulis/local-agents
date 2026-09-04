@@ -16,9 +16,7 @@ if [ -n "$BASE" ]; then
 else
 	diff_cmd=(git -C "$ROOT" diff --cached --)
 fi
-# generated.glsli is machine-written; its header is not a person explaining themselves.
-PATHS=(':(glob)**/*.sh' ':(glob)**/*.gd' ':(glob)**/*.glsl' ':(glob)**/*.glsli' ':(glob)**/*.py'
-	':(exclude,glob)**/generated.glsli' ':(exclude,glob)**/generated.gdshaderinc')
+PATHS=(':(glob)**/*.sh' ':(glob)**/*.gd' ':(glob)**/*.glsl' ':(glob)**/*.glsli' ':(glob)**/*.py')
 
 d="$("${diff_cmd[@]}" "${PATHS[@]}" 2>/dev/null || true)"
 if [ -z "$d" ]; then
@@ -26,16 +24,17 @@ if [ -z "$d" ]; then
 	exit 0
 fi
 
-# PER FILE, and NET of comment removed: replacing a comment is not adding prose.
+# PER FILE, and NET of comment removed: replacing a comment is not adding prose. In GLSL only `//`
+# opens a comment — a leading `#` is `#define`/`#include`/`#version`, which is code.
 bad="$(printf '%s\n' "$d" | awk '
-	/^\+\+\+ b\// { if (f != "" ) print c, k, f; f = substr($0, 7); c = 0; k = 0; next }
+	function comment(s) { return g ? (s ~ /^[ \t]*\/\//) : (s ~ /^[ \t]*(#|\/\/)/) }
+	/^\+\+\+ b\// { if (f != "" ) print c, k, f; f = substr($0, 7)
+		g = (f ~ /\.glsli?$/); c = 0; k = 0; next }
 	/^\+\+\+/ { next }
-	/^-[ \t]*(#|\/\/)/ { c--; next }
-	/^-/ { next }
-	/^\+[ \t]*(#|\/\/)[ \t]*(SOAK|claim|shellcheck|!)/ { k++; next }
-	/^\+[ \t]*(#|\/\/)/ { c++; next }
+	/^-/ { if (comment(substr($0, 2))) c--; next }
 	/^\+[ \t]*$/ { next }
-	/^\+/ { k++ }
+	/^\+/ { s = substr($0, 2)
+		if (comment(s) && s !~ /^[ \t]*(#|\/\/)[ \t]*(SOAK|claim|shellcheck|!)/) c++; else k++; next }
 	END { if (f != "") print c, k, f }
 ' | awk '$1 > $2 { print }')"
 

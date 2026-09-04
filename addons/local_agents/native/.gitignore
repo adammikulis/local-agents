@@ -1,0 +1,6 @@
+thirdparty/
+build/
+bin/
+compile_commands.json
+# The repo root ignores tools/ for downloaded editor bundles; lakc's sources are not one.
+!tools/

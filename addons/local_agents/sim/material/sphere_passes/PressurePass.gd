@@ -10,21 +10,7 @@ var _set: RID = RID()
 
 func _setup(bufs: Dictionary, _cc: int) -> void:
 	_pipe = _kernel(KERNEL_PATH)
-	var missing: PackedStringArray = PackedStringArray()
-	for name: String in ["pressure", "rho_bulk", "g_rest", "vert_up", "cell_edge"]:
-		if not _single(bufs, name).is_valid():
-			missing.append(name)
-	if not missing.is_empty():
-		push_error("PressurePass: no buffer for %s, so no cell would get a pressure."
-			% String(", ").join(missing))
-		return
-	_set = _uset(_pipe, [
-		[0, _single(bufs, "pressure")],
-		[2, _single(bufs, "solid")],
-		[1, _single(bufs, "rho_bulk")],
-		[3, _single(bufs, "g_rest")],
-		[4, _single(bufs, "vert_up")],
-		[94, _single(bufs, "cell_edge")]])
+	_set = _uset(_pipe, LABindings.set_for("pressure.glsl", bufs, {}))
 
 
 func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:

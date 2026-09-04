@@ -7,34 +7,32 @@
 
 const int LA_CHANNEL_SLOTS = 26;   // LAMatterChannels.KERNEL_SLOTS
 
-layout(set = 0, binding = 0,  std430) restrict readonly buffer H2O { float h2o[]; };
-layout(set = 0, binding = 1,  std430) restrict readonly buffer Silicate { float silicate[]; };
-layout(set = 0, binding = 2,  std430) restrict readonly buffer Carbonate { float carbonate[]; };
-layout(set = 0, binding = 3,  std430) restrict readonly buffer Silica { float silica[]; };
-layout(set = 0, binding = 4,  std430) restrict readonly buffer O2 { float o2[]; };
-layout(set = 0, binding = 5,  std430) restrict readonly buffer Co2 { float co2[]; };
-layout(set = 0, binding = 6,  std430) restrict readonly buffer N2 { float n2[]; };
-layout(set = 0, binding = 7,  std430) restrict readonly buffer Biomass { float biomass[]; };
-layout(set = 0, binding = 8,  std430) restrict readonly buffer Fungus { float fungus[]; };
-layout(set = 0, binding = 9,  std430) restrict readonly buffer Detritus { float detritus[]; };
-layout(set = 0, binding = 10, std430) restrict readonly buffer Fuel { float fuel[]; };
-layout(set = 0, binding = 11, std430) restrict readonly buffer OrgH { float org_h[]; };
-layout(set = 0, binding = 12, std430) restrict readonly buffer OrgO { float org_o[]; };
-layout(set = 0, binding = 13, std430) restrict readonly buffer Fert { float fert[]; };
-// Channels 14+ bind from 54 up (LAMatterChannels.HIGH_BINDING_BASE): 14-53 were already taken by the
-// including kernels' own buffers.
-layout(set = 0, binding = 54, std430) restrict readonly buffer Metal { float metal[]; };
-layout(set = 0, binding = 55, std430) restrict readonly buffer Olivine { float olivine[]; };
-layout(set = 0, binding = 56, std430) restrict readonly buffer Pyroxene { float pyroxene[]; };
-layout(set = 0, binding = 57, std430) restrict readonly buffer Plagioclase { float plagioclase[]; };
-layout(set = 0, binding = 58, std430) restrict readonly buffer Halite { float halite[]; };
-layout(set = 0, binding = 59, std430) restrict readonly buffer Apatite { float apatite[]; };
-layout(set = 0, binding = 60, std430) restrict readonly buffer H2 { float h2[]; };
-layout(set = 0, binding = 61, std430) restrict readonly buffer Co { float co[]; };
-layout(set = 0, binding = 62, std430) restrict readonly buffer So2 { float so2[]; };
-layout(set = 0, binding = 63, std430) restrict readonly buffer H2s { float h2s[]; };
-layout(set = 0, binding = 64, std430) restrict readonly buffer Ch4 { float ch4[]; };
-layout(set = 0, binding = 65, std430) restrict readonly buffer H2OPore { float h2o_pore[]; };
+layout(set = 0, binding = LA_BIND_H2O, std430) restrict readonly buffer H2O { float h2o[]; };
+layout(set = 0, binding = LA_BIND_SILICATE, std430) restrict readonly buffer Silicate { float silicate[]; };
+layout(set = 0, binding = LA_BIND_CARBONATE, std430) restrict readonly buffer Carbonate { float carbonate[]; };
+layout(set = 0, binding = LA_BIND_SILICA, std430) restrict readonly buffer Silica { float silica[]; };
+layout(set = 0, binding = LA_BIND_O2, std430) restrict readonly buffer O2 { float o2[]; };
+layout(set = 0, binding = LA_BIND_CO2, std430) restrict readonly buffer Co2 { float co2[]; };
+layout(set = 0, binding = LA_BIND_N2, std430) restrict readonly buffer N2 { float n2[]; };
+layout(set = 0, binding = LA_BIND_BIOMASS, std430) restrict readonly buffer Biomass { float biomass[]; };
+layout(set = 0, binding = LA_BIND_FUNGUS, std430) restrict readonly buffer Fungus { float fungus[]; };
+layout(set = 0, binding = LA_BIND_DETRITUS, std430) restrict readonly buffer Detritus { float detritus[]; };
+layout(set = 0, binding = LA_BIND_FUEL, std430) restrict readonly buffer Fuel { float fuel[]; };
+layout(set = 0, binding = LA_BIND_ORG_H, std430) restrict readonly buffer OrgH { float org_h[]; };
+layout(set = 0, binding = LA_BIND_ORG_O, std430) restrict readonly buffer OrgO { float org_o[]; };
+layout(set = 0, binding = LA_BIND_FERT, std430) restrict readonly buffer Fert { float fert[]; };
+layout(set = 0, binding = LA_BIND_METAL, std430) restrict readonly buffer Metal { float metal[]; };
+layout(set = 0, binding = LA_BIND_OLIVINE, std430) restrict readonly buffer Olivine { float olivine[]; };
+layout(set = 0, binding = LA_BIND_PYROXENE, std430) restrict readonly buffer Pyroxene { float pyroxene[]; };
+layout(set = 0, binding = LA_BIND_PLAGIOCLASE, std430) restrict readonly buffer Plagioclase { float plagioclase[]; };
+layout(set = 0, binding = LA_BIND_HALITE, std430) restrict readonly buffer Halite { float halite[]; };
+layout(set = 0, binding = LA_BIND_APATITE, std430) restrict readonly buffer Apatite { float apatite[]; };
+layout(set = 0, binding = LA_BIND_H2, std430) restrict readonly buffer H2 { float h2[]; };
+layout(set = 0, binding = LA_BIND_CO, std430) restrict readonly buffer Co { float co[]; };
+layout(set = 0, binding = LA_BIND_SO2, std430) restrict readonly buffer So2 { float so2[]; };
+layout(set = 0, binding = LA_BIND_H2S, std430) restrict readonly buffer H2s { float h2s[]; };
+layout(set = 0, binding = LA_BIND_CH4, std430) restrict readonly buffer Ch4 { float ch4[]; };
+layout(set = 0, binding = LA_BIND_H2O_PORE, std430) restrict readonly buffer H2OPore { float h2o_pore[]; };
 
 // Amount of channel `i` at cell `c`, mol/m^3.
 float channel_at(int i, uint c) {

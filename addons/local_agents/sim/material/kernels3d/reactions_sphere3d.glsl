@@ -1,11 +1,13 @@
 #[compute]
 #version 450
 
-layout(set = 0, binding = 48, std430) restrict readonly buffer Grav { float g_field[]; };
+#include "bindings.glsli"
+
+layout(set = 0, binding = LA_BIND_GRAVITY, std430) restrict readonly buffer Grav { float g_field[]; };
 // Cells a record changed, and slot 3 their count: transport wakes them wherever they sit, so a
 // reaction can never fire into a cell the activity mask has stopped stepping.
-layout(set = 0, binding = 49, std430) buffer WakeQueue { uint wake_q[]; };
-layout(set = 0, binding = 50, std430) buffer WakeArgs { uint wake_args[]; };
+layout(set = 0, binding = LA_BIND_ACT_WAKE, std430) buffer WakeQueue { uint wake_q[]; };
+layout(set = 0, binding = LA_BIND_ACT_WAKE_ARGS, std430) buffer WakeArgs { uint wake_args[]; };
 #include "cellvol.glsli"
 
 // GENERIC REACTION ENGINE. One data-driven kernel: every same-cell reaction is a record in the Defs buffer.
@@ -13,42 +15,42 @@ layout(set = 0, binding = 50, std430) buffer WakeArgs { uint wake_args[]; };
 
 layout(local_size_x = 64) in;
 
-// --- Reactable channels (binding == slot for the resolved ones; see read_ch/add_ch) -----------------------
-layout(set = 0, binding = 0, std430) restrict readonly buffer Temp { float temp[]; };  // derived, C
-layout(set = 0, binding = 19, std430) restrict buffer Enthalpy { float h[]; };          // the state, J/m^3
-// ONE H2O CHANNEL. Solid / liquid / vapour are DERIVED shares of it (bindings 34-36), so no record here
+// --- Reactable channels; read_ch/add_ch resolve a record slot to one of these ------------------------
+layout(set = 0, binding = LA_BIND_TEMP, std430) restrict readonly buffer Temp { float temp[]; };  // derived, C
+layout(set = 0, binding = LA_BIND_E_J_M3, std430) restrict buffer Enthalpy { float h[]; };          // the state, J/m^3
+// ONE H2O CHANNEL. Solid / liquid / vapour are DERIVED shares of it, so no record here
 // may move mass between phases: a phase change is what the enthalpy ladder already says happened.
-layout(set = 0, binding = 1, std430) restrict buffer H2OBuf   { float h2o[]; };
-layout(set = 0, binding = 3, std430) restrict buffer O2       { float o2[]; };
-layout(set = 0, binding = 4, std430) restrict buffer CO2      { float co2[]; };
+layout(set = 0, binding = LA_BIND_H2O, std430) restrict buffer H2OBuf   { float h2o[]; };
+layout(set = 0, binding = LA_BIND_O2, std430) restrict buffer O2       { float o2[]; };
+layout(set = 0, binding = LA_BIND_CO2, std430) restrict buffer CO2      { float co2[]; };
 // FUEL — cured cellulosic litter, the SAME substance as biomass and detritus. Combustion is a record
 // (CombustionRecords.gd), and it is fuel's only sink.
-layout(set = 0, binding = 5, std430) restrict buffer Fuel     { float fuel[]; };
+layout(set = 0, binding = LA_BIND_FUEL, std430) restrict buffer Fuel     { float fuel[]; };
 // FIRE — an INSTRUMENT, not a channel and not a reactable slot. Assigned at the bottom of main().
-layout(set = 0, binding = 6, std430) restrict buffer Fire     { float fire[]; };
-layout(set = 0, binding = 7, std430) restrict buffer Detritus { float detritus[]; };
-layout(set = 0, binding = 8, std430) restrict buffer Fungus { float fungus[]; };       // decomposer biomass: the decompose record credits it at CUE, the die-back record debits it
-layout(set = 0, binding = 9, std430) restrict buffer Fert { float fert[]; };           // soil nutrient (decompose mineralises into it, uptake debits it)
-layout(set = 0, binding = 11, std430) restrict buffer Biomass { float biomass[]; };    // living plant matter (photosynthesis grows it, respiration/decay oxidizes it)
-layout(set = 0, binding = 17, std430) restrict readonly buffer VelX { float vel_x[]; };
-layout(set = 0, binding = 18, std430) restrict readonly buffer VelZ { float vel_z[]; };
-layout(set = 0, binding = 26, std430) restrict readonly buffer VelY { float vel_y[]; };
+layout(set = 0, binding = LA_BIND_FIRE, std430) restrict buffer Fire     { float fire[]; };
+layout(set = 0, binding = LA_BIND_DETRITUS, std430) restrict buffer Detritus { float detritus[]; };
+layout(set = 0, binding = LA_BIND_FUNGUS, std430) restrict buffer Fungus { float fungus[]; };       // decomposer biomass: the decompose record credits it at CUE, the die-back record debits it
+layout(set = 0, binding = LA_BIND_FERT, std430) restrict buffer Fert { float fert[]; };           // soil nutrient (decompose mineralises into it, uptake debits it)
+layout(set = 0, binding = LA_BIND_BIOMASS, std430) restrict buffer Biomass { float biomass[]; };    // living plant matter (photosynthesis grows it, respiration/decay oxidizes it)
+layout(set = 0, binding = LA_BIND_VEL_X, std430) restrict readonly buffer VelX { float vel_x[]; };
+layout(set = 0, binding = LA_BIND_VEL_Z, std430) restrict readonly buffer VelZ { float vel_z[]; };
+layout(set = 0, binding = LA_BIND_VEL_Y, std430) restrict readonly buffer VelY { float vel_y[]; };
 // ONE MINERAL AMOUNT. Melt, suspension and cementation are derived or stored beside it, never here.
-layout(set = 0, binding = 22, std430) restrict buffer Silicate { float silicate[]; };  // CaSiO3, volume fraction
+layout(set = 0, binding = LA_BIND_SILICATE, std430) restrict buffer Silicate { float silicate[]; };  // CaSiO3, volume fraction
 // --- THE DERIVED PHASE OF H2O, three shares of h2o[] summing to 1 (state_derive.glsl).
-layout(set = 0, binding = 34, std430) restrict readonly buffer H2OSolid  { float h2o_solid[]; };
-layout(set = 0, binding = 35, std430) restrict readonly buffer H2OLiquid { float h2o_liquid[]; };
-layout(set = 0, binding = 36, std430) restrict readonly buffer H2OVapour { float h2o_vapour[]; };
+layout(set = 0, binding = LA_BIND_H2O_SOLID, std430) restrict readonly buffer H2OSolid  { float h2o_solid[]; };
+layout(set = 0, binding = LA_BIND_H2O_LIQUID, std430) restrict readonly buffer H2OLiquid { float h2o_liquid[]; };
+layout(set = 0, binding = LA_BIND_H2O_VAPOUR, std430) restrict readonly buffer H2OVapour { float h2o_vapour[]; };
 // Cell pressure, Pa — the saturation curve and the enthalpy ladder both need it.
-layout(set = 0, binding = 37, std430) restrict readonly buffer PressureBuf { float pressure[]; };
+layout(set = 0, binding = LA_BIND_PRESSURE, std430) restrict readonly buffer PressureBuf { float pressure[]; };
 // --- Gate inputs + the record table -----------------------------------------------------------------------
-layout(set = 0, binding = 10, std430) restrict readonly buffer Solid { float solid[]; };
+layout(set = 0, binding = LA_BIND_SOLID, std430) restrict readonly buffer Solid { float solid[]; };
 
 // GravityPass owns the vertical relation; this kernel reads it. vert_down is vert_up's scattered
 // inverse, so at most one cell names any given cell as its below - which is what makes the
 // cross-cell writes below race-free. An unset entry is -1.
-layout(set = 0, binding = 23, std430) restrict readonly buffer VertUp { int vert_up[]; };
-layout(set = 0, binding = 24, std430) restrict readonly buffer VertDown { int vert_down[]; };
+layout(set = 0, binding = LA_BIND_VERT_UP, std430) restrict readonly buffer VertUp { int vert_up[]; };
+layout(set = 0, binding = LA_BIND_VERT_DOWN, std430) restrict readonly buffer VertDown { int vert_down[]; };
 
 int la_below(uint c) {
 	return vert_down[c];
@@ -59,23 +61,23 @@ int la_above(uint c) {
 }
 // AQUIFER PERMEABILITY MASK (1 = groundwater-bearing regolith). The mask root_soil() walks — soil lives
 // here, not "wherever the rock is solid": an eroded or carved regolith cell is open AND still an aquifer.
-layout(set = 0, binding = 27, std430) restrict readonly buffer Regolith { float regolith[]; };
+layout(set = 0, binding = LA_BIND_REGOLITH, std430) restrict readonly buffer Regolith { float regolith[]; };
 // --- THE TWO NON-SILICATE MINERAL SPECIES. Every mineral channel above is calcium silicate CaSiO3; the
 // Urey reaction CaSiO3 + CO2 <-> CaCO3 + SiO2 has two products that are not, so each gets a channel.
-layout(set = 0, binding = 28, std430) restrict buffer Carbonate { float carbonate[]; };  // CaCO3 — the carbon sink
-layout(set = 0, binding = 29, std430) restrict buffer Silica { float silica[]; };        // SiO2 — the residue
+layout(set = 0, binding = LA_BIND_CARBONATE, std430) restrict buffer Carbonate { float carbonate[]; };  // CaCO3 — the carbon sink
+layout(set = 0, binding = LA_BIND_SILICA, std430) restrict buffer Silica { float silica[]; };        // SiO2 — the residue
 // BINDINGS 30-33 IN THIS KERNEL ARE NOT THE 30-33 OF EVERY OTHER KERNEL.
-layout(set = 0, binding = 30, std430) restrict buffer N2Buf { float n2[]; };              // dinitrogen, mol/m^3
+layout(set = 0, binding = LA_BIND_N2, std430) restrict buffer N2Buf { float n2[]; };              // dinitrogen, mol/m^3
 // Lightning energy released this step, J/m^3. DERIVED here from the field the strike is relaxing.
-layout(set = 0, binding = 31, std430) restrict buffer Discharge { float discharge[]; };
+layout(set = 0, binding = LA_BIND_DISCHARGE, std430) restrict buffer Discharge { float discharge[]; };
 // The column electrostatic field (V/m) and breakdown flag transport's EFIELD row publishes.
-layout(set = 0, binding = 38, std430) restrict readonly buffer ColE { float col_e[]; };
-layout(set = 0, binding = 39, std430) restrict readonly buffer StrikeBuf { float strike[]; };
-layout(set = 0, binding = 41, std430) restrict readonly buffer GrainBuf { float grain[]; };   // m, the cell's grain diameter
+layout(set = 0, binding = LA_BIND_COL_E, std430) restrict readonly buffer ColE { float col_e[]; };
+layout(set = 0, binding = LA_BIND_STRIKE, std430) restrict readonly buffer StrikeBuf { float strike[]; };
+layout(set = 0, binding = LA_BIND_GRAIN, std430) restrict readonly buffer GrainBuf { float grain[]; };   // m, the cell's grain diameter
 // The hydrogen and oxygen bound in the DEAD organic pool whose carbon is detritus + fuel. Same moles per
 // channel unit as the carbon, so org_h/org_c is the molar H:C and org_o/org_c the molar O:C.
-layout(set = 0, binding = 32, std430) restrict buffer OrgH { float org_h[]; };
-layout(set = 0, binding = 33, std430) restrict buffer OrgO { float org_o[]; };
+layout(set = 0, binding = LA_BIND_ORG_H, std430) restrict buffer OrgH { float org_h[]; };
+layout(set = 0, binding = LA_BIND_ORG_O, std430) restrict buffer OrgO { float org_o[]; };
 
 // Below the buffer blocks: the slot names collide with the O2/CO2 block names above.
 #include "generated.glsli"
@@ -173,7 +175,7 @@ struct Reaction {
 	int   pad4;
 };
 
-layout(set = 0, binding = 21, std430) restrict readonly buffer Defs { Reaction recs[]; };
+layout(set = 0, binding = LA_BIND_REACTION_DEFS, std430) restrict readonly buffer Defs { Reaction recs[]; };
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
