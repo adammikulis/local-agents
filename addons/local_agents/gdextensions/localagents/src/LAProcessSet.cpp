@@ -31,7 +31,8 @@ const char *BOUNDARY_GD = "res://addons/local_agents/sim/material/reduce/Boundar
 const char *const NONE_[] = { nullptr };
 
 const char *const STATE_GATES[] = { "check_rung_state.sh", "check_derive_fixed_point.sh",
-	"check_condensed_moduli.sh", nullptr };
+	"check_condensed_moduli.sh", "check_bench_phase_change.sh",
+	nullptr };
 const char *const STATE_PASSES[] = { "StateDerivePass.gd", nullptr };
 
 const char *const GRAVITY_GATES[] = { "check_gravity_solve.sh", "check_hydrosphere_mass.sh", nullptr };
@@ -53,14 +54,15 @@ const char *const GRAVITY_REDUCE[] = { "@amounts", "energy_stock", "energy_stock
 	"solid_detritus", "solid_fuel", "solid_org_h", "solid_org_o",
 	"organic_hc_min", "organic_oc_min", "organic_coalified", nullptr };
 
-const char *const HYDRO_GATES[] = { "check_hydrostatic_seed.sh", "check_atmosphere_mass.sh", nullptr };
+const char *const HYDRO_GATES[] = { "check_hydrostatic_seed.sh", "check_atmosphere_mass.sh", "check_bench_hydrostatic_column.sh",
+	nullptr };
 const char *const HYDRO_PASSES[] = { "PressurePass.gd", nullptr };
 const char *const HYDRO_REDUCE[] = { "pressure_*", nullptr };
 
 // A column at rest stays at rest only where there is momentum to move it, so the rest gate is this
 // rung's and not the one below's.
 const char *const ACOUSTIC_GATES[] = { "check_rung_acoustic.sh", "check_atmosphere_at_rest.sh",
-	"check_stack_balance.sh", "check_momentum_orphans.sh", "check_boundary_momentum_book.sh",
+	"check_stack_balance.sh", "check_momentum_orphans.sh", "check_boundary_momentum_book.sh", "check_bench_shock_tube.sh",
 	nullptr };
 const char *const ACOUSTIC_PASSES[] = { "FluxPass.gd", nullptr };
 const char *const ACOUSTIC_TRANSPORT[] = { "h2o_liquid_advect", "h2o_vapour_eddy", "o2_eddy", "co2_eddy",
@@ -68,11 +70,12 @@ const char *const ACOUSTIC_TRANSPORT[] = { "h2o_liquid_advect", "h2o_vapour_eddy
 const char *const ACOUSTIC_REDUCE[] = { "open_mom_*", "momentum_*", "mach_max", "rho_max_open",
 	"wind_speed_max", "wind_x_sum", "wind_z_sum", nullptr };
 
-const char *const CONDUCTION_GATES[] = { "check_rung_conduction.sh", nullptr };
+const char *const CONDUCTION_GATES[] = { "check_rung_conduction.sh", "check_bench_heat_slab.sh",
+	nullptr };
 const char *const CONDUCTION_TRANSPORT[] = { "heat_conduct", "heat_conduct_lith", nullptr };
 const char *const CONDUCTION_REDUCE[] = { "radiogenic", nullptr };
 
-const char *const ADVECT_GATES[] = { "check_rung_advect.sh", "check_boundary_books.sh", "check_active_rows.sh",
+const char *const ADVECT_GATES[] = { "check_rung_advect.sh", "check_boundary_books.sh", "check_active_rows.sh", "check_bench_darcy.sh",
 	nullptr };
 const char *const ADVECT_TRANSPORT[] = { "h2o_surface", "h2o_groundwater", "silicate_melt_film",
 	"silicate_susp_water", "silicate_susp_air", "silicate_bed",
@@ -86,13 +89,15 @@ const char *const WATER_TRANSPORT[] = { "charge_separate", "charge_ohmic", nullp
 const char *const WATER_REDUCE[] = { "charge_stock", "charge_gross", "charge_peak", "e_peak",
 	"bolt_cells", nullptr };
 
-const char *const RADIATION_GATES[] = { "check_radiative_row.sh", "check_alt_bands.sh", nullptr };
+const char *const RADIATION_GATES[] = { "check_radiative_row.sh", "check_alt_bands.sh", "check_bench_grey_atmosphere.sh",
+	nullptr };
 const char *const RADIATION_TRANSPORT[] = { "heat_radiate", nullptr };
 const char *const RADIATION_REDUCE[] = { "rad_absorbed", "rad_emitted", "sw_reflected",
 	"rad_sb_rel_max", nullptr };
 
 const char *const CHEMISTRY_GATES[] = { "check_reaction_balance.sh", "check_conservation.sh",
-	"check_weathering_rate_law.sh", "check_escape_law.sh", "check_gas_in_rock.sh", nullptr };
+	"check_weathering_rate_law.sh", "check_escape_law.sh", "check_gas_in_rock.sh", "check_bench_jeans_escape.sh",
+	nullptr };
 const char *const CHEMISTRY_REACTIONS[] = { "BioRecords.gd", "GeoRecords.gd", "CombustionRecords.gd",
 	"LightningRecords.gd", nullptr };
 const char *const CHEMISTRY_TRANSPORT[] = { "escape_*", nullptr };

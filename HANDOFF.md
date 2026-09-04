@@ -54,12 +54,36 @@ one brightness. `LA_GROUND_SLICE="0,surface,0,3,24,3,5120,10" scripts/check_grou
 declaring its rung and the slice box, and an entry; cut in order, each approved before the next rung
 is built.
 
-## 6. TWO REDUCE ROWS ARE NAMED BY A RUNG AND DECLARED BY NOBODY
+## 6. THE ACOUSTIC FACE SOLVE LOSES ORDER AT A STRONG JUMP
+
+`scripts/check_bench_shock_tube.sh` (rung 3): at a 10:1 Sod jump the rarefaction head stands past its
+exact position outside the bound and the overshoot grows as the grid halves; at a 1% jump every
+claim passes.
+
+## 7. CONDUCTION IN ROCK BREAKS THE MAXIMUM PRINCIPLE
+
+`scripts/check_bench_heat_slab.sh` (rung 4): a slab held between 20 and 520 °C reaches temperatures
+outside that range.
+Reading: `la_row_need` in `flux.glsl` gates the conduction row's timestep need on `cap_sensible[c] > 0`,
+and a rock cell's heat sits in the silicate entry.
+
+## 8. GROUNDWATER MOVES NOTHING
+
+`scripts/check_bench_darcy.sh` (rung 5): six regolith columns under a head difference transfer zero
+in one step on correctly configured cells.
+
+## 9. RADIATION BETWEEN IDENTICAL NEIGHBOURS IS NOT BALANCED
+
+`scripts/check_bench_grey_atmosphere.sh` (rung 7): identical neighbours at one temperature exchange
+unevenly past the bound, and the lit plate settles below the grey Eddington skin temperature by the
+ratio of its band absorptivity to its emissivity.
+
+## 10. TWO REDUCE ROWS ARE NAMED BY A RUNG AND DECLARED BY NOBODY
 
 `rg -n -e wind_x_sum -e wind_z_sum` finds both in `LAProcessSet.cpp`'s `ACOUSTIC_REDUCE` and in no
 `reduce/*.gd` row. Removing them rebuilds the extension.
 
-## 7. NOT EXAMINED UNTIL THE RUNG-2 DEMO IS APPROVED — rung 3
+## 11. NOT EXAMINED UNTIL THE RUNG-2 DEMO IS APPROVED — rung 3
 
 - `scripts/sim_run.sh --rung 3 --frames 8` on the planet ends with `timeout waiting for fence`.
 - `LA_REST_CELL_M=68000 LA_REST_CELLS=8 scripts/check_atmosphere_at_rest.sh` reads a rest departure
@@ -74,7 +98,7 @@ is built.
   from the advective CFL, and `SIM_SECONDS_PER_STEP` is deleted. Declared in `docs/APPROXIMATIONS.md`
   when built.
 
-## 8. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the books above it
+## 12. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the books above it
 
 - The open-boundary books at run level: `scripts/sim_run.sh --frames 20 --slice-capture C` then
   `LA_RUN_TIMEOUT=900 scripts/sim_run.sh --slice --slice-state C --frames 650` fires
@@ -85,13 +109,13 @@ is built.
   addons/local_agents/game/VoxelWorld.tscn -- --sandbox --ui --run-frames=20` prints no report and
   logs no error; the same arm with `--planet-only --no-fauna` reports.
 
-## 9. Reduce the rest on the device
+## 13. Reduce the rest on the device
 
 `FieldPassAttribution3D._sums` walks the channels it downloads at a checkpoint; a reduce dispatch per
 checkpoint replaces it. Three shapes refused a row and say why: `sea_surface_stats`, `lava_shell_diag`,
 `rock_radial_profile`.
 
-## 10. THE PHYSICS RUNS INSIDE GODOT'S PROCESS
+## 14. THE PHYSICS RUNS INSIDE GODOT'S PROCESS
 
 Maintainer's decision, standing: the sim is a standalone native process with its own compute device,
 clock and CLI; gates run it with no Godot launch; Godot attaches as a viewer. Today every pass is a
@@ -99,19 +123,19 @@ GDScript record on a Godot RenderingDevice (`LAFieldDriver`, `MaterialSphereGPU3
 `scripts/run_sim_offscreen.sh` launches Godot for every gate. The migration is phased so each
 phase keeps lint green.
 
-## 11. THE LEDGER RECONSTRUCTS ELEMENTS FROM CHANNEL AMOUNTS
+## 15. THE LEDGER RECONSTRUCTS ELEMENTS FROM CHANNEL AMOUNTS
 
 Maintainer's decision, standing: per-cell moles of elements are the state and species are derived
 (`docs/PHYSICS_TODO.md` B). Today the state is channel amounts (`Channels.gd`) and the ledger
 reconstructs element totals (`mol_per_unit`).
 
-## 12. GATES THAT DETECT CHANGE, NOT WRONGNESS
+## 16. GATES THAT DETECT CHANGE, NOT WRONGNESS
 
 `scripts/check_driver_native.sh` arm two compares the seam rig's state byte for byte against
 `scripts/fixtures/driver_seam_state.txt`, so a correct kernel change reads as red until re-recorded.
 Audit every `scripts/check_*.sh` for the same shape and replace each with an invariant on its rig.
 
-## 13. THE GPU ARM OF LINT RUNS ON THIS MACHINE ONLY
+## 17. THE GPU ARM OF LINT RUNS ON THIS MACHINE ONLY
 
 `.github/workflows/gpu-lint.yml` targets a self-hosted macOS runner labelled `gpu`; none is registered
 (maintainer's hardware).
