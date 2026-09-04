@@ -147,6 +147,12 @@ func _rebuild(cam_pos: Vector3, radial: Vector3) -> void:
 	var wind: bool = source == SOURCE_WIND
 	if wind and _f._vel_x.size() != n:
 		return
+	# THE GRADED GRID'S OWN CELLS: every leaf's centre and edge read once as an array, never a per-cell
+	# call that recomputes the edge from its level.
+	var edges: PackedFloat32Array = grid.cell_edges()
+	var centres: PackedVector3Array = grid.centres
+	if edges.size() != n or centres.size() != n:
+		return
 	var cap: float = cos(CAP_ANGLE)
 	var reach: float = float(_camera.far) if _camera is Camera3D else INF
 	var xforms: Array = []
@@ -155,13 +161,13 @@ func _rebuild(cam_pos: Vector3, radial: Vector3) -> void:
 	for c in n:
 		if solid[c] != 0:
 			continue
-		var pos: Vector3 = grid.cell_world_pos(c)
+		var pos: Vector3 = centres[c]
 		var off: Vector3 = pos - _centre
 		var r: float = off.length()
 		if r <= 0.0 or off.dot(radial) / r < cap:
 			continue
 		var dist: float = cam_pos.distance_to(pos)
-		var edge: float = float(grid.cell_edge(c))
+		var edge: float = edges[c]
 		# The grid's own refinement IS the level of detail: one glyph per leaf, and a leaf too small or
 		# too far to cover a pixel is not drawn at all.
 		if dist > reach or edge / maxf(dist, 1.0e-3) < MIN_SUBTEND_RAD:

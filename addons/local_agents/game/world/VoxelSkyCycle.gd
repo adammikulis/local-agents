@@ -176,7 +176,7 @@ func _update_sky() -> void:
 		_sky_shader_mat.set_shader_parameter("sun_color", _sun.light_color)
 		_sky_shader_mat.set_shader_parameter("sun_irradiance", beam)
 		_sky_shader_mat.set_shader_parameter("sun_cos_radius",
-			_cos_angular_radius(_star, LABodySeeds.seed_radius_m("star")))
+			_cos_angular_radius(_star, float(LABodySeeds.of("star").get("radius_m", -1.0))))
 		_apply_moon()
 	if _env != null:
 		_env.fog_enabled = _want_fog
