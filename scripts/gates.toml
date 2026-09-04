@@ -189,6 +189,19 @@ kind = "gpu"
 marker = "^check_momentum_orphans: OK"
 
 [[gate]]
+name = "check_slice_grading"
+script = "scripts/check_slice_grading.sh"
+kind = "gpu"
+marker = "^check_slice_grading: OK"
+mutation = "printf '1000\\n' > docs/CELL_BUDGET"
+
+[[gate]]
+name = "check_groundwater_local"
+script = "scripts/check_groundwater_local.sh"
+kind = "gpu"
+marker = "^check_groundwater_local: OK"
+
+[[gate]]
 name = "check_cell_budget"
 script = "scripts/check_cell_budget.sh"
 kind = "gpu"
