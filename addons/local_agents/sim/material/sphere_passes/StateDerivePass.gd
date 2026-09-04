@@ -8,18 +8,6 @@ const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/st
 
 const FluxPassScript: GDScript = preload("res://addons/local_agents/sim/material/sphere_passes/FluxPass.gd")
 
-## Every buffer outside LAMatterChannels this kernel touches, name -> state_derive.glsl binding. ONE
-## declaration: the absence check and the uniform set ask the same list.
-const BOUND: Dictionary = {
-	"solid": 14, "cement": 15, "regolith": 16, "grain": 17, "pos": 18, "liquid": 19, "org_hc": 20,
-	"e_j_m3": 21, "pressure": 22, "ke_j_m3": 90, "pe_j_m3": 91, "grav_phi": 78, "grav_ref": 95, "level_args": 82,
-	"temp": 23, "mom_x": 25, "mom_y": 26, "mom_z": 27, "vel_x": 28, "vel_y": 29, "vel_z": 30,
-	"org_oc": 31, "rho_bulk": 32, "conductivity": 33, "h2o_solid": 34, "h2o_liquid": 35,
-	"h2o_vapour": 36, "silicate_melt": 37, "org_fresh": 38, "cell_edge": 94, "speed": 41, "lat": 42,
-	"alt": 43, "nonfinite": 44, "h_h2o": 45, "h_silicate": 46, "h_sensible": 47, "cap_sensible": 48,
-	"gravity": 49, "bodyf_x": 50, "bodyf_y": 51, "bodyf_z": 52, "k_cond": 53, "rad_w_m3": 75,
-	"g_rest": 39, "level_idx": 81, "mom_orphan": 92, "lithic_frac": 96, "lithic_kg": 97, "unconverged": 99, "gas_r": 66, "gas_gamma": 67, "mach": 68, "e_lith_j_m3": 69, "temp_lith": 70, "conductivity_lith": 71, "cap_lith": 73, "lattice_frac": 74, "h_h2o_vap": 76, "p_fluid": 77}
-
 ## props row layout — state_derive.glsl PROP_*.
 const PROP_STRIDE: int = 12
 const PROP_M: int = 0
@@ -83,21 +71,7 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 		return
 	var props_ssbo: RID = _storage_buffer(props.to_byte_array())
 
-	var want: PackedStringArray = LAMatterChannels.CHANNELS.duplicate()
-	want.append_array(PackedStringArray(BOUND.keys()))
-	var missing: PackedStringArray = LAMatterChannels.absent(bufs, want)
-	if not missing.is_empty():
-		push_error("StateDerivePass: no buffer for %s, so no cell would get a temperature."
-			% String(", ").join(missing))
-		return
-	var channels: PackedStringArray = LAMatterChannels.CHANNELS
-	var entries: Array = []
-	for i in channels.size():
-		entries.append([LAMatterChannels.binding_of(i), _single(bufs, channels[i])])
-	entries.append([24, props_ssbo])
-	for name in BOUND:
-		entries.append([int(BOUND[name]), _single(bufs, String(name))])
-	_set = _uset(_pipe, entries)
+	_set = _uset(_pipe, LABindings.set_for("state_derive.glsl", bufs, {"derive_props": props_ssbo}))
 
 
 func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:

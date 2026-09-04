@@ -99,14 +99,6 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 		return
 	var props_ssbo: RID = _storage_buffer(props.to_byte_array())
 
-	var want: PackedStringArray = channels.duplicate()
-	want.append_array(PackedStringArray(["nbr", "pos", "gravity", PHI, DENSITY, FLAGS, MOMENTS, PARTIALS,
-		VERT_UP, VERT_DOWN, REF, "slot_off", "face_partner", "cell_edge"]))
-	var missing: PackedStringArray = LAMatterChannels.absent(bufs, want)
-	if not missing.is_empty():
-		push_error("GravityPass: no buffer for %s, so no cell would get a gravity."
-			% String(", ").join(missing))
-		return
 	_moments = _single(bufs, MOMENTS)
 	_phi_rid = _single(bufs, PHI)
 	_density_rid = _single(bufs, DENSITY)
@@ -115,25 +107,7 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	_up_rid = _single(bufs, VERT_UP)
 	_down_rid = _single(bufs, VERT_DOWN)
 
-	var entries: Array = []
-	for i in channels.size():
-		entries.append([LAMatterChannels.binding_of(i), _single(bufs, channels[i])])
-	entries.append([14, props_ssbo])
-	entries.append([15, _single(bufs, "nbr")])
-	entries.append([16, _single(bufs, "pos")])
-	entries.append([17, _single(bufs, FLAGS)])
-	entries.append([18, _single(bufs, PHI)])
-	entries.append([19, _single(bufs, DENSITY)])
-	entries.append([20, _gravity])
-	entries.append([21, _moments])
-	entries.append([22, _single(bufs, PARTIALS)])
-	entries.append([23, _single(bufs, VERT_UP)])
-	entries.append([24, _single(bufs, VERT_DOWN)])
-	entries.append([92, _single(bufs, "slot_off")])
-	entries.append([93, _single(bufs, "face_partner")])
-	entries.append([94, _single(bufs, "cell_edge")])
-	entries.append([95, _single(bufs, REF)])
-	_set = _uset(_pipe, entries)
+	_set = _uset(_pipe, LABindings.set_for("gravity_poisson.glsl", bufs, {"grav_props": props_ssbo}))
 
 
 func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:

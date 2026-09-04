@@ -4,7 +4,7 @@
 
 const float LA_FLOAT_EPS = 1.1920929e-7;   // float32 epsilon
 
-layout(set = 0, binding = 94, std430) restrict readonly buffer CellEdge { float cell_edge[]; };  // m
+layout(set = 0, binding = LA_BIND_CELL_EDGE, std430) restrict readonly buffer CellEdge { float cell_edge[]; };  // m
 
 float cell_volume(uint c) {
 	float e = cell_edge[c];

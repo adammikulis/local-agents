@@ -1,23 +1,25 @@
 #[compute]
 #version 450
 
+#include "bindings.glsli"
+
 layout(local_size_x = 64) in;
 
 // No `restrict`: a row with no aux, gate or ref binds an already-bound buffer into those slots.
-layout(set = 0, binding = 1, std430) readonly buffer Src { float src[]; };
-layout(set = 0, binding = 2, std430) readonly buffer Aux { float aux[]; };
-layout(set = 0, binding = 3, std430) readonly buffer Solid { float solid[]; };
+layout(set = 0, binding = LA_BIND_REDUCE_SRC, std430) readonly buffer Src { float src[]; };
+layout(set = 0, binding = LA_BIND_REDUCE_AUX, std430) readonly buffer Aux { float aux[]; };
+layout(set = 0, binding = LA_BIND_SOLID, std430) readonly buffer Solid { float solid[]; };
 // One partial per workgroup, at a fixed slot. Folded on the CPU in float64: a cross-workgroup atomicAdd
 // on floats reduces in scheduling order and does not reproduce.
-layout(set = 0, binding = 4, std430) writeonly buffer Partials { float partials[]; };
-layout(set = 0, binding = 5, std430) buffer Ref { float refv[]; };
-layout(set = 0, binding = 6, std430) readonly buffer Gate { float gatev[]; };
-layout(set = 0, binding = 7, std430) readonly buffer GateAux { float gate_aux[]; };
-layout(set = 0, binding = 8, std430) readonly buffer Aux2 { float aux2[]; };
-layout(set = 0, binding = 9, std430) readonly buffer Nbr { int nbr[]; };
+layout(set = 0, binding = LA_BIND_REDUCE_PARTIALS, std430) writeonly buffer Partials { float partials[]; };
+layout(set = 0, binding = LA_BIND_REDUCE_REF, std430) buffer Ref { float refv[]; };
+layout(set = 0, binding = LA_BIND_REDUCE_GATE, std430) readonly buffer Gate { float gatev[]; };
+layout(set = 0, binding = LA_BIND_REDUCE_GATE_AUX, std430) readonly buffer GateAux { float gate_aux[]; };
+layout(set = 0, binding = LA_BIND_REDUCE_AUX2, std430) readonly buffer Aux2 { float aux2[]; };
+layout(set = 0, binding = LA_BIND_NBR, std430) readonly buffer Nbr { int nbr[]; };
 // GravityPass's one vertical relation: vert_down is vert_up's scattered inverse, -1 where none exists.
-layout(set = 0, binding = 10, std430) readonly buffer VertUp { int vert_up[]; };
-layout(set = 0, binding = 11, std430) readonly buffer VertDown { int vert_down[]; };
+layout(set = 0, binding = LA_BIND_VERT_UP, std430) readonly buffer VertUp { int vert_up[]; };
+layout(set = 0, binding = LA_BIND_VERT_DOWN, std430) readonly buffer VertDown { int vert_down[]; };
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;

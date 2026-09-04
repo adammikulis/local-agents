@@ -1,6 +1,8 @@
 #[compute]
 #version 450
 
+#include "bindings.glsli"
+
 // Poisson's equation for the potential of the mass that is there, relaxed red-black in place.
 // One dispatch per colour: a colour's cells are never neighbours, so each reads only the other.
 
@@ -11,22 +13,22 @@
 layout(local_size_x = 64) in;
 
 // kg/mol per channel: amounts are mol/m^3, so amount times this is kg/m^3. The mass every other pass weighs.
-layout(set = 0, binding = 14, std430) restrict readonly buffer Props { float mol_mass[]; };
-layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };
+layout(set = 0, binding = LA_BIND_GRAV_PROPS, std430) restrict readonly buffer Props { float mol_mass[]; };
+layout(set = 0, binding = LA_BIND_NBR, std430) restrict readonly buffer Neigh { int nbr[]; };
 #include "march.glsli"
-layout(set = 0, binding = 16, std430) restrict readonly buffer Pos { float pos[]; };
+layout(set = 0, binding = LA_BIND_POS, std430) restrict readonly buffer Pos { float pos[]; };
 // bit 0 = the cell touches the outside of the box, bits 1-2 = its Gauss-Seidel colour.
-layout(set = 0, binding = 17, std430) restrict buffer Flags { uint cellflag[]; };
-layout(set = 0, binding = 95, std430) restrict buffer GravRef { float grav_ref[]; };  // J/kg, the monopole reference phi is stored against
-layout(set = 0, binding = 18, std430) restrict buffer Phi { float phi[]; };          // J/kg
-layout(set = 0, binding = 19, std430) restrict buffer Density { float density[]; };  // kg/m^3
-layout(set = 0, binding = 20, std430) restrict buffer Grav { float g_field[]; };     // flat cell*3, m/s^2
+layout(set = 0, binding = LA_BIND_GRAV_CELLFLAG, std430) restrict buffer Flags { uint cellflag[]; };
+layout(set = 0, binding = LA_BIND_GRAV_REF, std430) restrict buffer GravRef { float grav_ref[]; };  // J/kg, the monopole reference phi is stored against
+layout(set = 0, binding = LA_BIND_GRAV_PHI, std430) restrict buffer Phi { float phi[]; };          // J/kg
+layout(set = 0, binding = LA_BIND_GRAV_DENSITY, std430) restrict buffer Density { float density[]; };  // kg/m^3
+layout(set = 0, binding = LA_BIND_GRAVITY, std430) restrict buffer Grav { float g_field[]; };     // flat cell*3, m/s^2
 // 0 total mass kg · 1..3 centre of mass · 4 mean |g| · 5 residual over its source · 6 Gauss ratio
-layout(set = 0, binding = 21, std430) restrict buffer Moments { float moments[]; };
-layout(set = 0, binding = 22, std430) restrict buffer Partials { float partials[]; };
+layout(set = 0, binding = LA_BIND_GRAV_MOMENTS, std430) restrict buffer Moments { float moments[]; };
+layout(set = 0, binding = LA_BIND_GRAV_PARTIALS, std430) restrict buffer Partials { float partials[]; };
 // The one vertical relation. vert_down is the scattered inverse of vert_up; an unset entry means no cell below.
-layout(set = 0, binding = 23, std430) restrict buffer VertUp { int vert_up[]; };
-layout(set = 0, binding = 24, std430) restrict buffer VertDown { uint vert_down[]; };
+layout(set = 0, binding = LA_BIND_VERT_UP, std430) restrict buffer VertUp { int vert_up[]; };
+layout(set = 0, binding = LA_BIND_VERT_DOWN, std430) restrict buffer VertDown { uint vert_down[]; };
 
 const uint MODE_FLAGS = 0u;
 const uint MODE_DENSITY = 1u;

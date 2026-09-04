@@ -83,14 +83,6 @@ is built.
 checkpoint replaces it. Three shapes refused a row and say why: `sea_surface_stats`, `lava_shell_diag`,
 `rock_radial_profile`.
 
-## 9. Build the binding registry
-
-SSBO binding numbers are a bare integer in GLSL and a second bare integer in each uniform-set builder.
-Build `addons/local_agents/sim/material/Bindings.gd` on `Channels.gd`'s shape and one gate absorbing the
-hand-written binding stanzas; mutation-test both ways. Delete the claim below with this item.
-
-<!-- claim: nofile addons/local_agents/sim/material/Bindings.gd -->
-
 ## 10. THE PHYSICS RUNS INSIDE GODOT'S PROCESS
 
 Maintainer's decision, standing: the sim is a standalone native process with its own compute device,

@@ -137,7 +137,7 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	# Ghost tail cells are read by the interior cells beside them, so every per-cell buffer the
 	# kernel indexes carries the tail.
 	var tc: int = cc + ghost_count
-	for i in SCRATCH:
+	for i in SCRATCH.size():
 		_scr[i] = _scratch(face_count if i < FACE_SCRATCH else tc)
 	_zero = _scratch(tc)
 	_no_h = _scratch(tc)
@@ -310,26 +310,10 @@ func _active_cells(rd: RenderingDevice) -> float:
 	return float(n)
 
 
-## Bindings that are just a driver buffer by name: its key to flux.glsl's binding number. ONE
-## declaration of what this pass needs, so a buffer the driver never made is a named error, not a
-## silent set. The level and activity names are LATemporalLevels.KEYS and LAActiveCells.KEYS.
-const BINDINGS: Dictionary = {
-	"nbr": 2, "solid": 3, "g_rest": 4, "vel_x": 5, "vel_y": 6, "vel_z": 7, "charge": 13, "temp": 15,
-	"pressure": 16, "porosity": 17, "grain": 18, "co2": 19, "h2o": 20, "h2o_solid": 22, "h2o_liquid": 23,
-	"silicate": 24, "biomass": 25, "silicate_melt": 26, "ghost": 27, "h2o_vapour": 28, "cement": 30,
-	"silicate_susp_water": 31, "silicate_susp_air": 32, "silicate_bed": 33, "rad_absorbed": 37,
-	"rad_emitted": 38, "col_e": 39, "strike": 40, "rad_w_m3": 41, "ch4": 42, "radiogenic": 43,
-	"cap_sensible": 47, "rim_ghost": 50, "rim_w": 51, "sw_space": 54, "rad_residual": 55, "rho_bulk": 57,
-	"mom_x": 58, "mom_y": 59, "mom_z": 60, "speed": 65, "bodyf_x": 66, "bodyf_y": 67,
-	"bodyf_z": 68, "co": 72, "so2": 73, "h2s": 74, "o2": 75, "n2": 76, "h2": 77, "grav_phi": 78, "grav_ref": 95, "pe_j_m3": 91, "lithic_frac": 96, "lithic_kg": 97,
-	"tlevel": 80, "level_idx": 81, "level_args": 82, "level_peak": 83, "act_quiet": 84, "act_claim": 85,
-	"act_queue": 86, "act_wake": 87, "act_wake_args": 88, "k_cond": 89,
-	"slot_off": 92, "face_partner": 93, "cell_edge": 94, "ground_d": 99, "gas_r": 101, "gas_gamma": 102,
-	"cap_lith": 103, "temp_lith": 104, "lattice_frac": 105
-}
-
-## Pass-owned scratch, in binding order: the first FACE_SCRATCH ride a face, the rest are per cell.
-const SCRATCH: Dictionary = {0: 8, 1: 9, 2: 14, 3: 62, 4: 63, 5: 90, 6: 36, 7: 98, 8: 44, 9: 45, 10: 52, 11: 53, 12: 61, 13: 100}
+## Pass-owned scratch: the first FACE_SCRATCH ride a face, the rest are per cell.
+const SCRATCH: PackedStringArray = ["flux_face_u", "flux_fp_star", "flux_face_uw", "flux_fpw_star",
+	"flux_send", "flux_x_amt", "flux_x_h", "flux_x_q",
+	"flux_lw_emis", "flux_sw_absorbed", "flux_sw_keep", "flux_sw_src", "flux_nu_t", "flux_w_top"]
 const FACE_SCRATCH: int = 8
 
 
@@ -344,47 +328,35 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 	# Mass does not move without its heat, so the enthalpy field is required of every record carrying mass.
 	# The detector-list buffers a synthetic record compacts into; empty for an ordinary record.
 	var list: Dictionary = LATransportRecords.list_buffers(String(row.get("list", "")))
-	var entries: Array = []
-	for key in BINDINGS.keys() + [channel, drive, resist, aux, frac, "h_h2o", "h_silicate",
-			"h_sensible", "bnd_void", "bnd_h_void", String(list.get("idx", "")),
-			String(list.get("args", ""))]:
-		var name: String = String(key)
-		if name == "":
-			continue
-		if not bufs.has(name):
-			push_error("FluxPass: no \"%s\" buffer, so the %s record does not move." % [name, channel])
-			return RID()
-		if BINDINGS.has(name):
-			entries.append([BINDINGS[name], bufs[name]])
-	for i in SCRATCH:
-		entries.append([SCRATCH[i], _scr[i]])
 	var amount: RID = _single(bufs, channel)
-	entries += [
-		[0, amount],
-		[1, _single(bufs, "e_lith_j_m3" if moves_enthalpy and channel == "e_j_m3" else "e_j_m3")],
-		[10, _zero if resist == "" else _single(bufs, resist)],
-		[11, amount if drive == "" else _single(bufs, drive)],
-		[12, _one if aux == "" else _single(bufs, aux)],
-		[21, _rad_table],
-		[29, _one if frac == "" else _single(bufs, frac)],
+	var own: Dictionary = {
+		"flux_amount": amount,
+		"flux_energy": _single(bufs, "e_lith_j_m3" if moves_enthalpy and channel == "e_j_m3"
+			else "e_j_m3"),
+		"flux_resist": _zero if resist == "" else _single(bufs, resist),
+		"flux_drive": amount if drive == "" else _single(bufs, drive),
+		"flux_aux": _one if aux == "" else _single(bufs, aux),
+		"flux_rad_table": _rad_table,
+		"flux_frac": _one if frac == "" else _single(bufs, frac),
 		# Only a detector's own compaction passes touch these; an ordinary record binds the void.
-		[34, _zero if list.is_empty() else bufs[String(list["idx"])]],
-		[35, _zero if list.is_empty() else bufs[String(list["args"])]],
+		"active_idx": _zero if list.is_empty() else _single(bufs, String(list["idx"])),
+		"active_args": _zero if list.is_empty() else _single(bufs, String(list["args"])),
 		# Heat travels with the matter that holds it, so a record reads the enthalpy of ITS OWN entry.
-		[46, _single(bufs, _carried_key(String(row["substance"]), frac))],
+		"flux_h_carried": _single(bufs, _carried_key(String(row["substance"]), frac)),
 		# A booked channel's boundary crossings; an unbooked record writes a void pair nothing reads.
-		[48, _single(bufs, _book(channel, false))],
-		[49, _single(bufs, _book(channel, true))],
+		"flux_bnd_amt": _single(bufs, _book(channel, false)),
+		"flux_bnd_h": _single(bufs, _book(channel, true)),
 		# O3 partial density, kg/m^3: zeros until a photochemical o3 channel exists to swap in.
-		[56, _zero],
+		"flux_o3": _zero,
 		# The momentum riding a crossing, on its own three legs.
-		[69, _single(bufs, _mom_book("mom_x"))],
-		[70, _single(bufs, _mom_book("mom_y"))],
-		[71, _single(bufs, _mom_book("mom_z"))],
-		# The charge riding a crossing; the charge channel books its own through binding 48.
-		[79, _single(bufs, "bnd_void" if channel == "charge" else _book("charge", false))],
-	]
-	return _uset(_pipe, entries)
+		"flux_bnd_mom_x": _single(bufs, _mom_book("mom_x")),
+		"flux_bnd_mom_y": _single(bufs, _mom_book("mom_y")),
+		"flux_bnd_mom_z": _single(bufs, _mom_book("mom_z")),
+		# The charge riding a crossing; the charge channel books its own through flux_bnd_amt.
+		"flux_bnd_q": _single(bufs, "bnd_void" if channel == "charge" else _book("charge", false))}
+	for i in SCRATCH.size():
+		own[SCRATCH[i]] = _scr[i]
+	return _uset(_pipe, LABindings.set_for("flux.glsl", bufs, own))
 
 
 ## The book a channel's crossings land in. A channel this world cannot move cannot cross, and momentum
