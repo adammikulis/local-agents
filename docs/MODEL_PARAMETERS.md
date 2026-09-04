@@ -218,8 +218,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MineralStamp3D.gd` | `SCAN_EVERY` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MineralStamp3D.gd` | `ACTIVE_WINDOW` | 32 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MineralStamp3D.gd` | `STAMP_BUDGET` | 96 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/game/render/OceanPlane.gd` | `SPHERE_RADIAL_SEGMENTS` | 96 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/game/render/OceanPlane.gd` | `SPHERE_RINGS` | 64 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialSphereGPU3D.gd` | `CHANNEL_HOLD_DRAINS` | 20 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialSphereGPU3D.gd` | `SLOW_READBACK_EVERY` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialSphereGPU3D.gd` | `DRAIN_ALL` | -1.0e30 | inherited, unreviewed | Stage 2 substrate rewrite |

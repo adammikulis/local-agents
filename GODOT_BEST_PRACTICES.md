@@ -177,7 +177,7 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
   `--quit-after <iterations>` instead.
 - **Voxel scene self-harness** (the active `VoxelWorld.tscn`): pass args after `--`. `--run-frames=N`
   prints `SIM_REPORT={...}`, `--shoot=<png> --shoot-frames=N` screenshots, `--overview` frames a wide
-  island vista, `--time=<0..1>` sets time of day, and `--auto-meteor`/`--auto-barrage` aim an impact
+  island vista, and `--auto-meteor`/`--auto-barrage` aim an impact
   (the only cause the player has). Run all of them windowed through `scripts/run_sim_offscreen.sh` for the reason
   above. A NEW `class_name`/`.gdextension` needs one editor scan first — `scripts/editor_scan.sh`, never
   a bare `godot --headless --editor`: two concurrent scans segfault and the wrapper takes the lock.

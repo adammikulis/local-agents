@@ -150,7 +150,7 @@ The whole game shell around the planet: herds, emergent disasters, a HUD and a l
 
 ## 13. Slice, rung 0: state
 
-One box of the planet, laid on the real terrain and stepped by the bottom rung alone: matter, energy and phase; nothing moves. No gravity is solved, no pressure stands and no wind blows, so the vector glyphs are off and the picture is the state the world was seeded into.
+One box of the planet, laid on the real terrain and stepped by the bottom rung alone: matter, energy and phase; nothing moves. No gravity is solved and no wind blows, so this world has no vector field and draws no arrows at all; the picture is the state it was seeded into.
 
 - Scene: `res://addons/local_agents/examples/SliceRung0Demo.tscn`
 - Requires: the godot_voxel GDExtension (addons/zylann.voxel/)

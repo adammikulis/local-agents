@@ -159,7 +159,6 @@ static func save_viewport_png(viewport: Viewport, path: String, extra: String = 
 	var img: Image = viewport.get_texture().get_image()
 	img.save_png(path)
 	print("SHOT_SAVED=%s size=%dx%d%s" % [path, img.get_width(), img.get_height(), extra])
-	print(_structure_line(img))
 
 
 func _capture(path: String) -> void:
@@ -176,43 +175,6 @@ func shot_viewport() -> Viewport:
 	if report_source != null and report_source.has_method("shot_viewport"):
 		return report_source.call("shot_viewport") as Viewport
 	return get_viewport()
-
-
-## WHAT EACH HALF OF THE PICTURE LOOKS LIKE. A sky is a vertical gradient: constant along a row, so its
-## row variance is ~0, and a frame that is sky top and bottom has two halves of the same brightness.
-## Ground in the lower half breaks both. scripts/check_ground_drawn.sh reads this line.
-const STRUCTURE_SAMPLES: int = 64
-
-static func _structure_line(img: Image) -> String:
-	var up: Vector2 = _half_stats(img, 0)
-	var low: Vector2 = _half_stats(img, 1)
-	return 'SHOT_STRUCTURE={"upper":%.6f,"lower":%.6f,"upper_mean":%.6f,"lower_mean":%.6f}' % [
-		up.y, low.y, up.x, low.x]
-
-
-## Mean luminance (x) and mean per-row variance along x (y) over one half of the image.
-static func _half_stats(img: Image, half: int) -> Vector2:
-	var w: int = img.get_width()
-	var h: int = img.get_height()
-	if w < 2 or h < 2:
-		return Vector2.ZERO
-	var y0: int = (h / 2) * half
-	var var_total: float = 0.0
-	var mean_total: float = 0.0
-	for j in range(STRUCTURE_SAMPLES):
-		var y: int = y0 + (h / 2) * j / STRUCTURE_SAMPLES
-		var sum: float = 0.0
-		var sq: float = 0.0
-		for i in range(STRUCTURE_SAMPLES):
-			# The middle half only: HUD panels hug the edges and would stand in for scenery.
-			var v: float = img.get_pixel(w / 4 + (w / 2) * i / STRUCTURE_SAMPLES, mini(y, h - 1)).get_luminance()
-			sum += v
-			sq += v * v
-		var n: float = float(STRUCTURE_SAMPLES)
-		mean_total += sum / n
-		var_total += maxf(0.0, sq / n - (sum / n) * (sum / n))
-	var rows: float = float(STRUCTURE_SAMPLES)
-	return Vector2(mean_total / rows, var_total / rows)
 
 
 func _quit(code: int) -> void:

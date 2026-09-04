@@ -31,6 +31,12 @@ var _last_objective_title: String = ""
 
 func _ready() -> void:
 	_refresh_timer.timeout.connect(_refresh)
+	# A world with no life has no population, no biomass and no bloodline; the rows go with them.
+	if not LAWorldOffers.has_life():
+		for row in ["PopulationRow", "BiomassRow", "BloodlineRow"]:
+			var n: Node = _summary_col.get_node_or_null(NodePath(row))
+			if n is CanvasItem:
+				(n as CanvasItem).visible = false
 	_connect_progression()
 	_refresh()
 	print("GAME_HUD={ready:true, progression:%s}" % str(_progression != null))
