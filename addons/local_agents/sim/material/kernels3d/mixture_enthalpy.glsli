@@ -135,6 +135,7 @@ float la_mix_solve(SubstanceTh subs[LA_MIX_MAX], float mass[LA_MIX_MAX], int n, 
 	float f_a = la_mix_enthalpy_at(subs, mass, n, a, p_pa, room_m3, molality_mol_kg) - h_total_j;
 	float f_b = la_mix_enthalpy_at(subs, mass, n, b, p_pa, room_m3, molality_mol_kg) - h_total_j;
 	float t = a;
+	float width = b - a;
 	for (int i = 0; i < 24; ++i) {
 		float denom = f_b - f_a;
 		t = abs(denom) > 0.0 ? a - f_a * (b - a) / denom : 0.5 * (a + b);
@@ -149,6 +150,9 @@ float la_mix_solve(SubstanceTh subs[LA_MIX_MAX], float mass[LA_MIX_MAX], int n, 
 			f_a = f_t;
 			f_b *= 0.5;
 		}
+		// The bracket stopped shrinking: every further evaluation returns the same temperature.
+		if (b - a >= width) { break; }
+		width = b - a;
 	}
 	return t;
 }

@@ -61,6 +61,20 @@ and 1 nC/m^3/s is the top of the lab-constrained range.
 | `addons/local_agents/sim/material/PhysicalConstants.gd` | `CHARGING_LWC_KG_M3` | 1.0e-3 | the cloud liquid water content at which the riming rate is taken to saturate; lab rates climb over 0.1-2 g/m^3 | same as above |
 | `addons/local_agents/sim/material/PhysicalConstants.gd` | `SILICATE_HEAT_PRODUCTION_W_KG` | derived: `BSE_*_KG_PER_KG` x `HEAT_PRODUCTION_*_W_KG` | the U/Th/K abundances are the cited bulk silicate Earth average (McDonough & Sun 1995) and the per-element rates are Rybach 1988, so the number is measured; the MODELLING CHOICE is applying one bulk average to every rock cell when continental crust is enriched ~50x over depleted mantle, and taking the PRESENT-DAY rate on a body with no age | a second rock substance in `Substances.gd` carrying its own U/Th/K, and a planet age driving the four decay constants |
 
+## Which substances get a measured phase curve
+
+`h2o` alone carries the IAPWS formulations — Wagner & Pruß 2002 eq. 2.5 for saturation, IAPWS 2011
+(R14-08) for sublimation over ice Ih and for the ice Ih melting curve. Their coefficients are scalar
+properties of water's `LASubstances` row, so `check_physical_constants.sh` holds the `enthalpy.glsli`
+copies to the built table.
+
+Every other substance with a vapour phase (`n2`, `o2`, `co2`, `h2`, `co`, `so2`, `h2s`, `ch4`, `iron`)
+takes the two-anchor Clausius-Clapeyron law: `ln p = A - B/T` with `B` set by the two measured points its
+row already carries, the triple point and the normal boiling point (`boil_c` at `boil_ref_p_pa`). Both
+anchors are reproduced exactly, but the curve between them integrates one constant latent heat instead of
+the measured one. What deletes a substance from this list: its own published vapour-pressure
+correlation, in the same branch water takes.
+
 ## Known wrong, already scheduled
 
 These are not merely undeclared. The audits established they are incorrect, and they are listed so the
