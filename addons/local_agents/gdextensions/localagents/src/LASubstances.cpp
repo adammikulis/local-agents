@@ -2,6 +2,7 @@
 
 #include "LAPhysicalRead.hpp"
 #include "LAPlanetTables.hpp"
+#include "LAWaterCurves.hpp"
 
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/core/error_macros.hpp>
@@ -279,9 +280,10 @@ Dictionary water_entry() {
 	d["specific_heat"] = pc("WATER_SPECIFIC_HEAT_J_KGK");
 	d["specific_heat_solid"] = pc("ICE_SPECIFIC_HEAT_J_KGK");
 	d["specific_heat_gas"] = pc("VAPOUR_SPECIFIC_HEAT_J_KGK");
-	d["melt_c"] = pc("WATER_FREEZE_C");
-	d["boil_c"] = pc("WATER_BOIL_C");
-	d["boil_ref_p_pa"] = pc("STANDARD_PRESSURE_PA");
+	// Water's three phase boundaries are the IAPWS equations, not a two-anchor law: no reference
+	// boiling point and no second pressure anchor, and the melting curve's own anchor is the triple point.
+	d["melt_c"] = pc("WATER_TRIPLE_T_C");
+	la_water::declare_iapws(d);
 	d["triple_t_c"] = pc("WATER_TRIPLE_T_C");
 	d["triple_p_pa"] = pc("WATER_TRIPLE_P_PA");
 	d["critical_t_c"] = pc("WATER_CRITICAL_T_C");
@@ -621,10 +623,20 @@ double specific_volume(double p_rho_ref, double p_t_ref_c, double p_alpha_per_k,
 	return v > 0.0 ? v : 0.0;
 }
 
+// True when this row's phase boundaries are the IAPWS formulations rather than the two-anchor law.
+bool iapws_curves(const Dictionary &p_s) {
+	return bool(p_s.get("iapws", false));
+}
+
+// A row has a liquid-vapour boundary if it declares either form of one.
+bool has_vapour_curve(const Dictionary &p_s) {
+	return iapws_curves(p_s) || std::isfinite(dget(p_s, "boil_c", kInf));
+}
+
 // Gaseous at these conditions? The table's own vapour boundary decides -- the frost point below the triple
 // pressure, the boiling point above it.
 bool is_gas_at(const Dictionary &p_s, const String &p_id, double p_t_c, double p_p_pa) {
-	if (!std::isfinite(dget(p_s, "boil_c", kInf))) {
+	if (!has_vapour_curve(p_s)) {
 		return false;
 	}
 	if (LASubstances::sublimes_at(p_id, p_p_pa)) {
@@ -917,6 +929,9 @@ double LASubstances::enthalpy_at(const String &p_id, double p_t_c, double p_p_pa
 // THE BOILING POINT AT A GIVEN PRESSURE -- the boundary curve solved for temperature.
 double LASubstances::boil_c_at(const String &p_id, double p_p_pa) {
 	const Dictionary s = row_of(p_id);
+	if (iapws_curves(s)) {
+		return la_water::iapws_saturation_t_k(p_p_pa) - pc("KELVIN_OFFSET");
+	}
 	const double t_ref_c = dget(s, "boil_c", kInf);
 	if (!std::isfinite(t_ref_c)) {
 		return kInf;
@@ -1087,18 +1102,18 @@ double LASubstances::melt_c_at(const String &p_id, double p_p_pa, double p_molal
 	const double rho_l = dget(s, "density_melt", dget(s, "density", 0.0));
 	const double rho_s = s.has("density_melt") ? dget(s, "density", 0.0) : dget(s, "density_solid", rho_l);
 	const double l_fus = dget(s, "latent_fusion_j_kg", 0.0);
-	const double mm = dget(s, "molar_mass", 0.0);
-	const double t_ref_k = t_ref_c + pc("KELVIN_OFFSET");
 	double t_c = t_ref_c;
-	if (rho_l > 0.0 && rho_s > 0.0 && l_fus > 0.0) {
+	if (iapws_curves(s)) {
+		t_c = la_water::iapws_melting_ih_t_k(p_p_pa) - pc("KELVIN_OFFSET");
+	} else if (rho_l > 0.0 && rho_s > 0.0 && l_fus > 0.0) {
 		const double dv = (1.0 / rho_l) - (1.0 / rho_s);
 		const double p_ref = dget(s, "triple_p_pa", pc("STANDARD_PRESSURE_PA"));
-		t_c += (p_p_pa - p_ref) * t_ref_k * dv / l_fus;
+		t_c += (p_p_pa - p_ref) * (t_ref_c + pc("KELVIN_OFFSET")) * dv / l_fus;
 	}
-	if (p_molality_mol_kg > 0.0 && l_fus > 0.0 && mm > 0.0) {
-		const double l_molar = l_fus * mm;
-		const double k_f = pc("GAS_CONSTANT_J_MOL_K") * t_ref_k * t_ref_k * mm / l_molar;
-		t_c -= k_f * p_molality_mol_kg;
+	// van 't Hoff, about the PURE solvent's melting point at this pressure: K_f = R T_m^2 / L_fus.
+	if (p_molality_mol_kg > 0.0 && l_fus > 0.0) {
+		const double t_m_k = t_c + pc("KELVIN_OFFSET");
+		t_c -= pc("GAS_CONSTANT_J_MOL_K") * t_m_k * t_m_k / l_fus * p_molality_mol_kg;
 	}
 	return t_c;
 }
@@ -1107,6 +1122,9 @@ double LASubstances::melt_c_at(const String &p_id, double p_p_pa, double p_molal
 // densities and latent heat.
 double LASubstances::fusion_pa_per_k(const String &p_id) {
 	const Dictionary s = row_of(p_id);
+	if (iapws_curves(s)) {
+		return std::abs(la_water::iapws_melting_ih_pa_per_k(pc("WATER_TRIPLE_T_C") + pc("KELVIN_OFFSET")));
+	}
 	const double t_ref_c = dget(s, "melt_c", kInf);
 	const double rho_l = dget(s, "density_melt", dget(s, "density", 0.0));
 	const double rho_s = s.has("density_melt") ? dget(s, "density", 0.0) : dget(s, "density_solid", 0.0);
@@ -1139,6 +1157,9 @@ double LASubstances::liquidus_c_at(const String &p_id, double p_p_pa, double p_m
 // either end and the plateau's temperature cannot disagree with the latent heat charged to cross it.
 double LASubstances::saturation_p_at(const String &p_id, double p_t_c) {
 	const Dictionary s = row_of(p_id);
+	if (iapws_curves(s)) {
+		return la_water::iapws_saturation_p_pa(p_t_c + pc("KELVIN_OFFSET"));
+	}
 	const double t_ref_c = dget(s, "boil_c", kInf);
 	if (!std::isfinite(t_ref_c)) {
 		return 0.0;
@@ -1163,6 +1184,9 @@ double LASubstances::saturation_p_at(const String &p_id, double p_t_c) {
 // triple point with the SUBLIMATION enthalpy (fusion + vaporisation, derived, so Hess still closes).
 double LASubstances::sublimation_p_at(const String &p_id, double p_t_c) {
 	const Dictionary s = row_of(p_id);
+	if (iapws_curves(s)) {
+		return la_water::iapws_sublimation_p_pa(p_t_c + pc("KELVIN_OFFSET"));
+	}
 	const double t3 = dget(s, "triple_t_c", kInf);
 	const double p3 = dget(s, "triple_p_pa", 0.0);
 	if (!std::isfinite(t3) || p3 <= 0.0) {
@@ -1184,6 +1208,9 @@ double LASubstances::sublimation_p_at(const String &p_id, double p_t_c) {
 // one curve read from either end.
 double LASubstances::sublimation_c_at(const String &p_id, double p_p_pa) {
 	const Dictionary s = row_of(p_id);
+	if (iapws_curves(s)) {
+		return la_water::iapws_sublimation_t_k(p_p_pa) - pc("KELVIN_OFFSET");
+	}
 	const double t3 = dget(s, "triple_t_c", kInf);
 	const double p3 = dget(s, "triple_p_pa", 0.0);
 	if (!std::isfinite(t3) || p3 <= 0.0) {

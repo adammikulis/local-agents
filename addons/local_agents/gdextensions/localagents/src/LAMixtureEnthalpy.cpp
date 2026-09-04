@@ -52,24 +52,30 @@ double LAMixtureEnthalpy::vapour_p_at(const String &p_id, double p_t_c, double p
 // THE SATURATION SPLIT AT FIXED VOLUME: the vapour fills the cell's gas room at its own saturation
 // pressure, n_v = p_v(T) room / (R T), and the rest stays condensed. A cell has a volume, not a pressure
 // it is held at, so boiling is continuous in T and there is no plateau; the total pressure follows.
-double LAMixtureEnthalpy::vapour_fraction(const String &p_id, double p_t_c, double p_p_pa, double p_m_kg,
-		double p_room_m3) {
-	if (p_m_kg <= 0.0 || !std::isfinite(vapour_boundary_c(p_id, p_p_pa))) {
+// The split at a vapour pressure the caller already has. Solving the boundary is the expensive half, so
+// nothing that holds p_v pays for it twice.
+double LAMixtureEnthalpy::vapour_share(const String &p_id, double p_t_c, double p_m_kg, double p_room_m3,
+		double p_p_v) {
+	if (p_m_kg <= 0.0) {
 		return 0.0;
 	}
 	if (p_t_c >= prop(p_id, "critical_t_c", kInf)) {
 		return 1.0;
 	}
 	const double mm = prop(p_id, "molar_mass", 0.0);
-	if (p_room_m3 <= 0.0 || mm <= 0.0) {
-		return 0.0;
-	}
-	const double p_v = vapour_p_at(p_id, p_t_c, p_p_pa);
-	if (p_v <= 0.0) {
+	if (p_room_m3 <= 0.0 || mm <= 0.0 || p_p_v <= 0.0) {
 		return 0.0;
 	}
 	const double t_k = std::max(p_t_c + la_physical("KELVIN_OFFSET"), 1.0);
-	return std::min(p_v * p_room_m3 / (la_physical("GAS_CONSTANT_J_MOL_K") * t_k) * mm / p_m_kg, 1.0);
+	return std::min(p_p_v * p_room_m3 / (la_physical("GAS_CONSTANT_J_MOL_K") * t_k) * mm / p_m_kg, 1.0);
+}
+
+double LAMixtureEnthalpy::vapour_fraction(const String &p_id, double p_t_c, double p_p_pa, double p_m_kg,
+		double p_room_m3) {
+	if (!std::isfinite(vapour_boundary_c(p_id, p_p_pa))) {
+		return 0.0;
+	}
+	return vapour_share(p_id, p_t_c, p_m_kg, p_room_m3, vapour_p_at(p_id, p_t_c, p_p_pa));
 }
 
 // Specific enthalpy of one substance AS IT SITS IN THIS CELL: its own ladder's condensed and vapour
@@ -80,8 +86,8 @@ double LAMixtureEnthalpy::specific_enthalpy(const String &p_id, double p_t_c, do
 	if (!std::isfinite(vapour_boundary_c(p_id, p_p_pa)) || p_t_c >= prop(p_id, "critical_t_c", kInf)) {
 		return LASubstances::enthalpy_at(p_id, p_t_c, p_p_pa, 0.0);
 	}
-	const double f_v = vapour_fraction(p_id, p_t_c, p_p_pa, p_m_kg, p_room_m3);
 	const double p_v = vapour_p_at(p_id, p_t_c, p_p_pa);
+	const double f_v = vapour_share(p_id, p_t_c, p_m_kg, p_room_m3, p_v);
 	if (f_v >= 1.0) {
 		return LASubstances::enthalpy_at(p_id, p_t_c, std::min(p_p_pa, p_v) * (1.0 - 1.0e-3), 0.0);
 	}

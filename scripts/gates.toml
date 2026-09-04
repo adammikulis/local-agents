@@ -202,6 +202,48 @@ kind = "gpu"
 marker = "^check_groundwater_local: OK"
 
 [[gate]]
+name = "check_bench_shock_tube"
+script = "scripts/check_bench_shock_tube.sh"
+kind = "gpu"
+marker = "^check_bench_shock_tube: OK"
+
+[[gate]]
+name = "check_bench_heat_slab"
+script = "scripts/check_bench_heat_slab.sh"
+kind = "gpu"
+marker = "^check_bench_heat_slab: OK"
+
+[[gate]]
+name = "check_bench_hydrostatic_column"
+script = "scripts/check_bench_hydrostatic_column.sh"
+kind = "gpu"
+marker = "^check_bench_hydrostatic_column: OK"
+
+[[gate]]
+name = "check_bench_darcy"
+script = "scripts/check_bench_darcy.sh"
+kind = "gpu"
+marker = "^check_bench_darcy: OK"
+
+[[gate]]
+name = "check_bench_grey_atmosphere"
+script = "scripts/check_bench_grey_atmosphere.sh"
+kind = "gpu"
+marker = "^check_bench_grey_atmosphere: OK"
+
+[[gate]]
+name = "check_bench_jeans_escape"
+script = "scripts/check_bench_jeans_escape.sh"
+kind = "gpu"
+marker = "^check_bench_jeans_escape: OK"
+
+[[gate]]
+name = "check_bench_phase_change"
+script = "scripts/check_bench_phase_change.sh"
+kind = "gpu"
+marker = "^check_bench_phase_change: OK"
+
+[[gate]]
 name = "check_cell_budget"
 script = "scripts/check_cell_budget.sh"
 kind = "gpu"

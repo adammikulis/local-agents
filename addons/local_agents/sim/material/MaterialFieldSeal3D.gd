@@ -126,7 +126,7 @@ static func gated(field, name: String) -> bool:
 	var gpu = field._gpu if field != null else null
 	if gpu == null:
 		return true
-	return gpu.situational_channels().has(name)
+	return LAChannels.situational_channels().has(name)
 
 
 func report() -> Dictionary:

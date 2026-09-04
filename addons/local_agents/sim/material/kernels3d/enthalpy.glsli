@@ -49,6 +49,8 @@ struct SubstanceTh {
 	float nu;
 	bool has_melt;
 	bool has_boil;
+	// Phase boundaries from the IAPWS formulations rather than the two-anchor law.
+	bool iapws;
 	int n_el;
 	float el_n[LA_MAX_EL];
 	float el_chi_ev[LA_MAX_EL];
@@ -64,10 +66,10 @@ SubstanceTh la_h2o() {
 		1996.0,             // LAPhysical.VAPOUR_SPECIFIC_HEAT_J_KGK
 		916.7,              // LAPhysical.ICE_DENSITY_KG_M3
 		997.0,              // LAPhysical.WATER_DENSITY_KG_M3
-		0.0,                // LAPhysical.WATER_FREEZE_C
-		0.0,                // LAPhysical.WATER_FREEZE_C
-		100.0,              // LAPhysical.WATER_BOIL_C
-		101325.0,           // LAPhysical.STANDARD_PRESSURE_PA
+		0.01,               // LAPhysical.WATER_TRIPLE_T_C
+		0.01,               // LAPhysical.WATER_TRIPLE_T_C
+		0.0,
+		0.0,
 		0.01,               // LAPhysical.WATER_TRIPLE_T_C
 		611.657,            // LAPhysical.WATER_TRIPLE_P_PA
 		373.946,            // LAPhysical.WATER_CRITICAL_T_C
@@ -81,6 +83,7 @@ SubstanceTh la_h2o() {
 		2.0 * 114.717       // LAPhysical.ENTROPY_H_ATOM_J_MOLK
 			+ 161.058,      // LAPhysical.ENTROPY_O_ATOM_J_MOLK
 		3.0,
+		true,
 		true,
 		true,
 		2,
@@ -126,6 +129,7 @@ SubstanceTh la_silicate() {
 		5.0,
 		true,
 		false,
+		false,
 		0,
 		float[LA_MAX_EL](0.0, 0.0, 0.0),
 		float[LA_MAX_EL](0.0, 0.0, 0.0),
@@ -161,10 +165,167 @@ float la_clapeyron_b(SubstanceTh s) {
 	return la_latent_vaporisation_at(s, s.boil_ref_c) * s.molar_mass / LA_R_J_MOL_K;
 }
 
+// Water's phase boundaries as the IAPWS formulations state them. Native twin: LAWaterCurves.cpp.
+// Newton on each equation's own derivative, stopping when the iterate stops moving.
+const int LA_NEWTON_STEPS = 6;
+const float LA_IAPWS_PSAT_A1 = -7.85951783;      // LASubstances.h2o.iapws_psat_a1
+const float LA_IAPWS_PSAT_A2 = 1.84408259;       // LASubstances.h2o.iapws_psat_a2
+const float LA_IAPWS_PSAT_A3 = -11.7866497;      // LASubstances.h2o.iapws_psat_a3
+const float LA_IAPWS_PSAT_A4 = 22.6807411;       // LASubstances.h2o.iapws_psat_a4
+const float LA_IAPWS_PSAT_A5 = -15.9618719;      // LASubstances.h2o.iapws_psat_a5
+const float LA_IAPWS_PSAT_A6 = 1.80122502;       // LASubstances.h2o.iapws_psat_a6
+const float LA_IAPWS_SUBL_A1 = -0.212144006e2;   // LASubstances.h2o.iapws_subl_a1
+const float LA_IAPWS_SUBL_A2 = 0.273203819e2;    // LASubstances.h2o.iapws_subl_a2
+const float LA_IAPWS_SUBL_A3 = -0.610598130e1;   // LASubstances.h2o.iapws_subl_a3
+const float LA_IAPWS_SUBL_B1 = 0.333333333e-2;   // LASubstances.h2o.iapws_subl_b1
+const float LA_IAPWS_SUBL_B2 = 0.120666667e1;    // LASubstances.h2o.iapws_subl_b2
+const float LA_IAPWS_SUBL_B3 = 0.170333333e1;    // LASubstances.h2o.iapws_subl_b3
+const float LA_IAPWS_SUBL_MIN_T_C = -223.15;     // LASubstances.h2o.iapws_subl_min_t_c
+const float LA_IAPWS_MELT_IH_A1 = 0.119539337e7; // LASubstances.h2o.iapws_melt_ih_a1
+const float LA_IAPWS_MELT_IH_A2 = 0.808183159e5; // LASubstances.h2o.iapws_melt_ih_a2
+const float LA_IAPWS_MELT_IH_A3 = 0.333826860e4; // LASubstances.h2o.iapws_melt_ih_a3
+const float LA_IAPWS_MELT_IH_B1 = 0.300000e1;    // LASubstances.h2o.iapws_melt_ih_b1
+const float LA_IAPWS_MELT_IH_B2 = 0.257500e2;    // LASubstances.h2o.iapws_melt_ih_b2
+const float LA_IAPWS_MELT_IH_B3 = 0.103750e3;    // LASubstances.h2o.iapws_melt_ih_b3
+const float LA_ICE_IH_MIN_MELT_T_C = -21.985;    // LASubstances.h2o.ice_ih_min_melt_t_c
+const float LA_ICE_IH_MAX_MELT_P_PA = 2.08566e8; // LASubstances.h2o.ice_ih_max_melt_p_pa
+
+// sum a_i theta^n_i of Wagner & Pruss eq. 2.5, and its derivative in theta.
+float la_psat_series(float th) {
+	return LA_IAPWS_PSAT_A1 * th + LA_IAPWS_PSAT_A2 * pow(th, 1.5) + LA_IAPWS_PSAT_A3 * pow(th, 3.0)
+		+ LA_IAPWS_PSAT_A4 * pow(th, 3.5) + LA_IAPWS_PSAT_A5 * pow(th, 4.0)
+		+ LA_IAPWS_PSAT_A6 * pow(th, 7.5);
+}
+
+float la_psat_series_d(float th) {
+	return LA_IAPWS_PSAT_A1 + 1.5 * LA_IAPWS_PSAT_A2 * pow(th, 0.5)
+		+ 3.0 * LA_IAPWS_PSAT_A3 * pow(th, 2.0) + 3.5 * LA_IAPWS_PSAT_A4 * pow(th, 2.5)
+		+ 4.0 * LA_IAPWS_PSAT_A5 * pow(th, 3.0) + 7.5 * LA_IAPWS_PSAT_A6 * pow(th, 6.5);
+}
+
+// sum a_i theta^b_i of the sublimation equation, and the theta-derivative of theta^-1 times it.
+float la_subl_series(float th) {
+	return LA_IAPWS_SUBL_A1 * pow(th, LA_IAPWS_SUBL_B1) + LA_IAPWS_SUBL_A2 * pow(th, LA_IAPWS_SUBL_B2)
+		+ LA_IAPWS_SUBL_A3 * pow(th, LA_IAPWS_SUBL_B3);
+}
+
+float la_subl_series_d(float th) {
+	return LA_IAPWS_SUBL_A1 * (LA_IAPWS_SUBL_B1 - 1.0) * pow(th, LA_IAPWS_SUBL_B1 - 2.0)
+		+ LA_IAPWS_SUBL_A2 * (LA_IAPWS_SUBL_B2 - 1.0) * pow(th, LA_IAPWS_SUBL_B2 - 2.0)
+		+ LA_IAPWS_SUBL_A3 * (LA_IAPWS_SUBL_B3 - 1.0) * pow(th, LA_IAPWS_SUBL_B3 - 2.0);
+}
+
+// sum a_i (1 - theta^b_i) of the ice Ih melting equation, and its derivative in theta.
+float la_melt_series(float th) {
+	return LA_IAPWS_MELT_IH_A1 * (1.0 - pow(th, LA_IAPWS_MELT_IH_B1))
+		+ LA_IAPWS_MELT_IH_A2 * (1.0 - pow(th, LA_IAPWS_MELT_IH_B2))
+		+ LA_IAPWS_MELT_IH_A3 * (1.0 - pow(th, LA_IAPWS_MELT_IH_B3));
+}
+
+float la_melt_series_d(float th) {
+	return -(LA_IAPWS_MELT_IH_A1 * LA_IAPWS_MELT_IH_B1 * pow(th, LA_IAPWS_MELT_IH_B1 - 1.0)
+		+ LA_IAPWS_MELT_IH_A2 * LA_IAPWS_MELT_IH_B2 * pow(th, LA_IAPWS_MELT_IH_B2 - 1.0)
+		+ LA_IAPWS_MELT_IH_A3 * LA_IAPWS_MELT_IH_B3 * pow(th, LA_IAPWS_MELT_IH_B3 - 1.0));
+}
+
+// ln(p/p_c) = (T_c/T) sum a_i theta^n_i, theta = 1 - T/T_c: Wagner & Pruss 2002, eq. 2.5.
+float la_iapws_saturation_p_pa(SubstanceTh s, float t_k_in) {
+	float tc = s.crit_t_c + LA_KELVIN_OFFSET;
+	float t_k = max(t_k_in, 1.0);
+	float th = t_k < tc ? 1.0 - t_k / tc : 0.0;
+	return s.crit_p_pa * exp(tc / t_k * la_psat_series(th));
+}
+
+float la_iapws_saturation_dln_dt(SubstanceTh s, float t_k_in) {
+	float tc = s.crit_t_c + LA_KELVIN_OFFSET;
+	float t_k = max(t_k_in, 1.0);
+	float th = t_k < tc ? 1.0 - t_k / tc : 0.0;
+	return -tc * la_psat_series(th) / (t_k * t_k) - la_psat_series_d(th) / t_k;
+}
+
+// The same curve read as a temperature, seeded on the chord of its own two ends in (1/T, ln p).
+float la_iapws_saturation_t_k(SubstanceTh s, float p_pa) {
+	float tc = s.crit_t_c + LA_KELVIN_OFFSET;
+	float t3 = s.triple_t_c + LA_KELVIN_OFFSET;
+	if (p_pa >= s.crit_p_pa) { return tc; }
+	if (p_pa <= s.triple_p_pa) { return t3; }
+	float f = log(p_pa / s.triple_p_pa) / log(s.crit_p_pa / s.triple_p_pa);
+	float t_k = 1.0 / (1.0 / t3 + f * (1.0 / tc - 1.0 / t3));
+	float target = log(p_pa);
+	for (int i = 0; i < LA_NEWTON_STEPS; ++i) {
+		float d = la_iapws_saturation_dln_dt(s, t_k);
+		if (!(d > 0.0)) { break; }
+		float prev = t_k;
+		t_k = clamp(t_k - (log(la_iapws_saturation_p_pa(s, t_k)) - target) / d, t3, tc);
+		if (t_k == prev) { break; }
+	}
+	return t_k;
+}
+
+// ln(p/p_t) = theta^-1 sum a_i theta^b_i, theta = T/T_t: IAPWS 2011, R14-08, over ice Ih.
+float la_iapws_sublimation_p_pa(SubstanceTh s, float t_k_in) {
+	float th = max(t_k_in, 1.0) / (s.triple_t_c + LA_KELVIN_OFFSET);
+	return s.triple_p_pa * exp(la_subl_series(th) / th);
+}
+
+float la_iapws_sublimation_dln_dt(SubstanceTh s, float t_k_in) {
+	float t3 = s.triple_t_c + LA_KELVIN_OFFSET;
+	return la_subl_series_d(max(t_k_in, 1.0) / t3) / t3;
+}
+
+// The frost point, over the equation's own range, seeded on the chord between its two ends.
+float la_iapws_sublimation_t_k(SubstanceTh s, float p_pa) {
+	float t3 = s.triple_t_c + LA_KELVIN_OFFSET;
+	float t_lo = LA_IAPWS_SUBL_MIN_T_C + LA_KELVIN_OFFSET;
+	if (p_pa >= s.triple_p_pa) { return t3; }
+	float p_lo = la_iapws_sublimation_p_pa(s, t_lo);
+	if (p_pa <= p_lo) { return t_lo; }
+	float f = log(p_pa / p_lo) / log(s.triple_p_pa / p_lo);
+	float t_k = 1.0 / (1.0 / t_lo + f * (1.0 / t3 - 1.0 / t_lo));
+	float target = log(p_pa);
+	for (int i = 0; i < LA_NEWTON_STEPS; ++i) {
+		float d = la_iapws_sublimation_dln_dt(s, t_k);
+		if (!(d > 0.0)) { break; }
+		float prev = t_k;
+		t_k = clamp(t_k - (log(la_iapws_sublimation_p_pa(s, t_k)) - target) / d, t_lo, t3);
+		if (t_k == prev) { break; }
+	}
+	return t_k;
+}
+
+// p/p_t = 1 + sum a_i (1 - theta^b_i), theta = T/T_t: IAPWS 2011, R14-08, melting curve of ice Ih.
+float la_iapws_melting_ih_p_pa(SubstanceTh s, float t_k) {
+	return s.triple_p_pa * (1.0 + la_melt_series(t_k / (s.triple_t_c + LA_KELVIN_OFFSET)));
+}
+
+// Its slope, Pa/K. Negative: ice Ih is less dense than the water it melts to, so load melts it.
+float la_iapws_melting_ih_pa_per_k(SubstanceTh s, float t_k) {
+	float t3 = s.triple_t_c + LA_KELVIN_OFFSET;
+	return s.triple_p_pa * la_melt_series_d(t_k / t3) / t3;
+}
+
+// LA_APPROX: ice_ih_only_solid
+float la_iapws_melting_ih_t_k(SubstanceTh s, float p_pa) {
+	float t3 = s.triple_t_c + LA_KELVIN_OFFSET;
+	float t_min = LA_ICE_IH_MIN_MELT_T_C + LA_KELVIN_OFFSET;
+	if (p_pa >= LA_ICE_IH_MAX_MELT_P_PA) { return t_min; }
+	if (p_pa <= s.triple_p_pa) { return t3; }
+	float t_k = t3 + (p_pa - s.triple_p_pa) / la_iapws_melting_ih_pa_per_k(s, t3);
+	for (int i = 0; i < LA_NEWTON_STEPS; ++i) {
+		float d = la_iapws_melting_ih_pa_per_k(s, t_k);
+		if (!(d < 0.0)) { break; }
+		float prev = t_k;
+		t_k = clamp(t_k - (la_iapws_melting_ih_p_pa(s, t_k) - p_pa) / d, t_min, t3);
+		if (t_k == prev) { break; }
+	}
+	return t_k;
+}
+
 // THE BOILING POINT AT A GIVEN PRESSURE. Above the critical pressure there is no boundary: return the
 // critical temperature, so a supercritical cell has no plateau to cross.
 precise float la_boil_c_at(SubstanceTh s, float p_pa) {
 	if (!s.has_boil) { return 0.0; }
+	if (s.iapws) { return la_iapws_saturation_t_k(s, p_pa) - LA_KELVIN_OFFSET; }
 	if (p_pa >= s.crit_p_pa) { return s.crit_t_c; }
 	float p = max(p_pa, 1.0);
 	float t_ref_k = s.boil_ref_c + LA_KELVIN_OFFSET;
@@ -198,6 +359,7 @@ float la_water_liquid_v_m3_kg(float t_c) {
 
 float la_saturation_p_at(SubstanceTh s, float t_c) {
 	if (!s.has_boil) { return 0.0; }
+	if (s.iapws) { return la_iapws_saturation_p_pa(s, t_c + LA_KELVIN_OFFSET); }
 	if (t_c >= s.crit_t_c) { return s.crit_p_pa; }
 	float b = la_clapeyron_b(s);
 	if (b <= 0.0) { return 0.0; }
@@ -208,6 +370,7 @@ float la_saturation_p_at(SubstanceTh s, float t_c) {
 
 // Solid-vapour boundary, anchored on the triple point with the SUBLIMATION enthalpy.
 float la_sublimation_p_at(SubstanceTh s, float t_c) {
+	if (s.iapws) { return la_iapws_sublimation_p_pa(s, t_c + LA_KELVIN_OFFSET); }
 	float l_sub = la_latent_sublimation(s);
 	if (s.triple_p_pa <= 0.0 || l_sub <= 0.0) { return 0.0; }
 	float t3_k = s.triple_t_c + LA_KELVIN_OFFSET;
@@ -219,6 +382,7 @@ float la_sublimation_p_at(SubstanceTh s, float t_c) {
 // The FROST POINT: la_sublimation_p_at inverted. Below the triple-point pressure the solid leaves here,
 // not at the melting point.
 precise float la_sublimation_c_at(SubstanceTh s, float p_pa) {
+	if (s.iapws) { return la_iapws_sublimation_t_k(s, p_pa) - LA_KELVIN_OFFSET; }
 	float l_sub = la_latent_sublimation(s);
 	if (s.triple_p_pa <= 0.0) { return 0.0; }
 	if (l_sub <= 0.0) { return s.triple_t_c; }
@@ -237,16 +401,18 @@ bool la_sublimes_at(SubstanceTh s, float p_pa) {
 // Clapeyron for the solid-liquid boundary, plus freezing-point depression by dissolved solute.
 precise float la_melt_c_at(SubstanceTh s, float p_pa, float molality_mol_kg) {
 	if (!s.has_melt) { return 0.0; }
-	precise float t_ref_k = s.melt_c + LA_KELVIN_OFFSET;
 	precise float t_c = s.melt_c;
-	if (s.rho_liq > 0.0 && s.rho_sol > 0.0 && s.l_fus > 0.0) {
+	if (s.iapws) {
+		t_c = la_iapws_melting_ih_t_k(s, p_pa) - LA_KELVIN_OFFSET;
+	} else if (s.rho_liq > 0.0 && s.rho_sol > 0.0 && s.l_fus > 0.0) {
 		float dv = (1.0 / s.rho_liq) - (1.0 / s.rho_sol);
 		float p_ref = s.triple_p_pa > 0.0 ? s.triple_p_pa : LA_P_STD;
-		t_c += (p_pa - p_ref) * t_ref_k * dv / s.l_fus;
+		t_c += (p_pa - p_ref) * (s.melt_c + LA_KELVIN_OFFSET) * dv / s.l_fus;
 	}
-	if (molality_mol_kg > 0.0 && s.l_fus > 0.0 && s.molar_mass > 0.0) {
-		float k_f = LA_R_J_MOL_K * t_ref_k * t_ref_k / s.l_fus;
-		t_c -= k_f * molality_mol_kg;
+	// van 't Hoff, about the PURE solvent's melting point at this pressure: K_f = R T_m^2 / L_fus.
+	if (molality_mol_kg > 0.0 && s.l_fus > 0.0) {
+		precise float t_m_k = t_c + LA_KELVIN_OFFSET;
+		t_c -= LA_R_J_MOL_K * t_m_k * t_m_k / s.l_fus * molality_mol_kg;
 	}
 	return t_c;
 }

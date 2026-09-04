@@ -196,6 +196,7 @@ SubstanceTh la_sensible_only(float c_j_kgk) {
 		0.0,
 		false,
 		false,
+		false,
 		0,
 		float[LA_MAX_EL](0.0, 0.0, 0.0),
 		float[LA_MAX_EL](0.0, 0.0, 0.0),

@@ -12,11 +12,12 @@ S="$ROOT/addons/local_agents/gdextensions/localagents/src/LASubstances.cpp"
 SH="$ROOT/addons/local_agents/gdextensions/localagents/include/LASubstances.hpp"
 GM="$ROOT/addons/local_agents/sim/material/kernels3d/mixture_enthalpy.glsli"
 SM="$ROOT/addons/local_agents/gdextensions/localagents/src/LAMixtureEnthalpy.cpp"
-for f in "$G" "$P" "$S" "$SH" "$GM" "$SM"; do
+SW="$ROOT/addons/local_agents/gdextensions/localagents/src/LAWaterCurves.cpp"
+for f in "$G" "$P" "$S" "$SH" "$GM" "$SM" "$SW"; do
   [ -f "$f" ] || { echo "check_enthalpy_ssot: MISSING $f" >&2; exit 2; }
 done
 
-python3 - "$G" "$P" "$S" "$SH" "$GM" "$SM" <<'PY'
+python3 - "$G" "$P" "$S" "$SH" "$GM" "$SM" "$SW" <<'PY'
 import re, sys
 glsl = open(sys.argv[1]).read()
 gd = open(sys.argv[2]).read()
@@ -24,6 +25,9 @@ sub = open(sys.argv[3]).read()
 sub_hdr = open(sys.argv[4]).read()
 glsl_mix = open(sys.argv[5]).read()
 sub_mix = open(sys.argv[6]).read()
+# Water's phase boundaries live beside LASubstances, not in it: the ladder calls them, so the rung check
+# has to see both files as one native side.
+sub_water = open(sys.argv[7]).read()
 
 # --- the authority ----------------------------------------------------------------------------------------
 # A literal `const X: float = 4184.0` is comparable. A const whose value is an EXPRESSION is not, and a GLSL
@@ -91,6 +95,12 @@ RUNGS = [
     ("the frost point",                  "la_sublimation_c_at",    "sublimation_c_at",        "ladder"),
     ("the sublimation latent heat",      "la_latent_sublimation",  "latent_sublimation_j_kg", "ladder"),
     ("the melting INTERVAL",             "la_liquidus_c_at",       "liquidus_c_at",           "ladder"),
+    ("water's saturation curve",         "la_iapws_saturation_t_k", "iapws_saturation_t_k",   "ladder"),
+    ("water's sublimation curve",        "la_iapws_sublimation_t_k", "iapws_sublimation_t_k", "ladder"),
+    ("the ice Ih melting curve",         "la_iapws_melting_ih_t_k", "iapws_melting_ih_t_k",   "ladder"),
+    ("the saturation curve as pressure", "la_iapws_saturation_p_pa", "iapws_saturation_p_pa",  "file"),
+    ("the sublimation curve as pressure", "la_iapws_sublimation_p_pa", "iapws_sublimation_p_pa", "file"),
+    ("the melting curve as pressure",    "la_iapws_melting_ih_p_pa", "iapws_melting_ih_p_pa",  "file"),
     ("the gas tail",                     "la_gas_state",           "gas_state",               "ladder"),
     ("dissociation",                     "la_dissociated_fraction", "dissociated_fraction",   "file"),
     ("ionisation",                       "la_ionised_fraction",    "ionised_fraction",        "file"),
@@ -199,7 +209,7 @@ def reachable(root, funcs):
     return seen
 
 
-g_funcs, d_funcs = bodies_of(glsl, "glsl"), bodies_of(sub, "cpp")
+g_funcs, d_funcs = bodies_of(glsl, "glsl"), bodies_of(sub + "\n" + sub_water, "cpp")
 gm_funcs, sm_funcs = bodies_of(glsl_mix, "glsl"), bodies_of(sub_mix, "cpp")
 if "la_mix_state" not in gm_funcs or "state" not in sm_funcs:
     print("check_enthalpy_ssot: could not find la_mix_state / LAMixtureEnthalpy::state — the mixture "

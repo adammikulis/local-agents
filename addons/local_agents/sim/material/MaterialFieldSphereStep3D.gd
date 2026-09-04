@@ -74,7 +74,7 @@ func seed_tick() -> bool:
 	var g: LAVoxelGrid = _f._grid
 	var bake: String = LAFieldStateCache.state_key(OS.get_environment("LA_SEAL_KEY"),
 			g.nx, g.ny, g.nz, g.cell_size, g.origin)
-	if _load_seeded(bake):
+	if OS.get_environment("LA_SEAL_RESEED") == "" and _load_seeded(bake):
 		return true
 	if LAProcessSet.has_record("pass", GRAVITY_PASS):
 		_seed_under_gravity()
