@@ -11,13 +11,15 @@ PNG="$(mktemp "${TMPDIR:-/tmp}/la_ground.XXXXXX").png"
 LOG="$(mktemp "${TMPDIR:-/tmp}/la_ground_log.XXXXXX")"
 trap 'rm -f "$PNG" "$LOG"' EXIT
 
-# A SLICE run frames its box and draws the wind over it. Without one the whole body is framed and no
-# vector source is named, so the arrow count is not asked for.
-SLICE="${LA_GROUND_SLICE:-}"
+# THE ACCEPTANCE ARM IS THE SLICE: its box is framed and the wind drawn over it. LA_GROUND_BODY=1 frames
+# the whole body instead, with no vector source, so the arrow count is not asked for.
 EXTRA=()
-if [ -n "$SLICE" ]; then
+if [ "${LA_GROUND_BODY:-}" = "" ]; then
+	SLICE="${LA_GROUND_SLICE:-$("$ROOT/scripts/sim_run.sh" --print-slice-box)}"
 	export LA_SLICE_BOX="$SLICE"
 	EXTRA=("--vectors=wind")
+else
+	SLICE=""
 fi
 
 # --shoot-frames is a FLOOR, not the shot: the scene is asked every frame past it whether the ground
