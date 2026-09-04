@@ -29,6 +29,14 @@ LA_RUN_TIMEOUT="${LA_GROUND_TIMEOUT:-100}" "$ROOT/scripts/run_sim_offscreen.sh" 
 	-- --sandbox --planet-only --no-fauna --rung=0 --ui "--shoot=$PNG" \
 	"--shoot-frames=${LA_GROUND_FRAMES:-60}" ${EXTRA[@]+"${EXTRA[@]}"} > "$LOG" 2>&1
 
+# A PICTURE TAKEN THROUGH A RENDERER THAT REFUSED A SHADER IS NOT EVIDENCE. A .gdshader that fails to
+# compile draws black and the run finishes normally, so the shot looks like a measurement and is not one.
+if grep -qE 'SHADER ERROR|Shader compilation failed' "$LOG"; then
+	echo "check_ground_drawn: the run failed to compile a shader, so the frame is of a broken renderer." >&2
+	grep -m4 -E 'SHADER ERROR|Shader compilation failed|\.gdshader' "$LOG" >&2
+	exit 2
+fi
+
 shot="$(grep -m1 '^SHOT_SAVED=' "$LOG")"
 if [ -z "$shot" ]; then
 	echo "check_ground_drawn: the run published no shot, so nothing was photographed." >&2

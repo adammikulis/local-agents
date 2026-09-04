@@ -8,8 +8,8 @@ shader_type sky;
 // Vertical optical depth of the standard atmosphere at 680 / 550 / 440 nm. Rayleigh is the molecular
 // column (Bodhaine 1999); Mie is the aerosol column of clear continental air, taken neutral in
 // wavelength.
-uniform vec3 rayleigh_tau : source_color = vec3(0.0411, 0.0973, 0.2429);
-uniform vec3 mie_tau : source_color = vec3(0.021, 0.021, 0.021);
+uniform vec3 rayleigh_tau = vec3(0.0411, 0.0973, 0.2429);
+uniform vec3 mie_tau = vec3(0.021, 0.021, 0.021);
 uniform float mie_g = 0.76;            // Mie asymmetry (forward-scatter glow tightness)
 
 // The local vertical at the eye, and where the eye stands: the zenith, the air mass and the ray's own
@@ -113,36 +113,34 @@ void sky() {
 	// direction, and it goes dark on its own once the sun's path through the air is long enough.
 	vec3 col = atmosphere(dir, sun_n, up_n);
 
-	// THE DISCS ARE DRAWN FOR THE EYE, NEVER INTO THE RADIANCE CUBEMAP. What a surface receives from the
-	// sun and the moon already arrives through their own lights; adding the discs to the ambient would
-	// deliver the same irradiance a second time.
-	if (AT_CUBEMAP_PASS) {
-		COLOR = col;
-		return;
-	}
-	col += starfield(dir) * star_intensity * vec3(0.90, 0.95, 1.0);
+	// THE DISCS AND STARS ARE DRAWN FOR THE EYE, NEVER INTO THE RADIANCE CUBEMAP. What a surface receives
+	// from the sun already arrives through its own light, so adding the disc to the ambient would deliver
+	// the same irradiance a second time.
+	if (!AT_CUBEMAP_PASS) {
+		col += starfield(dir) * star_intensity * vec3(0.90, 0.95, 1.0);
 
-	// The solar disc at its own radiance: the irradiance arrives from the solid angle the disc subtends.
-	float sd = dot(dir, sun_n);
-	float omega = 6.2831853 * (1.0 - sun_cos_radius);
-	col += sun_color * (sun_irradiance * 3.14159265 / max(omega, 1.0e-9))
-		* smoothstep(sun_cos_radius - 2.0e-5, sun_cos_radius, sd);
+		// The solar disc at its own radiance: the irradiance arrives from the solid angle it subtends.
+		float sd = dot(dir, sun_n);
+		float omega = 6.2831853 * (1.0 - sun_cos_radius);
+		col += sun_color * (sun_irradiance * 3.14159265 / max(omega, 1.0e-9))
+			* smoothstep(sun_cos_radius - 2.0e-5, sun_cos_radius, sd);
 
-	// The lunar disc: sunlight off a sphere of regolith, so the terminator and the crescent are Lambert
-	// on the disc's own surface normal rather than a phase parameter.
-	vec3 tomoon = normalize(moon_dir);
-	float md = dot(dir, tomoon);
-	float disc = smoothstep(moon_cos_radius - 2.0e-5, moon_cos_radius, md);
-	if (disc > 0.0) {
-		vec3 mu = normalize(cross(abs(tomoon.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), tomoon));
-		vec3 mv = cross(tomoon, mu);
-		float rr = sqrt(max(1.0e-9, 1.0 - moon_cos_radius * moon_cos_radius));
-		vec3 rel = dir - tomoon * md;
-		float un = dot(rel, mu) / rr;
-		float vn = dot(rel, mv) / rr;
-		vec3 nrm = un * mu + vn * mv - tomoon * sqrt(max(0.0, 1.0 - un * un - vn * vn));
-		float lit = max(dot(nrm, normalize(moon_sun_dir)), 0.0);
-		col += sun_color * sun_irradiance * MOON_ALBEDO * lit * disc;
+		// The lunar disc: sunlight off a sphere of regolith, so the terminator and the crescent are
+		// Lambert on the disc's own surface normal rather than a phase parameter.
+		vec3 tomoon = normalize(moon_dir);
+		float md = dot(dir, tomoon);
+		float disc = smoothstep(moon_cos_radius - 2.0e-5, moon_cos_radius, md);
+		if (disc > 0.0) {
+			vec3 mu = normalize(cross(abs(tomoon.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), tomoon));
+			vec3 mv = cross(tomoon, mu);
+			float rr = sqrt(max(1.0e-9, 1.0 - moon_cos_radius * moon_cos_radius));
+			vec3 rel = dir - tomoon * md;
+			float un = dot(rel, mu) / rr;
+			float vn = dot(rel, mv) / rr;
+			vec3 nrm = un * mu + vn * mv - tomoon * sqrt(max(0.0, 1.0 - un * un - vn * vn));
+			col += sun_color * sun_irradiance * MOON_ALBEDO
+				* max(dot(nrm, normalize(moon_sun_dir)), 0.0) * disc;
+		}
 	}
 
 	COLOR = col;
