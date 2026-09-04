@@ -119,7 +119,13 @@ int selftest_device(la::Device &dev, const std::string &blob) {
 		fail(err.c_str());
 		return 1;
 	}
-	if (!dev.declares(k, 0) || dev.declares(k, 1)) {
+	// The probe kernel declares exactly one buffer, at whatever slot the binding registry gave it.
+	int probe_slot = -1;
+	int declared = 0;
+	for (uint32_t b = 0; b < 256; ++b) {
+		if (dev.declares(k, b)) { probe_slot = int(b); ++declared; }
+	}
+	if (declared != 1) {
 		fail("the blob's reflection does not match the one buffer stack_selftest declares");
 		return 1;
 	}
@@ -130,7 +136,7 @@ int selftest_device(la::Device &dev, const std::string &blob) {
 	std::vector<float> twice(cases.size(), 0.0f);
 	la::BufferId buf = dev.create_buffer(cases.size() * sizeof(float), la::Usage::Storage,
 			cases.data());
-	std::vector<std::pair<uint32_t, la::BufferId>> bound{{0u, buf}};
+	std::vector<std::pair<uint32_t, la::BufferId>> bound{{uint32_t(probe_slot), buf}};
 	la::SetId set = dev.make_set(k, bound);
 
 	la::List first = dev.begin();

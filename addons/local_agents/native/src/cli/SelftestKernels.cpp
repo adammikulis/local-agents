@@ -59,9 +59,18 @@ int run_probe(la::Device &dev, const char *kernel, std::vector<float> &probe) {
 		fail(err.c_str());
 		return 1;
 	}
+	int probe_slot = -1;
+	int declared = 0;
+	for (uint32_t b = 0; b < 256; ++b) {
+		if (dev.declares(k, b)) { probe_slot = int(b); ++declared; }
+	}
+	if (declared != 1) {
+		fail("the probe kernel does not declare exactly one buffer");
+		return 1;
+	}
 	la::BufferId buf = dev.create_buffer(probe.size() * sizeof(float), la::Usage::Storage,
 			probe.data());
-	std::vector<std::pair<uint32_t, la::BufferId>> bound{{0u, buf}};
+	std::vector<std::pair<uint32_t, la::BufferId>> bound{{uint32_t(probe_slot), buf}};
 	la::SetId set = dev.make_set(k, bound);
 	la::List list = dev.begin();
 	dev.bind(list, k, set);
