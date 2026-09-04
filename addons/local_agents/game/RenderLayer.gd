@@ -39,15 +39,16 @@ func _build_camera() -> void:
 		_camera.set_geosync_body(body)
 	var box: AABB = _slice_box()
 	if box.size.length() > 0.0 and _camera.has_method("frame_slice"):
-		_camera.call("frame_slice", body.center(), body.radius(), box)
+		# The eye is given the box's body-frame site, so the pose rides the body's rotation.
+		_camera.call("frame_slice", body.center(), body.radius(), box,
+			slice_site_dir(_sim.material_field()))
 	elif _camera.has_method("set_orbit_target"):
 		_camera.set_orbit_target(body.center(), body.radius())
 	body.attach_viewer(_camera, true)
 
 
-## The configured slice box in world space, or a zero AABB when the field covers the whole body. The box
-## is its COARSE cells across: the finest edge is how deeply the octree refines inside it, not its size.
-static func slice_world_aabb(field: Node, body: Node3D) -> AABB:
+## The slice box in the BODY's own frame, its COARSE cells across; a zero AABB when there is no slice.
+static func slice_body_aabb(field: Node, body: Node3D) -> AABB:
 	var slice = field._slice if "_slice" in field else null
 	if slice == null or body == null:
 		return AABB()
@@ -55,8 +56,14 @@ static func slice_world_aabb(field: Node, body: Node3D) -> AABB:
 	return AABB(body.center() + slice.resolved_offset(body) - 0.5 * size, size)
 
 
+## Where on the body the box sits, in the body's own frame: its resolved offset is that direction.
+static func slice_site_dir(field: Node) -> Vector3:
+	var slice = field._slice if "_slice" in field else null
+	return Vector3.ZERO if slice == null else Vector3(slice.offset).normalized()
+
+
 func _slice_box() -> AABB:
-	return slice_world_aabb(_sim.material_field(), _sim.body())
+	return slice_body_aabb(_sim.material_field(), _sim.body())
 
 
 func _build_sky() -> void:

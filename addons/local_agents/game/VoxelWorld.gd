@@ -22,6 +22,9 @@ const FPS_PROBE_FRAMES: int = 150
 @export var slice_box: String = ""
 ## The vector field this world's glyphs draw: "off", "wind", "gravity"; UNSET takes what the rung holds.
 @export var field_vectors: String = LAFieldVectors.SOURCE_UNSET
+## The local hour at the slice's site when this world starts: 12 is noon. Negative keeps the seed's own
+## spin phase. It turns the body once, as an initial condition; nothing paints the sun.
+@export var start_local_hour: float = -1.0
 
 var _input: LAVoxelInputController = null
 var _sim: LASimulation = null
@@ -78,6 +81,7 @@ func _ready() -> void:
 	if slice_box != "":
 		_sim.material_field().set_meta(LAFieldSlice3D.META_BOX, slice_box)
 	_sim.build({"planet": _planet_opts()})
+	LAStartLocalHour.apply(_sim, start_local_hour if start_local_hour >= 0.0 else _input.local_hour())
 	_sim.set_probe_flags(_input.overview(), _input.farview(), _input.auto_meteor(), _input.auto_select())
 	if _input.llm():
 		_sim.enable_llm()

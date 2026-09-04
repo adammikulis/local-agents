@@ -36,17 +36,19 @@ ocean and continental groundwater only. `REGOLITH_SURFACE_POROSITY` and `COMPACT
 1930, shales) are applied to basalt and basement. Cite the oceanic-crust and sediment pore-water
 reservoir and a porosity law per lithology from the substance table.
 
-## 3. THE GROUND UNDER THE EYE IS NOT BUILT ON THE WHOLE BODY
+## 3. A SLICE OFF THE BODY AXES CANNOT BE FRAMED
+
+`LA_SLICE_BOX="-0.6129,surface,0,3,24,3,5120,10" scripts/check_ground_drawn.sh` reads `cam_in_slice=false`
+with the eye 12 km up: the box's column is a body axis, so at a site off the axes the local vertical
+is not a box axis, and the pose is framed against the box's Y.
+
+## 4. THE GROUND UNDER THE EYE IS NOT BUILT ON THE WHOLE BODY
 
 `scripts/agent_harness.sh ground` exits 2: its shot reads `ground_meshed=false`, and the view axis
 first meets built ground far past where the pose framed it. The same gate over a box,
 `LA_GROUND_SLICE="0,surface,0,3,24,3,5120,10" scripts/check_ground_drawn.sh`, exits 0.
-
-## 4. THE SURFACE READS AS ONE WHITE SHEET
-
-The shot that gate saves has almost no structure in it: the ground, the sea and the sky come back at
-one brightness. `LA_GROUND_SLICE="0,surface,0,3,24,3,5120,10" scripts/check_ground_drawn.sh` publishes
-`scene_mean` and `scene_var` beside the shot.
+Reading: `is_area_meshed` in the terrain service answers whether a block is loaded at a level, not
+whether the mesher shows it, so `ground_resolved()` can go true while half the frame is still coarse.
 
 ## 5. THE RUNG-1 AND RUNG-2 DEMOS ARE NOT CUT
 

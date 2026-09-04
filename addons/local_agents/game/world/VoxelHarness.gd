@@ -207,8 +207,10 @@ static func shot_info(w) -> String:
 ## Whether the eye stands inside the slice box the field was laid on. False when there is no slice: a
 ## world without a box cannot have framed one.
 static func _cam_in_slice(w, cam: Camera3D) -> bool:
-	var box: AABB = LARenderLayer.slice_world_aabb(w._sim.material_field(), w._body)
-	return box.size.length() > 0.0 and box.has_point(cam.global_position)
+	var field: Node = w._sim.material_field()
+	var box: AABB = LARenderLayer.slice_body_aabb(field, w._body)
+	# The box is body-fixed, so the eye is asked about in the FIELD's own frame, not in world space.
+	return box.size.length() > 0.0 and box.has_point(field.point_to_field(cam.global_position))
 
 
 static func _arrow_count(w) -> int:

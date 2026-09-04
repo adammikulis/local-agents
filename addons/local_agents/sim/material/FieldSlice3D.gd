@@ -2,8 +2,7 @@ class_name LAFieldSlice3D
 extends RefCounted
 
 ## A SLICE of the declared body: a box on the planet, seeded from the real terrain, fed at its faces by
-## LAFieldBoundary3D. Spec "ox,oy,oz,nx,ny,nz,cell_m,fine_m", the offset in m in the body frame with one
-## component allowed to read `surface`. Node meta -> setting -> env.
+## LAFieldBoundary3D. Spec "ox,oy,oz,nx,ny,nz,cell_m,fine_m", `surface` reading 1. Meta > setting > env.
 
 const CaptureScript: GDScript = preload("res://addons/local_agents/sim/material/FieldBoundaryCapture3D.gd")
 
@@ -69,12 +68,11 @@ func resolved_offset(body) -> Vector3:
 func _resolve_offset(body) -> bool:
 	if surface_axis < 0:
 		return true
-	if body == null or not body.has_method("radius"):
-		return _fail("the box asks for the body's surface and no body was supplied to resolve it")
-	var r: float = float(body.radius())
+	var r: float = float(body.radius()) if body != null and body.has_method("radius") else NAN
 	if not is_finite(r) or r <= 0.0:
-		return _fail("the box asks for the body's surface and the body has not measured a radius yet")
-	offset[surface_axis] = r
+		return _fail("the box asks for the body's surface and no body has measured a radius for it")
+	offset[surface_axis] = 1.0
+	offset = offset.normalized() * r      # a body-frame direction, not a world displacement
 	surface_axis = -1
 	return true
 
