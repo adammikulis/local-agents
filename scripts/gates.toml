@@ -583,5 +583,5 @@ name = "check_launch_count"
 script = "scripts/check_launch_count.sh"
 kind = "headless"
 marker = "^check_launch_count: OK"
-mutation = "printf '0\\n' > docs/LAUNCH_CEILING; printf 'la_godot --headless --path .\\n' >> \\\"$LA_LAUNCH_LOG\\\""
+mutation = "printf '0\\n' > docs/LAUNCH_CEILING; printf 'la_godot --headless --path .\\n' >> \"$LA_LAUNCH_LOG\""
 

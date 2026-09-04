@@ -44,6 +44,7 @@ KEY="$("$SCRIPT_DIR/cache_key.sh" capture --path "$ROOT" \
 if [ -n "$KEY" ] && [ -f "$CACHE_ROOT/$KEY/COMPLETE" ]; then
 	if cp -Rp "$CACHE_ROOT/$KEY/." "$CAP/" 2>/dev/null; then
 		rm -f "$CAP/COMPLETE"
+		[ -s "$CAP/arm" ] && cat "$CAP/arm" >&2
 		printf '%s\n' "$CAP"
 		exit 0
 	fi
