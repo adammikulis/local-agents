@@ -1,6 +1,8 @@
 #[compute]
 #version 450
 
+#include "bindings.glsli"
+
 // LITHOSTATIC PRESSURE, SOLID CELLS ONLY: the weight per unit area standing over the cell. An open
 // cell's pressure is state_derive.glsl's; touching one here makes two writers disagree about it.
 // LA_APPROX: quasi_static_solid_pressure
@@ -9,13 +11,13 @@
 
 layout(local_size_x = 64) in;
 
-layout(set = 0, binding = 0, std430) restrict buffer Pressure { float pressure[]; };
-layout(set = 0, binding = 1, std430) restrict readonly buffer RhoBulk { float rho_bulk[]; };
-layout(set = 0, binding = 2, std430) restrict readonly buffer Solid { float solid[]; };
+layout(set = 0, binding = LA_BIND_PRESSURE, std430) restrict buffer Pressure { float pressure[]; };
+layout(set = 0, binding = LA_BIND_RHO_BULK, std430) restrict readonly buffer RhoBulk { float rho_bulk[]; };
+layout(set = 0, binding = LA_BIND_SOLID, std430) restrict readonly buffer Solid { float solid[]; };
 // Solved gravity, flat cell*3, m/s^2.
-layout(set = 0, binding = 3, std430) restrict readonly buffer Grav { float g_field[]; };
+layout(set = 0, binding = LA_BIND_G_REST, std430) restrict readonly buffer Grav { float g_field[]; };
 // GravityPass's one vertical relation; marching it is what makes the column monotone.
-layout(set = 0, binding = 4, std430) restrict readonly buffer VertUp { int vert_up[]; };
+layout(set = 0, binding = LA_BIND_VERT_UP, std430) restrict readonly buffer VertUp { int vert_up[]; };
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;

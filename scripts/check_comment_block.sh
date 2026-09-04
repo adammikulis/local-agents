@@ -21,27 +21,23 @@ out="$(cd "$ROOT" && MAX="$MAX" python3 - <<'PY'
 import io, os, subprocess, sys, tokenize
 files = subprocess.run(['git','ls-files','*.gd','*.sh','*.glsl','*.glsli','*.py'],
                        capture_output=True, text=True).stdout.split()
-files = [f for f in files if 'thirdparty' not in f and 'generated' not in f and 'zylann' not in f
-         and os.path.exists(f)]
+files = [f for f in files if 'thirdparty' not in f and 'zylann' not in f and os.path.exists(f)]
 if not files:
     print("NOFILES"); sys.exit(0)
 lim = int(os.environ['MAX'])
 
 def comment_lines(path, text):
     # A `#` inside a string literal is not a comment. Python can be tokenized exactly; for the rest a
-    # leading marker is the whole grammar that matters.
+    # leading marker is the whole grammar that matters. In GLSL a leading `#` opens a preprocessor
+    # directive -- #define, #include, #version -- which is code, so only `//` starts a comment there.
     if path.endswith('.py'):
         try:
             return {t.start[0] for t in tokenize.generate_tokens(io.StringIO(text).readline)
                     if t.type == tokenize.COMMENT}
         except Exception:
             pass
-    out = set()
-    for i, l in enumerate(text.split('\n'), 1):
-        s = l.strip()
-        if s.startswith('#') or s.startswith('//'):
-            out.add(i)
-    return out
+    marks = ('//',) if path.endswith(('.glsl', '.glsli')) else ('#', '//')
+    return {i for i, l in enumerate(text.split('\n'), 1) if l.strip().startswith(marks)}
 
 over = []
 for f in files:

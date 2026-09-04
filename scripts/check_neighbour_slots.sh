@@ -65,7 +65,7 @@ fi
 # 5. THE REVERSE FACE IS STORED, NOT DERIVED. `d ^ 1` is the reverse axis TAG and stays; the face that
 # points back is LAVoxelGrid.partners, uploaded and read as `partner[]`. A kernel that recovers it by
 # arithmetic instead reads the wrong one of a coarse cell's four subfaces.
-grep -qE 'binding = 93,.*buffer FacePartner \{ int partner\[\]; \};' "$SSOT" || {
+grep -qE 'binding = LA_BIND_FACE_PARTNER,.*buffer FacePartner \{ int partner\[\]; \};' "$SSOT" || {
   echo "check_neighbour_slots: neighbours.glsli no longer declares the stored partner face." >&2; fail=1; }
 grep -qE 'uint la_back_face\(uint f, uint nb, uint d\)' "$SSOT" || {
   echo "check_neighbour_slots: neighbours.glsli no longer publishes la_back_face." >&2; fail=1; }

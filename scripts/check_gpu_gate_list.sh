@@ -20,14 +20,16 @@ declared="$(printf '%s\n' "$LIST" | awk -F'\t' '$2 == "gpu" { print $1 }' | sort
 [ -n "$in_lint" ] || { echo "check_gpu_gate_list: gates.toml parsed to no gate." >&2; exit 2; }
 [ -n "$declared" ] || { echo "check_gpu_gate_list: gates.toml declares no gpu gate." >&2; exit 2; }
 
-# A gate needs a GPU when it EXECUTES a run — a quoted \$var path to the runner, not a mention of one —
+# A gate needs a GPU when it EXECUTES a run — a quoted \$var path to the runner, or the native sim binary —
 # or when it READS the shared arm lint_capture.sh records, which only a GPU could have produced.
 actual=""
 for b in $in_lint; do
 	f="$ROOT/scripts/$b.sh"
 	[ -f "$f" ] || continue
+	[ "$b" = "check_gpu_gate_list" ] && continue   # this scan names the patterns it looks for
 	if rg -q -e '"\$[A-Za-z_][A-Za-z_0-9]*[^"]*/(run_sim_offscreen|sim_run)\.sh"' "$f" \
-		|| rg -q -e '[$][(]la_(report|report_raw|marker|cap_state|cap_front)\b' "$f"; then
+		|| rg -q -e '[$][(]la_(report|report_raw|marker|cap_state|cap_front)\b' "$f" \
+		|| rg -q -e '/bin/lasim"' "$f"; then
 		actual="$actual $b"
 	fi
 done

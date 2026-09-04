@@ -72,7 +72,7 @@ func _init() -> void:
 	var buf: RID = rd.storage_buffer_create(bytes.size(), bytes)
 	var u: RDUniform = RDUniform.new()
 	u.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	u.binding = 0
+	u.binding = LABindings.of("stack_probe")
 	u.add_id(buf)
 	var uset: RID = rd.uniform_set_create([u], shader, 0)
 	var cl: int = rd.compute_list_begin()
