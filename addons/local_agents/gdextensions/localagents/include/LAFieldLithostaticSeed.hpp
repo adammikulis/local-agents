@@ -2,6 +2,7 @@
 #define LOCAL_AGENTS_LA_FIELD_LITHOSTATIC_SEED_HPP
 
 #include <godot_cpp/classes/ref_counted.hpp>
+#include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
 
 namespace godot {
@@ -16,7 +17,7 @@ public:
 	// relation cell by cell along the solved gravity: an open cell's amounts are scaled until its equation
 	// of state states the marched pressure, a solid cell's lithic phases are squeezed by the substance
 	// table at the pressure standing over them. Returns the pressure it marched, per cell.
-	static PackedFloat32Array compress(Object *p_field, const PackedFloat32Array &p_gravity);
+	static Dictionary compress(Object *p_field, const PackedFloat32Array &p_gravity, const PackedFloat32Array &p_t_rock);
 	// THE VERTICAL A COLUMN STANDS ALONG. Only the hydrostatic rung stands one; below it there is no
 	// vertical at all, and none is zero.
 	static PackedFloat32Array vertical(Object *p_field, const PackedFloat32Array &p_gravity);

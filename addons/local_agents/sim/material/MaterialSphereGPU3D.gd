@@ -124,13 +124,15 @@ func setup(field) -> void:
 	_bufs["ground_d"] = _rd.storage_buffer_create(gd.to_byte_array().size(), gd.to_byte_array())
 
 	_seed("e_j_m3", field._e)
+	_seed("e_lith_j_m3", field._e_lith)
 	seed_field("o2", field._o2, field._seal)
 	seed_field("co2", field._co2, field._seal)   # the atmosphere's carbon — finite, at Earth's mole fraction
 	seed_field("n2", field._n2, field._seal)     # the atmosphere's nitrogen — finite, at Earth's mole fraction
 	# The Hadean minor gases: volcanic H2/CO/SO2/H2S, abiotic CH4, at their cited mole fractions.
 	for gas in ["h2", "co", "so2", "h2s", "ch4"]:
 		seed_field(String(gas), field.get("_" + String(gas)), field._seal)
-	_seed("h2o", field._h2o)            # the ocean basin + the primed water table
+	_seed("h2o", field._h2o)            # the ocean basin
+	_seed("h2o_pore", field._h2o_pore)  # the primed water table
 	LAFieldCellMass3D.upload_solid(_rd, _bufs, _field)
 	_seed_silicate()
 	_seed_regolith()                    # aquifer permeability mask + grain-size field (static)

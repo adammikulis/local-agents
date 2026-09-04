@@ -30,11 +30,14 @@ constexpr double IRON_SOLID_DENSITY_AT_MELT_KG_M3 = 7265.0;
 constexpr double IRON_MELT_C = 1538.0;
 constexpr double IRON_SOLID_EXPANSION_PER_K = 3.54e-5;    // alpha-Fe at 25 C, CRC 97th ed., linear x3
 constexpr double IRON_SOLID_BULK_MODULUS_PA = 1.662e11;   // Guinan & Beshers 1968, JPCS 29:541
+constexpr double IRON_LIQUID_BULK_MODULUS_PA = 1.097e11;  // liquid Fe at 1 bar, Anderson & Ahrens 1994, JGR 99:4273
 constexpr double IRON_LIQUID_SPECIFIC_HEAT_J_KGK = 824.0; // Desai 1986, J. Phys. Chem. Ref. Data 15:967
 constexpr double IRON_SOLID_SPECIFIC_HEAT_J_KGK = 449.0;  // alpha-Fe at 25 C, CRC 97th ed.
 constexpr double IRON_LATENT_FUSION_J_KG = 2.473e5;       // Desai 1986, dHfus 13.81 kJ/mol
 constexpr double IRON_BOIL_C = 2861.0;                    // CRC 97th ed.
 constexpr double IRON_LATENT_VAPORISATION_J_KG = 6.09e6;  // CRC, dHvap 340 kJ/mol
+constexpr double IRON_CRITICAL_T_C = 8977.0;               // 9250 K, Beutl, Pottlacher & Jager 1994, Int. J. Thermophys. 15:1323
+constexpr double IRON_CRITICAL_P_PA = 8.75e8;             // 8750 bar, Beutl, Pottlacher & Jager 1994, Int. J. Thermophys. 15:1323
 constexpr double IRON_CONDUCTIVITY_W_MK = 80.4;           // Fe at 300 K, CRC 97th ed.
 
 constexpr double OLIVINE_DENSITY_KG_M3 = 3355.0;   // San Carlos Fo90, Abramson et al. 1997, JGR 102:12253
@@ -465,6 +468,7 @@ void add_planet_minerals() {
 	metal_extra["density_solid_ref_t_c"] = IRON_MELT_C;
 	metal_extra["expansion_solid_per_k"] = IRON_SOLID_EXPANSION_PER_K;
 	metal_extra["bulk_modulus_solid_pa"] = IRON_SOLID_BULK_MODULUS_PA;
+	metal_extra["bulk_modulus_pa"] = IRON_LIQUID_BULK_MODULUS_PA;
 	metal_extra["specific_heat_solid"] = IRON_SOLID_SPECIFIC_HEAT_J_KGK;
 	metal_extra["melt_c"] = IRON_MELT_C;
 	metal_extra["latent_fusion_j_kg"] = IRON_LATENT_FUSION_J_KG;
@@ -472,6 +476,8 @@ void add_planet_minerals() {
 	metal_extra["boil_ref_p_pa"] = pc("STANDARD_PRESSURE_PA");
 	metal_extra["latent_vaporisation_j_kg"] = IRON_LATENT_VAPORISATION_J_KG;
 	metal_extra["latent_vaporisation_ref_t_c"] = IRON_BOIL_C;
+	metal_extra["critical_t_c"] = IRON_CRITICAL_T_C;
+	metal_extra["critical_p_pa"] = IRON_CRITICAL_P_PA;
 	metal_extra["traces"] = LAElementAbundances::core_traces();
 	// LA_APPROX: pure_iron_core_alloy
 	t["metal"] = entry(f_metal, IRON_LIQUID_DENSITY_KG_M3, IRON_LIQUID_SPECIFIC_HEAT_J_KGK,
@@ -602,10 +608,14 @@ double specific_volume(double p_rho_ref, double p_t_ref_c, double p_alpha_per_k,
 	if (p_rho_ref <= 0.0) {
 		return 0.0;
 	}
+	// The expansivity falls under pressure as alpha * K_T stays constant (Anderson 1995), K_T = K0 + K0' P.
+	const double dp = p_p_pa - pc("STANDARD_PRESSURE_PA");
+	const double alpha = (p_bulk_pa > 0.0 && dp > 0.0) ? p_alpha_per_k * p_bulk_pa / (p_bulk_pa + p_kprime * dp)
+													 : p_alpha_per_k;
 	double v = p_kell ? 1.0 / water_liquid_density(p_t_c)
-			: (1.0 + p_alpha_per_k * (p_t_c - p_t_ref_c)) / p_rho_ref;
+			: (1.0 + alpha * (p_t_c - p_t_ref_c)) / p_rho_ref;
 	if (p_bulk_pa > 0.0 && p_p_pa > 0.0) {
-		const double f = bm_strain(p_p_pa - pc("STANDARD_PRESSURE_PA"), p_bulk_pa, p_kprime);
+		const double f = bm_strain(dp, p_bulk_pa, p_kprime);
 		v *= std::pow(1.0 + 2.0 * f, -1.5);
 	}
 	return v > 0.0 ? v : 0.0;
@@ -925,8 +935,9 @@ double LASubstances::boil_c_at(const String &p_id, double p_p_pa) {
 		return t_ref_c;
 	}
 	const double inv_t = 1.0 / t_ref_k - std::log(p / p_ref) / b;
+	// Past the curve's own limit no temperature boils it: condensed at every T.
 	if (inv_t <= 0.0) {
-		return std::isfinite(t_crit) ? t_crit : t_ref_c;
+		return kInf;
 	}
 	const double t_c = 1.0 / inv_t - KELVIN_OFFSET;
 	// The boundary cannot run past the critical point; beyond it the two phases are one.

@@ -5,9 +5,9 @@ extends RefCounted
 
 const BalanceScript: GDScript = preload("res://addons/local_agents/sim/material/reactions/ReactionBalance.gd")
 
-## The planet's water. ONE channel: every phase of H2O is the same stock, and which phase a cell's share
-## is in is derived from its enthalpy, not stored. Every cell, no residency mask.
-const H2O: PackedStringArray = ["h2o"]
+## The planet's water: the free channel, whose phase is derived from its enthalpy, and the rock's pore
+## water. Every cell, no residency mask.
+const H2O: PackedStringArray = ["h2o", "h2o_pore"]
 
 ## The lithosphere. Reactions move matter between these channels, so the conserved stock is elemental Si.
 const MINERAL: PackedStringArray = ["silicate", "carbonate", "silica", "olivine", "pyroxene",
@@ -24,9 +24,9 @@ const CARBON_CLOSED: PackedStringArray = ["co2", "biomass", "detritus", "fungus"
 const OXIDANT: PackedStringArray = ["o2", "co2"]
 
 
-## The energy stock is one channel.
+## The energy stock: the fluid's reservoir and the lattice's.
 static func energy() -> PackedStringArray:
-	return PackedStringArray(["e_j_m3"])
+	return PackedStringArray(["e_j_m3", "e_lith_j_m3"])
 
 
 ## Moles of each element held by a set of channel amounts, from the same declaration the load-time reaction

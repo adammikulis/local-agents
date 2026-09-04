@@ -36,7 +36,8 @@ const char *const STATE_PASSES[] = { "StateDerivePass.gd", nullptr };
 
 const char *const GRAVITY_GATES[] = { "check_gravity_solve.sh", "check_hydrosphere_mass.sh", nullptr };
 const char *const GRAVITY_PASSES[] = { "GravityPass.gd", "ReducePass.gd", nullptr };
-const char *const GRAVITY_REDUCE[] = { "@amounts", "energy_stock", "energy_stock_open", "energy_kinetic",
+const char *const GRAVITY_REDUCE[] = { "@amounts", "energy_stock", "energy_stock_lith", "energy_stock_open",
+	"energy_stock_open_lith", "energy_kinetic",
 	"energy_potential", "energy_pv_solid", "energy_pv_fluid",
 	"solid_cells", "carbonate_cells",
 	"snow_cells", "ice_cells", "crust_latch", "crust_moved", "nonfinite_cells", "nonfinite_*",
@@ -68,7 +69,7 @@ const char *const ACOUSTIC_REDUCE[] = { "open_mom_*", "momentum_*", "mach_max", 
 	"wind_speed_max", "wind_x_sum", "wind_z_sum", nullptr };
 
 const char *const CONDUCTION_GATES[] = { "check_rung_conduction.sh", nullptr };
-const char *const CONDUCTION_TRANSPORT[] = { "heat_conduct", nullptr };
+const char *const CONDUCTION_TRANSPORT[] = { "heat_conduct", "heat_conduct_lith", nullptr };
 const char *const CONDUCTION_REDUCE[] = { "radiogenic", nullptr };
 
 const char *const ADVECT_GATES[] = { "check_rung_advect.sh", "check_boundary_books.sh", "check_active_rows.sh",
@@ -96,6 +97,7 @@ const char *const CHEMISTRY_REACTIONS[] = { "BioRecords.gd", "GeoRecords.gd", "C
 	"LightningRecords.gd", nullptr };
 const char *const CHEMISTRY_TRANSPORT[] = { "escape_*", nullptr };
 const char *const CHEMISTRY_REDUCE[] = { "fire_peak", "fire_cells", nullptr };
+const char *const CHEMISTRY_DERIVE[] = { "lithify", nullptr };
 
 struct RungRow {
 	int rung;
@@ -105,23 +107,24 @@ struct RungRow {
 	const char *const *transport;
 	const char *const *reactions;
 	const char *const *reduce;
+	const char *const *derive;   // processes inside the state derive
 };
 
 const RungRow LADDER[] = {
-	{ LAProcessSet::STATE, "state", STATE_GATES, STATE_PASSES, NONE_, NONE_, NONE_ },
-	{ LAProcessSet::GRAVITY, "gravity", GRAVITY_GATES, GRAVITY_PASSES, NONE_, NONE_, GRAVITY_REDUCE },
-	{ LAProcessSet::HYDROSTATIC, "hydrostatic", HYDRO_GATES, HYDRO_PASSES, NONE_, NONE_, HYDRO_REDUCE },
+	{ LAProcessSet::STATE, "state", STATE_GATES, STATE_PASSES, NONE_, NONE_, NONE_, NONE_ },
+	{ LAProcessSet::GRAVITY, "gravity", GRAVITY_GATES, GRAVITY_PASSES, NONE_, NONE_, GRAVITY_REDUCE, NONE_ },
+	{ LAProcessSet::HYDROSTATIC, "hydrostatic", HYDRO_GATES, HYDRO_PASSES, NONE_, NONE_, HYDRO_REDUCE, NONE_ },
 	{ LAProcessSet::ACOUSTIC, "acoustic", ACOUSTIC_GATES, ACOUSTIC_PASSES, ACOUSTIC_TRANSPORT, NONE_,
-			ACOUSTIC_REDUCE },
+			ACOUSTIC_REDUCE, NONE_ },
 	{ LAProcessSet::CONDUCTION, "conduction", CONDUCTION_GATES, NONE_, CONDUCTION_TRANSPORT, NONE_,
-			CONDUCTION_REDUCE },
-	{ LAProcessSet::ADVECT, "advect", ADVECT_GATES, NONE_, ADVECT_TRANSPORT, NONE_, ADVECT_REDUCE },
+			CONDUCTION_REDUCE, NONE_ },
+	{ LAProcessSet::ADVECT, "advect", ADVECT_GATES, NONE_, ADVECT_TRANSPORT, NONE_, ADVECT_REDUCE, NONE_ },
 	{ LAProcessSet::WATER, "water", WATER_GATES, WATER_PASSES, WATER_TRANSPORT, WATER_REACTIONS,
-			WATER_REDUCE },
+			WATER_REDUCE, NONE_ },
 	{ LAProcessSet::RADIATION, "radiation", RADIATION_GATES, NONE_, RADIATION_TRANSPORT, NONE_,
-			RADIATION_REDUCE },
+			RADIATION_REDUCE, NONE_ },
 	{ LAProcessSet::CHEMISTRY, "chemistry", CHEMISTRY_GATES, NONE_, CHEMISTRY_TRANSPORT,
-			CHEMISTRY_REACTIONS, CHEMISTRY_REDUCE },
+			CHEMISTRY_REACTIONS, CHEMISTRY_REDUCE, CHEMISTRY_DERIVE },
 };
 
 const int LADDER_COUNT = (int)(sizeof(LADDER) / sizeof(RungRow));
@@ -287,6 +290,7 @@ Array LAProcessSet::rungs() {
 		d["transport"] = to_array(r.transport);
 		d["reactions"] = to_array(r.reactions);
 		d["reduce"] = to_array(r.reduce);
+		d["derive"] = to_array(r.derive);
 		out.append(d);
 	}
 	return out;
@@ -456,6 +460,10 @@ bool LAProcessSet::has_record(const String &p_kind, const String &p_label, int p
 			}
 		} else if (p_kind == "reaction") {
 			if (named(p_label, r.reactions)) {
+				return true;
+			}
+		} else if (p_kind == "derive") {
+			if (named(p_label, r.derive)) {
 				return true;
 			}
 		}

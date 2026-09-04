@@ -49,15 +49,6 @@ double LAMixtureEnthalpy::vapour_p_at(const String &p_id, double p_t_c, double p
 	return LASubstances::saturation_p_at(p_id, p_t_c);
 }
 
-// Latent heat to take the condensed phase present at this temperature into the vapour, J/kg.
-double LAMixtureEnthalpy::latent_out_of_condensed(const String &p_id, double p_t_c, double p_p_pa) {
-	const double melt = LASubstances::melt_c_at(p_id, p_p_pa, 0.0);
-	if (LASubstances::sublimes_at(p_id, p_p_pa) || (std::isfinite(melt) && p_t_c < melt)) {
-		return LASubstances::latent_sublimation_j_kg(p_id);
-	}
-	return LASubstances::latent_vaporisation_at(p_id, p_t_c);
-}
-
 // THE SATURATION SPLIT AT FIXED VOLUME: the vapour fills the cell's gas room at its own saturation
 // pressure, n_v = p_v(T) room / (R T), and the rest stays condensed. A cell has a volume, not a pressure
 // it is held at, so boiling is continuous in T and there is no plateau; the total pressure follows.
@@ -81,10 +72,9 @@ double LAMixtureEnthalpy::vapour_fraction(const String &p_id, double p_t_c, doub
 	return std::min(p_v * p_room_m3 / (la_physical("GAS_CONSTANT_J_MOL_K") * t_k) * mm / p_m_kg, 1.0);
 }
 
-// Specific enthalpy of one substance AS IT SITS IN THIS CELL: the condensed curve plus the latent heat of
-// the share the room holds as vapour. The condensed curve is read at a pressure that keeps it condensed,
-// so the split above is the only place the vapour share is decided. Past the critical point there is one
-// fluid and the substance's own curve carries it.
+// Specific enthalpy of one substance AS IT SITS IN THIS CELL: its own ladder's condensed and vapour
+// branches at this temperature, mixed by the room's vapour share, each read on its own side of the
+// saturation curve so the two meet at the critical point.
 double LAMixtureEnthalpy::specific_enthalpy(const String &p_id, double p_t_c, double p_p_pa, double p_m_kg,
 		double p_room_m3) {
 	if (!std::isfinite(vapour_boundary_c(p_id, p_p_pa)) || p_t_c >= prop(p_id, "critical_t_c", kInf)) {
@@ -92,11 +82,15 @@ double LAMixtureEnthalpy::specific_enthalpy(const String &p_id, double p_t_c, do
 	}
 	const double f_v = vapour_fraction(p_id, p_t_c, p_p_pa, p_m_kg, p_room_m3);
 	const double p_v = vapour_p_at(p_id, p_t_c, p_p_pa);
-	const double h = LASubstances::enthalpy_at(p_id, p_t_c, std::max(p_p_pa, p_v * (1.0 + 1.0e-3)), 0.0);
-	if (f_v <= 0.0) {
-		return h;
+	if (f_v >= 1.0) {
+		return LASubstances::enthalpy_at(p_id, p_t_c, std::min(p_p_pa, p_v) * (1.0 - 1.0e-3), 0.0);
 	}
-	return h + f_v * latent_out_of_condensed(p_id, p_t_c, p_p_pa);
+	const double h_cond = LASubstances::enthalpy_at(p_id, p_t_c, std::max(p_p_pa, p_v * (1.0 + 1.0e-3)), 0.0);
+	if (f_v <= 0.0) {
+		return h_cond;
+	}
+	const double h_vap = LASubstances::enthalpy_at(p_id, p_t_c, std::min(p_p_pa, p_v) * (1.0 - 1.0e-3), 0.0);
+	return h_cond + f_v * (h_vap - h_cond);
 }
 
 // Total enthalpy of the cell at a temperature, J.
@@ -304,8 +298,6 @@ void LAMixtureEnthalpy::_bind_methods() {
 			D_METHOD("vapour_boundary_c", "id", "p_pa"), &vapour_boundary_c);
 	ClassDB::bind_static_method("LAMixtureEnthalpy",
 			D_METHOD("vapour_p_at", "id", "t_c", "p_pa"), &vapour_p_at);
-	ClassDB::bind_static_method("LAMixtureEnthalpy",
-			D_METHOD("latent_out_of_condensed", "id", "t_c", "p_pa"), &latent_out_of_condensed);
 	ClassDB::bind_static_method("LAMixtureEnthalpy",
 			D_METHOD("vapour_fraction", "id", "t_c", "p_pa", "m_kg", "room_m3"), &vapour_fraction);
 	ClassDB::bind_static_method("LAMixtureEnthalpy",

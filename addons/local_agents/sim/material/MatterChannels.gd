@@ -44,11 +44,12 @@ const CHANNELS: PackedStringArray = [
 	"biomass", "fungus", "detritus", "fuel", "org_h", "org_o",
 	"fert",
 	"metal", "olivine", "pyroxene", "plagioclase", "halite", "apatite",
-	"h2", "co", "so2", "h2s", "ch4"]
+	"h2", "co", "so2", "h2s", "ch4",
+	"h2o_pore"]
 
 ## Cases in the include's `channel_at` switch. A mismatch drops a substance out of every kernel that
 ## weighs a cell.
-const KERNEL_SLOTS: int = 25
+const KERNEL_SLOTS: int = 26
 
 ## Channels past the first 14 bind from 54 up: 14-53 were already taken by the two kernels' own buffers.
 const HIGH_BINDING_BASE: int = 54

@@ -9,7 +9,7 @@ enum Phase { SEEDING = 0, SEALED = 1 }
 ## Every channel a conservation baseline reads.
 static func required_channels() -> PackedStringArray:
 	var out: PackedStringArray = PackedStringArray()
-	for name in ["e_j_m3", "porosity", "co2", "o2", "fert", "n2"]:
+	for name in ["e_j_m3", "e_lith_j_m3", "porosity", "co2", "o2", "fert", "n2"]:
 		if not out.has(name):
 			out.append(name)
 	return out

@@ -14,7 +14,8 @@ var intensity_scale: float = 0.0      # intensity per unit past the bar (0 = fla
 var intensity_max: float = 40.0
 var description_text: String = ""     # narratable sentence; consumers read LAEvent.description
 
-var _armed: bool = true               # cross_up: ready to fire (below rearm)
+var _armed: bool = false              # cross_up: ready to fire (below rearm); arms off the first reading
+var _seen: bool = false               # cross_up: the first reading is the baseline, never an onset
 var _last_fired_value: float = 0.0    # cross_up escalation reference
 var _time_since_emit: float = 1.0e9   # increment/rate cooldown accumulator
 
@@ -36,6 +37,10 @@ func detect(prev: Dictionary, cur: Dictionary, dt: float) -> Array:
 	var v: float = float(cur.get(key, 0.0))
 	var out: Array = []
 	if mode == "cross_up":
+		if not _seen:
+			_seen = true
+			_armed = v < rearm
+			_last_fired_value = v
 		if _armed and v > threshold:
 			out.append(_emit(v, v - threshold))
 			_armed = false

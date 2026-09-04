@@ -5,7 +5,6 @@
 #define LA_BAND_GLSLI
 
 const float LA_BAND_EPS = 1.0e-4;   // a plane coefficient below this share of the vertical is parallel to that axis
-const float LA_FLOAT_EPS = 1.1920929e-7;   // float32 epsilon: two depths closer than this share of the cube coincide
 
 // Length of {a s + c >= 0} over [-h, h].
 float la_seg_len(float a, float c, float h) {

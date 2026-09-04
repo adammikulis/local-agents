@@ -33,6 +33,7 @@ const GRAIN_ROW: Dictionary = {"channel": "silicate", "substance": "silicate",
 const MOMENTUM_BOOKS: PackedStringArray = ["mom_x", "mom_y", "mom_z"]
 
 var _pipe: RID = RID()
+var _level_rid: RID = RID()
 
 ## One submit holds ONE substep: the device's fence wait is finite, and a planet-size frame in one
 ## submit outran it. A substep over the whole grid is the largest thing a submit may hold.
@@ -125,6 +126,7 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	_peaks.resize(_row_groups.size())
 	_args_rid = _single(bufs, LevelsScript.KEYS.args)
 	_peak_rid = _single(bufs, LevelsScript.KEYS.peak)
+	_level_rid = _single(bufs, LevelsScript.KEYS.level)
 	_wake_args_rid = _single(bufs, ActiveScript.KEYS.wake_args)
 	_total = cc + ghost_count
 	_row_group.resize(_rows.size())
@@ -264,8 +266,11 @@ func pre_step(rd: RenderingDevice, ctx: Dictionary, cc: int, _groups: int) -> vo
 		if _peaks[g2] < lim:
 			continue
 		_peaks[g2] = -1
+		var lv: PackedInt32Array = rd.buffer_get_data(_level_rid, 0, cc * 4).to_int32_array()
+		var at: int = 0
+		for i in lv.size(): at = i if lv[i] > lv[at] else at
 		push_error("FluxPass: the %s record's own cells carry a signal speed at or past light, so "
-			% String(_rows[_row_groups[g2][0]]["channel"]) + "no timestep integrates them.")
+			% String(_rows[_row_groups[g2][0]]["channel"]) + "no timestep integrates them (cell %d)." % at)
 
 
 ## The record that closes a group with the interface pressure and the body impulse.
@@ -319,7 +324,8 @@ const BINDINGS: Dictionary = {
 	"bodyf_z": 68, "co": 72, "so2": 73, "h2s": 74, "o2": 75, "n2": 76, "h2": 77, "grav_phi": 78, "grav_ref": 95, "pe_j_m3": 91, "lithic_frac": 96, "lithic_kg": 97,
 	"tlevel": 80, "level_idx": 81, "level_args": 82, "level_peak": 83, "act_quiet": 84, "act_claim": 85,
 	"act_queue": 86, "act_wake": 87, "act_wake_args": 88, "k_cond": 89,
-	"slot_off": 92, "face_partner": 93, "cell_edge": 94, "ground_d": 99, "gas_r": 101, "gas_gamma": 102
+	"slot_off": 92, "face_partner": 93, "cell_edge": 94, "ground_d": 99, "gas_r": 101, "gas_gamma": 102,
+	"cap_lith": 103, "temp_lith": 104, "lattice_frac": 105
 }
 
 ## Pass-owned scratch, in binding order: the first FACE_SCRATCH ride a face, the rest are per cell.
@@ -334,7 +340,7 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 	var resist: String = String(row.get("resist", ""))
 	var aux: String = String(row.get("aux", ""))
 	var frac: String = String(row.get("frac", ""))
-	var moves_enthalpy: bool = channel == "e_j_m3"
+	var moves_enthalpy: bool = int(row["mode"]) in [LATransportRecords.CONDUCT, LATransportRecords.RADIATE]
 	# Mass does not move without its heat, so the enthalpy field is required of every record carrying mass.
 	# The detector-list buffers a synthetic record compacts into; empty for an ordinary record.
 	var list: Dictionary = LATransportRecords.list_buffers(String(row.get("list", "")))
@@ -343,7 +349,7 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 			"h_sensible", "bnd_void", "bnd_h_void", String(list.get("idx", "")),
 			String(list.get("args", ""))]:
 		var name: String = String(key)
-		if name == "" or (name == "e_j_m3" and moves_enthalpy):
+		if name == "":
 			continue
 		if not bufs.has(name):
 			push_error("FluxPass: no \"%s\" buffer, so the %s record does not move." % [name, channel])
@@ -355,7 +361,7 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 	var amount: RID = _single(bufs, channel)
 	entries += [
 		[0, amount],
-		[1, _no_h if moves_enthalpy else _single(bufs, "e_j_m3")],
+		[1, _single(bufs, "e_lith_j_m3" if moves_enthalpy and channel == "e_j_m3" else "e_j_m3")],
 		[10, _zero if resist == "" else _single(bufs, resist)],
 		[11, amount if drive == "" else _single(bufs, drive)],
 		[12, _one if aux == "" else _single(bufs, aux)],
@@ -365,7 +371,7 @@ func _row_set(bufs: Dictionary, row: Dictionary) -> RID:
 		[34, _zero if list.is_empty() else bufs[String(list["idx"])]],
 		[35, _zero if list.is_empty() else bufs[String(list["args"])]],
 		# Heat travels with the matter that holds it, so a record reads the enthalpy of ITS OWN entry.
-		[46, _single(bufs, _carried_key(String(row["substance"])))],
+		[46, _single(bufs, _carried_key(String(row["substance"]), frac))],
 		# A booked channel's boundary crossings; an unbooked record writes a void pair nothing reads.
 		[48, _single(bufs, _book(channel, false))],
 		[49, _single(bufs, _book(channel, true))],
@@ -401,13 +407,11 @@ func _mom_book(axis: String) -> String:
 
 
 ## The buffer holding the enthalpy of the mixture entry a substance's heat sits in.
-func _carried_key(substance: String) -> String:
-	match LAMatterChannels.entry_of(substance):
-		LAMatterChannels.Entry.H2O:
-			return "h_h2o"
-		LAMatterChannels.Entry.SILICATE:
-			return "h_silicate"
-	return "h_sensible"
+func _carried_key(substance: String, frac: String = "") -> String:
+	var entry: int = LAMatterChannels.entry_of(substance)
+	if entry == LAMatterChannels.Entry.H2O:
+		return "h_h2o_vap" if frac == "h2o_vapour" else "h_h2o"
+	return "h_silicate" if entry == LAMatterChannels.Entry.SILICATE else "h_sensible"
 
 
 # --- push constant ----------------------------------------------------------------------------------------
@@ -416,7 +420,8 @@ func _carried_key(substance: String) -> String:
 ## named-or-not.
 const SWITCHES: Array = [["settle", LATransportRecords.Flag.SETTLE],
 	["efield", LATransportRecords.Flag.EFIELD], ["dilute", LATransportRecords.Flag.DILUTE],
-	["relax", LATransportRecords.Flag.RELAX], ["radiogenic", LATransportRecords.Flag.RADIOGENIC]]
+	["relax", LATransportRecords.Flag.RELAX], ["radiogenic", LATransportRecords.Flag.RADIOGENIC],
+	["lattice", LATransportRecords.Flag.LATTICE]]
 const NAMED: Array = [["frac", LATransportRecords.Flag.FRACTION]]
 
 
@@ -514,7 +519,7 @@ func _pc(row: Dictionary, cc: int, pass_id: int, dt_s: float,
 		if String(row.get(String(pair2[0]), "")) != "":
 			flags |= int(pair2[1])
 	# The record whose amount IS enthalpy books joules on both boundary legs.
-	if String(row["channel"]) == "e_j_m3":
+	if int(row["mode"]) in [LATransportRecords.CONDUCT, LATransportRecords.RADIATE]:
 		flags |= LATransportRecords.Flag.ENERGY
 	flags |= LATransportRecords.Flag.WATER if int(row.get("fluid", LATransportRecords.Fluid.VACUUM)) == LATransportRecords.Fluid.WATER else 0
 	var pc: PackedByteArray = PackedByteArray()

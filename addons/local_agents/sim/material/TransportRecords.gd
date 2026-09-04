@@ -15,7 +15,7 @@ enum Fluid { VACUUM, WATER, AIR }
 
 ## Per-record switches, packed into the kernel's `flags`. Matches the TF_* constants in flux.glsl.
 enum Flag { SETTLE = 2, EFIELD = 4, FRACTION = 16, DILUTE = 32,
-	RADIOGENIC = 64, ENERGY = 128, RELAX = 256, VEL = 512, LEVEL = 1024, WATER = 2048 }
+	RADIOGENIC = 64, ENERGY = 128, RELAX = 256, VEL = 512, LEVEL = 1024, WATER = 2048, LATTICE = 4096 }
 
 
 ## `settle` adds the grain's terminal velocity; `frac` is the derived share moved; `relax` carries
@@ -28,8 +28,8 @@ static func rows() -> Array:
 		{"label": "h2o_surface", "channel": "h2o", "substance": "h2o", "mode": POTENTIAL,
 			"law": Law.SHALLOW, "frac": "h2o_liquid"},
 
-		{"label": "h2o_groundwater", "channel": "h2o", "substance": "h2o", "mode": POTENTIAL,
-			"law": Law.DARCY, "fluid": Fluid.WATER, "frac": "h2o_liquid"},
+		{"label": "h2o_groundwater", "channel": "h2o_pore", "substance": "h2o", "mode": POTENTIAL,
+			"law": Law.DARCY, "fluid": Fluid.WATER},
 
 		# One silicate channel, four closures. Cemented rock has none: that is what being rock means.
 		{"label": "silicate_melt_film", "channel": "silicate", "substance": "silicate",
@@ -58,7 +58,8 @@ static func rows() -> Array:
 		# The heat equation: conduction down the temperature gradient, and the rock's own decay as the
 		# volumetric source term beside it.
 		{"label": "heat_conduct", "channel": "e_j_m3", "substance": "", "mode": CONDUCT,
-			"drive": "temp", "aux": "conductivity", "radiogenic": true, "relax": true},
+			"drive": "temp", "aux": "conductivity", "relax": true},
+		{"label": "heat_conduct_lith", "channel": "e_lith_j_m3", "substance": "", "mode": CONDUCT, "drive": "temp_lith", "aux": "conductivity_lith", "radiogenic": true, "relax": true, "lattice": true},
 
 		{"label": "heat_radiate", "channel": "e_j_m3", "substance": "", "mode": RADIATE},
 

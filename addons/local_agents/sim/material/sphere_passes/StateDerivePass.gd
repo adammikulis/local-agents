@@ -17,8 +17,8 @@ const BOUND: Dictionary = {
 	"org_oc": 31, "rho_bulk": 32, "conductivity": 33, "h2o_solid": 34, "h2o_liquid": 35,
 	"h2o_vapour": 36, "silicate_melt": 37, "org_fresh": 38, "cell_edge": 94, "speed": 41, "lat": 42,
 	"alt": 43, "nonfinite": 44, "h_h2o": 45, "h_silicate": 46, "h_sensible": 47, "cap_sensible": 48,
-	"gravity": 49, "bodyf_x": 50, "bodyf_y": 51, "bodyf_z": 52, "k_cond": 53, "rad_w_m3": 65,
-	"g_rest": 39, "level_idx": 81, "mom_orphan": 92, "lithic_frac": 96, "lithic_kg": 97, "unconverged": 99, "gas_r": 66, "gas_gamma": 67, "mach": 68}
+	"gravity": 49, "bodyf_x": 50, "bodyf_y": 51, "bodyf_z": 52, "k_cond": 53, "rad_w_m3": 75,
+	"g_rest": 39, "level_idx": 81, "mom_orphan": 92, "lithic_frac": 96, "lithic_kg": 97, "unconverged": 99, "gas_r": 66, "gas_gamma": 67, "mach": 68, "e_lith_j_m3": 69, "temp_lith": 70, "conductivity_lith": 71, "cap_lith": 73, "lattice_frac": 74, "h_h2o_vap": 76, "p_fluid": 77}
 
 ## props row layout — state_derive.glsl PROP_*.
 const PROP_STRIDE: int = 12
@@ -57,12 +57,12 @@ func _buffers(cc: int) -> Dictionary:
 	# sorted list, and this pass runs at rungs below the one that moves anything.
 	return LATemporalLevels.buffers(cc + ghost_count, FluxPassScript.group_count()).merged({"speed": cc,
 		"lat": cc, "alt": cc, "nonfinite": cc, "mom_orphan": cc, "unconverged": cc,
-		"h_h2o": {"n": cc, "ghosts": true}, "h_silicate": {"n": cc, "ghosts": true},
+		"h_h2o": {"n": cc, "ghosts": true}, "h_h2o_vap": {"n": cc, "ghosts": true}, "h_silicate": {"n": cc, "ghosts": true},
 		"h_sensible": {"n": cc, "ghosts": true}, "cap_sensible": {"n": cc, "ghosts": true},
 		"org_hc": cc, "org_oc": cc, "org_fresh": cc,
 		"bodyf_x": cc, "bodyf_y": cc, "bodyf_z": cc,
 		"k_cond": {"n": cc, "ghosts": true}, "gas_r": {"n": cc, "ghosts": true},
-		"gas_gamma": {"n": cc, "ghosts": true}, "mach": cc, "g_rest": {"n": cc * 3, "ghosts": true},
+		"gas_gamma": {"n": cc, "ghosts": true}, "mach": cc, "g_rest": {"n": cc * 3, "ghosts": true}, "cap_lith": {"n": cc, "ghosts": true}, "lattice_frac": {"n": cc, "ghosts": true},
 		"rad_w_m3": {"n": cc, "ghosts": true}, "ke_j_m3": cc, "pe_j_m3": cc, "grav_phi": cc, "grav_ref": cc, "lithic_frac": {"n": cc, "ghosts": true}, "lithic_kg": {"n": cc, "ghosts": true}})
 
 
@@ -108,7 +108,8 @@ func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: i
 	var w: Vector3 = ctx.get("spin", Vector3.ZERO) * float(ctx.get("spin_rate_rad_s", 0.0))
 	var centre: Vector3 = ctx.get("centre", Vector3.ZERO)
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(88)
+	pc.resize(92)
+	pc.encode_u32(88, 1 if LAProcessSet.has_record("derive", "lithify") else 0)
 	pc.encode_u32(0, cc)
 	pc.encode_float(4, LAMaterialFieldSphereStep3D.real_seconds_per_step())
 	pc.encode_float(8, w.x)
@@ -188,7 +189,7 @@ func _props() -> PackedFloat32Array:
 			or String(row.get("phase", "")) == "dissolved" else 1.0
 		out[base + PROP_BULK] = float(s.get("bulk_modulus_pa", s.get("bulk_modulus_solid_pa", 0.0)))
 		out[base + PROP_TREF] = float(s.get("density_ref_t_c", 0.0))
-		out[base + PROP_LITHIC] = 1.0 if bool(row.get("lithic", false)) else 0.0
+		out[base + PROP_LITHIC] = 1.0 if bool(row.get("lithic", false)) or bool(row.get("lattice", false)) else 0.0
 		out[base + PROP_RAD_GROUP] = float(_rad_group(s.get("traces", {})))
 	return out
 

@@ -319,13 +319,23 @@ func _derive(st: Dictionary, d: int) -> Dictionary:
 		v_used += vf
 	var m_h2o: float = float(m_by_id.get("h2o", 0.0))
 	var room: float = vol * maxf(1.0 - v_cond, 0.0)
-	var e: Dictionary = LAFieldEnthalpySeed.entry_enthalpies(m_by_id, room, t_c, p_pa)
-	out["h_h2o"] = float(e["h_h2o"]) / vol
-	out["h_silicate"] = float(e["h_silicate"]) / vol
-	out["h_sensible"] = float(e["h_sensible"]) / vol
+	# The exterior's minerals are its lattice, at the same temperature; the rest is its fluid.
+	var split: Array = [{}, {}]
+	var lithic_ids: Array = Array(LAChannels.lattice_channels()).map(func(n: String) -> String: return String(rows[n]["substance"]))
+	for id in m_by_id:
+		split[0 if lithic_ids.has(String(id)) else 1][id] = m_by_id[id]
+	var e: Dictionary = LAFieldEnthalpySeed.entry_enthalpies(split[1], room, t_c, p_pa)
+	var el: Dictionary = LAFieldEnthalpySeed.entry_enthalpies(split[0], 0.0, t_c, p_pa)
+	var f_v_h: float = LAMixtureEnthalpy.vapour_fraction("h2o", t_c, p_pa, m_h2o, room) if m_h2o > 0.0 else 0.0
+	out["h_h2o"] = float(e["h_h2o"]) * (1.0 - f_v_h) / vol
+	out["h_h2o_vap"] = float(e["h_h2o"]) * f_v_h / vol
+	out["h_silicate"] = (float(e["h_silicate"]) + float(el["h_silicate"])) / vol
+	out["h_sensible"] = (float(e["h_sensible"]) + float(el["h_sensible"])) / vol
 	out["cap_sensible"] = float(e["cap_sensible"]) / vol
 	out["e_j_m3"] = (float(e["h_h2o"]) + float(e["h_silicate"]) + float(e["h_sensible"])) / vol
-	out["temp"] = t_c
+	out["e_lith_j_m3"] = (float(el["h_h2o"]) + float(el["h_silicate"]) + float(el["h_sensible"])) / vol
+	out.merge({"temp": t_c, "temp_lith": t_c})
+	out["conductivity_lith"] = v_lambda / v_used if v_used > 0.0 else 0.0
 	out["pressure"] = p_pa
 	out["rho_bulk"] = mass_total / vol
 	out["conductivity"] = v_lambda / v_used if v_used > 0.0 else 0.0

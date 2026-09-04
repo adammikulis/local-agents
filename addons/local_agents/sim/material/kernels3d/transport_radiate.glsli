@@ -115,9 +115,10 @@ float band_tau(vec4 a, vec2 z, vec4 m, uint b, uint ti, float tf) {
 		+ kappa_at(b, 10u, ti, tf) * m.w;
 }
 
-// The cell's thermal-infrared emissivity: band-resolved optical depth over its own absorber paths,
-// Planck-weighted at its own temperature, blended into the emissivity of whatever it holds condensed.
-float longwave_emissivity(uint c) {
+// The cell's thermal-infrared emissivity in two parts: the fluid's (its gas, band-resolved over its own
+// absorber paths and Planck-weighted at its own temperature, and its water and ice) and the lattice's
+// (bare rock), each radiating at its reservoir's temperature.
+vec2 longwave_emissivity_parts(uint c) {
 	float tk = t_k(c);
 	vec4 a = absorber_paths(c, cell_edge[c]);
 	vec2 z = o3_paths(c, cell_edge[c]);
@@ -128,15 +129,30 @@ float longwave_emissivity(uint c) {
 	for (uint b = 0u; b < params.band_count; ++b) {
 		eps += band_weight(b, tk) * (1.0 - exp(-DIFFUSIVITY * band_tau(a, z, m, b, ti, tf)));
 	}
+	eps = clamp(eps, 0.0, 1.0);
 	float wet = h2o_water(c) / FULL_H2O;
 	float icy = h2o_ice(c) / FULL_H2O;
 	float dry = max(silicate[c], 0.0) / FULL_SILICATE + (solid[c] != 0.0 ? 1.0 : 0.0);
 	float mass = wet + icy + dry;
 	if (mass <= 0.0) {
-		return clamp(eps, 0.0, 1.0);
+		return vec2(eps, 0.0);
 	}
-	float material = (wet * EMIS_WATER + icy * EMIS_SNOW + dry * EMIS_ROCK) / mass;
-	return clamp(mix(eps, material, condensed_frac(c)), 0.0, 1.0);
+	float cf = condensed_frac(c);
+	float fluid = (1.0 - cf) * eps + cf * (wet * EMIS_WATER + icy * EMIS_SNOW) / mass;
+	float lattice = cf * dry * EMIS_ROCK / mass;
+	return vec2(fluid, lattice);
+}
+
+float longwave_emissivity(uint c) {
+	vec2 e = longwave_emissivity_parts(c);
+	return e.x + e.y;
+}
+
+// W/m^2 the cell radiates: each reservoir's emissivity at its own temperature.
+float radiated_by(uint c, vec2 eps2) {
+	float tf = t_k(c);
+	float tl = max(temp_lith[c] + KELVIN, 1.0);
+	return STEFAN * (eps2.x * tf * tf * tf * tf + eps2.y * tl * tl * tl * tl);
 }
 
 // Shortwave reflectivity: the cited albedo of each thing the cell holds, weighted by how much of it there

@@ -30,12 +30,6 @@ float la_mix_vapour_p_at(SubstanceTh s, float t_c, float p_pa, float molality_mo
 	return la_saturation_p_at(s, t_c);
 }
 
-float la_mix_latent_out(SubstanceTh s, float t_c, float p_pa, float molality_mol_kg) {
-	float melt = la_melt_c_at(s, p_pa, molality_mol_kg);
-	if (la_sublimes_at(s, p_pa) || (s.has_melt && t_c < melt)) { return la_latent_sublimation(s); }
-	return la_latent_vaporisation_at(s, t_c);
-}
-
 // THE SATURATION SPLIT AT FIXED VOLUME: the vapour fills the gas room at its saturation pressure,
 // n_v = p_v(T) room / (R T), the rest stays condensed, and boiling is continuous — no plateau.
 float la_mix_vapour_fraction(SubstanceTh s, float t_c, float p_pa, float m_kg, float room_m3,
@@ -49,16 +43,19 @@ float la_mix_vapour_fraction(SubstanceTh s, float t_c, float p_pa, float m_kg, f
 	return min(p_v * room_m3 / (LA_R_J_MOL_K * t_k) * s.molar_mass / m_kg, 1.0);
 }
 
-// Specific enthalpy of one substance AS IT SITS IN THIS CELL: the condensed curve, read at a pressure
-// that keeps it condensed, plus the latent heat of the room's vapour share; one fluid past the critical point.
+// Specific enthalpy of one substance AS IT SITS IN THIS CELL: its own ladder's condensed branch and
+// vapour branch at this temperature, mixed by the room's vapour share. Each branch is read at a pressure
+// on its own side of the saturation curve, so the two are the ladder's and meet at the critical point.
 float la_mix_specific_enthalpy(SubstanceTh s, float t_c, float p_pa, float m_kg, float room_m3,
 		float molality_mol_kg) {
 	if (!s.has_boil || t_c >= s.crit_t_c) { return la_state_to_enthalpy(s, t_c, p_pa, molality_mol_kg); }
 	float f_v = la_mix_vapour_fraction(s, t_c, p_pa, m_kg, room_m3, molality_mol_kg);
 	float p_v = la_mix_vapour_p_at(s, t_c, p_pa, molality_mol_kg);
-	float h = la_state_to_enthalpy(s, t_c, max(p_pa, p_v * (1.0 + 1.0e-3)), molality_mol_kg);
-	if (f_v <= 0.0) { return h; }
-	return h + f_v * la_mix_latent_out(s, t_c, p_pa, molality_mol_kg);
+	if (f_v >= 1.0) { return la_state_to_enthalpy(s, t_c, min(p_pa, p_v) * (1.0 - 1.0e-3), molality_mol_kg); }
+	float h_cond = la_state_to_enthalpy(s, t_c, max(p_pa, p_v * (1.0 + 1.0e-3)), molality_mol_kg);
+	if (f_v <= 0.0) { return h_cond; }
+	float h_vap = la_state_to_enthalpy(s, t_c, min(p_pa, p_v) * (1.0 - 1.0e-3), molality_mol_kg);
+	return mix(h_cond, h_vap, f_v);
 }
 
 float la_mix_enthalpy_at(SubstanceTh subs[LA_MIX_MAX], float mass[LA_MIX_MAX], int n, float t_c,

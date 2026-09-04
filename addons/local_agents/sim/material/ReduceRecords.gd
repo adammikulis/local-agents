@@ -16,7 +16,7 @@ enum Mask { ALL, OPEN, SOLID, GROUND, AIR, BEDDED }
 enum Nbr { NONE, SOLID_COUNT, BELOW, ABOVE, GRAD_X, GRAD_Y, GRAD_Z }
 
 ## Channels whose stock the conservation ledger books, mask-free and open-only.
-const AMOUNTS: PackedStringArray = ["h2o", "silicate", "carbonate", "silica",
+const AMOUNTS: PackedStringArray = ["h2o", "h2o_pore", "silicate", "carbonate", "silica",
 	"co2", "o2", "n2", "h2", "co", "so2", "h2s", "ch4",
 	"detritus", "biomass", "fert", "fungus", "fuel", "org_h", "org_o",
 	"metal", "olivine", "pyroxene", "plagioclase", "halite", "apatite"]
@@ -48,8 +48,10 @@ static func rows() -> Array:
 		out.append({"key": "all_" + name, "source": name, "op": Op.SUM, "mask": Mask.ALL, "weight": true})
 		out.append({"key": "open_" + name, "source": name, "op": Op.SUM, "mask": Mask.OPEN, "weight": true})
 	out.append({"key": "energy_stock", "source": "e_j_m3", "op": Op.SUM, "mask": Mask.ALL, "weight": true})
+	out.append({"key": "energy_stock_lith", "source": "e_lith_j_m3", "op": Op.SUM, "mask": Mask.ALL, "weight": true})
 	# The same stock split by who updates it: open cells every substep, rock once a step.
 	out.append({"key": "energy_stock_open", "source": "e_j_m3", "op": Op.SUM, "mask": Mask.OPEN, "weight": true})
+	out.append({"key": "energy_stock_open_lith", "source": "e_lith_j_m3", "op": Op.SUM, "mask": Mask.OPEN, "weight": true})
 	out.append({"key": "energy_kinetic", "source": "ke_j_m3", "op": Op.SUM, "weight": true})
 	# The third store: mass in the potential, gravitational and rotating-frame alike.
 	out.append({"key": "energy_potential", "source": "pe_j_m3", "op": Op.SUM, "mask": Mask.ALL, "weight": true})

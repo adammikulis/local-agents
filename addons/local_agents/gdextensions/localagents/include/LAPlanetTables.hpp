@@ -59,7 +59,8 @@ public:
 	static Dictionary body_field(Object *p_grid, const Vector3 &p_centre, double p_radius_m, double p_t_c);
 	static Dictionary upload_body_field(RenderingDevice *p_rd, const Dictionary &p_bufs, Object *p_grid,
 			const Vector3 &p_centre, double p_radius_m, double p_t_c);
-	static void seed(Object *p_field, double p_t_c);
+	static PackedFloat32Array geotherm_k(double p_radius_m, double p_t_c);
+	static void seed(Object *p_field, double p_t_c, const PackedFloat32Array &p_t_rock);
 
 protected:
 	static void _bind_methods();

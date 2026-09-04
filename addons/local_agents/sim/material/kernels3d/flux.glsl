@@ -49,6 +49,10 @@ layout(set = 0, binding = 11, std430) readonly buffer Drive { float drive[]; };
 layout(set = 0, binding = 12, std430) restrict readonly buffer Aux { float aux[]; };
 
 layout(set = 0, binding = 15, std430) restrict readonly buffer TempBuf     { float temp[]; };
+// The lattice reservoir: temperature, sensible capacity, volume share.
+layout(set = 0, binding = 104, std430) restrict readonly buffer TempLith { float temp_lith[]; };
+layout(set = 0, binding = 103, std430) restrict readonly buffer CapLith { float cap_lith[]; };
+layout(set = 0, binding = 105, std430) restrict readonly buffer LatticeFrac { float lattice_frac[]; };
 // READ ONLY. An open cell's pressure is state_derive.glsl's equation of state and nothing else's.
 layout(set = 0, binding = 16, std430) readonly buffer PressureBuf { float pressure[]; };
 layout(set = 0, binding = 17, std430) restrict readonly buffer PorosityBuf { float porosity[]; };
@@ -206,13 +210,14 @@ float row_amount(uint c) {
 	return amount[c] * row_share(c);
 }
 
-// Heat per unit of THIS substance in cell `c`: its share of the mixture entry its heat sits in.
+// Heat per unit of THIS row's matter in cell `c`; a row moving one phase divides by that phase's amount.
 float h_per_unit(uint c) {
 	if (params.sub_cap_j_m3k > 0.0) {
 		float cap = cap_sensible[c];
 		return cap > 0.0 ? h_carried[c] * params.sub_cap_j_m3k / cap : 0.0;
 	}
-	return amount[c] > 0.0 ? h_carried[c] / amount[c] : 0.0;
+	float own = (params.flags & TF_FRACTION) != 0u ? row_amount(c) : amount[c];
+	return own > 0.0 ? h_carried[c] / own : 0.0;
 }
 
 float face_gas_factor(uint c, uint d) {
@@ -649,11 +654,22 @@ void row_apply(uint c) {
 		}
 	}
 	if ((params.flags & TF_RADIOGENIC) != 0u) {
-		// The rock warms itself, at this epoch's rate. This record carries e_j_m3, so `amount` IS enthalpy.
+		// The rock warms itself, at this epoch's rate. This record's `amount` IS the lattice's energy.
 		float dq = max(rad_w_m3[c], 0.0) * la_dt;
 		amount[c] += dq;
 		radiogenic[c] = dq;
 		d_amt += dq;
+	}
+	// ACROSS THE GROUND: the lattice conducts into the fluid on it through one face over half its thickness.
+	if ((params.flags & TF_LATTICE) != 0u) {
+		float vl = lattice_frac[c];
+		if (vl > 0.0 && vl < 1.0 && rho_fluid(c) > 0.0) {
+			float L = cell_edge[c];
+			float q = 2.0 * aux[c] * (drive[c] - temp[c]) * la_dt / (vl * L * L);
+			amount[c] -= q;
+			e[c] += q;
+			d_amt -= q;
+		}
 	}
 	// LA_APPROX: boundary_relaxation_zone
 	bool last = params.substep_k + (params.substep_n >> tlevel[c]) >= params.substep_n;
@@ -867,8 +883,19 @@ float la_row_need(uint c) {
 		for (uint d = 0u; d < N_SLOTS; ++d) {
 			float vn = max(dot(vc, face_normal(d)), 0.0);
 			float gas = (vn + face_c(c, d)) * max(face_gas_factor(c, d), 1.0);
-			// The band drains through a face by the face's wet share over the band's share of the cell.
-			float wet = cw > 0.0 ? water_face(c, d, top).x : 0.0;
+			// The band drains by the face's wet share over its own, and only through a face it can CROSS.
+			bool crossable = false;
+			for (uint f = la_slot_lo(c, d); f < la_slot_hi(c, d); ++f) {
+				int nb = nbr[f];
+				if (nb < 0) {
+					nb = ghost[f];
+				}
+				if (nb == GHOST_SPACE || (nb >= 0 && (uint(nb) >= params.cell_count
+						|| (solid[nb] == 0.0 && !collisionless(uint(nb)))))) {
+					crossable = true;
+				}
+			}
+			float wet = (cw > 0.0 && crossable) ? water_face(c, d, top).x : 0.0;
 			float water = (vn + cw) * max(f_w > 0.0 ? wet / f_w : 0.0, 1.0);
 			w += max(gas, water);
 		}
@@ -893,8 +920,20 @@ float la_row_need(uint c) {
 	}
 	need = max(need, v * dt / L);
 	// Eddy mixing relaxes each pair exactly and asks no step; conduction and charge still march.
-	if (params.mode == MODE_CONDUCT && cap_sensible[c] > 0.0) {
-		need += 6.0 * max(aux[c], 0.0) / cap_sensible[c] * dt / (L * L);
+	if (params.mode == MODE_CONDUCT) {
+		bool lattice_row = (params.flags & TF_LATTICE) != 0u;
+		float cap = lattice_row ? cap_lith[c] : cap_sensible[c];
+		if (cap > 0.0) {
+			need += 6.0 * max(aux[c], 0.0) / cap * dt / (L * L);
+		}
+		// The ground exchange drains whichever reservoir is the smaller.
+		float vl = lattice_frac[c];
+		if (lattice_row && vl > 0.0 && vl < 1.0) {
+			float small = min(cap_lith[c] > 0.0 ? cap_lith[c] : 1.0e30, cap_sensible[c] > 0.0 ? cap_sensible[c] : 1.0e30);
+			if (small < 1.0e30) {
+				need += 2.0 * max(aux[c], 0.0) / (vl * small) * dt / (L * L);
+			}
+		}
 	}
 	// NO SIGNAL CROSSES A CELL FASTER THAN LIGHT: a state asking for a shorter step is not a timestep.
 	return min(need / LA_COURANT_LIMIT, params.dt_s * C_LIGHT / L);
@@ -927,7 +966,8 @@ void radiate_emit(uint c) {
 	for (uint f = f_lo; f < f_hi; ++f) {
 		send[f] = 0.0;
 	}
-	float eps = longwave_emissivity(c);
+	vec2 eps2 = longwave_emissivity_parts(c);
+	float eps = eps2.x + eps2.y;
 	lw_emis[c] = eps;
 	sw_absorbed[c] = shortwave_absorbed_frac(c, solar_step_m(c));
 	// Share of an upwelling flux this cell keeps as heat over one vertical step.
@@ -935,8 +975,8 @@ void radiate_emit(uint c) {
 	float edge = cell_edge[c];
 	float up_len = length(gsw) > 0.0 ? la_step_len(-normalize(gsw), edge) : edge;
 	sw_keep[c] = shortwave_absorbed_frac(c, up_len) * (1.0 - shortwave_albedo(c));
-	float tk = t_k(c);
-	float leaving = eps * STEFAN * tk * tk * tk * tk * la_dt;
+	// Each reservoir radiates at its own temperature: the fluid and its condensate, the bare lattice.
+	float leaving = radiated_by(c, eps2) * la_dt;
 	for (uint f = f_lo; f < f_hi; ++f) {
 		send[f] = leaving * la_face_div(c, nbr[f]);
 	}
@@ -966,11 +1006,16 @@ void radiate_gather(uint c) {
 	rad_emitted[c] = lost;
 	// What the beam march removed and this cell did not keep: PASS_SW carries it back out.
 	sw_src[c] = intercepted * albedo;
-	// Stefan-Boltzmann against the published emission: every face of e*sigma*T^4 over its own area.
-	float tk = t_k(c);
-	float sb = lw_emis[c] * STEFAN * tk * tk * tk * tk * la_dt * div_sum;
+	// Stefan-Boltzmann against the published emission: every face of each reservoir's e*sigma*T^4.
+	vec2 eps2 = longwave_emissivity_parts(c);
+	float sb = radiated_by(c, eps2) * la_dt * div_sum;
 	rad_residual[c] = abs(lost - sb) / max(sb, 1.0e-30);
-	amount[c] += gained - lost;
+	// The lattice's share of what was exchanged is its share of the emissivity; `amount` is the fluid's
+	// energy and `e` the lattice's on this record.
+	float share_l = (eps2.x + eps2.y) > 0.0 ? eps2.y / (eps2.x + eps2.y) : 0.0;
+	float net = gained - lost;
+	amount[c] += net * (1.0 - share_l);
+	e[c] += net * share_l;
 	if (gained != lost) {
 		quiet[act_base() + c] = 0u;
 	}

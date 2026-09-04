@@ -17,7 +17,6 @@ class LAMixtureEnthalpy : public RefCounted {
 public:
 	static double vapour_boundary_c(const String &p_id, double p_p_pa);
 	static double vapour_p_at(const String &p_id, double p_t_c, double p_p_pa);
-	static double latent_out_of_condensed(const String &p_id, double p_t_c, double p_p_pa);
 	static double vapour_fraction(const String &p_id, double p_t_c, double p_p_pa, double p_m_kg,
 			double p_room_m3);
 	static double specific_enthalpy(const String &p_id, double p_t_c, double p_p_pa, double p_m_kg,

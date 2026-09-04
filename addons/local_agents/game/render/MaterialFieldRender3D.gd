@@ -2,6 +2,8 @@ class_name LAMaterialFieldRender3D
 extends MeshInstance3D
 
 
+const RENDER_MIN: float = 0.08 * LAMaterialField3D.MAX_MASS   # min water in a cell for its top face to render
+const SEA_WAVE_EPS: float = 0.6   # calm-sea top faces within this of the sea shell are left to the ocean plane
 const WaterShader: Shader = preload("res://addons/local_agents/sim/shaders/VoxelWater.gdshader")
 const MeshBuilderScript: GDScript = preload("res://addons/local_agents/game/render/WaterSurfaceMesh.gd")
 
@@ -122,7 +124,7 @@ func _process(delta: float) -> void:
 func _rebuild(radial: Vector3) -> void:
 	var inv_xform: Transform3D = global_transform.affine_inverse()
 	var out: Dictionary = _builder.build(_f, inv_xform, radial, cos(CAP_ANGLE),
-		_f.RENDER_MIN, MAX_MASS, _sea_radius, _f.SEA_WAVE_EPS)
+		RENDER_MIN, MAX_MASS, _sea_radius, SEA_WAVE_EPS)
 	if _mesh.get_surface_count() > 0:
 		_mesh.clear_surfaces()
 	if int(out["count"]) == 0 or (out["indices"] as PackedInt32Array).size() == 0:

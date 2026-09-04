@@ -133,23 +133,23 @@ PackedFloat32Array LAFieldLithostaticSeed::vertical(Object *p_field,
 	return z;
 }
 
-PackedFloat32Array LAFieldLithostaticSeed::compress(Object *p_field,
-		const PackedFloat32Array &p_gravity) {
+Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32Array &p_gravity,
+		const PackedFloat32Array &p_t_rock) {
 	PackedFloat32Array out;
 	if (!p_field) {
-		return out;
+		return Dictionary();
 	}
 	Object *grid = Object::cast_to<Object>(p_field->get("_grid"));
 	const int cc = int(p_field->get("_cell_count"));
 	const PackedByteArray solid = p_field->get("_solid");
 	if (!grid || cc <= 0 || solid.size() != cc) {
-		return out;
+		return Dictionary();
 	}
 	if (p_gravity.size() != cc * 3) {
 		UtilityFunctions::push_error(String("LAFieldLithostaticSeed.compress: the solved gravity is ")
 				+ String::num_int64(p_gravity.size()) + " long against " + String::num_int64(cc)
 				+ " cells, so the balance has no direction to march along.");
-		return out;
+		return Dictionary();
 	}
 	const Vector3 centre = field_centre(p_field);
 	// RESOLUTION FOLLOWS POSITION: a cell's edge and volume are its own.
@@ -173,12 +173,16 @@ PackedFloat32Array LAFieldLithostaticSeed::compress(Object *p_field,
 	std::vector<Mirror> mats = channel_mirrors(p_field, "unit", "mol_m3");
 	const size_t nm = mats.size();
 	std::vector<double> mm(nm, 0.0), v0(nm, 0.0), v0k(nm, 0.0), rho0(nm, 0.0), psat(nm, 0.0);
-	std::vector<bool> is_gas(nm, false);
+	std::vector<double> alpha(nm, 0.0), tref(nm, 0.0);
+	std::vector<bool> is_gas(nm, false), is_lithic(nm, false);
 	for (size_t i = 0; i < nm; i++) {
 		const Dictionary row = rows.get(mats[i].name, Dictionary());
 		const Dictionary sub = table.get(mats[i].substance, Dictionary());
 		mm[i] = double(sub.get("molar_mass", 0.0));
 		is_gas[i] = String(row.get("phase", "")) == "gas";
+		is_lithic[i] = bool(row.get("lithic", false)) || bool(row.get("lattice", false));
+		alpha[i] = double(sub.get("expansion_per_k", 0.0));
+		tref[i] = double(sub.get("density_ref_t_c", 0.0));
 		if (is_gas[i]) {
 			continue;
 		}
@@ -191,7 +195,8 @@ PackedFloat32Array LAFieldLithostaticSeed::compress(Object *p_field,
 
 	// la_eos_p's own coefficients per cell at the amounts the composition laid down, and the mass those
 	// amounts weigh. A gas is the A term; a condensed phase is B, and C where it declares a bulk modulus.
-	std::vector<double> a_rt(cc, 0.0), b_vol(cc, 0.0), c_comp(cc, 0.0), rho(cc, 0.0);
+	const double rho_tab_h2o = double(Dictionary(table.get("h2o", Dictionary())).get("density", 0.0));
+	std::vector<double> a_rt(cc, 0.0), b_vol(cc, 0.0), c_comp(cc, 0.0), rho(cc, 0.0), rho_lith(cc, 0.0);
 	for (size_t i = 0; i < nm; i++) {
 		const float *r = mats[i].arr.ptr();
 		for (int c = 0; c < cc; c++) {
@@ -200,19 +205,26 @@ PackedFloat32Array LAFieldLithostaticSeed::compress(Object *p_field,
 				continue;
 			}
 			rho[c] += n * mm[i];
+			rho_lith[c] += is_lithic[i] ? n * mm[i] : 0.0;
 			if (is_gas[i]) {
 				a_rt[c] += n * vol[c] * rt;
 			} else {
 				const double kg = n * vol[c] * mm[i];
-				b_vol[c] += kg * v0[i];
-				c_comp[c] += kg * v0k[i];
+				// Pore water fills the rock's pores at the table's liquid density, as the derive books it.
+				const double kg_pore = mats[i].name == "h2o_pore" ? kg : 0.0;
+				// A lithic phase stands at its cell's rock temperature, the derive's lattice volume.
+				const double t_here = (is_lithic[i] && c < p_t_rock.size()) ? double(p_t_rock[c]) : t_c;
+				const double expand = (1.0 + alpha[i] * (t_here - tref[i])) / (1.0 + alpha[i] * (t_c - tref[i]));
+				b_vol[c] += (kg - kg_pore) * v0[i] * expand + (rho_tab_h2o > 0.0 ? kg_pore / rho_tab_h2o : 0.0);
+				c_comp[c] += (kg - kg_pore) * v0k[i] * expand;
 			}
 		}
 	}
 	// A condensed phase raises its vapour over itself, at its saturation pressure over the room the
-	// condensed matter leaves: the same fixed-volume split the derive makes.
+	// condensed matter leaves: the same fixed-volume split the derive makes. Water in the rock's pores
+	// is the lattice's and raises none into the fluid.
 	for (size_t i = 0; i < nm; i++) {
-		if (is_gas[i] || !(psat[i] > 0.0)) {
+		if (is_gas[i] || !(psat[i] > 0.0) || mats[i].name == "h2o_pore") {
 			continue;
 		}
 		const float *r = mats[i].arr.ptr();
@@ -241,10 +253,14 @@ PackedFloat32Array LAFieldLithostaticSeed::compress(Object *p_field,
 
 	// A cell stands at the pressure its own amounts state, off the same equation of state the derive uses.
 	std::vector<double> p_at(cc, 0.0);
+	PackedFloat32Array p_fluid;
+	p_fluid.resize(cc);
+	float *pf = p_fluid.ptrw();
 	for (int c = 0; c < cc; c++) {
 		if (rho[c] > 0.0) {
 			p_at[c] = eos_p(vol[c], a_rt[c], b_vol[c], c_comp[c], p_std);
 		}
+		pf[c] = float(p_at[c]);
 	}
 
 	// Height along the local vertical and the slot pointing up it: rock's column marches these.
@@ -306,13 +322,28 @@ PackedFloat32Array LAFieldLithostaticSeed::compress(Object *p_field,
 	}
 	// THE MATTER IS THE COMPOSITION'S: the radial profile it was laid down from is the hydrostatic
 	// solution of the same EOS, so the march states the pressure and moves no mass.
-	// The pressure the balance states, so the first state derive is taken at it rather than at zero.
+	// The pressure the balance states, so the first state derive is taken at it rather than at zero,
+	// and beside it the FLUID's own: what a cell's free matter states, which a locked cell's band and
+	// air stand at whatever column its rock carries.
 	out.resize(cc);
 	float *w = out.ptrw();
 	for (int c = 0; c < cc; c++) {
 		w[c] = float(p_at[c]);
 	}
-	return out;
+	// The lattice's pressure: the marched column in a locked cell; in an open cell the fluid's plus half
+	// its own rock's weight, the mean over the rock it holds.
+	PackedFloat32Array p_rock;
+	p_rock.resize(cc);
+	float *pr = p_rock.ptrw();
+	for (int c = 0; c < cc; c++) {
+		const Vector3 gv(p_gravity[c * 3], p_gravity[c * 3 + 1], p_gravity[c * 3 + 2]);
+		pr[c] = float(solid[c] != 0 ? p_at[c] : p_at[c] + 0.5 * rho_lith[c] * double(gv.length()) * dr[c]);
+	}
+	Dictionary both;
+	both["pressure"] = out;
+	both["fluid"] = p_fluid;
+	both["rock"] = p_rock;
+	return both;
 }
 
 void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c,
@@ -531,7 +562,7 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c,
 void LAFieldLithostaticSeed::_bind_methods() {
 	ClassDB::bind_static_method("LAFieldLithostaticSeed", D_METHOD("vertical", "field", "gravity"),
 			&LAFieldLithostaticSeed::vertical);
-	ClassDB::bind_static_method("LAFieldLithostaticSeed", D_METHOD("compress", "field", "gravity"),
+	ClassDB::bind_static_method("LAFieldLithostaticSeed", D_METHOD("compress", "field", "gravity", "t_rock"),
 			&LAFieldLithostaticSeed::compress);
 	ClassDB::bind_static_method("LAFieldLithostaticSeed",
 			D_METHOD("shape_atmosphere", "field", "temp_c", "gravity", "phi"),

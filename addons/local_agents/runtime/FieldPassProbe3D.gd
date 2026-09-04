@@ -63,7 +63,12 @@ func _peak() -> Dictionary:
 	# `LA_PASS_PROBE_REF=<buffer>`: peak on |channel - ref| / |ref| instead of on the channel itself.
 	var ref_name: String = OS.get_environment("LA_PASS_PROBE_REF")
 	var ref: PackedFloat32Array = _f._gpu.read_raw(ref_name) if ref_name != "" else PackedFloat32Array()
+	# `LA_PASS_PROBE_OPEN=1`: only open cells compete for the peak.
+	var open_only: bool = OS.get_environment("LA_PASS_PROBE_OPEN") != ""
+	var sol: PackedFloat32Array = _f._gpu.read_raw("solid") if open_only else PackedFloat32Array()
 	for i in (one.size() if pin == "" else 0):
+		if open_only and sol.size() > i and sol[i] != 0.0:
+			continue
 		var a: float = absf(one[i])
 		if ref.size() == one.size():
 			a = absf(one[i] - ref[i]) / absf(ref[i]) if ref[i] != 0.0 else 0.0
@@ -75,8 +80,9 @@ func _peak() -> Dictionary:
 		out["ref"] = String.num(ref[at])
 	var nans: Dictionary = {}
 	for name in ["rho_bulk", "mom_x", "mom_y", "mom_z", "vel_x", "vel_y", "vel_z", "speed", "mach", "pressure", "h2o",
-			"e_j_m3", "solid", "temp", "o2", "n2", "co2", "silicate", "h_sensible", "cap_sensible",
-			"gas_r", "gas_gamma", "cell_edge", "lithic_kg", "k_cond"]:
+			"e_j_m3", "e_lith_j_m3", "solid", "temp", "temp_lith", "o2", "n2", "co2", "silicate", "h_sensible", "cap_sensible",
+			"gas_r", "gas_gamma", "cell_edge", "lithic_kg", "k_cond", "regolith", "porosity", "h2o_pore", "h2o_liquid", "h2o_vapour", "lattice_frac", "h_h2o", "h_h2o_vap", "cement",
+			"h2", "co", "so2", "h2s", "ch4", "biomass", "detritus", "fuel", "fungus", "fert", "carbonate", "silica", "metal", "olivine", "pyroxene", "plagioclase", "halite", "apatite", "p_fluid", "conductivity"]:
 		var b: PackedFloat32Array = _f._gpu.read_raw(String(name))
 		if b.size() != _f._cell_count:
 			continue
@@ -91,9 +97,19 @@ func _peak() -> Dictionary:
 	var lv: PackedByteArray = _f._gpu.read_raw_bytes("tlevel")
 	if lv.size() >= (at + 1) * 4:
 		out["tlevel"] = lv.decode_s32(at * 4)
+	# The CPU-side seed arrays the device was handed, for the same cell.
+	for mirror in ["_porosity", "_surface_depth", "_rock_fraction", "_water_fraction"]:
+		var arr = _f.get(mirror)
+		if arr is PackedFloat32Array and arr.size() > at:
+			out["cpu" + mirror] = String.num(arr[at])
+	if _f._regolith.size() > at:
+		out["cpu_regolith"] = _f._regolith[at]
 	var g: PackedFloat32Array = _f._gpu.read_raw("g_rest")
 	if g.size() >= (at + 1) * 3:
 		out["g"] = [String.num(g[at * 3]), String.num(g[at * 3 + 1]), String.num(g[at * 3 + 2])]
+	var pos: PackedFloat32Array = _f._gpu.read_raw("pos")
+	if pos.size() >= (at + 1) * 3:
+		out["pos"] = [String.num(pos[at * 3]), String.num(pos[at * 3 + 1]), String.num(pos[at * 3 + 2])]
 	out["faces"] = _faces(at)
 	var depth: String = OS.get_environment("LA_PASS_PROBE_COLUMN")
 	if depth != "":

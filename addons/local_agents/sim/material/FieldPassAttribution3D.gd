@@ -159,6 +159,7 @@ func _sample() -> Dictionary:
 	if energy:
 		# The stock is enthalpy; temperature is derived and books nothing.
 		ch["e_j_m3"] = gpu.read_raw("e_j_m3")
+		ch["e_lith_j_m3"] = gpu.read_raw("e_lith_j_m3")
 	var f: Dictionary = _sums(ch, gpu.read_raw("solid"), cc, energy)
 	if f.is_empty():
 		_missing = PackedStringArray(["solid"])
@@ -226,7 +227,7 @@ func _sums(ch: Dictionary, solid: PackedFloat32Array, cc: int, energy: bool) -> 
 		open_by[name] = s_open
 	var out: Dictionary = {"live": live, "all": all_by, "open": open_by, "solid_cells": solid_cells}
 	if energy:
-		out["energy_stock"] = float(all_by.get("e_j_m3", 0.0))
+		out["energy_stock"] = float(all_by.get("e_j_m3", 0.0)) + float(all_by.get("e_lith_j_m3", 0.0))
 	return out
 
 

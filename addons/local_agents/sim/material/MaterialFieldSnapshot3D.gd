@@ -7,7 +7,7 @@ extends RefCounted
 ## The field's CPU mirror for a channel, by the rule LAFieldCellMass3D reads them under: `_` and the
 ## channel's own name, the enthalpy channel under the name the field holds it by.
 static func mirror_of(name: String) -> String:
-	return "_e" if name == "e_j_m3" else "_" + name
+	return "_e" if name == "e_j_m3" else ("_e_lith" if name == "e_lith_j_m3" else "_" + name)
 
 
 ## True once the field has activated its GPU driver.

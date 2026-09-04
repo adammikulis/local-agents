@@ -11,7 +11,7 @@ static func rows() -> Array:
 		{"key": "water_liquid_total", "source": "h2o", "aux": "h2o_liquid", "op": Rec.Op.SUM,
 			"mask": Rec.Mask.ALL, "weight": true},
 		{"key": "wet_cells", "source": "h2o", "aux": "h2o_liquid", "op": Rec.Op.COUNT_GE,
-			"mask": Rec.Mask.OPEN, "threshold": LAMaterialField3D.RENDER_MIN},
+			"mask": Rec.Mask.OPEN, "threshold": wet_min},
 		# Airborne h2o over every cell, in moles, mask-free.
 		{"key": "vapour_amount", "source": "h2o", "aux": "h2o_vapour", "op": Rec.Op.SUM,
 			"mask": Rec.Mask.ALL, "weight": true},

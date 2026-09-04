@@ -230,13 +230,13 @@ func _run_pair(out: Dictionary, name: String, book: String, seed_key: String, va
 
 func _publish_energy(out: Dictionary, f: Dictionary, step: int) -> void:
 	var missing: PackedStringArray = f.get("energy_missing", PackedStringArray())
-	if missing.size() > 0 or not f.has("energy_stock"):
+	if missing.size() > 0 or not f.has("energy_stock") or not f.has("energy_stock_lith"):
 		out["energy_stock"] = null
 		return
-	# THE FIRST LAW'S TOTAL: the stored internal energy plus motion plus potential.
-	out["energy_stock"] = float(f["energy_stock"])
-	out["energy_stock_open"] = float(f["energy_stock_open"]) if f.has("energy_stock_open") else null
-	out["energy_held"] = float(f["energy_stock"]) + float(f["energy_kinetic"]) + float(f["energy_potential"])
+	# THE FIRST LAW'S TOTAL: both reservoirs' internal energy plus motion plus potential.
+	out["energy_stock"] = float(f["energy_stock"]) + float(f["energy_stock_lith"])
+	out["energy_stock_open"] = float(f["energy_stock_open"]) + float(f["energy_stock_open_lith"]) if f.has("energy_stock_open_lith") else null
+	out["energy_held"] = float(out["energy_stock"]) + float(f["energy_kinetic"]) + float(f["energy_potential"])
 
 	# WATTS, off the device. flux.glsl's RADIATE row writes what each cell took in and sent out as
 	# J/m^3 for one step; the two reduce rows weight those by cell volume, so the pair arrives in joules
