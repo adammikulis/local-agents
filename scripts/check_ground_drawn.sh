@@ -30,6 +30,7 @@ RUNG="${LA_GROUND_RUNG:-0}"
 LA_RUN_TIMEOUT="${LA_GROUND_TIMEOUT:-100}" "$ROOT/scripts/run_sim_offscreen.sh" --path "$ROOT" \
 	addons/local_agents/game/VoxelWorld.tscn \
 	-- --sandbox --planet-only --no-fauna "--rung=$RUNG" --ui "--shoot=$PNG" \
+	"--local-hour=${LA_GROUND_HOUR:-12}" \
 	"--shoot-frames=${LA_GROUND_FRAMES:-150}" > "$LOG" 2>&1
 
 # A PICTURE TAKEN THROUGH A RENDERER THAT REFUSED A SHADER IS NOT EVIDENCE. A .gdshader that fails to

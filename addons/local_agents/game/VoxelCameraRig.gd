@@ -251,11 +251,20 @@ func set_orbit_target(center: Vector3, radius: float) -> void:
 ## FRAME A SLICE BOX: the eye stands inside it, over the ground under the box centre, looking along the
 ## box's longest horizontal axis. The standoff and the fly speed are the box's, not the body's, so a
 ## camera over a 100 km box does not move at planetary speed.
-func frame_slice(planet_centre: Vector3, planet_radius: float, box: AABB) -> void:
+func frame_slice(planet_centre: Vector3, planet_radius: float, box: AABB, site_dir: Vector3) -> void:
 	var radial: Vector3 = (box.get_center() - planet_centre).normalized()
 	if radial.length() < 0.001:
 		return
 	set_orbit_target(planet_centre, planet_radius)
+	# THE BOX IS A REGION OF THE BODY, so the eye holds its BODY-FRAME site and turns with it: the ground
+	# below stays the same ground and the sun crosses the sky over it.
+	if site_dir.length() > 0.001 and _geosync_body != null and is_instance_valid(_geosync_body):
+		_geosync_local_dir = site_dir.normalized()
+		_geosync = true
+		# The pose is solved at the SITE now, so the terrain-follow ease starts there rather than easing
+		# down from whatever radius the opening pose held.
+		_smooth_surface_r = 0.0
+		_ground_ready = false
 	_orbit_elevation = clampf(asin(clampf(radial.y, -1.0, 1.0)), -ORBIT_ELEVATION_LIMIT, ORBIT_ELEVATION_LIMIT)
 	_orbit_azimuth = atan2(radial.x, radial.z)
 	_sunnyside_pending = false

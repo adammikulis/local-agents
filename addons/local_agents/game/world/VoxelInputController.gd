@@ -44,6 +44,7 @@ var _farview: bool = false              # --farview: pull the vista out to max z
 var _rain_force: bool = false           # --rain: force the rain visual on (verification aid)
 var _debug_demo: bool = false
 var _vectors: String = LAFieldVectors.SOURCE_UNSET  # --vectors=wind|gravity|off; unset = what the rung holds
+var _local_hour: float = -1.0            # --local-hour=0..24 at the slice site; <0 keeps the seed's spin phase
 var _debug_field: String = ""           # --debug-field=<channel>: pre-enable a substrate heatmap (biomass/lava/…)
 var _debug_behaviors: String = ""       # --debug-behaviors[=a,b]: pre-enable behavior-state highlights (default foraging+hunting)
 var _llm_highlight: bool = false        # --llm-highlight: pre-enable the thinking/queued tints + report live counts
@@ -151,6 +152,8 @@ func parse_cmdline() -> void:
 			_seed_explicit = true
 		elif arg == "--debug-demo":
 			_debug_demo = true
+		elif arg.begins_with("--local-hour="):
+			_local_hour = clampf(float(arg.substr("--local-hour=".length())), 0.0, 24.0)
 		elif arg.begins_with("--vectors="):
 			_vectors = arg.substr("--vectors=".length())
 		elif arg.begins_with("--debug-field="):
@@ -793,6 +796,7 @@ func auto_select() -> bool: return _auto_select
 func debug_family() -> bool: return _debug_family
 func debug_demo() -> bool: return _debug_demo
 func vectors() -> String: return _vectors
+func local_hour() -> float: return _local_hour
 
 
 ## THE STRONGEST ABLATION ANY FLAG ASKS FOR WINS. Both flags name overlapping worlds, so taking the last
