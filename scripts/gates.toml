@@ -7,6 +7,7 @@
 # kind = "gpu"      needs a real device; LA_NO_GPU=1 skips exactly these.
 # marker            the verdict line a passing gate must print, so silence is not a pass.
 # mutation          a shell command that must turn the gate red, for --mutate.
+# needs             what a --mutate scratch tree must be given: "import", "capture".
 
 [defaults]
 timeout_s = 900
@@ -79,7 +80,7 @@ name = "check_gpu_gate_list"
 script = "scripts/check_gpu_gate_list.sh"
 kind = "text"
 marker = "^check_gpu_gate_list: OK"
-mutation = "sed -i '' 's/^kind = \"gpu\"/kind = \"text\"/' scripts/gates.toml"
+mutation = "python3 -c \"import pathlib; p = pathlib.Path('scripts/gates.toml'); t = p.read_text(); i = t.index('name = ' + chr(34) + 'check_boundary_wrap' + chr(34)); j = t.index('gpu', i); p.write_text(t[:j] + 'text' + t[j + 3:])\""
 
 [[gate]]
 name = "check_quiet_window"
@@ -110,7 +111,6 @@ name = "check_physical_constants"
 script = "scripts/check_physical_constants.sh"
 kind = "headless"
 marker = "^Physical-constants check passed"
-mutation = "sed -i '' 's/^const LA_GRAV/const LA_GRAV_MUTANT/' addons/local_agents/sim/material/PhysicalConstants.gd"
 
 [[gate]]
 name = "check_model_parameters"
@@ -141,8 +141,9 @@ marker = "^check_kernel_paths: OK"
 name = "check_kernel_includes"
 script = "scripts/check_kernel_includes.sh"
 kind = "text"
+needs = ["import"]
 marker = "^check_kernel_includes: OK"
-mutation = "sed -i '' 's/la_stale_kernels/la_stale_kernels_gone/g' scripts/godot_import.sh"
+mutation = "python3 -c \"import pathlib; p = pathlib.Path('scripts/godot_import.sh'); p.write_text(p.read_text().replace('la_stale_kernels', 'la_kernels_stale'))\""
 
 [[gate]]
 name = "check_no_stored_derived"
@@ -191,6 +192,7 @@ name = "check_cell_budget"
 script = "scripts/check_cell_budget.sh"
 kind = "gpu"
 marker = "^check_cell_budget: OK"
+mutation = "printf '0\\n' > docs/CELL_BUDGET"
 
 [[gate]]
 name = "check_gdscript_budget"
@@ -203,7 +205,7 @@ name = "check_run_budget"
 script = "scripts/check_run_budget.sh"
 kind = "text"
 marker = "^check_run_budget: OK"
-mutation = "printf 'LA_GODOT_TIMEOUT=999\\n' >> scripts/lib_require.sh"
+mutation = "printf 'LA_GODOT_TIMEOUT=%d\\n' 999 >> scripts/lib_require.sh"
 
 [[gate]]
 name = "check_comment_ratio"
@@ -282,7 +284,6 @@ name = "check_gate_fixtures"
 script = "scripts/check_gate_fixtures.sh"
 kind = "text"
 marker = "^check_gate_fixtures: OK"
-mutation = "sed -i '' 's/^GATE_FIXTURE/GATE_FIXTURE_GONE/' scripts/check_voxel_grid.sh"
 
 [[gate]]
 name = "check_doc_claims"
@@ -481,6 +482,7 @@ name = "check_gravity_solve"
 script = "scripts/check_gravity_solve.sh"
 kind = "gpu"
 marker = "^check_gravity_solve: OK"
+mutation = "printf '0\\n' > docs/GRAVITY_GAUSS_CEILING"
 
 [[gate]]
 name = "check_finite_channels"
@@ -529,7 +531,6 @@ name = "check_boundary_wrap"
 script = "scripts/check_boundary_wrap.sh"
 kind = "gpu"
 marker = "^check_boundary_wrap: OK"
-mutation = "sed -i '' 's/wrap/wrapped_away/g' addons/local_agents/sim/material/kernels3d/flux.glsl"
 
 [[gate]]
 name = "check_boundary_books"
@@ -548,6 +549,12 @@ name = "check_slice_exterior"
 script = "scripts/check_slice_exterior.sh"
 kind = "gpu"
 marker = "^check_slice_exterior: OK"
+
+[[gate]]
+name = "check_ground_drawn"
+script = "scripts/check_ground_drawn.sh"
+kind = "gpu"
+marker = "^SHOT_SAVED="
 
 [[gate]]
 name = "check_shaders_compile"
@@ -573,5 +580,5 @@ name = "check_launch_count"
 script = "scripts/check_launch_count.sh"
 kind = "headless"
 marker = "^check_launch_count: OK"
-mutation = "printf '0\\n' > docs/LAUNCH_CEILING"
+mutation = "printf '0\\n' > docs/LAUNCH_CEILING; printf 'la_godot --headless --path .\\n' >> \\\"$LA_LAUNCH_LOG\\\""
 

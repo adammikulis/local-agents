@@ -51,6 +51,7 @@ def load_gates(path=GATES_TOML):
             "mutation": g.get("mutation"),
             "args": list(g.get("args", [])),
             "env": dict(g.get("env", {})),
+            "needs": list(g.get("needs", [] if g["kind"] == "text" else ["import", "capture"])),
             "timeout_s": int(g.get("timeout_s", defaults.get("timeout_s", 900))),
         })
     if not gates:
@@ -260,15 +261,14 @@ def stage_scratch(scratch):
 
 
 def arm_scratch(g, scratch):
-    """A gate that can start an engine needs the tree importable and its own fresh capture."""
-    if g["kind"] == "text":
-        return
-    subprocess.run([os.path.join(scratch, "scripts/ensure_worktree_ready.sh")], cwd=scratch,
-                   check=True)
-    cap, _ = make_capture(scratch)
+    """Give the scratch tree what the gate declares it needs. A mutation may break either, on purpose."""
+    if "import" in g["needs"]:
+        subprocess.run([os.path.join(scratch, "scripts/ensure_worktree_ready.sh")], cwd=scratch)
     os.environ.pop("LA_LINT_CAPTURE", None)
-    if cap:
-        os.environ["LA_LINT_CAPTURE"] = cap
+    if "capture" in g["needs"]:
+        cap, _ = make_capture(scratch)
+        if cap:
+            os.environ["LA_LINT_CAPTURE"] = cap
 
 
 def cmd_mutate(args):
