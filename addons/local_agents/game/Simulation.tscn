@@ -41,8 +41,6 @@ script = ExtResource("5_star")
 [node name="PlanetBody" type="Node3D" parent="."]
 script = ExtResource("6_planetbody")
 
-[node name="TerrainViewer" type="Node3D" parent="."]
-
 [node name="LlmService" type="Node" parent="."]
 script = ExtResource("7_llmservice")
 

@@ -287,20 +287,11 @@ func wind3_at(x: float, y: float, z: float) -> Vector3:
 	return LAFieldGeometry.velocity(_f, c)
 
 
-## LOCAL horizontal wind at a world point, as world XZ — the tangential drift a storm cell rides. Sampled
-## where the storm actually is, which is the only place its steering wind means anything.
-func wind_at(world_pos: Vector3) -> Vector2:
-	var v: Vector3 = wind3_at(world_pos.x, world_pos.y, world_pos.z)
-	return Vector2(v.x, v.z)
-
-
-## Domain-mean horizontal wind over every open cell, as world XZ. Two reduced sums over the velocity
-## channels; NAN when the reduction has not run, because a mean of nothing is not zero wind.
-func wind() -> Vector2:
-	var n: int = open_cells()
-	if n <= 0:
-		return Vector2(NAN, NAN)
-	return Vector2(row_f("wind_x_sum") / float(n), row_f("wind_z_sum") / float(n))
+## THE FASTEST AIR IN THE BOX, m/s, off the reduction. NAN when it has not run: a maximum over nothing is
+## not zero wind. This is a scalar the field can honestly answer; a direction is a LOCAL question and
+## wind3_at is where it is asked.
+func wind_speed_max() -> float:
+	return row_f("wind_speed_max")
 
 
 ## Cells the solid derive left open, from the same reduction. -1 when it has not run.

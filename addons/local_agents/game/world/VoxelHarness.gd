@@ -186,19 +186,70 @@ static func _scan_presentation(n: Node, found: PackedStringArray) -> int:
 
 
 ## Appended to SHOT_SAVED: where the eye stands, what it aims at, how far the built ground lies down that
-## aim, and whether the ground under the eye is drawn.
+## aim, whether the ground under the eye is drawn, whether the eye stands inside the slice box this world
+## was laid on, how many field glyphs stand in the frame, and what the 3-D half of the picture holds.
 static func shot_info(w) -> String:
 	var cam: Camera3D = w._camera
 	if cam == null:
-		return "cam=absent ground_meshed=false"
+		return "cam=absent ground_meshed=false cam_in_slice=false field_arrows=0"
 	var up: Vector3 = w._body.up_at(cam.global_position)
 	var fwd: Vector3 = -cam.global_transform.basis.z
 	var mode: String = "fly" if cam.is_fly() else ("solar" if cam.is_solar_view() else "orbit")
 	var aim: float = float(cam.aim_distance()) if cam.has_method("aim_distance") else 0.0
-	return "cam=%s cam_alt_m=%.0f cam_pitch_deg=%.1f ground_ahead_m=%.0f aim_ahead_m=%.0f ground_meshed=%s" % [
+	return ("cam=%s cam_alt_m=%.0f cam_pitch_deg=%.1f ground_ahead_m=%.0f aim_ahead_m=%.0f "
+		+ "ground_meshed=%s cam_in_slice=%s field_arrows=%d %s") % [
 		mode, w._sim.terrain().altitude_at(cam.global_position),
 		rad_to_deg(asin(clampf(fwd.dot(up), -1.0, 1.0))), _ground_ahead(w, cam, fwd), aim,
-		"true" if shot_ready(w) else "false"]
+		"true" if shot_ready(w) else "false", "true" if _cam_in_slice(w, cam) else "false",
+		_arrow_count(w), _scene_stats(w)]
+
+
+## Whether the eye stands inside the slice box the field was laid on. False when there is no slice: a
+## world without a box cannot have framed one.
+static func _cam_in_slice(w, cam: Camera3D) -> bool:
+	var field: Node = w._sim.material_field()
+	var slice = field._slice if "_slice" in field else null
+	if slice == null:
+		return false
+	return slice.world_aabb(w._body.center(), w._body.radius()).has_point(cam.global_position)
+
+
+static func _arrow_count(w) -> int:
+	var vectors = w._render.field_vectors() if w._render != null else null
+	return int(vectors.drawn()) if vectors != null else 0
+
+
+## WHAT THE 3-D HALF OF THE PICTURE HOLDS, read off the surface about to be saved: mean luminance and
+## mean per-row variance over the middle of the frame, clear of the HUD bands that hug every edge. A
+## world that drew nothing reads near zero on both, and the HUD cannot stand in for scenery.
+const SCENE_SAMPLES: int = 48
+const SCENE_INSET: float = 0.25
+
+static func _scene_stats(w) -> String:
+	var vp: Viewport = w.shot_viewport()
+	var tex: ViewportTexture = vp.get_texture() if vp != null else null
+	var img: Image = tex.get_image() if tex != null else null
+	if img == null or img.get_width() < 4 or img.get_height() < 4:
+		return "scene_mean=-1 scene_var=-1"
+	var x0: int = int(float(img.get_width()) * SCENE_INSET)
+	var y0: int = int(float(img.get_height()) * SCENE_INSET)
+	var span_x: int = img.get_width() - 2 * x0
+	var span_y: int = img.get_height() - 2 * y0
+	var mean_total: float = 0.0
+	var var_total: float = 0.0
+	for j in SCENE_SAMPLES:
+		var y: int = y0 + span_y * j / SCENE_SAMPLES
+		var sum: float = 0.0
+		var sq: float = 0.0
+		for i in SCENE_SAMPLES:
+			var v: float = img.get_pixel(x0 + span_x * i / SCENE_SAMPLES, y).get_luminance()
+			sum += v
+			sq += v * v
+		var n: float = float(SCENE_SAMPLES)
+		mean_total += sum / n
+		var_total += maxf(0.0, sq / n - (sum / n) * (sum / n))
+	return "scene_mean=%.6f scene_var=%.6f" % [mean_total / float(SCENE_SAMPLES),
+		var_total / float(SCENE_SAMPLES)]
 
 
 ## HOW FAR DOWN THE VIEW AXIS THE GROUND STANDS, in metres: the terrain body's own collider, hit by a ray

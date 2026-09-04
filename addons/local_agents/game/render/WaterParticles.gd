@@ -14,7 +14,6 @@ var _camera: Node3D = null
 var _sun: DirectionalLight3D = null
 var _center: Vector3 = Vector3.ZERO
 var _sea_radius: float = 0.0               # unset until setup() supplies it
-var _prevailing: Vector3 = Vector3(0.15, 1.0, 0.0)
 var _pm: ShaderMaterial = null             # process material
 var _dm: ShaderMaterial = null             # draw material
 var _sky_tint: Color = Color(1.0, 1.0, 1.0)
@@ -26,7 +25,6 @@ func setup(field, camera: Node3D, sun: DirectionalLight3D, center: Vector3, sea_
 	_sun = sun
 	_center = center
 	_sea_radius = sea_radius
-	_prevailing = _prevailing.normalized()
 	name = "WaterParticles"
 	amount = MAX_PARTICLES
 	lifetime = LIFETIME
@@ -59,7 +57,6 @@ func setup(field, camera: Node3D, sun: DirectionalLight3D, center: Vector3, sea_
 	_pm.set_shader_parameter("fog_top_r", _field.atmos_fog_top_r())
 	_pm.set_shader_parameter("fog_lo_r", _field.atmos_fog_lo_r())
 	_pm.set_shader_parameter("outer_r", outer)
-	_pm.set_shader_parameter("prevailing", _prevailing)
 	emitting = true
 
 

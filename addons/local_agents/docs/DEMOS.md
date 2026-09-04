@@ -1,6 +1,6 @@
 # Demos
 
-The demo ladder is 12 scenes ordered simplest first. To open them, double-click
+The demo ladder is 13 scenes ordered simplest first. To open them, double-click
 `addons/local_agents/examples/DemoLauncher.tscn` in the FileSystem dock, then click Run Current
 Scene in the top-right toolbar. The launcher builds its rows from the catalogue this page comes
 from: one `LocalAgentDemoEntry` resource per demo in `addons/local_agents/examples/demos/`. Drop a
@@ -28,7 +28,7 @@ text. Change the `.tres` for content, or the generator for wording.
 
 `scripts/run_demo.sh <name>` runs an example scene with no window in about a second and prints a
 `RUN_DEMO={...}` line carrying the exit code. It only accepts a scene that builds a
-`LocalAgentDemoHarness`, and 5 of the 12 entries have one. An example scene without that harness
+`LocalAgentDemoHarness`, and 5 of the 13 entries have one. An example scene without that harness
 ignores `--run-frames` and never exits, so it gets `--quit-after` instead. Each demo below carries
 the command that applies to it.
 
@@ -147,3 +147,11 @@ The whole game shell around the planet: herds, emergent disasters, a HUD and a l
 - Scene: `res://addons/local_agents/game/VoxelWorld.tscn`
 - Requires: the godot_voxel GDExtension (addons/zylann.voxel/)
 - Run: `scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn -- --run-frames=200`. It lives outside `addons/local_agents/examples/`, so `scripts/run_demo.sh` cannot address it, and headless has no compute device for its field, so the wrapper gives it a real window placed off-screen.
+
+## 13. Slice, rung 0: state
+
+One box of the planet, laid on the real terrain and stepped by the bottom rung alone: matter, energy and phase; nothing moves. No gravity is solved, no pressure stands and no wind blows, so the vector glyphs are off and the picture is the state the world was seeded into.
+
+- Scene: `res://addons/local_agents/examples/SliceRung0Demo.tscn`
+- Requires: the godot_voxel GDExtension (addons/zylann.voxel/)
+- Run headless: `godot --headless --path . addons/local_agents/examples/SliceRung0Demo.tscn --quit-after 120`, since it builds no harness.

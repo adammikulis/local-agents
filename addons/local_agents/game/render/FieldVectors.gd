@@ -1,0 +1,225 @@
+class_name LAFieldVectors
+extends MultiMeshInstance3D
+
+## ONE ARROW GLYPH PER OPEN FIELD CELL, at every altitude the box holds, aimed along a chosen vector
+## field: the cell's own velocity, or the gravity solved at it. Presentation only — it reads the drained
+## mirrors and never asks the field for anything.
+
+const ArrowShader: Shader = preload("res://addons/local_agents/game/render/FieldArrow.gdshader")
+
+const SOURCE_OFF: String = ""
+const SOURCE_WIND: String = "wind"
+const SOURCE_GRAVITY: String = "gravity"
+
+## PRESENTATION SCALE for the wind ramp, m/s: a jet stream. At it the glyph is full length and the ramp
+## is saturated. The gravity ramp has no constant — it saturates at the body's own measured surface
+## gravity, so a glyph there reads as a fraction of standing weight.
+const WIND_REF_M_S: float = 70.0
+
+## Half-angle of the camera-centred cap the glyphs are built over, radians. Outside it a cell is on the
+## far side of the body.
+const CAP_ANGLE: float = 0.8
+## A glyph subtending less than this, in radians, is under a pixel of the frame: not decimation, absence.
+const MIN_SUBTEND_RAD: float = 0.002
+const REBUILD_PERIOD: float = 0.22
+const RECENTER_DOT: float = 0.999
+## Glyph length at zero magnitude, as a fraction of the cell edge. A calm cell is DRAWN, in the calm
+## colour, or an absence of flow would be indistinguishable from an absence of field.
+const CALM_FRAC: float = 0.18
+## Glyph girth as a fraction of the cell edge.
+const THICK_FRAC: float = 0.22
+const STRIPES: int = 6
+
+## Which vector field the glyphs draw: "wind", "gravity", or empty for none. Empty defers to the game
+## shell's --vectors flag; a value declared here outranks it.
+@export var source: String = SOURCE_OFF
+
+var _f = null
+var _camera: Node3D = null
+var _centre: Vector3 = Vector3.ZERO
+var _sea_radius: float = 0.0
+var _mm: MultiMesh = null
+var _mat: ShaderMaterial = null
+var _accum: float = REBUILD_PERIOD
+var _last_radial: Vector3 = Vector3.ZERO
+var _ref: float = 0.0
+var _drawn: int = 0
+var _capacity: int = 0
+
+
+func setup(field, camera: Node3D, centre: Vector3, sea_radius: float) -> void:
+	_f = field
+	_camera = camera
+	_centre = centre
+	_sea_radius = sea_radius
+	name = "FieldVectors"
+	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_mm = MultiMesh.new()
+	_mm.transform_format = MultiMesh.TRANSFORM_3D
+	_mm.use_custom_data = true
+	_mm.mesh = _arrow_mesh()
+	_mm.instance_count = 0
+	multimesh = _mm
+	_mat = ShaderMaterial.new()
+	_mat.shader = ArrowShader
+	_mat.set_shader_parameter("stripes", STRIPES)
+	material_override = _mat
+	_apply_source()
+
+
+## The vector field drawn, set by the game shell's --vectors flag or the debug panel. An unknown name
+## draws nothing rather than something else.
+func set_source(want: String) -> void:
+	source = want
+	_apply_source()
+
+
+## The magnitude the ramp saturates at, in the source's own unit. 0 when the source names nothing this
+## world can measure — and then no glyph is drawn.
+func reference() -> float:
+	return _ref
+
+
+## The source's unit, for the legend.
+func unit() -> String:
+	return "m/s" if source == SOURCE_WIND else ("m/s²" if source == SOURCE_GRAVITY else "")
+
+
+## Glyphs standing in the last built frame. LAVoxelHarness publishes it beside the shot.
+func drawn() -> int:
+	return _drawn
+
+
+func _apply_source() -> void:
+	_ref = 0.0
+	if source == SOURCE_WIND:
+		_ref = WIND_REF_M_S
+	elif source == SOURCE_GRAVITY:
+		_ref = _surface_gravity()
+	visible = _ref > 0.0
+	# The body measures its own gravity after the seal, so a gravity source keeps looking until it can.
+	set_process(_ref > 0.0 or source == SOURCE_GRAVITY)
+	if not visible:
+		_drawn = 0
+		if _mm != null:
+			_mm.visible_instance_count = 0
+		return
+	_mat.set_shader_parameter("v_ref", _ref)
+	_accum = REBUILD_PERIOD
+
+
+## The body's OWN surface gravity, off the matter that ended up in it. 0 before it has been measured.
+func _surface_gravity() -> float:
+	if _f == null or not _f.has_method("body_measure"):
+		return 0.0
+	var m = _f.body_measure()
+	if m == null or not m.measured():
+		return 0.0
+	return float(m.surface_gravity_m_s2())
+
+
+func _process(delta: float) -> void:
+	if _f == null or _camera == null or not is_instance_valid(_camera):
+		return
+	if _ref <= 0.0:
+		_apply_source()
+		return
+	var cam_pos: Vector3 = _camera.global_position
+	var radial: Vector3 = (cam_pos - _centre).normalized()
+	_accum += delta
+	if _accum < REBUILD_PERIOD and _last_radial.dot(radial) > RECENTER_DOT:
+		return
+	_accum = 0.0
+	_last_radial = radial
+	_rebuild(cam_pos, radial)
+
+
+func _rebuild(cam_pos: Vector3, radial: Vector3) -> void:
+	var grid = _f._grid
+	if grid == null:
+		return
+	var n: int = int(grid.cell_count)
+	var solid: PackedByteArray = _f._solid
+	if solid.size() != n:
+		return
+	var wind: bool = source == SOURCE_WIND
+	if wind and _f._vel_x.size() != n:
+		return
+	var cap: float = cos(CAP_ANGLE)
+	var reach: float = float(_camera.far) if _camera is Camera3D else INF
+	var xforms: Array = []
+	var customs: Array = []
+	var alt_span: float = 1.0
+	for c in n:
+		if solid[c] != 0:
+			continue
+		var pos: Vector3 = grid.cell_world_pos(c)
+		var off: Vector3 = pos - _centre
+		var r: float = off.length()
+		if r <= 0.0 or off.dot(radial) / r < cap:
+			continue
+		var dist: float = cam_pos.distance_to(pos)
+		var edge: float = float(grid.cell_edge(c))
+		# The grid's own refinement IS the level of detail: one glyph per leaf, and a leaf too small or
+		# too far to cover a pixel is not drawn at all.
+		if dist > reach or edge / maxf(dist, 1.0e-3) < MIN_SUBTEND_RAD:
+			continue
+		var v: Vector3 = _vector_at(c, wind)
+		var mag: float = v.length()
+		var frac: float = CALM_FRAC + (1.0 - CALM_FRAC) * minf(mag / _ref, 1.0)
+		var alt: float = r - _sea_radius
+		alt_span = maxf(alt_span, absf(alt))
+		xforms.append(Transform3D(_aim(v, mag, edge * THICK_FRAC, edge * frac), pos))
+		# A stable per-cell stripe offset, so a lattice of equal glyphs does not march in lockstep.
+		customs.append(Color(mag, float(c % 97) / 97.0, maxf(alt, 0.0), edge * frac))
+	_drawn = xforms.size()
+	_mat.set_shader_parameter("alt_fade_m", alt_span)
+	if _drawn > _capacity:
+		_capacity = _drawn
+		_mm.instance_count = _capacity
+	for i in _drawn:
+		_mm.set_instance_transform(i, xforms[i])
+		_mm.set_instance_custom_data(i, customs[i])
+	_mm.visible_instance_count = _drawn
+
+
+func _vector_at(c: int, wind: bool) -> Vector3:
+	if wind:
+		return Vector3(_f._vel_x[c], _f._vel_y[c], _f._vel_z[c])
+	return _f._gravity.g_vec_at(c) if _f._gravity != null else Vector3.ZERO
+
+
+## A basis whose +Z runs along `v`, girth `w`, length `l`. A cell with no flow keeps the grid's own +Z:
+## a lattice of identically aimed calm glyphs reads as "nothing is moving here", which is the truth,
+## where an invented direction would not be.
+func _aim(v: Vector3, mag: float, w: float, l: float) -> Basis:
+	var z: Vector3 = Vector3.BACK if mag <= 0.0 else v / mag
+	var ref: Vector3 = Vector3.UP if absf(z.y) < 0.95 else Vector3.RIGHT
+	var x: Vector3 = ref.cross(z).normalized()
+	return Basis(x * w, z.cross(x) * w, z * l)
+
+
+## A unit arrow along +Z: a square shaft and a four-sided head, the tip at z = 1.
+static func _arrow_mesh() -> ArrayMesh:
+	const SHAFT_R: float = 0.035
+	const HEAD_R: float = 0.10
+	const HEAD_Z: float = 0.72
+	var ring: Array = [Vector2(1.0, 1.0), Vector2(-1.0, 1.0), Vector2(-1.0, -1.0), Vector2(1.0, -1.0)]
+	var v: PackedVector3Array = PackedVector3Array()
+	for i in 4:
+		var a: Vector2 = ring[i] * SHAFT_R
+		var b: Vector2 = ring[(i + 1) % 4] * SHAFT_R
+		var a3: Vector3 = Vector3(a.x, a.y, 0.0)
+		var b3: Vector3 = Vector3(b.x, b.y, 0.0)
+		var at: Vector3 = Vector3(a.x, a.y, HEAD_Z)
+		var bt: Vector3 = Vector3(b.x, b.y, HEAD_Z)
+		v.append_array([a3, b3, bt, a3, bt, at])
+		var ha: Vector2 = ring[i] * HEAD_R
+		var hb: Vector2 = ring[(i + 1) % 4] * HEAD_R
+		v.append_array([Vector3(ha.x, ha.y, HEAD_Z), Vector3(hb.x, hb.y, HEAD_Z), Vector3(0.0, 0.0, 1.0)])
+	var arrays: Array = []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = v
+	var m: ArrayMesh = ArrayMesh.new()
+	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return m

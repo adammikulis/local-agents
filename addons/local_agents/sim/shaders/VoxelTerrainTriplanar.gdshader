@@ -5,7 +5,8 @@ render_mode cull_back, diffuse_burley, specular_schlick_ggx;
 #include "res://addons/local_agents/sim/shaders/generated.gdshaderinc"
 
 uniform float sea_level = 0.0;      // world units, relative to planet_sea_radius
-uniform float snow_height = 90.0;   // world units above the sea shell
+// Tropical snow line, metres above the sea shell; it falls to sea level at the poles below.
+uniform float snow_height = 4500.0;
 
 // Up is radial and altitude is height above the sea shell. Set by LARenderLayer from the body.
 uniform vec3 planet_center = vec3(0.0);
@@ -123,8 +124,8 @@ void fragment() {
 	// Snow high up, but only on flatter ground. Uses radial `altitude` on a planet so peaks
 	// everywhere get snow (not just the pole). A mild latitude bias lowers the snow line toward
 	// the poles (colder) — subtle, planet-mode only (lat_cold is 0 in flat mode, so no change).
-	float snow_line = snow_height - 30.0 * lat_cold;
-	float snowf = smoothstep(snow_line - 18.0, snow_line + 12.0, altitude)
+	float snow_line = snow_height * (1.0 - lat_cold);
+	float snowf = smoothstep(snow_line - 300.0, snow_line + 200.0, altitude)
 		* (1.0 - smoothstep(0.5, 0.8, slope));
 	col = mix(col, snow_color, clamp(snowf, 0.0, 1.0));
 

@@ -149,7 +149,7 @@ func report() -> Dictionary:
 		"wet_cells": _f.wet_cell_count(), "heat_peak": _f.peak_heat(), "heat_cells": _f.hot_cell_count(),
 		"cloud_cells": _f.cloud_cell_count(), "cloud_cover": _f.avg_cloud_cover(),
 		"fog_cover": _f.avg_fog_cover(), "vapour_total": _f.vapour_total(),
-		"wind": _f.wind().length(),
+		"wind_max": q.wind_speed_max(),
 		"fertility_peak": _f.fertility_peak(),
 		# Molten rock standing in open cells is an eruption. All three come from one cached walk.
 		"lava_cells": molten.get("lava_cells", 0), "magma_cells": molten.get("magma_cells", 0),

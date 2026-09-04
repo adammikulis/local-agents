@@ -49,7 +49,8 @@ func _build_registry() -> void:
 			"a wildfire has broken out and is spreading"),
 		# NO FLOOD DETECTOR. `water_total` is a GLOBAL sum, and a flood is local: one valley filling while
 		# another dries sums to zero. What a global rise in liquid water actually means is planet-wide net
-		_threshold("storm", "wind", "cross_up", 8.0, 4.0, 10.0, 0.5,
+		# Storm: the fastest air in the box at Beaufort force 10, re-arming below gale, force 8.
+		_threshold("storm", "wind_max", "cross_up", 24.5, 17.2, 10.0, 0.5,
 			"a storm is whipping up — the wind is howling"),
 		# Lightning: each bolt is one strike, off the bolt_cells reduce row.
 		_threshold_increment("lightning", "bolts", 1.0, 1.5, 12.0,
@@ -104,8 +105,8 @@ func _snapshot() -> Dictionary:
 	if _material != null:
 		if _material.has_method("total_water"):
 			snap["water_total"] = _material.total_water()
-		if _material.has_method("wind"):
-			snap["wind"] = (_material.wind() as Vector2).length()
+		if _material.has_method("wind_speed_max"):
+			snap["wind_max"] = _material.wind_speed_max()
 		if _material.has_method("bolts_fired"):
 			snap["bolts"] = _material.bolts_fired()
 	if _queries != null and _queries.has_method("melt_total"):

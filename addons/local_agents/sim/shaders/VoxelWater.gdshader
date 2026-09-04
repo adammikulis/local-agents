@@ -38,8 +38,8 @@ uniform float base_alpha = 0.80;      // opacity floor for thin sheets (depth_in
 uniform float wave_amp = 0.9;         // swell height at full wind (world units)
 uniform float wave_scale = 0.045;     // swell spatial frequency
 uniform float wave_speed = 0.6;
-uniform vec2 wind_dir = vec2(1.0, 0.0);      // set from field.wind() (normalized)
-uniform float wind_strength : hint_range(0.0, 2.0) = 0.4;  // field.wind() magnitude, scaled+clamped
+uniform vec2 wind_dir = vec2(1.0, 0.0);      // local wind in the patch frame, normalized
+uniform float wind_strength : hint_range(0.0, 2.0) = 0.4;  // local wind speed, scaled+clamped
 uniform float ripple_detail = 0.35;   // fine fragment normal sparkle
 
 // --- Impact ripples (ring buffer, aged on the CPU, uploaded each frame) ---
