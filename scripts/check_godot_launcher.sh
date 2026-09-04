@@ -24,6 +24,26 @@ rg -q -e 'la_window_res "\$@"' "$LIB" || {
 	echo "      exemption is not the only way to a window with pixels in it." >&2
 	launcher_fail=1
 }
+# NO AUDIO DEVICE IN AN AUTOMATED RUN. CoreAudio refusing to start logs an engine error, and sim_run
+# withholds every number from a run that logged one. Only the movie writer records sound.
+rg -q -e 'audio=\(--audio-driver Dummy\)' "$LIB" || {
+	echo "FAIL  scripts/lib_godot.sh does not force the Dummy audio driver, so an automated run opens a" >&2
+	echo "      real audio device and one CoreAudio failure withholds the run's numbers." >&2
+	launcher_fail=1
+}
+# ONE GPU, ONE ENGINE. A rig probe and a headless batch each make a RenderingDevice, so the lock belongs
+# to the launch; without it several lanes share one GPU and a sim run dies on Godot's fence wait.
+rg -q -e 'la_gpu_lock' "$LIB" || {
+	echo "FAIL  scripts/lib_godot.sh launches without taking the machine-wide GPU lock." >&2
+	launcher_fail=1
+}
+lock_over="$(rg -n --no-heading -g '*.sh' -g '!check_godot_launcher.sh' -g '!lib_godot_lock.sh' \
+	-e 'la_sim_gpu\.lock' "$ROOT/scripts" 2>/dev/null || true)"
+if [ -n "$lock_over" ]; then
+	printf '%s\n' "$lock_over" >&2
+	echo "FAIL  the line(s) above name the GPU lock outside lib_godot_lock.sh, which declares it." >&2
+	launcher_fail=1
+fi
 res_over="$(rg -n --no-heading -g '*.sh' -g '!check_godot_launcher.sh' -g '!lib_godot.sh' \
 	-e '\bLA_RES\b' -e '--resolution' "$ROOT/scripts" 2>/dev/null || true)"
 if [ -n "$res_over" ]; then

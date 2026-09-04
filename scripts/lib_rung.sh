@@ -5,8 +5,11 @@
 LA_RUNG_SCRIPTS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # $1 rung, $2 frames, $3 comma-separated SIM_REPORT keys. Prints sim_run's report block.
+# LA_LADDER_SLICE names a box, and the ladder then climbs that box rather than the whole planet.
 la_rung_report() {
-	"$LA_RUNG_SCRIPTS/sim_run.sh" --rung "$1" --frames "$2" --report "$3" 2>&1
+	local box=()
+	[ -n "${LA_LADDER_SLICE:-}" ] && box=(--slice --slice-box "$LA_LADDER_SLICE")
+	"$LA_RUNG_SCRIPTS/sim_run.sh" --rung "$1" --frames "$2" --report "$3" ${box[@]+"${box[@]}"} 2>&1
 }
 
 la_rung_numeric() {

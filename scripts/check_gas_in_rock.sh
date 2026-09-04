@@ -46,7 +46,7 @@ for g in $GASES; do keys="${keys}all_${g},open_${g},"; done
 # The gap opens over the run, so an arm short enough to miss it is a gate that cannot fail: this is the
 # shared capture's own length, rung and seed.
 out="$(la_report "${keys%,}" --path "$ROOT" --frames "${LA_GAS_FRAMES:-20}" \
-	--rung "${LA_GAS_RUNG:-8}" --seed 4242 --from-seal 2>&1)" || true
+	--rung "${LA_GAS_RUNG:-8}" --seed 4242 2>&1)" || true
 # A gauge publishes {'cur': x, 'min': y, 'max': z}; the stock now is 'cur'.
 reading() {
 	printf '%s\n' "$out" | sed -n "s/^$1  *= *//p" | head -1 \

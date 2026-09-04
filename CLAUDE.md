@@ -1,740 +1,315 @@
 # CLAUDE.md
 
-# RULE ZERO — REALISM FIRST. ASK "IS THIS HOW THE **REAL** WORLD WORKS?" BEFORE ANYTHING ELSE.
+# RULE ZERO — REALISM FIRST
 
-This outranks every rule below. Before you write, review or accept any model, constant, coupling or
-measurement, ask the physical question. "Does it run", "does the test pass", "does the number look reasonable"
-are all downstream. A simulation that runs perfectly and does not match reality is broken.
+Before writing, reviewing or accepting any model, constant, coupling or measurement, ask: is this how the
+real world works? "It runs", "the test passes", "the number looks reasonable" are downstream.
 
-**THE REFERENT IS THE WORLD OUTSIDE THIS REPOSITORY, AND NOTHING INSIDE IT COUNTS.** Not the substrate, not
-another file in the tree, not a prior agent's model, not what the surrounding code implies, not this document.
-Checking the model against the model is circular and proves nothing — it is how every defect here survived.
-If your only justification is another part of this codebase, you have not answered the question. Answer it
-with a measured property, a textbook mechanism or a published value.
+**The referent is the world outside this repository. Nothing inside it counts** — not another file, not a
+prior agent's model, not this document. Answer with a measured property, a textbook mechanism or a
+published value.
 
-1. **Name the real-world referent.** What physical thing is this a model OF? If you cannot say, that is the
-   finding. Cite the real value or mechanism.
-2. **Check the coupling.** Systems independent in the world are independent in the code, in BOTH directions.
-   Geology does not consult biology; biology does not schedule earthquakes.
-3. **Check the scale.** A core is hotter than lava. An ocean is colder than magma. Off by 4x is wrong even if
-   it runs.
-4. **Entities that differ in reality differ in code** — species, materials, biomes. One constant shared across
-   genuinely different things is a modelling error, not a simplification.
-5. **Check the measurement's SHAPE.** A global mean cannot answer a local question; one sample cannot answer
+1. Name the real-world referent. If you cannot, that is the finding.
+2. Systems independent in the world are independent in the code, both directions.
+3. Check the scale. Off by 4x is wrong even if it runs.
+4. Entities that differ in reality differ in code. One constant shared across different things is a
+   modelling error.
+5. Check the measurement's shape: a global mean cannot answer a local question; one sample cannot answer
    "how extreme"; a scalar cannot show structure.
-6. **When reality and convenience conflict, reality wins.**
-
-**It points at the ENGINE hardest — the substrate, the reaction table, the integrator — not at the constants
-they carry.** A wrong constant is one lie; a wrong engine is a PERMISSION that licenses every record ever
-written against it. Constants are the cheapest thing to audit and the least valuable.
-
-**Do this UNPROMPTED on every file you open, including files you only opened to read.** Surfacing something is
-not reviewing it. If you notice a violation while doing something else, FIX IT AND REPORT IT that turn.
-
-# RULE 1 — DELETE IT. DO NOT PRESERVE IT. THIS OUTRANKS EVERYTHING BELOW.
-
-**If it is wrong, delete it.** Not behind a flag, a mode, a default, an alias, a pad, or a fallback. A switch
-that keeps broken behaviour reachable is the same defect with a switch on it. There is no "keep it for
-compatibility" here — there are no downstream consumers.
-
-**Ask whether the thing exists in the real world. If it does not, there is nothing to preserve.** Seas are
-not static. Mass does not move without its heat. A gas does not ignore the wind. Water does not vanish when
-it reaches the ocean. When the answer is "reality has no such thing", delete it — do not parameterise it.
-
-## DELETE ON SIGHT — the shapes, each with the instance that earned it
-
-You do not need permission for any of these and you do not need to measure them first. Recognise the shape,
-remove it, and fix whatever breaks. Every example below is real and was removed from this repo.
-- **A fallback that substitutes a plausible value when a lookup fails.** `ctx.get(key, 8.0)`, a mirror read
-  standing in for an absent probe leg, a fish computing its whole metabolism from a hardcoded water
-  temperature when the field was missing, a pause menu writing the global clock when it found no owner.
-  **A missing measurement is missing.** Return nothing and name the absence; never invent the value.
-- **A shim kept so call sites read the same.** A function whose own comment says it exists to look like the
-  thing it replaced, and which returns its argument unchanged.
-- **An environment variable that turns a physical process off.** Erosion transport, continental drift,
-  physics LOD, food from nothing, grazing that never debited. A conservation violation reachable by env var
-  is the same defect with a switch on it. Also: gate diagnostics on `get_environment(name) != ""`, because
-  `env FOO=` counts as SET for `has_environment`.
-- **A clamp, cap, floor or rarity roll that exists to stop a symptom.** A cloud-opacity cap against a
-  cloud→cold→more-cloud runaway, a per-face share cap, an air floor, a bolts-per-step cap. Fix the root; the
-  clamp coming out is the acceptance test that you did.
-- **A second declaration of one fact — and the gate guarding the dead one.** Two neighbour-slot layouts, two
-  cell-volume subsystems, two classes each documented as the only owner of the global clock. A gate defending
-  the superseded copy goes red against the real SSOT, and a permanently red gate destroys the signal of every
-  gate beside it.
-- **State written and never read**, and a mirror never allocated at all. Both look like features and are
-  neither.
-- **A gate that cannot fail** — a ceiling set far above its count, a check whose tool is absent, a stanza
-  pointing at a deleted file. Mutation-test every gate both ways or you have not written one.
-- **A verb that makes a named phenomenon happen** by injecting its ingredients. It becomes a detector that
-  reads the field and names what it sees.
-- **A quality or presentation dial that reaches physics** — an effects scale that changed where ejecta
-  landed, a camera position that decided which ground existed and therefore the RNG.
+6. When reality and convenience conflict, reality wins.
 
-# RULE 1b — NOTHING THIS SUBSTRATE PRINTS IS EVIDENCE, AND GREEN IS NOT A REASON.
+Point it at the engine hardest — the substrate, the reaction table, the integrator. A wrong constant is
+one lie; a wrong engine licenses every record written against it. Do this unprompted on every file you
+open. If you notice a violation while doing something else, fix it and report it that turn.
 
-Nothing here has ever worked, so a figure is the interaction of whichever defects were live that day, and
-two such figures differenced is a difference between fictions.
+# RULE 1 — DELETE IT. DO NOT PRESERVE IT.
 
-**Report no number — total, drift, percentage, mean, count, absolute reading — until `HANDOFF.md` and
-`docs/PHYSICS_TODO.md` are empty.** Never a before/after table, never "beating a baseline"; fitting the
-model to its output is how water came to freeze at 12.5 °C. A gate's reading is the same error — "down to
-55 errors", "the residual is small", "drift improved" are readings off broken instruments. **THE ONLY
-MEASURE OF PROGRESS IS WHAT WAS RIPPED OUT:** report the file, the constant, the switch, the duplicate.
+If it is wrong, delete it: not behind a flag, a mode, a default, an alias, a pad or a fallback. There are
+no downstream consumers. Ask whether the thing exists in the real world; if it does not, there is nothing
+to preserve.
 
-**A crutch is DELETED, never measured.** Do not test it, compare it, or report what it reads — reporting
-its value invites a conversation about the value instead of the deletion.
+Delete on sight, no permission, no measurement first:
+- a fallback that substitutes a plausible value when a lookup fails — a missing measurement is missing;
+  return nothing and name the absence;
+- a shim kept so call sites read the same;
+- an environment variable that turns a physical process off (gate diagnostics on
+  `get_environment(name) != ""`; `env FOO=` counts as set for `has_environment`);
+- a clamp, cap, floor or rarity roll that stops a symptom — fix the root; the clamp coming out is the
+  acceptance test;
+- a second declaration of one fact, and the gate guarding the dead one;
+- state written and never read; a mirror never allocated;
+- a gate that cannot fail — mutation-test every gate both ways or you have not written one;
+- a verb that makes a named phenomenon happen by injecting its ingredients — it becomes a detector;
+- a quality or presentation dial that reaches physics.
 
-**"So that it compiles", "so the call sites still read the same", "so we have a baseline", "so the gate
-goes green" are not reasons.** Green is the only signal cheap to read, so every plan bends toward
-producing one — that is how a deleted crutch comes back behind a forwarder. Justify a change by what is
-true of the WORLD. **Red is the working state of a branch mid-conversion:** a status with a named cause,
-not damage. A step is DONE when something is GONE or a physical claim is TRUE, never when a command
-exited 0.
-
-**A gate you cannot make fail on purpose is not a gate.** Mutation-test both ways or you have not written
-one.
+# RULE 1b — NOTHING THIS SUBSTRATE PRINTS IS EVIDENCE, AND GREEN IS NOT A REASON
 
-**NEVER SHAPE THE PHYSICS TO SUIT THE DISPLAY.** Not the rate, the threshold, the unit, or which cells are
-stepped. A quantity that exists because something needed a 0..1 dial, a cadence chosen so a frame looks
-smooth, a channel scaled so a texture packs — each is the simulation lying to make a picture easier, and
-the picture is then evidence of nothing. If a thing is hard to render, fix the RENDERER.
+Report no number — total, drift, percentage, mean, count — until `HANDOFF.md` and
+`docs/PHYSICS_TODO.md` are empty. Never a before/after table, never "beating a baseline"; fitting the
+model to its output is how water came to freeze at 12.5 °C. A crutch is deleted, never measured. The only
+measure of progress is what was ripped out: report the file, the constant, the switch, the duplicate.
 
-Evidence is reading the code against reality, plus binary events: a gate fires on purpose, a demo exits 0,
-a marker appears, a deletion compiles, a referrer breaks and names the next fix.
+"So that it compiles", "so the call sites still read the same", "so we have a baseline", "so the gate
+goes green" are not reasons. Red is the working state of a branch mid-conversion. A step is done when
+something is gone or a physical claim is true, never when a command exited 0.
 
-# RULE 1c — THE WORLD HAS TWO PHASES. CREATION IS LEGAL IN ONE OF THEM.
+Never shape the physics to suit the display: not the rate, the threshold, the unit, or which cells are
+stepped. If a thing is hard to render, fix the renderer.
 
-**SEEDING:** the world is being built, so matter and energy may be CREATED. Declare every such act through
-`LAMaterialFieldSeal3D.note_creation()`; it lands in the seed manifest, which is the scoreboard of what the
-substrate was TOLD. Progress is entries being deleted from it.
+# RULE 1c — TWO PHASES. CREATION IS LEGAL IN ONE
 
-**SEALED:** the world exists. Matter and energy may only be moved or transformed. Creating either is a
-violation, and no flag, mode or environment variable may re-enable it.
+Seeding: matter and energy may be created; declare every act through
+`LAMaterialFieldSeal3D.note_creation()`. Sealed: matter and energy may only move or transform, and no
+flag may re-enable creation. `sealed()` is the boundary; `creation_after_seal` reads empty;
+`scripts/check_seed_phase.sh` fails on a creation-class write that never asks and on any whole-mirror
+upload.
 
-`sealed()` is the boundary and there is no other. `creation_after_seal` must read empty, and
-`scripts/check_seed_phase.sh` fails the build on a creation-class write that never asks and on any
-whole-mirror upload — an upload that cannot say what it changed creates matter with no ledger noticing.
+# RULE 1d — NOTHING HERE CONSTRAINS YOU: NOT OUR OWN CODE, AND NEVER PERMISSION
 
-# RULE 1d — NOTHING HERE CONSTRAINS YOU: NOT OUR OWN CODE, AND NEVER PERMISSION.
+"A can't happen because B" is allowed only when B is an upstream bug you cannot fix. If B is our code the
+sentence continues "and this is how I am fixing it." Every constraint here is a decision, not physics.
+The subtle form is preserving a shape: adding the right relation beside the scalar it replaces, with
+every consumer still on the scalar.
 
-**"A can't happen because B" is only allowed when B is an upstream bug you cannot fix.** If B is our code
-the sentence is unfinished and must continue: "and this is how I am fixing it." Every constraint here is a
-past decision, not physics, and there are no downstream consumers — you wrote every line. "Parity",
-"feel", "familiar", "so the existing tuning still sees familiar numbers" are the reason the defect is
-still here. The subtle form is preserving a SHAPE rather than a value: adding the right relation beside
-the scalar it replaces, with every consumer still on the scalar.
+Never ask permission to do the correct thing. Before `AskUserQuestion`, check whether this file,
+`HANDOFF.md` or `docs/PHYSICS_TODO.md` already decides it; if so, act. The tool is for what only the
+maintainer knows — what he wants the world to be like. Never for a choice between correct and cheap,
+never for reassurance, never to ask whether a broken sim may stay broken.
 
-**NEVER ASK PERMISSION TO DO THE CORRECT THING.** Before `AskUserQuestion`, check whether this file,
-`HANDOFF.md` or `docs/PHYSICS_TODO.md` already decides it. If they do, ACT. The tool is for what only the
-maintainer knows — what he wants the world to BE like. Never for permission, never for a choice between
-correct and cheap, never for reassurance, never to ask whether a broken sim may stay broken. A tracker
-note reserving a call does not un-decide a question reality already answers, and a plus/minus write-up is
-the same failure wearing prose. Asking anyway costs DAYS.
+# RULE 2 — YOU PRESERVE NUMBERS, NOT CODE
 
-# RULE 2 — YOU PRESERVE NUMBERS, NOT CODE. THAT IS WHAT KEEPS GETTING PAST RULE 1.
+Rule 1 gets obeyed on files and violated on values; the motive is keeping your own past figures
+interpretable. Delete the value too. The deference failure that carries it: manufacturing a reason an
+explicit instruction "does not apply here".
 
-Rule 1 gets obeyed on files and violated on VALUES: the real motive is keeping your own past figures
-interpretable. Delete the value too.
+# RULE 3 — NAME THE CONSTRAINT AS A LAW OR A DECISION, OUT LOUD, EVERY TIME
 
-The deference failure that carries it: manufacturing a reason an explicit instruction "does not apply here".
+A law is physics. A decision is ours and can be unmade. Almost everything here is a decision.
 
-# RULE 3 — NAME THE CONSTRAINT AS A LAW OR A DECISION. OUT LOUD. EVERY TIME.
+# RULE 4 — A DELETION THAT BREAKS A REFERRER IS REPAIRED FORWARD
 
-Say which it is before you build around it. A law is physics. A decision is ours and can be unmade — and
-almost everything here is a decision, so stating one as a law is how it survives another session.
+Fix the referrer. Never restore what you deleted. A red gate after a deletion is the work queue.
 
-# RULE 4 — WHEN A DELETION BREAKS A REFERRER, FIX THE REFERRER. NEVER RESTORE WHAT YOU DELETED.
+# RULE 5 — IF REMOVING THE WRONG THING BREAKS SOMETHING, THAT IS THE FINDING
 
-Repair forward. A red gate after a deletion is the work queue, not a rejection.
+The breakage names what depended on the defect. A permanently red gate destroys the signal of every gate
+beside it, so ceilings are ratchets: set at the count, lowered as things are fixed, never raised.
 
-# RULE 5 — IF REMOVING THE WRONG THING BREAKS SOMETHING, THAT IS THE FINDING. NOT A VETO.
+# RULE 6 — WRONGNESS FIRST, CALLERS SECOND
 
-The breakage tells you what depended on the defect. That is information you wanted.
+Decide whether a thing is wrong before you look at what references it. "It has callers, so it stays" is
+never a reason, in any dress: "another lane owns it", "this would break N files", "let's not churn that".
 
-And a permanently failing gate destroys the signal of every gate beside it, so red becomes the expected
-background and real failures get committed over. Ceilings are ratchets: set at the count, lowered as things
-are fixed, never raised to turn a light green.
-
-# RULE 6 — WRONGNESS FIRST, CALLERS SECOND. AND NOTHING DIVERGES SILENTLY.
-
-Decide whether a thing is wrong before you look at what references it. Once a caller list is in your head it
-reads as a cost, and the cost argues for preservation. "It has callers, so it stays" is never a reason, in any
-dress — "another lane owns it", "this would break N files", "let's not churn that".
-
-Three habits that produce a green tree instead of a correct one: checking for callers first; treating deletion
-as exceeding the mandate; reading a red gate as damage you caused rather than as the next thing to fix.
-
-Verify branch state with git arithmetic before planning against it — `git cherry` BOTH directions and
-`git merge-base --is-ancestor main <dev>`. A tracker's silence is not evidence. The dev branch must contain
-`main`. Every branch ahead of it is declared with a reason. Reconcile at a handful of commits, not a hundred:
-by then both lines have re-fixed the same defects differently and every conflict is a physics decision.
-
-# RULE 7 — PROSE IS EXPENSIVE. "IT COSTS NOTHING TO WRITE" IS FALSE AND YOU KEEP SAYING IT.
-
-Every paragraph is spent context, and context is the budget the work runs on. This file loads every session:
-words added to look thorough are subtracted from the reasoning left, and the task does not land.
-
-Write the imperative and stop. No history, no dates, no worked examples, no measured figures, no restating.
-The rule is the credibility; a story attached to it means a reader cannot tell which half is still true.
-
-Tells: a parenthetical longer than its sentence · any date · a paragraph that would survive deletion.
-
-**A CHANGE MAY NOT ADD MORE COMMENT THAN CODE, PER FILE.** `scripts/check_comment_ratio.sh` runs in the
-pre-commit hook and in `lint`. Density gates measure a file; this measures the diff, which is where prose
-arrives. `check_comment_history.sh` counts the banned kinds — dates, measured figures, war stories — as a
-ratchet that may only fall.
-
-**A COMMENT LABELS. IT DOES NOT ARGUE, DEFEND, OR ANTICIPATE A QUESTION.** More than six consecutive
-comment lines is a paragraph, and a paragraph is a case being made to a reader rather than a fact about
-the code. `scripts/check_comment_block.sh` counts every line past that limit as a ratchet that may only
-fall. Do not write the justification down: a claim that matters becomes a GATE, and one that does not is
-not written. You will feel the pull hardest right after making a decision you expect to be asked about —
-that is the moment the comment is for you, not for the reader, and it is the one to delete.
-
-# RULE 8 — READ THE CODE. DO NOT NARRATE A DIAGNOSIS, AND NEVER REVISE ONE OUT LOUD.
-
-Open the file. Read what it does. Answer from the code.
-
-Instrument only after reading has failed, and never report a theory before it is settled. "That changes
-the diagnosis", "it reframes it", "actually it is X" are banned phrases and the turns that produce them
-are banned work. A hypothesis announced, corrected, then corrected again is churn billed to the maintainer.
-
-A probe that prints only past a threshold is a gate that cannot fail. Give it a positive control or do not
-trust its silence.
-
-**NEVER WRITE A CHANGELOG.** Not `CHANGELOG.md`, not release notes, not a "what changed" section. The
-tree is the change log: `git log` is written by the act itself and cannot drift. A hand-written one is a
-second account that disagrees with the first the day it is written, and it is always the wrong one.
-`scripts/check_doc_prose.sh` fails the build if one is tracked.
-
-<!-- claim: nofile CHANGELOG.md -->
-
-**`HANDOFF.md` IS NOT YOUR SCRATCHPAD. IT IS THE NEXT AGENT'S INSTRUCTION SET.** It gets the file and the
-expression, in one sentence, and only when the fix could not land this turn. Never your reasoning, your
-retractions, what you first thought, what you ruled out, or what a run printed.
-**A TRACKER ITEM CARRIES A SYMPTOM AND THE COMMAND THAT REPRODUCES IT, NEVER A DIAGNOSIS** — a symptom holds
-until it is fixed, a guess at a cause rots in silence and aims the next reader at the wrong file.
-`scripts/check_doc_prose.sh` fails the build on it.
-
-Findings are not written down. Fix it.
-
-# YOU MAY NOT VIOLATE PHYSICS WITHOUT EXPLICIT PERMISSION. ASK BEFORE YOU WRITE IT.
-
-Every departure from real physics needs the maintainer's consent, obtained BEFORE the code exists — not after,
-not in the commit message, not as a note in the handoff. There is no implicit licence: not "it was already
-like that", not "only a stopgap", not "it keeps the tests green".
-
-This covers matter or energy created or destroyed · a constant you invented rather than derived or cited · a
-mechanism reality does not have · a clamp, floor, cap or target that exists to stop a symptom · a rate fitted
-so an output looks right · a phase change that skips its latent heat · a gauge answering a different question
-than the one asked.
-
-## THE ONE STANDING EXEMPTION: A CHEAPER SOLVER OF THE SAME SHAPE
-
-**Maintainer's decision, standing.** What is computationally infeasible may be APPROXIMATED. No permission
-needed each time, and it is the only departure that does not need asking. Three conditions, all required:
-
-1. **THE SHAPE IS THE SAME.** The functional form, the dependencies and the direction of every effect are
-   the real ones; only the resolution or the solver is cheapened. A coarse integral over the right integrand
-   qualifies. **A number back-derived from the answer does NOT** — it has no shape, it IS the answer, and
-   that is the fitted constant this file bans everywhere else. If you cannot write down what the exact
-   version of your expression would be, you have not approximated it, you have replaced it.
-2. **THE REAL ONE SWAPS IN.** It occupies the seam the exact solver will occupy, so more compute is the only
-   thing standing between them. Name the replacement.
-3. **IT IS DECLARED** in `docs/APPROXIMATIONS.md`, with what it stands in for and what swaps it in.
-   `scripts/check_approximations.sh` holds the registry to the code both ways.
-
-**CONSERVATION IS NOT COVERED AND NEVER WILL BE. Matter and energy are still neither created nor
-destroyed** — no approximation may leak either, and "close enough" is not a defence for a ledger that does
-not close. Cheapen the solver, never the books.
-
-**If you cannot derive it or cite it, STOP AND ASK.** "I need a settling velocity and the channel carries no
-grain size — may I use one value for all dust?" is correct. Choosing a number and writing a
-citation-flavoured comment beside it is a lie, and worse than the bare value because it stops the next reader
-checking. `scripts/check_model_parameters.sh` fails the build on a kernel constant that is neither bound to
-`LAPhysical` nor declared in `docs/MODEL_PARAMETERS.md`.
-
-**Every conservation violation is ADDRESSED or EXEMPTED, and exemption is the maintainer's alone.** "Out of
-scope", "that is 0.5 work", "another subsystem owns it", "it is in the tracker" are scheduling statements.
-Scope is a separate axis from physics. Deferring a violation IS a decision that needs approval.
-
-**Translate the euphemism before you accept a claim.** "Minting", "drift", "not conserving", "prescriber",
-"stand-in" all let you think about a violation without picturing it. Write "the simulation creates carbon
-atoms from nothing" and re-read your plan.
-
-**Distrust FRAMINGS, not just facts.** Verifying that a cited file exists is easy. The expensive errors live
-in the sentence that told you what KIND of problem you have — and a tracker, a task description, a prior
-agent's report and this file are all claims.
-
-**Do not file it — fix it.** Finding a defect and writing it down is not progress.
-
-**EVERY BUG YOU FIND IS IN SCOPE, BECAUSE ONE YOU DO NOT FIX WHEN YOU FIND IT NEVER GETS FIXED.** There is no
-"not my current task". WEEKS have been lost this way: it gets noticed, classified as some other lane's, and
-met again months later. The tells are "out of scope", "another lane owns it", "I must not sprawl", "noting it
-for later", and any list of defects in a reply that is not also a list of commits.
-
-**THIS COVERS THE HARNESS AND THE TOOLING, NOT ONLY THE PHYSICS.** Scripts, gates and launchers rot exactly
-like kernels, and they are the ones you read past because they look like infrastructure.
-
-**FIX THE CLASS, NOT THE INSTANCE: LEAVE A GATE BEHIND.** A rule does not survive the session and a gate
-does. If the defect could recur, the fix is unfinished until something goes red when it does.
-
-## SCOPE RULE — LOCK THE PLANET DOWN FIRST. CREATURE WORK IS 0.5 AND DOES NOT START YET.
-
-**Maintainer's directive, standing: 0.4 is the PLANET, and creature work is not merely lower priority — it is
-premature, and doing it now WASTES the work.** A creature cannot have realistic behaviour on a planet whose
-physics is wrong. Every hour spent tuning metabolism against a world where water froze at 12.5 °C, the core
-was 1300 °C, sediment could not move and the aquifer never reached the surface is an hour spent fitting
-behaviour to a fiction — and it all has to be redone once the substrate is honest. That has already happened
-here more than once.
-
-**So: do not open creature files, do not tune creature constants, and do not schedule creature workstreams
-until the planet is locked down.** If a task seems to require creature work, check whether it actually
-requires it or is only conventionally bundled with it. Say so and do the planet half.
-
-**"Locked down" is a measurable bar, not a feeling.** The planet is locked down when:
-- **every conserved substance has a drift gauge and every gauge reads ~0** — H₂O, mineral, carbon, oxygen,
-  fertility, nitrogen, energy. **A substance with no drift gauge is not "probably fine", it is UNMEASURED.**
-- **no physical constant is fitted.** Every real-matter value is sourced from `material/PhysicalConstants.gd`
-  with a citation and gated by `scripts/check_physical_constants.sh`.
-- **the named emergent phenomena actually occur** — springs and rivers run, sediment travels and deposits,
-  snow and sea ice form at a real 0 °C, volcanism and weathering are mechanisms rather than probability rolls.
-- **the physics does not depend on the observer.** No rate may change because of where the camera is pointed
-  or what the framerate is.
-
-**The exception, and it is narrow:** touch a creature file when the PLANET needs it — a creature is perturbing
-a field measurement, or `--planet-only`/`--no-fauna` needs a seam. BUILDING OUT creature features — new
-behaviours, new cognition, new lifecycle systems — is what waits for 0.5.
-
-**0.5 IS LIVING THINGS AND THEIR BEHAVIOUR. NOTHING ELSE IS, AND THE PLANET'S WHOLE MASS IS SEEDED NOW.**
-Every element the real 4.5 Ga Earth has, this one has, at its real abundance — including the ore and
-technology metals a civilisation will later want. **CHEMISTRY IS NOT BIOLOGY:** a process is 0.4 unless it
-needs a living organism to catalyse it, so weathering, clay, serpentinization, outgassing, ore
-concentration and abiotic organic synthesis all belong here. The tell that this gets misread: "a biosphere
-is 0.5" was once taken to mean "carbon is 0.5", and the planet ended up made of a single mineral with no
-iron in it.
-
-**BUT A DEFECT YOU FIND IS FIXED, NOT FILED. THIS SCOPE RULE NEVER LICENSES "RECORD IT AND MOVE ON."**
-
-If it is broken and you found it, fix it. That includes physics that is merely WRONG as well as physics that
-is non-conserving — a fox and a mouse burning identical energy, one thermal physiology across twenty-eight
-species, `basal_metabolism`/`active_metabolism` genes that nothing reads. **Do not sort defects into a
-fix-these and a note-those pile.** `HANDOFF.md` is for work that has not been started, not a place to put
-things you already have your hands on.
-
-`docs/0.5_CREATURE_FEATURES.md` holds the creature plan. It is **parked**.
-
-## Branch & worktree workflow (DEFAULT)
-- **The current development branch is `0.4-dev`** — the integration branch all feature work targets. This
-  line is the ONE declaration of its name: `scripts/lib_dev_branch.sh` parses it out of this file and every
-  script reads it from there, so a version bump changes this line and nothing else. `main` is downstream — it holds the shipped release (currently **0.3.1**, tagged
-  `v0.3.1`). Do **not** commit feature work directly to `main`.
-- **EVERY SUBAGENT THAT EDITS FILES GETS ITS OWN WORKTREE. PASS `isolation: "worktree"` ON THE AGENT CALL.
-  THIS IS NOT A JUDGEMENT CALL AND THERE IS NO THRESHOLD.** One agent or nine, one file or fifty — if it
-  writes, it is isolated. A read-only agent may share the tree, and must be told to cite identifiers rather
-  than line numbers, because other lanes will move them under it.
-  - **"TRIVIAL" IS A PROPERTY OF THE CHANGE, NOT OF HOW MUCH TYPING YOU DID.** This is the exact misreading
-    that produced the failure below: launching an agent is one tool call, so it FELT trivial — while the
-    change was thousands of lines across dozens of files, including a rewritten momentum equation and a
-    three-way split of organic matter with its balance checker. Measure the diff, never your own effort.
-  - **WORK YOU DELEGATE IS STILL YOUR CHANGE.** Nine agents making non-trivial changes is nine non-trivial
-    changes. The failure mode is not deciding wrongly — it is never deciding, because the flag simply does
-    not get passed.
-  - **The two stated exemptions are the opposite of a fan-out.** The rule below exempts "trivial single-file
-    edits (docs)" and "when you have confirmed you are the sole writer". Launching concurrent writers is the
-    precise inverse of the second one, so a fan-out can never qualify.
-  - **What it costs.** Nine lanes in one shared tree cost four of them their acceptance runs, and rotted
-    a fifth's `file:line` citations between two of its own commands.
-  - **And it manufactures the excuse for the NEXT failure.** Once the lanes collide, "another lane owns
-    that file" starts appearing as a reason not to do work — which is RULE 1d, caused by this.
-  - **INTEGRATION IS A COMMAND, NOT A HABIT: `scripts/integrate.sh <branch>`.** It refuses a worktree on a
-  detached HEAD or holding uncommitted changes, merges onto a staging branch in its own worktree, runs
-  `lint` THERE, fast-forwards the dev branch only when green, writes the ceilings, and prunes the lane.
-  Never `git merge` into the dev branch by hand: a bad merge on the dev branch can only be undone by
-  rewriting history, which is the moment somebody reaches for `reset --hard`.
-- **A RUNNING AGENT'S WORKTREE IS NOT YOURS TO WRITE IN.** Not to fix, not to commit, not to "just take
-  its diff". It moves HEAD under you: a whole lane's commits were orphaned that way, and the branch left
-  behind pointed at a commit identical to the dev branch, so `merge-base --is-ancestor` reported it
-  merged. Stop the agent first, then integrate its branch.
-- **VERIFY A DELETION BY CONTENT, NEVER BY ANCESTRY.** `git cherry` and `merge-base` answer questions
-  about commits. The question is whether the identifier is still in the tree — `rg` it.
-- **LANES DO NOT EDIT CEILING FILES.** A counter every lane must write is a serialization bottleneck, and
-  four of six conflicts in one session were ceiling files and nothing else. A lane fails only when a count
-  RISES; `scripts/integrate.sh` writes the tightened number once, after the merge.
-- **The coordinator still integrates.** Worktree agents commit to their own branch; merging, conflict
-    resolution and the editor-scan/verify gate stay the main thread's job. Check `git log <base>..<branch>`
-    before merging — an isolated agent can branch off a stale commit; salvage with cherry-pick (right base)
-    or `git diff | git apply --3way` (wrong base).
-- **A WORKTREE IS CLEANED UP BY WHOEVER MADE IT, IN THE SAME TURN IT STOPS BEING USED. NOBODY ASKS.**
-  Merged, abandoned, superseded, dead end — it does not matter which. `git worktree remove` it and delete
-  its branch before you reply. A worktree you are "done with" and left standing is a defect you shipped.
-  - **The coordinator prunes every subagent's tree the moment it reports**, merged or not. A subagent
-    cannot clean up after itself — it has already exited — so the tree it leaves is YOURS.
-  - **A session may not end with a tree it did not start with.** Check `git worktree list` before you
-    reply for the last time. There is no declared-branch exception — prune it.
-  - **Nothing is kept "in case".** The branch is in git; a tag freezes it if it genuinely matters.
-- **Do every non-trivial change in a dedicated git worktree branched off the current dev branch**, not in
-  the primary checkout, and **make it with `scripts/new_worktree.sh`, not by hand**:
-  `scripts/new_worktree.sh <feature>`
-  It does the four-step dance in one command — add the worktree, symlink the compiled `bin/`, run
-  `--import`, and editor-scan. **The `--import` is the step nobody remembers and the one that matters**: a
-  fresh worktree's `.glsl` compute kernels are unimported, so `load()` returns null, the GPU MaterialField is
-  SILENTLY DEAD (`biomass` 0, the log full of `get_spirv on a null value`) and every number in `SIM_REPORT`
-  is fiction that looks fine.
-  `git worktree add ../local-agents-<feature> -b feature/<name> <dev-branch>`
-  Build there, commit as you go, and merge back into the dev branch only when verified. This is the
-  standard because another session/agent running git ops (checkout/reset/merge) on the shared
-  checkout has corrupted and wiped untracked in-progress work here before — an isolated worktree
-  makes your files immune to another writer's branch switches.
-- **`bin/` IS COPIED PER WORKTREE AND `thirdparty/` IS A SYMLINK.** `scripts/new_worktree.sh` copies the
-  primary's compiled `bin/` and links its fetched `thirdparty/`. A lane that changes extension sources
-  replaces that link with its own fetched copy and rebuilds: `la_godot` refuses a `bin/` whose
-  `SOURCE_HASH` does not match the sources it launches against, so an unrebuilt lane loses every GPU gate
-  at once. `scripts/integrate.sh` copies the landed lane's `bin/` over the primary's.
-- When a feature is verified, merge it into the current dev branch, then prune: `git worktree remove <dir>`
-  and `git branch -d feature/<name>` (delete the pushed remote branch too once merged). At release, the dev
-  branch merges to `main` and is tagged.
-- Skip the worktree only for trivial single-file edits (docs) or when you have confirmed you are the
-  sole writer. **Never** run a bulk-edit sub-agent on files you (or another lane) are also
-  live-editing; commit before any bulk delete so a mistake is one `git checkout` away.
-
-## 3D assets: convert FBX → glTF (DEFAULT)
-- **Godot renders glTF (`.glb`/`.gltf`) reliably; FBX is the fragile path.** Bring every 3D asset in as
-  **glTF**. **Do not** rely on Godot's ufbx FBX importer for skinned/animated meshes at runtime.
-- **Non-skinned FBX (caps, hair, props):** Godot itself is the converter — `GLTFDocument.append_from_scene`
-  + `write_to_filesystem`, headless. Fine for static/rigid meshes.
-- **Skinned/animated characters: convert with headless Blender.** Godot's own FBX→glTF path left a skinned
-  character invisible, so use Blender's exporter. Where the mesh and the animation ship as separate FBX
-  files, RE-BIND the mesh to the animation's armature — re-point the Armature modifier and reparent —
-  rather than cross-assigning the action, which breaks when the two rest poses differ (the body bobs and
-  the arms stay in a T-pose).
-- **Runtime gotchas seen:** a Blender clip imports under a compound name like `Root_001|Root|Idle`, so match
-  by substring; set `loop_mode = LOOP_LINEAR` or the clip one-shots; the character may face +Z. **Attach
-  head accessories with `BoneAttachment3D`** bound to the `Head` bone so they track the skeletal animation
-  through the node tree — no per-frame sync.
-
-## Destructive-command safety (bulk delete/find)
-
-Do **not** delete files with `find ... -name <dir> -exec rm -rf` or a bare recursive `rm`. A name-based
-`find` matches every sibling sharing that name, and this tree is full of them — `actors/`, `ui/`,
-`shaders/`, `material/`, `kernels3d/` each appear under more than one root. It has already nuked a
-directory once, recovered only because it was committed.
-
-When removing files:
-- Prefer **explicit paths** or `git rm <path>` (it refuses to touch untracked files and stages the delete for review).
-- If you must `find`, scope it: anchor with `-path '.../scenes/simulation/actors'` (full path, not `-name`),
-  or add `-maxdepth 1`, and never combine `-name` with `-exec rm`/`-delete` over a shared parent.
+Verify branch state with git arithmetic before planning against it: `git cherry` both directions and
+`git merge-base --is-ancestor main <dev>`. The dev branch must contain `main`. Reconcile at a handful of
+commits, never a hundred.
+
+# RULE 7 — PROSE IS EXPENSIVE
+
+Every paragraph is spent context. Write the imperative and stop: no history, no dates, no worked examples,
+no measured figures, no restating. A change may not add more comment than code per file
+(`scripts/check_comment_ratio.sh`, in the pre-commit hook and lint). A comment labels; it does not argue,
+defend or anticipate a question; more than six consecutive comment lines is a paragraph
+(`scripts/check_comment_block.sh`). `scripts/check_comment_history.sh` ratchets the banned kinds down. A
+claim that matters becomes a gate; one that does not is not written.
+
+# RULE 8 — READ THE CODE. NEVER NARRATE A DIAGNOSIS
+
+Open the file, answer from the code. Instrument only after reading has failed. "That changes the
+diagnosis", "actually it is X" are banned phrases and the turns that produce them are banned work. A
+probe that prints only past a threshold needs a positive control.
+
+Never write a changelog; the tree is the change log (`scripts/check_doc_prose.sh`).
+
+`HANDOFF.md` is the next agent's instruction set: the file and the expression, in one sentence, only when
+the fix could not land this turn. A tracker item carries a symptom and the command that reproduces it,
+never a diagnosis. It may carry one `Reading:` line — a fact read off the code, naming an identifier in
+backticks, checkable by grep — never a hypothesis. Findings are not written down; fix it.
+
+# YOU MAY NOT VIOLATE PHYSICS WITHOUT EXPLICIT PERMISSION
+
+Every departure from real physics needs the maintainer's consent before the code exists: matter or energy
+created or destroyed; a constant invented rather than derived or cited; a mechanism reality lacks; a
+clamp, floor, cap or target that stops a symptom; a rate fitted so an output looks right; a phase change
+that skips its latent heat; a gauge answering a different question than the one asked.
+
+## The one standing exemption: a cheaper solver of the same shape
+
+What is computationally infeasible may be approximated, without asking, under three conditions:
+1. The shape is the same — functional form, dependencies, direction of every effect; only the resolution
+   or the solver is cheapened. A number back-derived from the answer is a fitted constant, not an
+   approximation.
+2. The real one swaps in at the same seam. Name the replacement.
+3. It is declared in `docs/APPROXIMATIONS.md`; `scripts/check_approximations.sh` holds the registry to
+   the code both ways.
+
+Conservation is never covered. Cheapen the solver, never the books.
+
+If you cannot derive it or cite it, stop and ask. A citation-flavoured comment beside a chosen number is
+worse than the bare value. `scripts/check_model_parameters.sh` fails on a kernel constant that is neither
+bound to `LAPhysical` nor declared in `docs/MODEL_PARAMETERS.md`.
+
+Every conservation violation is addressed or exempted, and exemption is the maintainer's alone. "Out of
+scope", "another subsystem owns it", "it is in the tracker" are scheduling statements; deferring a
+violation is a decision that needs approval. Translate the euphemism: "minting", "drift", "stand-in" mean
+the simulation creates atoms from nothing. Distrust framings as well as facts: a tracker, a task
+description, a prior agent's report and this file are all claims.
+
+**Every bug you find is in scope.** One you do not fix when you find it never gets fixed. "Not my current
+task", "another lane owns it", "noting it for later" are the tells. This covers the harness and the tooling.
+Fix the class, not the instance: leave a gate behind.
+
+## Scope: the planet first. Living things are 0.5
+
+0.4 is the planet. Creature and plant work is premature until the planet is locked down, and the referent
+is the lifeless 4.4 Ga Earth (`docs/PHYSICS_TODO.md`). Locked down means: every conserved substance has a
+drift gauge reading ~0; no physical constant is fitted; springs and rivers run, sediment moves, snow and
+sea ice form at 0 °C, volcanism and weathering are mechanisms; nothing depends on the observer. Touch a
+creature file only when the planet needs it. All of the planet's mass is seeded in 0.4 at its real
+elemental composition; chemistry is not biology, so weathering, clay, serpentinization, outgassing, ore
+concentration and abiotic organic synthesis are 0.4. `docs/0.5_CREATURE_FEATURES.md` is parked.
+
+## The ladder, the slice, and the demos
+
+- Physics is built and verified one rung at a time. A run declares which processes its world contains
+  (`addons/local_agents/gdextensions/localagents/src/LAProcessSet.cpp`); a process outside the set is
+  absent. Reproduce a defect at the lowest rung that shows it. `scripts/check_process_ladder.sh` names
+  the first red rung; nothing above it is measured. The demo world runs at `docs/PLAYABLE_RUNG`.
+- **The acceptance arm is a slice of the planet** (`scripts/sim_run.sh --slice`): a box on the surface,
+  graded to a declared finest cell edge under `docs/CELL_BUDGET`. The whole planet is a smoke test.
+- **A rung is built only after the maintainer has approved a demo of the rung below it.** Each rung's
+  demo is a scene plus a `LocalAgentDemoEntry` in `addons/local_agents/examples/demos/`. Cut it, launch
+  it, stop.
+- **Target architecture: a standalone native sim process.** Physics runs in its own executable with its
+  own compute device, clock and CLI; gates run it with no Godot launch; Godot is a client that attaches
+  to view and steer. Physics in Godot's process is a holdover, not the design.
+
+## Emergent-everything
+
+Named phenomena have zero dedicated code. One substrate: matter with pressure, temperature, phase,
+gravity, momentum and chemistry. A named phenomenon is a detector, never a cause — the tell is a verb in a
+function name. A genuine external cause (a meteor) is the exception. When the detector reads nothing,
+fix the physics that cannot run. Behaviour comes from local rules driven by config and properties, never
+`if identity == X`. Anything that diffuses, advects, flows, deposits or decays over space is a channel or
+a stepped process. Success is special-case code deleted.
+
+## Branch and worktree workflow
+
+- **The current development branch is `0.4-dev`.** This line is the one declaration of its name
+  (`scripts/lib_dev_branch.sh` parses it). `main` holds the shipped release (`v0.3.1`). Never commit
+  feature work to `main`.
+- Every subagent that edits files gets its own worktree: pass `isolation: "worktree"`, no threshold.
+  Work you delegate is still your change. Read-only agents may share the tree and cite identifiers, not
+  line numbers.
+- Fan-outs run on disjoint file ownership. Each contract lists the files the lane owns; a lane that needs
+  another's file stops and reports. The coordinator registers gates and sets shared literals at
+  integration.
+- Integration is a command: `scripts/integrate.sh <branch>`. Never `git merge` into the dev branch by
+  hand. A running agent's worktree is not yours to write in: stop the agent, then integrate.
+- Verify a deletion by content (`rg`), never by ancestry. Lanes do not edit ceiling files; a lane fails
+  only when a count rises.
+- Whoever made a worktree prunes it in the turn it stops being used. A session may not end with a tree it
+  did not start with. Nothing is kept "in case".
+- Make worktrees with `scripts/new_worktree.sh <feature>`: it copies `bin/`, links `thirdparty/`,
+  imports the kernels and scans. Without the import the GPU field is silently dead and the report looks
+  fine. `bin/` is copied per worktree; a lane that changes extension sources rebuilds
+  (`la_godot` refuses a `bin/` whose `SOURCE_HASH` does not match).
+- Skip the worktree only for a trivial single-file doc edit when you are the sole writer.
 
 ## Execution model
 
-- Understand current state and risks before editing. For big or ambiguous work, investigate first.
-- **The main thread may edit — but only in its OWN worktree off the dev branch, never the shared checkout.**
-- **You prune every worktree you or a subagent created, in the turn it stops being used, unasked.** A
-  subagent has exited by the time it reports, so its tree is yours to remove. `git worktree list` must
-  show nothing you did not start with before your last reply of a session.
-- **Prefer sub-agents for parallel work, and every file-editing agent gets `isolation: "worktree"`.** No
-  threshold, no judgement call: one agent or nine, one file or fifty. "Trivial" is a property of the DIFF,
-  never of how much typing you did — launching an agent is one tool call and thousands of lines. Work you
-  delegate is still your change. Nine lanes in one shared tree cost four of them their acceptance runs, and
-  it manufactures the excuse for the next failure: "another lane owns that file" is scheduling, not a reason.
-- **The coordinator integrates.** Worktree agents commit to their own branch; merging, conflict resolution
-  and the verify gate stay the main thread's. Check `git log <base>..<branch>` before merging — an isolated
-  agent can branch off a stale commit.
-- **The roadmap is DELIBERATELY divergent so it parallelizes. Do not bounce it back as a question.** Build
-  the collision map, do the seam-directed split to unblock, fan the tracks out, integrate what verifies.
-  Surface only a genuine either/or that changes the ARCHITECTURE.
-- **Use the `Workflow` tool for fan-outs** — standing process, no re-authorization needed. `pipeline()` is
-  the default; `parallel()` only when you genuinely need every result together.
-- **PRE-WRITE CONTRACTS.** Each agent gets: the goal, the exact files to add/change/DELETE, the shared
-  interface it must honour, and a BINARY acceptance gate (exact command, pass condition, "commit only if it
-  passes, else report"). Tell it to cite identifiers, not line numbers. Draft the next contracts while an
-  agent is mid-flight, to the scratchpad — never the repo, or another agent's `git add -A` sweeps them up.
-- **DO NOT FAN OUT PROSE, AND NEVER RUN A THIRD ROUND.** Fan-out earns its cost on parallel implementation
-  over disjoint files whose correctness a command settles. On documentation the checking costs more than the
-  writing. Two rounds, then do the rest yourself. The tell: the verifier's report is longer than the artifact.
-- **THE SIZE OF A CHANGE IS NEVER A FACTOR IN DECIDING WHAT TO DO.** Not a tiebreaker, not a
-  recommendation, not an ordering. "Most correct, but the largest change" is a sentence that must never be
-  written: if it is most correct that IS the decision, and the size is a scheduling fact stated after.
-  Recommending a cheaper option while labelling another one "most correct" is sandbagging.
-- **NEVER PRESENT A MENU WHEN ONE OPTION IS CORRECT, AND EFFORT IS NEVER A TIEBREAKER.** Decide by
-  correctness, say the answer in one sentence, build it. "Contained", "blast radius", "a bigger change" are
-  facts about SCHEDULE: state them after the decision, never as inputs. If your options differ mainly in how
-  much work they are, delete the menu. `AskUserQuestion` is for what only the maintainer knows — what he
-  wants the world to BE like — never for "should I do the correct thing or the cheap thing".
-- **EXPLAIN THE DEFECT IN PLAIN LANGUAGE, NAMING THE REAL-WORLD THING, BEFORE ANY `file:line`.** A maintainer
-  who cannot picture the physics cannot catch you getting it wrong, and catching it is what he has been doing.
-- **For substantial work, the record is the COMMIT MESSAGE.** Say what changed and what a consumer must do.
-- **`HANDOFF.md` IS THE MAP OF WHAT IS LEFT, NEVER A HISTORY.** A checked-off item is DELETED when it is
-  committed. Do not tick it or keep it "for context". The one exception: an entry that was FALSE is struck and
-  annotated, so nobody re-derives the wrong conclusion. Keep it current unprompted — at every landing, before
-  every merge, and before a session ends. Correcting a stale claim matters more than appending a new one, and
-  every status claim must be one you just checked.
+- Investigate before editing. The main thread edits only in its own worktree.
+- Pre-write contracts: goal, exact files to add/change/delete, the shared interface, a binary acceptance
+  gate ("commit only if it passes, else report"). Draft the next contracts to the scratchpad, never the
+  repo. Do not fan out prose; two rounds, then do the rest yourself.
+- Use the `Workflow` tool for fan-outs; `pipeline()` by default.
+- The size of a change is never a factor in deciding what to do. Never present a menu when one option is
+  correct; effort is never a tiebreaker.
+- Explain a defect in plain language, naming the real-world thing, before any `file:line`.
+- The record of substantial work is the commit message. `HANDOFF.md` is the map of what is left: a
+  landed item is deleted, ordered by what is upstream of what, kept current at every landing.
 
-## Validation defaults
+## Validation
 
-- **THE PHYSICS IS BUILT AND VERIFIED ONE RUNG AT A TIME.** A run declares which processes its world
-  contains — `addons/local_agents/gdextensions/localagents/src/LAProcessSet.cpp` — and a process outside the set is ABSENT:
-  never allocated, dispatched, reduced or booked. A rung is enabled only when the rung below it is green.
-  Reproduce a defect at the LOWEST rung that shows it and fix it there. `scripts/check_process_ladder.sh`
-  climbs them and names the first red one; the demo world runs at `docs/PLAYABLE_RUNG`.
-  **NOTHING ABOVE THE FIRST RED RUNG IS MEASURED.** A run at a higher rung that completes is a smoke test,
-  never an acceptance, and no number from it is read: a reading over a broken rung is the interaction of
-  defects. Lint's shared capture runs at the highest green rung; a gate that needs a process above it reads
-  "not examined". A contract may not ask a lane for a reading, a gate verdict or a run above the first red rung.
-- **A VERIFICATION RUN IS SHORT, AND A LONG ONE IS A DECLARED SOAK NOBODY BLOCKS ON.** The arm a lane waits
-  on to learn whether its change is good must answer inside `docs/RUN_TIMEOUT_CEILING`. A run that needs
-  longer is a real long-running sim — a conservation audit, a determinism pair, the score — and it says so
-  with `# SOAK: <why>` on the line above its timeout. `scripts/check_run_budget.sh` fails on an undeclared
-  long run and on a ceiling left above the real maximum. **Never raise the ceiling to make a slow arm
-  pass**; make the arm shorter, or find why it cannot finish. A fifteen-minute wait for "no result" is not
-  thoroughness, it is the iteration loop destroying itself, and every lane pays it.
-- **ONE SIM RUNS AT A TIME ON THIS MACHINE.** `run_sim_offscreen.sh` takes a machine-wide GPU lock, because
-  the race is over the GPU rather than over one project's `.godot`. Twelve lanes launching runs at once put
-  the machine under a load where every one of them timed out, and each then blamed its own change for what
-  was contention.
-- **A LANE RUNS `LA_NO_GPU=1 scripts/agent_harness.sh lint` PLUS ITS OWN GATES.** The full lint belongs to
-  `scripts/integrate.sh`, one landing at a time: every GPU gate takes the machine-wide lock, so a lane
-  running the full arm serialises every other lane behind it. The pre-commit hook runs the GPU-less arm.
-- **NEVER `pkill` OR `killall` BY PROGRAM NAME.** Every lane's sim is the same binary, so a bare pattern
-  kills runs belonging to lanes you cannot see. Kill by the PID your own task recorded, or by a pattern
-  anchored on your own worktree path. Never remove `la_sim_gpu.lock` by hand: the holder releases it, and
-  deleting it hands one GPU to two runs.
-- **A LAUNCH THAT SHOWS A WINDOW IS A BUG.** `la_godot` launches every Godot through a background-only
-  bundle macOS cannot activate, sizes the window 1x1 with no override, and `--shoot` renders into a
-  SubViewport. `scripts/check_godot_launcher.sh` holds all three and `scripts/check_no_focus_theft.sh`
-  samples the frontmost app for a whole run. Do not add a second launch path or a second window size.
-- **ITERATE AS FAST AS POSSIBLE.** Short runs while iterating; long runs and screenshots only at the final
-  gate. For anything slow-emergent — geology, succession, erosion, climate — use the fast-forward time scale
-  rather than waiting. Pick the cheapest run that proves the point.
-- **`scripts/agent_harness.sh sim` is the one way to run the planet.** It runs off-screen with the streamer
-  off, re-imports when a kernel changed, and refuses to print numbers if the run logged engine errors.
-  Never launch godot windowed directly: it steals the keyboard. Engine flags go BEFORE the `--`.
-- **`scripts/agent_harness.sh lint` is the gate, and an editor scan is not a substitute.** A file with a hard
-  parse error has passed the scan while an entire transport CA silently did not run. Look for the force-load
-  marker before believing anything.
-- **`scripts/editor_scan.sh`, never a bare `godot --headless --editor`.** Two concurrent scans segfault; the
-  wrapper takes a lock. A new `class_name` does not register without a scan.
-- **Compare at equal simulated time, never equal frames**, and quote what disasters a run drew — the spread
-  is discrete and disaster-driven, not Gaussian. Do not edit the tree while a run is in flight.
-- **MEASURE BEFORE YOU TUNE, AND MOVE THE CONSTANT BY A LARGE FACTOR FIRST.** If the output barely responds,
-  you are adjusting the wrong thing.
-- **A PHYSICAL CONSTANT IS NOT A TUNING KNOB.** Measured properties of real matter are facts; hardcoding them
-  accurately is the point. Moving one so a broken sim looks right is a lie about the material. Fix the sim.
-  The tells: a temperature that is not a round physical value, a comment justifying a value by "the sim's
-  actual range", and the same quantity declared in more than one file.
-- **REMOVING A BAND-AID IS THE ACCEPTANCE TEST FOR FIXING ITS ROOT.** If the clamp cannot come out, the root
-  is not fixed. Say so rather than quietly restoring it.
-- **REVIEW STRUCTURE, NOT JUST VALUES.** Ask what a constant is a constant OF, and whether a metric is the
-  right SHAPE. A global mean cannot answer a local question; one sample cannot answer "how extreme"; a scalar
-  cannot show structure; and one constant shared across things that differ in reality is a modelling error.
-- **AN INSTRUMENT THAT CHANGES WHAT IT MEASURES IS NOT AN INSTRUMENT.** A gauge may not call
-  `request_channel`: residency decides which mirrors the simulation's own write paths read. Nor may it read
-  the device directly mid-submit. A pure instrument samples at the drain, into a dictionary no consumer sees.
-  And no physical mechanism may depend on a diagnostic being switched on.
-- **PRESSURE HAS TWO WRITERS, ONE PER CELL CLASS, AND THIS IS THE MAINTAINER'S DECISION, NOT A LAW.** An
-  OPEN cell's pressure is a state function of its own matter, solved from the EOS in `state_derive.glsl`.
-  A SOLID cell's is the column standing over it, from `pressure.glsl`, because rock's bulk modulus makes a
-  state-function pressure hypersensitive to fill noise. They are legitimate only while they never meet:
-  rock pressure must never reach the momentum equation, and a wall face takes the FLUID cell's own
-  pressure. `scripts/check_pressure_split.sh` holds all of that. Do not unify them without the maintainer.
-- **THE SUBSTANCE TABLE IS THE SSOT FOR MATTER — `LASubstances`, in the GDExtension.** Every material
-  declares its own measured properties in ONE entry, reached from GDScript through `LASubstances`.
-  `PhysicalConstants.gd` keeps only what is not a property of a substance.
-  Do not add a flat constant for something a material owns, and check the fact is not already there under
-  another name. Phase and temperature are DERIVED from energy and mass, never stored, so latent heat is
-  structural and no kernel can skip a phase boundary.
-- **A GATE THAT PASSES WITH THE FEATURE DISABLED IS NOT A GATE.** Build the disabled arm. **Mutation-test
-  every gate both ways.** This repo has shipped gates that could only pass.
-- Player-facing behaviour needs a real launched window. Headless suites are necessary and not sufficient.
-
-`GODOT_BEST_PRACTICES.md` is canonical for Godot specifics — harness commands, markers, engine limits.
-
-## Emergent-everything — the north star
-
-**Named phenomena have ZERO dedicated code.** There is ONE substrate: matter with pressure, temperature,
-phase, gravity, momentum and chemistry. "Volcano", "eruption", "storm", "avalanche" are words humans put on
-what the physics does. A lava bomb is matter given momentum because pressure exceeded the rock confining it —
-the same rule that throws debris from any pressure release, so geysers come free.
-
-When you meet a named-phenomenon system, do not make its constants scale. Ask what universal rule makes it
-HAPPEN, push that into the substrate, and DELETE the special case. **Success is measured in special-case code
-deleted, not features added.**
-
-**A NAMED PHENOMENON IS A DETECTOR, NEVER A CAUSE.** The substrate produces state; a detector observes it and
-names it. An eruption is the observation that buoyant melt overcame its overburden. A hurricane is a warm-core
-cyclone in the wind and pressure fields. The tell is a verb in a function name — `erupt_source`,
-`_pump_eyewall`, `broadcast_seismic(MAGNITUDE)`. A genuine external cause is the one exception: a meteor really
-does arrive from outside. **When the detector reads nothing, that is the finding** — fix the physics that
-cannot run, do not keep the pump.
-
-**Behaviour comes from local rules, driven by config and properties, never `if identity == X`.** Couple systems
-through stimuli and broadcasts so new events compose instead of needing per-event code. Success is behaviour
-nobody wrote: stampedes from a strike, fire spreading downwind, herds reforming after a scare.
-
-**One-substrate default: always ask whether this belongs in the field.** Anything that diffuses, advects,
-flows, deposits or decays over space should be a channel or a stepped process, so it composes with everything
-else for free. Keep something out only for a stated reason.
-
-## Inspector surfaces
-
-- **A dead `@export` is worse than none** — it is a promise the code does not keep. Prove an export reaches
-  behaviour by RUNNING it, not by reading the call chain. For the GDScript↔C++ boundary, grep the native
-  source for the key.
-- **Never write a serialised property from a `@tool` script in the editor.** Adding `@tool` means every
-  lifecycle callback opens with `if Engine.is_editor_hint(): return`, before any node mutation.
-- **Precedence is node → project setting → env var → default.** Inverting it makes the inspector a lie.
-- **Measure a simulation on the physics clock**, not on render frames.
-- **Verify a claim before acting on it, including a reviewer's.** A reviewer is another agent and can be
-  confidently wrong. Run the command, quote the output, then change the code.
-
-## How good is the physics? `PHYSICS_RUBRIC.md`
-
-Six criteria, scored on every landing. `scripts/physics_score.sh` computes what it can from the report; the
-hand-entered half is the half to distrust, because the person scoring is the person who did the work.
+- A verification run answers inside `docs/RUN_TIMEOUT_CEILING`; a longer run is a declared soak
+  (`# SOAK: <why>`). Never raise the ceiling to make a slow arm pass.
+- One sim at a time on this machine (a machine-wide GPU lock). Never `pkill` by program name; kill by
+  your own PID or a pattern anchored on your own worktree. Never remove a lock by hand.
+- A lane runs `LA_NO_GPU=1 scripts/agent_harness.sh lint` plus its own gates; the full lint is
+  `scripts/integrate.sh`'s.
+- A launch that shows a window is a bug: `la_godot` is the only launcher (`scripts/check_godot_launcher.sh`,
+  `scripts/check_no_focus_theft.sh`). Player-facing behaviour still needs a real launched window.
+- Iterate fast: short runs while iterating; fast-forward slow-emergent phenomena; the cheapest run that
+  proves the point. Do not run a test until the change is finished.
+- `scripts/agent_harness.sh sim` is the one way to run the planet; `scripts/agent_harness.sh lint` is
+  the gate CI runs; `scripts/editor_scan.sh`, never a bare `godot --headless --editor`.
+- Compare at equal simulated time, never equal frames. Measure on the physics clock.
+- Measure before you tune, and move a constant by a large factor first. A physical constant is not a
+  tuning knob.
+- Review structure, not just values: what is a constant a constant of; is a metric the right shape.
+- An instrument that changes what it measures is not an instrument: a gauge may not call
+  `request_channel` or read the device mid-submit; no mechanism may depend on a diagnostic being on.
+- Pressure has two writers, one per cell class (maintainer's decision): an open cell's from the EOS in
+  `state_derive.glsl`, a solid cell's the column from `pressure.glsl`; they never meet
+  (`scripts/check_pressure_split.sh`).
+- The substance table is the SSOT for matter: `LASubstances` in the GDExtension. Phase and temperature
+  are derived from energy and mass, never stored. `PhysicalConstants.gd` keeps only what is not a property
+  of a substance.
+- A gate that passes with the feature disabled is not a gate. Build the disabled arm. A gate that cannot
+  run fails (exit 2), never passes (`scripts/lib_require.sh`).
+- Six criteria in `PHYSICS_RUBRIC.md`; `scripts/physics_score.sh` computes what it can.
 
 ## Repository policy
 
-- **No downstream consumers. Break APIs freely when it improves the architecture**, and remove old
-  abstractions rather than leaving parallel ones.
-- **Temporary breakage is allowed on a FEATURE branch, never on `main` or the dev branch.** Converting in
-  place beats a duplicate non-breaking path with `if mode` branches. Commit WIP checkpoints, and drive it back
-  to verified before merging.
-- **Surface held-back-by-code moments.** If the current shape is a holdover blocking a better approach, name
-  the relic and what the better approach unlocks. Do not silently work around it, and do not unilaterally rip
-  out an architecture — that one is the maintainer's call.
-- **NO PROSE IN COMMENTS.** Short and factual: what it does, and units. No history, no rationale essays, no
-  measured numbers, no dates. **A comment is a claim, and claims here are reliably false** — not one bad claim
-  was ever caught by reading; every one was caught by a gate firing or an impossible number. If a claim
-  matters, make it a GATE. If it does not, delete it. This applies to `.md` as much as to code: prose costs
-  the next agent's context before it costs anything else.
-- **DO NOT RUN A TEST UNTIL THE CHANGE IS FINISHED.** Collapse the whole set, then run once. A run against
-  code you have already convicted measures the interaction of defects and is discarded by the next edit.
-- **Unwired code is an UNFINISHED JOB — the default is to WIRE IT IN.** Deleting needs a reason beyond
-  "nothing references it": the author's own removal condition is met, it was superseded by something that
-  demonstrably does the same job, or the design is wrong. Say which. And measure "unreferenced" correctly —
-  this tree loads by `preload("res://…")` far more than by identifier, so count path references too.
-- **Composable plugins over a monolith.** For any SET of composable things over shared state — field passes,
-  reactions, telemetry sources, bodies — a thin HOST plus a registry of small modules beats one file with
-  `if type == X` branches. Adding a phenomenon is a record, not a patch. When you catch yourself adding a
-  type-branch to a big file, make it a plugin.
-- **PRESENTATION MAY NOT LIVE ON THE SIM SIDE, AND A GENERIC THING MAY NOT BE NAMED AFTER AN IMPLEMENTATION.**
-  The sim runs headless and the UI is opt-in, so a node's DIRECTORY decides whether it is on the physics path.
-  The sim clock was once load-bearing inside a `CanvasLayer`, so a run without UI had no clock; a pause menu
-  of plain buttons sat in the world-controller directory under a `Voxel` prefix it never touched. Ask where a
-  file lives before what it does, and strip an implementation prefix the file does not earn. A quality dial
-  must not reach physics: an effects-scale setting once scaled the in-flight ejecta cap, so a graphics preset
-  changed where mass landed.
-- **Simplicity, and no speculative pipelines.** Implement the simplest thing that is correct for the target
-  path.
-- **Big-O IS a first-class design goal.** Lower the asymptotic cost, then the constants. Spatial hash, grid,
-  neighbour table or precomputed table over pairwise or full-scan; event and dirty-set updates over re-sweeps.
-  A per-frame O(n²), or an O(N) full-grid sweep that ignores what changed, is a perf bug to design out.
-- **Do less by RELEVANCE — adaptive LOD is mandatory.** Offscreen, distant, dormant and empty regions do
-  less. **BUBBLES OF COMPUTE:** a cell's tick rate scales with how much is HAPPENING there. Activity
-  propagates — a cell that changes wakes its neighbours, so a front grows its own compute bubble at the speed
-  of the phenomenon — and settled regions demote, then sleep. On the GPU that is an active-cell list and
-  indirect dispatch, O(active) rather than O(all cells). This is what makes a whole planet affordable.
-- **Native / GPU / shader-first.** Runtime simulation is C++ or GPU by default; minimize C++↔GDScript and
-  CPU↔GPU hops. **No "transitional shims"** — either it is built native/GPU now, or it is ordinary code we
-  improve. The one legitimate CPU form is a permanent fallback / parity oracle; build it as such.
-- **Per-cell field CAs belong on the GPU, not in C++.** Anything evaluating a rule per cell over the grid is
-  embarrassingly parallel, so its authoritative form is a compute kernel. C++ is for serial work. A per-cell
-  CA looping in GDScript on the per-frame path is a performance bug, not an acceptable state.
-- **PERFORMANCE OVER PARITY.** Playable framerate beats CPU↔GPU numeric parity whenever they conflict. Verify
-  GPU kernels behaviourally — mass conserved, counts sane, no runaway — rather than paying a per-frame CPU tax
-  to keep two paths identical.
-- **Fail-fast over silent degradation.** On authoritative paths, if the native/GPU path cannot execute, fail
-  with an explicit typed error rather than routing to alternate BEHAVIOUR.
-- **Test integrity:** never fabricate or infer execution success, and never convert a hard runtime failure
-  into a soft pass.
-- Keep `RigidBody3D` use minimal and justified; default to voxel-native paths.
+- No downstream consumers: break APIs freely; remove old abstractions rather than leaving parallel ones.
+- Temporary breakage is allowed on a feature branch, never on `main` or the dev branch.
+- Surface held-back-by-code moments: name the relic and what the better approach unlocks; ripping out an
+  architecture is the maintainer's call.
+- No prose in comments: what it does, and units. A comment is a claim, and claims here are reliably false.
+- Unwired code is an unfinished job: wire it in by default; deleting needs a stated reason. Count path
+  references (`preload("res://…")`) as references.
+- Composable plugins over a monolith: a thin host plus a registry of records; adding a phenomenon is a
+  record, not a patch.
+- Presentation may not live on the sim side (a node's directory decides), and a generic thing may not be
+  named after an implementation.
+- Big-O is a first-class design goal; do less by relevance: bubbles of compute, active-cell lists,
+  indirect dispatch, O(active) not O(all cells).
+- Native/GPU/shader-first; per-cell field CAs are compute kernels; C++ is for serial work; no
+  transitional shims. Performance over parity: verify kernels behaviourally.
+- Fail fast over silent degradation on authoritative paths. Never convert a hard runtime failure into a
+  soft pass.
+- Keep `RigidBody3D` minimal.
 
-## File size & refactor discipline
-- **EXTRACT-ONLY HUBS — `VoxelWorld.gd` and `MaterialField3D.gd`; do NOT add behavior to them.**
-   These two files have been split THREE times because new work keeps re-accreting into them (they
-  are the composition root and the field hub, so it's where wiring/channels naturally land). Stop the cycle
-  by rule: **`VoxelWorld` is a composition root ONLY** — it may instantiate + wire controllers and nothing
-  more; a new feature gets at most a one-line `add_child(controller)` / signal hookup there, and its behavior
-  lives in a NEW focused controller module. **`MaterialField3D` is the field's thin public facade +
-  step-orchestration ONLY** — a new channel/query/process goes in a NEW module (a channel module, a pass, a
-  query facade) that the field merely delegates to; never add inline channel logic or query bodies. This
-  applies to the main thread AND every sub-agent: **a contract that would grow `VoxelWorld`/`MaterialField3D`
-  is wrong by construction — rewrite it to add a module instead.** When you catch yourself about to add a
-  method to either, STOP and make the module. (Same pattern for any future god-object hub — name it here and
-  make it extract-only before it becomes the fourth serialization bottleneck.)
-- **PARALLELIZABILITY is a first-class refactor driver — not just line count.** Line limits are a floor;
-  the deeper question is *"can this area be owned by a separate agent without colliding?"* A file that
-  multiple concurrent workstreams must all edit is a **serialization bottleneck** — split it into
-  independently-ownable units **even when it is comfortably under the line limit**. Always think this way:
-  before fanning out work, look at which files each unit touches; if several units route through ONE file
-  (classically the composition root / a god-object controller / a shared registry), split that file FIRST
-  so the fan-out doesn't collapse to sequential. Organize the codebase so distinct concerns live in
-  distinct files (one owner each) — that is what turns a batch of work into parallel subagents instead of a
-  queue. This composes with the pre-write-contracts rule (Execution model) and the "independently-ownable
-  file" guidance below: structure for concurrency, then stage a contract per file.
-  - **The pre-fan-out split is a serialized Phase 0, and it must be seam-directed — not a speculative
-    god-object teardown.** You cannot parallelize a refactor of the file everything shares, so do it FIRST,
-    by one owner. Start with a cheap **map pass** (a read-only Explore agent) that produces a *collision
-    map*: for each planned unit, which shared files it must edit. Then extract **only the coupling seams the
-    imminent fan-out actually needs** into new owner-files — the stimulus/broadcast bus, the field-force
-    response, the per-phenomenon module — and leave the rest of the god-object alone until something needs
-    it (churning code no fan-out will touch is over-engineering; see the Simplicity/Anti-overengineering
-    mandates). Worked example: before dissolving the disaster actors, extract `EcologyService`'s broadcast
-    seam and `Creature`'s field-force seam into their own modules so each disaster agent owns a new module
-    and never re-touches the hub.
-- `scripts/check_max_file_length.sh` enforces TWO thresholds on first-party source/config **and MARKDOWN**
-  files: a **soft smell limit of `SOFT_FILE_LINES=1300` (WARNING)** and a **hard limit of
-  `MAX_FILE_LINES=1500` (FAILS — non-zero exit / CI gate)**. Over 1300 = split it soon; over 1500 = the
-  build fails until it's split. It also runs `check_no_direct_refcounted_invocation.sh` (a real gate banning
-  `godot -s addons/local_agents/tests/test_*.gd` in automation).
-  - **`.md` is checked as of 2026-07-29, and so are `docs/` and the repo-root docs** (`HANDOFF.md`,
-    `CLAUDE.md`, `GODOT_BEST_PRACTICES.md`, `README.md`), none of which any scan
-    root previously covered. Prose rots exactly like code: `API.md` reached 1480 lines unnoticed because
-    the glob listed source extensions only, and nobody reads to the bottom of a file that long, so the
-    claims down there go stale unchecked. **`HANDOFF.md` is subject to this too** — when it approaches
-    1300, split it (the per-session log is the part to move out; the roadmap and "Next" list stay).
-  - **`scripts/agent_harness.sh lint` IS the gate, and CI runs that exact command**, so a green local lint
-    is a green CI. Do not add a check to one and not the other.
-  - **A gate that cannot run must FAIL, never pass.** `scripts/lib_require.sh` provides `require_tool`;
-    every gate that needs `rg` calls it and exits **2** (distinct from a violation's 1) when it is absent.
-    When you write a new gate, ask what happens if its tool, its target file, or its input log is missing —
-    if the answer is "the `if` is false so the step succeeds", you have written a gate that can only ever
-    pass. Three of them shipped that way here.
-- **Do NOT add to a file that is already over the smell threshold.** If a change would grow an
-  ≥1300-line file, first REFACTOR: extract the relevant responsibility into a NEW focused module (or add
-  your new code as a new file), then make the edit there. Never push a file past the 1500-line hard limit
-  — split it first. This applies to every agent (main thread and sub-agents).
-- When refactoring for size, extract helpers/business logic into focused modules first; keep hot-path
-  files as thin call-site forwarders. Split large files by responsibility (orchestration/controller · domain
-  systems · render adapters · input/interaction · HUD/presentation). App/root scenes are composition
-  roots only — move behavior into focused controllers. Prefer typed `Resource` classes over shared
-  dictionaries for reusable runtime state. Migrate incrementally: add module + tests, move call sites,
-  then delete the old inlined code.
+## File size and refactor discipline
 
-## Godot process & validation
-- `GODOT_BEST_PRACTICES.md` holds the Godot-specific rules: harness invocation, engine limits, markers.
-  A preventable error becomes a GATE, never a log entry.
+- Extract-only hubs: `VoxelWorld.gd` and `MaterialField3D.gd`. A new feature is a new module plus at most
+  a one-line hook there.
+- Parallelizability drives refactors: a file several concurrent units must edit is a serialization
+  bottleneck; split it first, seam-directed (a read-only map pass, then only the seams the fan-out needs).
+- `scripts/check_max_file_length.sh`: warn at 1300 lines, fail at 1500, markdown included. Do not add to
+  a file over the warning; extract first.
+
+## Assets
+
+Bring 3D assets in as glTF. Non-skinned FBX converts through `GLTFDocument` headless; skinned characters
+through headless Blender, re-binding the mesh to the animation's armature. Match clips by substring, set
+`LOOP_LINEAR`, attach head accessories with `BoneAttachment3D`.
+
+## Destructive-command safety
+
+Never delete with a name-based `find -exec rm` or a bare recursive `rm`; this tree repeats directory names
+under many roots. Prefer explicit paths or `git rm`; anchor any `find` with a full `-path`.
+
+## Inspector surfaces
+
+A dead `@export` is worse than none: prove it reaches behaviour by running it. A `@tool` script never
+writes a serialised property in the editor. Precedence is node → project setting → env var → default.
+Verify a reviewer's claim before acting on it.
 
 ## Orientation
-- **Active work:** `addons/local_agents/game/VoxelWorld.tscn` — a from-scratch godot_voxel ecosystem sim.
-  It is NOT the project's main scene; `project.godot` boots `game/menu/MainMenu.tscn`, so launching bare
-  gets you the menu and the sim wants `--sandbox` or the scene path. Current state, architecture, pending
-  work and the exact run/verify commands are in **`HANDOFF.md`**. The guiding principle is
-  **emergent-everything** — `addons/local_agents/sim/EMERGENCE.md`.
-- **Godot 4.7**, `godot` on PATH. Test/observe via `scripts/agent_harness.sh <command>`; the voxel
-  scene also self-harnesses (`-- --run-frames=N` prints `SIM_REPORT={...}`; `--shoot=<png>` for
-  windowed screenshots; `--auto-meteor` drops a test impact). A NEW `.gd` `class_name` or
-  `.gdextension` only registers after an editor scan — run **`scripts/editor_scan.sh`** once, else classes
-  report MISSING.
 
-## Agent skills
-
-### Issue tracker
-
-Issues live in GitHub Issues on `adammikulis/local-agents`, driven by the `gh` CLI. See
-`docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-The five canonical roles, each label string equal to its name. See `docs/agents/triage-labels.md`.
+`GODOT_BEST_PRACTICES.md` holds the Godot specifics. The active scene is
+`addons/local_agents/game/VoxelWorld.tscn` (`project.godot` boots the menu; the sim wants `--sandbox`).
+`HANDOFF.md` holds what is left and the run commands. A new `class_name` registers only after
+`scripts/editor_scan.sh`. Issues live in GitHub Issues (`docs/agents/issue-tracker.md`); triage labels
+in `docs/agents/triage-labels.md`.
