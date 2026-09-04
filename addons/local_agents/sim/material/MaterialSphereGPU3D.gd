@@ -4,10 +4,7 @@ extends RefCounted
 
 ## Views of LAChannels, the one declaration of what a channel is.
 static func channels() -> PackedStringArray: return LAChannels.channels()
-## Device buffers the seed writes once and the first derive of a restored world reads.
 const SEED_PRODUCTS: PackedStringArray = ["pressure", "p_fluid"]
-static func situational_channels() -> PackedStringArray: return LAChannels.situational_channels()
-static func slow_channels() -> PackedStringArray: return LAChannels.slow_channels()
 
 
 # Dispatch order is a data dependency chain: each pass reads what the one above it published.
@@ -94,7 +91,6 @@ func setup(field) -> void:
 	for name in channels():
 		_bufs[name] = _new_f(tc)
 		_buf_owner[name] = "LAChannels.rows()"
-	# Derived: recomputed from the channels every step, so never seeded and never restored.
 	for name in LAChannels.derived_buffers():
 		_bufs[name] = _new_f(tc)
 		_buf_owner[name] = "LAChannels.derived_buffers()"
@@ -378,8 +374,7 @@ func derive_seeded(sealing: bool = false) -> void:
 	_ctx.erase("seeding")
 
 
-## Each pass's own readings, taken here because the device was just synced. A pass owns its keys; two passes
-## claiming one key is a collision, and the first one keeps it.
+## Each pass's own readings; a pass owns its keys, and the first claimant of a key keeps it.
 func _drain_passes() -> void:
 	_pass_results = {}
 	for i in _passes.size():
@@ -463,13 +458,13 @@ func _channel_names(read_slow: bool) -> PackedStringArray:
 	for k in ["vel_x", "vel_y", "vel_z", "charge"]:
 		if _bufs.has(k) and not out.has(k):
 			out.append(k)
-	for k in situational_channels():
+	for k in LAChannels.situational_channels():
 		if not _bufs.has(k) or int(_channel_hold.get(k, -1)) < _drain_count or out.has(k):
 			continue
 		out.append(k)
 	# SLOW — ledger/baker channels on the coarse cadence, from the table that declares which those ARE.
 	if read_slow:
-		for k in slow_channels():
+		for k in LAChannels.slow_channels():
 			if _bufs.has(k) and not out.has(k):
 				out.append(k)
 	return out
@@ -669,17 +664,11 @@ func snapshot_channels() -> Dictionary:
 	if _rd == null:
 		return out
 	_flush_pending()        # a step submit may be in flight (async pipeline) — sync before reading the buffers
-	# The interior cells of every state channel, and the seed's own two pressure products: the balance
-	# march's column and the fluid's pressure, which the first derive of a restored world reads.
-	var names: PackedStringArray = channels()
-	names.append_array(SEED_PRODUCTS)
-	for name in names:
-		if _bufs.has(name):
-			out[name] = _rd.buffer_get_data(_bufs[name], 0, _cc * 4).to_float32_array()
+	for name in channels() + SEED_PRODUCTS:
+		out[name] = _rd.buffer_get_data(_bufs[name], 0, _cc * 4).to_float32_array()
 	return out
 
 
-## LOAD: upload a snapshot_channels() dict back into the GPU buffers.
 func restore_channels(data: Dictionary) -> void:
 	if _rd == null:
 		return
@@ -690,8 +679,7 @@ func restore_channels(data: Dictionary) -> void:
 			continue
 		var arr: PackedFloat32Array = data[key]
 		if arr.size() != _cc:
-			push_error("MaterialSphereGPU3D.restore_channels: %s holds %d cells against %d, so the bake is not this world's."
-				% [key, arr.size(), _cc])
+			push_error("restore_channels: %s holds %d cells against %d; the bake is another world's." % [key, arr.size(), _cc])
 			continue
 		var bytes: PackedByteArray = arr.to_byte_array()
 		_rd.buffer_update(_bufs[key], 0, bytes.size(), bytes)

@@ -63,7 +63,7 @@ while [ $# -gt 0 ]; do
     --slice-box) SLICE=1; SLICE_BOX="$2"; shift 2 ;;
     --slice-state) SLICE_STATE="$2"; shift 2 ;;
     --slice-capture) SLICE_CAPTURE="$2"; shift 2 ;;
-    --reseed) FROM_SEAL=0; shift ;;
+    --reseed) export LA_SEAL_RESEED=1; shift ;;
     --print-slice-box) printf '%s\n' "$DEFAULT_SLICE_BOX"; exit 0 ;;
     --raw) RAW=1; shift ;;
     --keep) KEEP=1; shift ;;
