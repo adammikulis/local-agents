@@ -63,7 +63,7 @@ while [ $# -gt 0 ]; do
     --slice-box) SLICE=1; SLICE_BOX="$2"; shift 2 ;;
     --slice-state) SLICE_STATE="$2"; shift 2 ;;
     --slice-capture) SLICE_CAPTURE="$2"; shift 2 ;;
-    --reseed) FROM_SEAL=0; shift ;;
+    --reseed) export LA_SEAL_RESEED=1; shift ;;
     --print-slice-box) printf '%s\n' "$DEFAULT_SLICE_BOX"; exit 0 ;;
     --raw) RAW=1; shift ;;
     --keep) KEEP=1; shift ;;
@@ -126,7 +126,9 @@ ARGS=(--sandbox "--run-frames=${FRAMES}" "--seed=${SEED}")
 if [ "$FROM_SEAL" -eq 1 ] && [ -z "${LA_SEAL_KEY:-}" ]; then
   SEAL_KEY="$("$SCRIPT_DIR/cache_key.sh" capture --path "$PROJ" "seed=$SEED" "rung=${RUNG:-default}" \
     "full=$FULL" "fauna=$FAUNA" "slice=$SLICE" \
-    "box=$(if [ "$SLICE" -eq 1 ]; then printf '%s' "$SLICE_BOX"; fi)" 2>/dev/null || echo "")"
+    "box=$(if [ "$SLICE" -eq 1 ]; then printf '%s' "$SLICE_BOX"; fi)" \
+    "state=$(if [ -n "$SLICE_STATE" ] && [ -f "$SLICE_STATE" ]; then md5 -q "$SLICE_STATE"; else echo none; fi)" \
+    "faces=${LA_BOUNDARY_FACES:-default}" 2>/dev/null || echo "")"
   if [ -n "$SEAL_KEY" ]; then
     export LA_SEAL_KEY="$SEAL_KEY"
   else
