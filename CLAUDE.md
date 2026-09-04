@@ -182,7 +182,8 @@ concentration and abiotic organic synthesis are 0.4. `docs/0.5_CREATURE_FEATURES
   "what you should see", launch it, stop; the maintainer's feedback decides.
 - **Each rung's demo ADDS something the maintainer can verify by eye or by ear**, and that something
   is the rung's own process acting: rung 1 shows things falling under the solved g, rung 3 shows air
-  moving. A rung whose demo looks and sounds like the rung below has not been demonstrated.
+  moving. A debug overlay that draws a field's direction and magnitude counts as seeing it. A rung
+  whose demo looks and sounds like the rung below has not been demonstrated.
 - **A rung's run shows, draws, offers or asks for only what its world contains.** No placeholder for
   an absent field, no HUD control for an absent process, no gate requesting a field the rung lacks;
   every renderer, control and gate derives what it may show from `LAProcessSet`.
