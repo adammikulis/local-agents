@@ -478,13 +478,9 @@ func relative_humidity_at(x: float, z: float) -> float:
 func dewpoint_at(x: float, z: float) -> float:
 	return _atmos.dewpoint_at(x, z)
 
-## Domain-average horizontal wind (ocean swell / HUD) — a coarse mean of the read-back GPU velocity field.
-func wind() -> Vector2:
-	return _queries.wind()
-
-## Local horizontal wind at a world point, as the tangential drift in world XZ.
-func wind_at(world_pos: Vector3) -> Vector2:
-	return _queries.wind_at(world_pos)
+## The fastest air in the box, m/s. A direction is a local question; wind3_at is where it is asked.
+func wind_speed_max() -> float:
+	return _queries.wind_speed_max()
 
 ## Radial vorticity (air spin about local up) at a world point, 1/s.
 func vorticity_at(pos: Vector3) -> float:

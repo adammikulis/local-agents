@@ -20,6 +20,7 @@ var _input: LAVoxelInputController = null
 @onready var _companion: Node = $CompanionController
 @onready var _thought_panel: CanvasLayer = $CreatureThoughtPanel
 @onready var _tutorial: LACampaignTutorial = $CampaignTutorial
+@onready var _vector_legend: LAFieldVectorLegend = $VectorLegend
 
 
 func build(world: Node, sim: LASimulation, render: LARenderLayer, input: LAVoxelInputController) -> void:
@@ -47,6 +48,10 @@ func build(world: Node, sim: LASimulation, render: LARenderLayer, input: LAVoxel
 		_hud.music_auto_adapt_changed.connect(Callable(_world, "_on_music_auto_adapt_changed"))
 
 	_debug.setup(_world, sim.material_field(), terrain, render.sky_controller(), _hud, _input, sim.ecology())
+	# The vector glyphs and the key they are read against: the debug panel's own view toggle drives them.
+	_debug.set_field_vectors(render.field_vectors())
+	_vector_legend.bind_vectors(render.field_vectors())
+	_debug.set_vector_legend(_vector_legend)
 
 	_brush.setup(_world, terrain, camera, sim.ecology(), _hud, _audio, sim.actors_root())
 	_interaction.setup(_world, terrain, camera, sim.ecology(), _hud, _audio, _brush)

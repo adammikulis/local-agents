@@ -11,17 +11,22 @@ const SPACE_AMBIENT_COLOR: Color = Color(0.10, 0.13, 0.22)  # faint cool fill on
 const SURFACE_ATMO_T: float = 0.12
 const SURFACE_AMBIENT: float = 0.55         # ground-level ambient energy
 const SURFACE_FILL_COLOR: Color = Color(0.50, 0.56, 0.66)   # soft blue-grey day fill (ambient at the surface)
-const FOG_DENSITY_SURFACE: float = 0.0016   # target fog density at ground; fades in from 0 with descent
+# Rayleigh volume-scattering coefficient of the standard atmosphere at sea level, 550 nm, 1/m.
+const FOG_DENSITY_SURFACE: float = 1.2e-5
 
 func set_space_mode(shine_dir: Vector3) -> void:
 	if shine_dir.length() < 0.001:
 		return
 	_sun_shine = shine_dir.normalized()
 	_planet_mode = true
+	# AIM THE SUN NOW. Its transform is read the moment the view is composed, and a light still carrying
+	# its constructed rotation would open the view on whatever side of the body that pointed at.
+	_update_day_night()
 var _moon: DirectionalLight3D = null         # cool moonlight; energy tracks the lunar phase
 var _sky_shader_mat: ShaderMaterial = null   # VoxelSky.gdshader: stars + phase-shaded moon disc
 var _env: Environment = null
-var _world_ref: Node3D = null                # source of the active camera (for the altitude atmosphere blend)
+var _camera: Node3D = null                   # the camera that draws the frame; source of the atmosphere blend
+var _planet_centre: Vector3 = Vector3.ZERO   # the body the eye stands on; the local vertical is radial from it
 var _want_fog: bool = true                   # effective fog toggle (quality preset + NOFOG), applied near surface
 var _time_of_day: float = 0.30              # start just after dawn (dawn = .25) so the sun is already
                                             # up and climbing — the world reads as a lit morning
@@ -108,17 +113,17 @@ func setup(world: Node3D, time_of_day: float, lunar_phase: float, render_opts: D
 	e.fog_light_color = SKY_HORIZON_DAY
 	e.fog_light_energy = 1.0
 	e.fog_sun_scatter = 0.15
-	e.fog_density = 0.0016
+	e.fog_density = FOG_DENSITY_SURFACE
 	e.fog_aerial_perspective = 0.55
 	e.fog_sky_affect = 0.05
-	e.fog_height = -40.0
-	e.fog_height_density = 0.012
+	# No height fog: Godot's is a band in world Y, and this body's surface stands at every Y from -R to
+	# +R, so a height band fogs one hemisphere and leaves the other clear.
+	e.fog_height_density = 0.0
 
 	env.environment = e
 	world.add_child(env)
 	_sky_shader_mat = sky_mat
 	_env = e
-	_world_ref = world
 	_want_fog = e.fog_enabled
 
 	var sun: DirectionalLight3D = DirectionalLight3D.new()
@@ -150,6 +155,13 @@ func setup(world: Node3D, time_of_day: float, lunar_phase: float, render_opts: D
 func bind_scene(material: Node, water: Node) -> void:
 	_material = material
 	_water = water
+
+
+## The camera the frame is drawn through and the body it stands on. The render layer owns both and hands
+## them over; nothing here goes looking for a camera.
+func bind_camera(camera: Node3D, planet_centre: Vector3) -> void:
+	_camera = camera
+	_planet_centre = planet_centre
 
 
 func sun() -> DirectionalLight3D:
@@ -195,13 +207,17 @@ func _update_day_night() -> void:
 		return
 	# PLANET-FROM-SPACE: fixed star sun + low ambient + dark sky.
 	if _planet_mode:
-		var pstorm: float = 1.0
-		if _material != null:
-			pstorm = 1.0 - _rain_dial() * 0.68
-			pstorm *= 1.0 - clampf(_material.avg_cloud_cover() * 1.5, 0.0, 0.6)
+		var pstorm: float = _weather_dim()
 		var pup: Vector3 = Vector3.UP if absf(_sun_shine.dot(Vector3.UP)) < 0.98 else Vector3.RIGHT
 		_sun.look_at_from_position(Vector3.ZERO, _sun_shine, pup)   # light travels along _sun_shine
 		_sun.light_energy = SUN_ENERGY_NOON * pstorm
+		# The sky draws its own sun from these, and a disc aimed by an unset uniform is aimed nowhere.
+		if _sky_shader_mat != null:
+			_sky_shader_mat.set_shader_parameter("sun_dir", _sun.global_transform.basis.z)
+			_sky_shader_mat.set_shader_parameter("sun_energy", _sun.light_energy)
+			_sky_shader_mat.set_shader_parameter("sun_color", _sun.light_color)
+			_sky_shader_mat.set_shader_parameter("night", 0.0)
+			_sky_shader_mat.set_shader_parameter("planet_up", _local_up())
 		# The water-particle renderer's day/night comes from per-particle sun shading.
 		if _water != null and _water.has_method("set_sky_tint"):
 			_water.set_sky_tint(Color(1.0, 1.0, 1.0) * (0.55 + 0.45 * pstorm))
@@ -211,16 +227,7 @@ func _update_day_night() -> void:
 	# Sun elevation: -1 (midnight) .. +1 (noon), zero at dawn (.25) and dusk (.75).
 	var elev: float = sin((_time_of_day - 0.25) * TAU)
 	var daylight: float = clampf(elev, 0.0, 1.0)
-	# The field's own precipitation dims the sun/ambient on top of the day cycle.
-	var rain: float = 0.0
-	if _material != null and _material.has_method("precipitation"):
-		rain = _rain_dial()
-	var storm: float = 1.0 - rain * 0.68
-	# Overcast skies (the field's own emergent cloud cover) dim the sun + ambient on top of rain.
-	var cloud_cover: float = 0.0
-	if _material != null and _material.has_method("avg_cloud_cover"):
-		cloud_cover = _material.avg_cloud_cover()
-	storm *= 1.0 - clampf(cloud_cover * 1.5, 0.0, 0.6)
+	var storm: float = _weather_dim()
 
 	# Sun arc: steep overhead at noon, shallow at the horizon near dawn/dusk; sweeps E->W.
 	_sun.rotation_degrees = Vector3(-(6.0 + daylight * 66.0), -47.0 + (_time_of_day - 0.5) * 90.0, 0.0)
@@ -246,6 +253,7 @@ func _update_day_night() -> void:
 		# Darken the ground band at night too.
 		_sky_shader_mat.set_shader_parameter("night", night)
 		_sky_shader_mat.set_shader_parameter("moon_phase", _lunar_phase)
+		_sky_shader_mat.set_shader_parameter("planet_up", _local_up())
 		# Sun/moon directions drive the discs directly (basis.z of a DirectionalLight3D points back toward the light.
 		_sky_shader_mat.set_shader_parameter("sun_dir", _sun.global_transform.basis.z)
 		_sky_shader_mat.set_shader_parameter("sun_energy", _sun.light_energy)
@@ -285,22 +293,43 @@ func _apply_surface_atmosphere() -> void:
 	_env.fog_density = FOG_DENSITY_SURFACE * t if _want_fog else 0.0
 
 
-## The active orbit camera's surface_blend(), 0 in space to 1 at the ground; 0 when there is no camera.
+## The bound camera's surface_blend(), 0 in space to 1 at the ground; 0 before one is bound. Read off the
+## camera the render layer built, never off a viewport lookup: a photographed run draws through an
+## off-screen SubViewport, and the window's viewport holds no camera at all.
 func _surface_blend() -> float:
-	if _world_ref == null:
+	if _camera == null or not is_instance_valid(_camera) or not _camera.has_method("surface_blend"):
 		return 0.0
-	var vp: Viewport = _world_ref.get_viewport()
-	if vp == null:
-		return 0.0
-	var cam: Camera3D = vp.get_camera_3d()
-	if cam != null and cam.has_method("surface_blend"):
-		return cam.surface_blend()
-	return 0.0
+	return _camera.surface_blend()
 
 
 ## Precipitating cell share to a 0..1 sky dial. The scale is the renderer's, not the field's.
 const RAIN_FULL_SHARE: float = 0.025
 func _rain_dial() -> float:
 	if _material == null or not _material.has_method("precipitation"):
-		return 0.0
-	return clampf(float(_material.precipitation()) / RAIN_FULL_SHARE, 0.0, 1.0)
+		return NAN
+	var p: float = float(_material.precipitation())
+	return clampf(p / RAIN_FULL_SHARE, 0.0, 1.0) if is_finite(p) else NAN
+
+
+## HOW MUCH THE FIELD'S OWN WEATHER DIMS THE SUN, 0..1. Each dial is a measurement: a world whose
+## processes hold no condensation measures no cloud, and an unmeasured dial dims by nothing. A
+## non-finite reading never reaches a light, where it blackens the whole frame.
+func _weather_dim() -> float:
+	var dim: float = 1.0
+	var rain: float = _rain_dial()
+	if is_finite(rain):
+		dim *= 1.0 - rain * 0.68
+	if _material != null and _material.has_method("avg_cloud_cover"):
+		var cover: float = float(_material.avg_cloud_cover())
+		if is_finite(cover):
+			dim *= 1.0 - clampf(cover * 1.5, 0.0, 0.6)
+	return dim
+
+
+## The local vertical at the eye: the sky's zenith, and the axis its air mass and its horizon are
+## measured from. World +Y before a camera is bound, which is the pole and not the horizon anywhere else.
+func _local_up() -> Vector3:
+	if _camera == null or not is_instance_valid(_camera):
+		return Vector3.UP
+	var r: Vector3 = _camera.global_position - _planet_centre
+	return r.normalized() if r.length() > 0.001 else Vector3.UP

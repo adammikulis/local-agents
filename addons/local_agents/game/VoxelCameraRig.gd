@@ -30,7 +30,9 @@ const RTS_PITCH_MAX_DEG: float = 60.0
 const ORBIT_MAX_DISTANCE_MULT: float = 6.0
 const ORBIT_DEFAULT_DISTANCE_MULT: float = 2.4   # retained for the (deferred) solar/space framing only
 # Clamp elevation shy of the poles so "up" stays world-up without a gimbal flip through the pole.
-const ORBIT_ELEVATION_LIMIT: float = deg_to_rad(85.0)
+# The azimuth/elevation chart's own bound. The pole is a point on it, not a place to be kept away from:
+# the up-vector degeneracy there is handled where look_at needs it.
+const ORBIT_ELEVATION_LIMIT: float = 0.5 * PI
 const SURFACE_WALK_SPEED: float = 0.8     # radians/sec of surface sweep at full stick (before the near-zoom taper)
 
 const ARC_LOOK_HEIGHT: float = 2.2
@@ -73,6 +75,11 @@ var _orbit_elevation: float = deg_to_rad(20.0)  # latitude of the camera, radian
 var _orbit_min_distance: float = 0.0
 var _orbit_max_distance: float = 0.0
 # Constant RTS view pitch, radians.
+const SLICE_PITCH_DEG: float = 20.0
+const SLICE_STANDOFF_FRAC: float = 1.0 / 3.0   # eye-to-look distance over the box footprint
+var _orbit_back: Vector3 = Vector3.ZERO        # tangent the eye stands behind; zero = world up decides
+var _reach_m: float = 0.0                      # span the fly speed is a fraction of; 0 = the body
+
 var _rts_pitch: float = deg_to_rad(RTS_PITCH_DEG)
 var _smooth_surface_r: float = 0.0
 var _ground_ready: bool = false
@@ -236,6 +243,41 @@ func set_orbit_target(center: Vector3, radius: float) -> void:
 	_update_transform()
 
 
+## FRAME A SLICE BOX: the eye stands inside it, over the ground under the box centre, looking along the
+## box's longest horizontal axis. The standoff and the fly speed are the box's, not the body's, so a
+## camera over a 100 km box does not move at planetary speed.
+func frame_slice(planet_centre: Vector3, planet_radius: float, box: AABB) -> void:
+	var radial: Vector3 = (box.get_center() - planet_centre).normalized()
+	if radial.length() < 0.001:
+		return
+	set_orbit_target(planet_centre, planet_radius)
+	_orbit_elevation = clampf(asin(clampf(radial.y, -1.0, 1.0)), -ORBIT_ELEVATION_LIMIT, ORBIT_ELEVATION_LIMIT)
+	_orbit_azimuth = atan2(radial.x, radial.z)
+	_sunnyside_pending = false
+	# The horizontal axes are the box edges with the radial projected out; the longest is the view axis.
+	var foot: float = 0.0
+	var along: Vector3 = Vector3.ZERO
+	for i in 3:
+		var axis: Vector3 = Vector3.ZERO
+		axis[i] = 1.0
+		var tangent: Vector3 = axis - radial * axis.dot(radial)
+		var span: float = box.size[i] * tangent.length()
+		if span > foot:
+			foot = span
+			along = tangent
+	if foot <= 0.0 or along.length() < 0.001:
+		return
+	along = along.normalized()
+	_orbit_back = -along
+	_reach_m = maxf(box.size.x, maxf(box.size.y, box.size.z))
+	_rts_pitch = deg_to_rad(SLICE_PITCH_DEG)
+	var standoff: float = foot * SLICE_STANDOFF_FRAC
+	_distance = clampf(_orbit_radius + standoff * sin(_rts_pitch), _orbit_min_distance, _orbit_max_distance)
+	_target_distance = _distance
+	_zoom_vel = 0.0
+	_update_transform()
+
+
 ## Ask the rig to open over the LIT hemisphere.
 func face_sun_on_start(sun_light: Node3D) -> void:
 	_sun_light = sun_light
@@ -359,7 +401,9 @@ func _update_orbit_transform() -> void:
 		_smooth_surface_r = 0.0                                 # the ease smooths ridges, not the drop off the hold
 	var base_r: float = _eased_surface_radius(look_r if look_known else ceiling)
 	var surface_pt: Vector3 = _orbit_center + radial * base_r
-	var back: Vector3 = up - radial * up.dot(radial)            # a tangent "behind" the eye
+	var back: Vector3 = _orbit_back - radial * _orbit_back.dot(radial)   # a tangent "behind" the eye
+	if back.length() < 0.01:
+		back = up - radial * up.dot(radial)
 	if back.length() < 0.01:
 		back = Vector3.RIGHT - radial * Vector3.RIGHT.dot(radial)
 	back = back.normalized()
@@ -541,7 +585,8 @@ func _fly_step(delta: float) -> void:
 		move -= up
 	if move.length() > 0.001:
 		var alt: float = maxf(0.0, _fly_pos.distance_to(_orbit_center) - _orbit_radius)
-		var speed: float = _orbit_radius * FLY_SPEED_FRAC * (1.0 + alt / maxf(1.0, _orbit_radius))
+		var span: float = _reach_m if _reach_m > 0.0 else _orbit_radius
+		var speed: float = span * FLY_SPEED_FRAC * (1.0 + alt / maxf(1.0, span))
 		if Input.is_key_pressed(KEY_SHIFT):
 			speed *= FLY_BOOST
 		_fly_pos += move.normalized() * speed * delta

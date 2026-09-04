@@ -8,7 +8,6 @@ extends Node3D
 @onready var _time: LASimTimeAuthority = $TimeAuthority
 @onready var _star: LAStar = $Star
 @onready var _body: Node3D = $PlanetBody
-@onready var _terrain_viewer: Node3D = $TerrainViewer
 @onready var _llm_service: Node = $LlmService
 @onready var _ecology: Node = $Ecology
 @onready var _material: Node = $MaterialField
@@ -63,9 +62,6 @@ func build(opts: Dictionary) -> void:
 	_body.setup(opts.get("planet", {}))
 	_terrain = _body.terrain()
 	_actors_root = _body.actors_root
-	# Streaming must not depend on the camera: the field samples the SDF godot_voxel streams.
-	_terrain_viewer.global_position = _body.center()
-	_body.attach_viewer(_terrain_viewer, false)
 
 	_ecology.set_llm_service(_llm_service)
 	_ecology.setup(_terrain, _actors_root)

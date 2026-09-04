@@ -35,7 +35,6 @@ var _lunar_phase: float = 0.15
 # Optional self-screenshot / smoke harness: pass `-- --shoot=<path> [--shoot-frames=N]`
 var _shoot_path: String = ""
 var _shoot_frames: int = 150
-var _shoot_size: Vector2i = Vector2i(1280, 800)   # --shoot-size=WxH: the SubViewport the shot is read off
 var _run_frames: int = 0
 var _perf_frames: int = 0               # --perf-frames=N: GPU-timed fps bench (see parse_cmdline + VoxelWorld._process)
 var _smoke: bool = false                # --smoke: boot the MINIMAL (Potato/Low) config for fast parse+run checks
@@ -47,7 +46,7 @@ var _overview: bool = false             # --overview: frame a wide whole-island 
 var _farview: bool = false              # --farview: pull the vista out to max zoom (ocean-coverage test)
 var _rain_force: bool = false           # --rain: force the rain visual on (verification aid)
 var _debug_demo: bool = false
-var _wind_view: bool = false            # --wind-view: enable ONLY the emergent wind-arrow overlay
+var _vectors: String = ""               # --vectors=wind|gravity: which field the arrow glyphs draw
 var _debug_field: String = ""           # --debug-field=<channel>: pre-enable a substrate heatmap (biomass/lava/…)
 var _debug_behaviors: String = ""       # --debug-behaviors[=a,b]: pre-enable behavior-state highlights (default foraging+hunting)
 var _llm_highlight: bool = false        # --llm-highlight: pre-enable the thinking/queued tints + report live counts
@@ -113,8 +112,6 @@ func parse_cmdline() -> void:
 			_render = true
 		elif arg.begins_with("--shoot-frames="):
 			_shoot_frames = int(arg.substr("--shoot-frames=".length()))
-		elif arg.begins_with(LocalAgentDemoHarness.ARG_SHOOT_SIZE):
-			_shoot_size = LocalAgentDemoHarness.parse_shoot_size(_shoot_size)
 		elif arg.begins_with(LocalAgentDemoHarness.ARG_RUN_FRAMES):
 			# One owner for this flag's spelling. This scene cannot use LocalAgentDemoHarness itself,
 			# because it also needs --perf-frames, the --bench timelines and the framerate uncap below,
@@ -162,8 +159,8 @@ func parse_cmdline() -> void:
 			_lunar_phase = clampf(float(arg.substr("--lunar=".length())), 0.0, 1.0)
 		elif arg == "--debug-demo":
 			_debug_demo = true
-		elif arg == "--wind-view":
-			_wind_view = true
+		elif arg.begins_with("--vectors="):
+			_vectors = arg.substr("--vectors=".length())
 		elif arg.begins_with("--debug-field="):
 			_debug_field = arg.substr("--debug-field=".length())
 		elif arg == "--debug-behaviors":
@@ -432,9 +429,6 @@ func bind(terrain, camera: Camera3D, body: Node3D, star: Node3D, material: Node,
 	_impacts = impacts
 	_interaction = interaction
 	_ecology = ecology
-	# Wire the planet body so the camera's GEOSYNC mode can read its rotating frame (keeps VoxelWorld untouched).
-	if _camera != null and _camera.has_method("set_geosync_body"):
-		_camera.set_geosync_body(_body)
 	# The view bar is built before this, so its altitude readout gets its refs here.
 	if _view_controls != null and _view_controls.has_method("bind_view"):
 		_view_controls.bind_view(_camera, _body)
@@ -793,7 +787,6 @@ func time_of_day_seed() -> float: return _time_of_day
 func lunar_seed() -> float: return _lunar_phase
 func shoot_path() -> String: return _shoot_path
 func shoot_frames() -> int: return _shoot_frames
-func shoot_size() -> Vector2i: return _shoot_size
 func run_frames() -> int: return _run_frames
 func perf_frames() -> int: return _perf_frames
 func smoke() -> bool: return _smoke
@@ -809,7 +802,7 @@ func set_time_scale(n: int) -> void:
 func auto_select() -> bool: return _auto_select
 func debug_family() -> bool: return _debug_family
 func debug_demo() -> bool: return _debug_demo
-func wind_view() -> bool: return _wind_view
+func vectors() -> String: return _vectors
 func debug_field() -> String: return _debug_field
 func debug_behaviors() -> String: return _debug_behaviors
 
