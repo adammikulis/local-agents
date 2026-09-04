@@ -58,8 +58,22 @@ for c in d["columns"]:
     cols.append({"porosity": phi, "grain_m": dia, "permeability_m2": perm,
                  "hydraulic_conductivity_m_s": cond, "expected_mol_m3": expect,
                  "bottom_gained_mol_m3": gained, "top_lost_mol_m3": lost, "rel": rel})
+    # The rig's own configuration, read back off the device: the closed form above is computed from
+    # these numbers, so a column that does not hold them is a harness fault and not a solver's.
     if c["solid"] == 0.0:
         fails.append("phi %.2f: the column is not rock, so Darcy's law has no medium to run in." % phi)
+    if MODE == "":
+        if abs(c["porosity_read"] - phi) > 1e-6 or abs(c["grain_read"] - dia) > 1e-9 \
+                or c["cement_read"] < 1.0 or abs(abs(c["g_rest_y"]) - g) > 1e-4 \
+                or abs(c["edge"] - dz) > 1e-9:
+            fails.append("phi %.2f: the cells hold porosity %.6g, grain %.6g, cement %.4g, gravity "
+                         "%.6g and edge %.6g, not what the closed form was computed from."
+                         % (phi, c["porosity_read"], c["grain_read"], c["cement_read"],
+                            c["g_rest_y"], c["edge"]))
+        if c["claim"] != 2 or c["tlevel"] != 0:
+            fails.append("phi %.2f: the column's cells are not in the record's own dispatch list "
+                         "(claim %d, level %d), so the row was never asked to move anything."
+                         % (phi, c["claim"], c["tlevel"]))
     if rel > BOUND:
         fails.append("phi %.2f d %.0e: the saturated column should pass %.6g mol/m^3 in one step at "
                      "K = %.4g m/s; the bottom cell gained %.6g and the top lost %.6g."
