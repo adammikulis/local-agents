@@ -112,20 +112,20 @@ fi
 REASON_FILE="$(mktemp "${TMPDIR:-/tmp}/la_offscreen_reason.XXXXXX")"
 # The tap duplicates output that already streamed to this script's stdout, so nothing is lost by
 # discarding it. `--log-file` rotates, so clear the siblings godot may have made next to it too.
-# ONE SIM AT A TIME ON THIS MACHINE. Twelve lanes each launching a run put load ~5 on one GPU, and every
-# one of them then blamed its own change for a timeout that was contention. The editor lock is per-project
-# because the race is over one project's .godot; this race is over the GPU, so the lock is machine-wide.
-# mkdir is the portable primitive (macOS has no flock(1)), and a lock whose owner died is reclaimed.
-SIM_LOCK="${TMPDIR:-/tmp}/la_sim_gpu.lock"
-SIM_LOCK_TIMEOUT="${LA_SIM_LOCK_TIMEOUT:-1800}"
+# ONE SIM AT A TIME ON THIS MACHINE, AND IT IS HELD FOR THE WHOLE RUN — the watchdog and the census after
+# it, not just the launch. la_godot takes the same lock for every engine start-up and sees this holder's
+# marker, so the run acquires it once.
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot_lock.sh"
-la_dir_lock "$SIM_LOCK" "$SIM_LOCK_TIMEOUT" 2 || {
-  echo "run_sim_offscreen: timed out after ${SIM_LOCK_TIMEOUT}s waiting for the GPU lock." >&2
-  exit 2
-}
+GPU_HELD=0
+la_gpu_lock
+case $? in
+  0) GPU_HELD=1 ;;
+  2) ;;
+  *) echo "run_sim_offscreen: timed out waiting for the GPU lock." >&2; exit 2 ;;
+esac
 
 cleanup() {
-  rm -rf "$SIM_LOCK"
+  [ "$GPU_HELD" -eq 1 ] && la_gpu_unlock
   if [ -n "$REASON_FILE" ]; then rm -f "$REASON_FILE"; fi
   if [ -n "${LOG_ARGS[*]}" ] && [ -n "$TAP" ]; then rm -f "$TAP" "$TAP".*; fi
 }

@@ -20,6 +20,7 @@ const RUNNERS: Array = [
 	["slice_exterior_geom", "res://addons/local_agents/tests/gate_slice_exterior_geom.gd"],
 	["shaders_compile", "res://addons/local_agents/tests/gate_shaders_compile.gd"],
 	["parse_all", "res://scripts/parse_all_scripts.gd"],
+	["hypsometry", "res://scripts/check_hypsometry.gd"],
 ]
 
 

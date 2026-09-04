@@ -10,8 +10,31 @@
 
 GODOT_LOCK_DIR="${TMPDIR:-/tmp}/la_godot_extension.lock"
 
+# ONE GPU ON THIS MACHINE, AND EVERY START-UP CAN MAKE A RenderingDevice — a rig probe and a headless
+# batch as much as a sim. So the lock belongs to the LAUNCH, not to one wrapper: several lanes' engines
+# on one GPU push a sim past Godot's own fence wait, which it reports as an engine error.
+# Reentrant through an exported marker, so a wrapper holding it for a whole run is not blocked by the
+# launch inside it. Ordering, everywhere: the extension lock is taken FIRST and the GPU lock LAST.
+LA_GPU_LOCK_DIR="${TMPDIR:-/tmp}/la_sim_gpu.lock"
+
+# 0 this caller now holds it · 1 timed out · 2 this process tree already holds it.
+la_gpu_lock() {
+	[ "${LA_GPU_LOCK_HELD:-0}" = "1" ] && return 2
+	la_dir_lock "$LA_GPU_LOCK_DIR" "${LA_SIM_LOCK_TIMEOUT:-1800}" 2 || return 1
+	export LA_GPU_LOCK_HELD=1
+	return 0
+}
+
+la_gpu_unlock() {
+	rm -rf "$LA_GPU_LOCK_DIR"
+	unset LA_GPU_LOCK_HELD
+}
+
 # la_dir_lock <path> <timeout_s> <poll_s>. The lock is a symlink whose target is the owner's pid: one
 # atomic create carries the owner, so an ownerless lock cannot exist, and a dead owner's is reclaimed.
+# `$$` NAMES THE SHELL, NOT THE SUBSHELL: it is the pid that outlives every subshell the lock may be
+# taken in, and a recorded owner must be alive for as long as the lock is held or a waiter reclaims it
+# out from under the holder.
 la_dir_lock() {
 	local lock="$1" timeout="$2" poll="${3:-1}"
 	local waited=0 owner

@@ -2,6 +2,8 @@
 # The only launcher. check_godot_launcher.sh fails on a direct godot invocation.
 # LA_GODOT_TIMEOUT=<seconds> wraps the run; `timeout` cannot run a shell function.
 
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot_lock.sh"
+
 
 # 1x1 AT CREATION. macOS clamps an off-screen position back on, so a window with pixels in it lands on
 # the user's monitor and _ready is too late to shrink it. A screenshot and a perf frame are read off a
@@ -39,9 +41,15 @@ la_agent_exe() {
 <key>LSUIElement</key><true/>
 </dict></plist>
 PLIST
+	# A UNIQUE STAGING NAME. `$$` is the same inside every subshell of one shell, so two concurrent
+	# launches would copy the binary over each other and one would exec a half-written file.
+	local stage
 	if [ ! -x "$exe" ] || [ "$exe" -ot "$real" ]; then
-		cp -f "$real" "$exe.$$" || return 1
-		mv -f "$exe.$$" "$exe" || return 1
+		stage="$(mktemp "$app/Contents/MacOS/godot.XXXXXX")" || return 1
+		cp -f "$real" "$stage" && chmod 755 "$stage" && mv -f "$stage" "$exe" || {
+			rm -f "$stage"
+			return 1
+		}
 	fi
 	echo "$exe"
 }
@@ -91,14 +99,31 @@ la_godot() {
 	if [ -n "${LA_GODOT_TIMEOUT:-}" ]; then
 		pre=(timeout "$LA_GODOT_TIMEOUT")
 	fi
-	local a
+	# NO AUDIO DEVICE IN AN AUTOMATED RUN. CoreAudio refusing to start logs an engine error, and a run
+	# that logged one publishes no numbers. The movie writer is the one launch that records sound.
+	local audio=(--audio-driver Dummy)
+	local a headless=0
 	for a in "$@"; do
-		if [ "$a" = "--headless" ]; then
-			command ${pre[@]+"${pre[@]}"} "$binary" "$@"
-			return $?
-		fi
+		[ "$a" = "--write-movie" ] && audio=()
+		[ "$a" = "--headless" ] && headless=1
 	done
-	# This branch creates a WINDOW, and the extension reads LA_OFFSCREEN at CORE to make it unfocusable.
-	LA_OFFSCREEN="${LA_OFFSCREEN:-1}" command ${pre[@]+"${pre[@]}"} "$binary" \
-		--position "$LA_OFFSCREEN_POS" --resolution "$(la_window_res "$@")" "$@"
+	local held=0 rc=0
+	la_gpu_lock
+	case $? in
+		0) held=1 ;;
+		2) ;;
+		*) echo "la_godot: timed out waiting for the GPU lock; NO RUN HAPPENED." >&2; return 2 ;;
+	esac
+	if [ "$headless" -eq 1 ]; then
+		command ${pre[@]+"${pre[@]}"} "$binary" ${audio[@]+"${audio[@]}"} "$@"
+		rc=$?
+	else
+		# This branch creates a WINDOW, and the extension reads LA_OFFSCREEN at CORE to make it unfocusable.
+		LA_OFFSCREEN="${LA_OFFSCREEN:-1}" command ${pre[@]+"${pre[@]}"} "$binary" \
+			${audio[@]+"${audio[@]}"} \
+			--position "$LA_OFFSCREEN_POS" --resolution "$(la_window_res "$@")" "$@"
+		rc=$?
+	fi
+	[ "$held" -eq 1 ] && la_gpu_unlock
+	return $rc
 }

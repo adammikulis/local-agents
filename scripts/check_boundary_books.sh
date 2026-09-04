@@ -30,7 +30,7 @@ if la_cap_dir >/dev/null; then
 else
   CAP="$(mktemp "${TMPDIR:-/tmp}/la_bnd_cap.XXXXXX")" && mv "$CAP" "$CAP.json" && CAP="$CAP.json"
   OWN_CAP=1
-  cap_out="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --from-seal --frames "${LA_BND_CAP_FRAMES:-20}" \
+  cap_out="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --frames "${LA_BND_CAP_FRAMES:-20}" \
     --rung "$CAP_RUNG" --slice-capture "$CAP" --report h2o_total 2>&1)"
 fi
 drop_cap() { [ "$OWN_CAP" -eq 1 ] && rm -f "$CAP"; return 0; }

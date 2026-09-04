@@ -7,6 +7,7 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh"
+. "$ROOT/scripts/lib_file_hash.sh"
 require_tool git
 require_tool python3
 
@@ -37,7 +38,7 @@ case " ${EXTRA[*]-} " in *" engine="*) GIVEN_ENGINE=1 ;; *) GIVEN_ENGINE=0 ;; es
 if [ "$GIVEN_ENGINE" -eq 0 ]; then
 GODOT_BIN="$(command -v "${GODOT:-godot}" 2>/dev/null || echo "")"
 [ -n "$GODOT_BIN" ] || { echo "cache_key: no godot on PATH, so no key describes what would import." >&2; exit 2; }
-EXTRA+=("engine=$(md5 -q "$GODOT_BIN" 2>/dev/null || md5sum "$GODOT_BIN" | cut -d" " -f1)")
+EXTRA+=("engine=$(la_md5_memo "$GODOT_BIN")")
 fi
 
 python3 - "$PROJ" "$KIND" "${EXTRA[@]}" <<'PY'
