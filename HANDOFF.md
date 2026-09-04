@@ -80,6 +80,31 @@ hand-written binding stanzas; mutation-test both ways. Delete the claim below wi
 
 <!-- claim: nofile addons/local_agents/sim/material/Bindings.gd -->
 
+## 8. THE PHYSICS RUNS INSIDE GODOT'S PROCESS
+
+Maintainer's decision, standing: the sim is a standalone native process with its own compute device,
+clock and CLI; gates run it with no Godot launch; Godot attaches as a viewer. Today every pass is a
+GDScript record on a Godot RenderingDevice (`LAFieldDriver`, `MaterialSphereGPU3D.gd`) and
+`scripts/run_sim_offscreen.sh` launches Godot for every gate. The migration is phased so each
+phase keeps lint green.
+
+## 9. THE LEDGER RECONSTRUCTS ELEMENTS FROM CHANNEL AMOUNTS
+
+Maintainer's decision, standing: per-cell moles of elements are the state and species are derived
+(`docs/PHYSICS_TODO.md` B). Today the state is channel amounts (`Channels.gd`) and the ledger
+reconstructs element totals (`mol_per_unit`).
+
+## 10. GATES THAT DETECT CHANGE, NOT WRONGNESS
+
+`scripts/check_driver_native.sh` arm two compares the seam rig's state byte for byte against
+`scripts/fixtures/driver_seam_state.txt`, so a correct kernel change reads as red until re-recorded.
+Audit every `scripts/check_*.sh` for the same shape and replace each with an invariant on its rig.
+
+## 11. THE GPU ARM OF LINT RUNS ON THIS MACHINE ONLY
+
+`.github/workflows/gpu-lint.yml` targets a self-hosted macOS runner labelled `gpu`; none is registered
+(maintainer's hardware).
+
 ---
 
 ## How to run

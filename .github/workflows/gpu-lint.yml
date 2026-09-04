@@ -1,0 +1,25 @@
+# The GPU arm of lint on a self-hosted macOS runner with a GPU. Register one with
+# `gh api` or the repository's Settings > Actions > Runners, labels: self-hosted, macOS, gpu.
+name: gpu-lint
+on:
+  push:
+    branches: ["0.4-dev", "main"]
+  pull_request:
+  workflow_dispatch:
+concurrency:
+  group: gpu-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  lint:
+    runs-on: [self-hosted, macOS, gpu]
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the extension
+        run: addons/local_agents/gdextensions/localagents/scripts/build_extension.sh --platform macos
+      - name: Import
+        run: scripts/godot_import.sh .
+      - name: Lint (GPU arm)
+        run: scripts/agent_harness.sh lint
+      - name: Ladder
+        run: scripts/agent_harness.sh ladder
