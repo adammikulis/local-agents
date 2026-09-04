@@ -8,6 +8,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_rung.sh"
 . "$ROOT/scripts/lib_godot.sh"
+. "$ROOT/scripts/lib_lint_queue.sh"
 
 PLAYABLE="$ROOT/docs/PLAYABLE_RUNG"
 FRAMES="${LA_LADDER_FRAMES:-8}"
@@ -146,12 +147,7 @@ if [ -n "$red_name" ]; then
   echo "examined: a reading taken over a broken rung is the interaction of two defects, not a measurement."
 fi
 printf 'LADDER={"green":"%s","first_red":"%s","frames":%s}\n' "$green_name" "${red_name:-none}" "$FRAMES"
-if [ -s "$LADDER_TIMING" ]; then
-  sort -rn -k1,1 "$LADDER_TIMING" | awk -F'\t' '
-    BEGIN { printf "LADDER_TIMING={" }
-    { gsub(/"/, "", $2); printf "%s\"%s\":%s", (NR > 1 ? "," : ""), $2, ($1 == "" ? "0" : $1) }
-    END { print "}" }'
-fi
+la_timing_line "$LADDER_TIMING" LADDER_TIMING
 
 # THE RATCHET. The rung the demo world runs at only rises; a lower finding is reported, never written.
 if [ "$green" -ge 0 ] && [ -f "$PLAYABLE" ]; then

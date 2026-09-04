@@ -127,11 +127,13 @@ la_lq_drain() {
 	return 0
 }
 
-# Every gate's wall seconds, longest first. $1 names the marker.
-la_lq_timing() {
-	[ -s "$LA_LQ_DIR/timing.tsv" ] || return 0
-	sort -rn -k1,1 "$LA_LQ_DIR/timing.tsv" | awk -F'\t' -v marker="${1:-LINT_TIMING}" '
+# $1 a file of "<seconds>\t<label>" lines, $2 the marker. One line, longest first.
+la_timing_line() {
+	[ -s "$1" ] || return 0
+	sort -rn -k1,1 "$1" | awk -F'\t' -v marker="$2" '
 		BEGIN { printf "%s={", marker }
 		{ gsub(/"/, "", $2); printf "%s\"%s\":%s", (NR > 1 ? "," : ""), $2, ($1 == "" ? "0" : $1) }
 		END { print "}" }'
 }
+
+la_lq_timing() { la_timing_line "$LA_LQ_DIR/timing.tsv" "${1:-LINT_TIMING}"; }
