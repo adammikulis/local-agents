@@ -47,13 +47,15 @@ Commands:
                 addons/local_agents/, author a scene with no script in it, and run it.
                 Set LA_GATE_MODEL=/path/to/model.gguf to also require a real reply.
   ground        Run scripts/check_ground_drawn.sh: a --ui --shoot run whose picture must show built ground.
-  ladder        Run scripts/check_process_ladder.sh: every rung of the process ladder, bottom-up,
-                stopping at the first red one. A landing-time command, not a per-change one.
+  ladder [args] Run scripts/check_process_ladder.sh: every rung of the process ladder, bottom-up,
+                stopping at the first red one. Climbs the SLICE; --body climbs the whole planet, which
+                is the smoke test. A landing-time command, not a per-change one.
   sim [args]    Run the planet and print its books via scripts/sim_run.sh. Off-screen, streamer off,
                 re-imports first so stale kernels cannot fake a report. Defaults to the standard
                 verification arm (200 steps, seed 4242, --planet-only --no-fauna).
                 --rung=N picks which processes the world contains (LAProcessSet); without it the
-                world runs at docs/PLAYABLE_RUNG.
+                world runs at docs/PLAYABLE_RUNG. The arm is a SLICE of the planet; --body runs the
+                whole body, which is the smoke test.
                 e.g. agent_harness.sh sim --frames 600      agent_harness.sh sim --rung=0 --frames 20
   score [args]  PHYSICS_RUBRIC.md, all ten criteria, COMPUTED. Never hand-enter a row: the half a person
                 scores is the half that moves. Prints the table row ready to paste. Takes its own
@@ -177,8 +179,17 @@ case "$cmd" in
   ground)
     exec bash "$SCRIPT_DIR/check_ground_drawn.sh" "$@"
     ;;
+  # THE ACCEPTANCE ARM IS THE SLICE. --body climbs the whole planet, which is the smoke test.
   ladder)
-    child=("$SCRIPT_DIR/check_process_ladder.sh" "$@")
+    ladder_args=(--slice)
+    for a in "$@"; do
+      case "$a" in
+        --body) ladder_args=() ;;
+        --slice) ladder_args=(--slice) ;;
+        *) ladder_args+=("$a") ;;
+      esac
+    done
+    child=("$SCRIPT_DIR/check_process_ladder.sh" ${ladder_args[@]+"${ladder_args[@]}"})
     ;;
   lint)
     : # handled specially below

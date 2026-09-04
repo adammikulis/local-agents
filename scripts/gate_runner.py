@@ -105,9 +105,10 @@ def timing_line(rows, marker):
     return "%s={%s}" % (marker, body)
 
 
-def make_capture(tree=ROOT):
-    """The one engine run per lint. Returns (capture dir or None, what it said on stderr)."""
-    proc = subprocess.run([os.path.join(tree, "scripts/lint_capture.sh")], cwd=tree,
+def make_capture(tree=ROOT, arm=None):
+    """The shared arm for this lint. Returns (capture dir or None, what it said on stderr)."""
+    argv = [os.path.join(tree, "scripts/lint_capture.sh")] + (["--" + arm] if arm else [])
+    proc = subprocess.run(argv, cwd=tree,
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                           errors="replace")
     if proc.returncode != 0 or not proc.stdout.strip():
@@ -171,7 +172,7 @@ def summarise(t):
               % t["failed"])
         return 1
     if t["skipped"] > 0 or t["not_examined"] > 0:
-        print("LINT_SUMMARY: passed, with %d GPU gate(s) SKIPPED and %d above the ladder's rung — "
+        print("LINT_SUMMARY: passed, with %d GPU gate(s) SKIPPED and %d NOT EXAMINED by this arm — "
               "this run did not examine them." % (t["skipped"], t["not_examined"]))
         return 0
     print("All lint gates passed (file length gates at soft 1300 / hard 1500; policy markers are "
@@ -191,7 +192,7 @@ def cmd_lint(args):
     timing, records = [], []
     ledger_dir = tempfile.mkdtemp(prefix="la_gate_ledger.")
 
-    cap, cap_err = make_capture()
+    cap, cap_err = make_capture(arm="body" if args.body else "slice")
     if cap_err:
         sys.stdout.write(cap_err)
     if cap:
@@ -266,7 +267,7 @@ def arm_scratch(g, scratch):
         subprocess.run([os.path.join(scratch, "scripts/ensure_worktree_ready.sh")], cwd=scratch)
     os.environ.pop("LA_LINT_CAPTURE", None)
     if "capture" in g["needs"]:
-        cap, _ = make_capture(scratch)
+        cap, _ = make_capture(scratch, arm="body" if "body" in g["needs"] else "slice")
         if cap:
             os.environ["LA_LINT_CAPTURE"] = cap
 
@@ -325,6 +326,8 @@ def main(argv):
     p.add_argument("--timing", action="store_true", help="also print the slowest gates to stderr")
     p.add_argument("--json", metavar="OUT", help="write per-gate results to a JSON file")
     p.add_argument("--jobs", type=int, help="pool width (default LA_LINT_JOBS or the core count)")
+    p.add_argument("--body", action="store_true",
+                   help="take the shared arm over the whole planet instead of a slice of it")
     args = p.parse_args(argv)
     try:
         if args.list:

@@ -7,7 +7,8 @@
 # kind = "gpu"      needs a real device; LA_NO_GPU=1 skips exactly these.
 # marker            the verdict line a passing gate must print, so silence is not a pass.
 # mutation          a shell command that must turn the gate red, for --mutate.
-# needs             what a --mutate scratch tree must be given: "import", "capture".
+# needs             what a --mutate scratch tree must be given: "import", "capture", "body"
+#                   (a body-scoped gate: NOT EXAMINED on a slice arm).
 
 [defaults]
 timeout_s = 900
@@ -512,6 +513,8 @@ marker = "^check_lifeless_planet: OK"
 name = "check_body_measured"
 script = "scripts/check_body_measured.sh"
 kind = "gpu"
+needs = ["import", "capture", "body"]
+mutation = "python3 -c \"import pathlib; p = pathlib.Path('scripts/check_body_measured.sh'); p.write_text(p.read_text().replace('LA_BODY_MASS_TOL:-0.02', 'LA_BODY_MASS_TOL:-0'))\""
 marker = "^check_body_measured: OK"
 
 [[gate]]
