@@ -30,17 +30,20 @@ float la_mix_vapour_p_at(SubstanceTh s, float t_c, float p_pa, float molality_mo
 	return la_saturation_p_at(s, t_c);
 }
 
-// THE SATURATION SPLIT AT FIXED VOLUME: the vapour fills the gas room at its saturation pressure,
+// THE SATURATION SPLIT AT FIXED VOLUME, taking a vapour pressure the caller already solved:
 // n_v = p_v(T) room / (R T), the rest stays condensed, and boiling is continuous — no plateau.
-float la_mix_vapour_fraction(SubstanceTh s, float t_c, float p_pa, float m_kg, float room_m3,
-		float molality_mol_kg) {
+float la_mix_vapour_share(SubstanceTh s, float t_c, float m_kg, float room_m3, float p_v) {
 	if (m_kg <= 0.0 || !s.has_boil) { return 0.0; }
 	if (t_c >= s.crit_t_c) { return 1.0; }
-	if (room_m3 <= 0.0 || s.molar_mass <= 0.0) { return 0.0; }
-	float p_v = la_mix_vapour_p_at(s, t_c, p_pa, molality_mol_kg);
-	if (p_v <= 0.0) { return 0.0; }
+	if (room_m3 <= 0.0 || s.molar_mass <= 0.0 || p_v <= 0.0) { return 0.0; }
 	float t_k = max(t_c + LA_KELVIN_OFFSET, 1.0);
 	return min(p_v * room_m3 / (LA_R_J_MOL_K * t_k) * s.molar_mass / m_kg, 1.0);
+}
+
+float la_mix_vapour_fraction(SubstanceTh s, float t_c, float p_pa, float m_kg, float room_m3,
+		float molality_mol_kg) {
+	return la_mix_vapour_share(s, t_c, m_kg, room_m3,
+		la_mix_vapour_p_at(s, t_c, p_pa, molality_mol_kg));
 }
 
 // Specific enthalpy of one substance AS IT SITS IN THIS CELL: its own ladder's condensed branch and
@@ -49,8 +52,8 @@ float la_mix_vapour_fraction(SubstanceTh s, float t_c, float p_pa, float m_kg, f
 float la_mix_specific_enthalpy(SubstanceTh s, float t_c, float p_pa, float m_kg, float room_m3,
 		float molality_mol_kg) {
 	if (!s.has_boil || t_c >= s.crit_t_c) { return la_state_to_enthalpy(s, t_c, p_pa, molality_mol_kg); }
-	float f_v = la_mix_vapour_fraction(s, t_c, p_pa, m_kg, room_m3, molality_mol_kg);
 	float p_v = la_mix_vapour_p_at(s, t_c, p_pa, molality_mol_kg);
+	float f_v = la_mix_vapour_share(s, t_c, m_kg, room_m3, p_v);
 	if (f_v >= 1.0) { return la_state_to_enthalpy(s, t_c, min(p_pa, p_v) * (1.0 - 1.0e-3), molality_mol_kg); }
 	float h_cond = la_state_to_enthalpy(s, t_c, max(p_pa, p_v * (1.0 + 1.0e-3)), molality_mol_kg);
 	if (f_v <= 0.0) { return h_cond; }
