@@ -18,7 +18,7 @@ la_rung_require "$out" pressure_inversions pressure_audited pressure_empty press
 # may drift from its first reading by no more than the solve's stopping tolerance per frame
 # (state_derive.glsl LA_STATE_TOL), and no cell may exhaust the solve's budget.
 rest="$(la_rung_value "$out" pressure_rest_rel)"
-unc="$(la_rung_value "$out" derive_unconverged_cells)"
+unc="$(la_rung_max "$out" derive_unconverged_cells)"
 printf 'HYDROSTATIC_REST={"pressure_rest_rel":%s,"derive_unconverged_cells":%s}\n' "$rest" "$unc"
 if ! awk -v r="$rest" -v u="$unc" -v n="$FRAMES" 'BEGIN{exit !(r <= n * 1.0e-6 && u == 0)}'; then
 	echo "check_hydrostatic_seed: the seeded world is not at rest: an open cell's EOS pressure moves with no" >&2

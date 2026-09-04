@@ -389,80 +389,184 @@ struct RadialProfile {
 	int i_core = 0;
 	double dr = 0.0;
 	std::vector<double> p_at;
+	std::vector<double> t_at;
 	std::vector<double> m_in;
 	double mass = 0.0;
 };
 
-static RadialProfile radial_profile(double p_radius_m, double p_t_c) {
-	RadialProfile out;
-	if (!(p_radius_m > 0.0)) {
-		return out;
+// THE BODY STANDS AT ITS OWN GEOTHERM: each shell's density is the composition's at that shell's own
+// temperature and pressure, so the radius that holds the declared mass is the hot body's.
+// THE GEOTHERM ON THE PROFILE'S OWN GRID, kelvin per shell: the conductive lithosphere down to the mantle
+// adiabat, the core-mantle jump, then the core's adiabat. Each adiabat integrates dT/dr = -alpha g T / cp
+// with alpha falling under pressure as alpha * K_T stays constant (Anderson 1995, Equations of State of
+// Solids for Geophysics), K_T = K0 + K0' P off the same Birch-Murnaghan the densities use.
+static void geotherm_on_profile(double p_radius_m, double p_t_c, int p_n, int p_i_core, double p_dr,
+		const std::vector<double> &p_m_in, const std::vector<double> &p_p_at, std::vector<double> &r_t_at) {
+	const Dictionary table = LASubstances::table();
+	const Dictionary rock = table.get("silicate", Dictionary());
+	const Dictionary metal = table.get("metal", Dictionary());
+	const double rho_m = double(rock.get("density", 0.0));
+	const double cp_m = double(rock.get("specific_heat", 0.0));
+	const double cp_c = double(metal.get("specific_heat", 0.0));
+	const double k_m = double(rock.get("conductivity", 0.0));
+	const double alpha_m0 = double(rock.get("expansion_per_k", 0.0));
+	const double alpha_c0 = double(metal.get("expansion_per_k", 0.0));
+	const double k0_m = double(rock.get("bulk_modulus_pa", rock.get("bulk_modulus_solid_pa", 0.0)));
+	const double k0_c = double(metal.get("bulk_modulus_pa", metal.get("bulk_modulus_solid_pa", 0.0)));
+	const double kp_m = double(rock.get("bulk_modulus_deriv", 4.0));
+	const double kp_c = double(metal.get("bulk_modulus_deriv", 4.0));
+	const double p_std = la_physical("STANDARD_PRESSURE_PA");
+	const double a_w_m3 = LARadiogenicDecay::heat_w_kg_of(rock.get("traces", Dictionary()),
+			-la_physical("PLANET_EPOCH_YEARS_BEFORE_PRESENT")) * rho_m;
+	const double g_const = la_physical("GRAVITATIONAL_CONSTANT");
+	const double t_surface_k = p_t_c + la_physical("KELVIN_OFFSET");
+	const double q_surf = la_physical("SURFACE_HEAT_FLOW_W_M2");
+	auto alpha_at = [&](double a0, double k0, double kp, double p) {
+		const double k_t = k0 + kp * std::max(p - p_std, 0.0);
+		return (k0 > 0.0 && k_t > 0.0) ? a0 * k0 / k_t : a0;
+	};
+	double t_ad = la_physical("MANTLE_POTENTIAL_TEMP_K");
+	// THE LID ENDS WHERE ITS CONDUCTIVE GEOTHERM MEETS THE ADIABAT, and below that the adiabat holds:
+	// the conductive parabola is the lithosphere's alone and turns over past it.
+	bool lid = true;
+	for (int i = p_n - 1; i >= p_i_core; --i) {
+		const double r = (double(i) + 0.5) * p_dr;
+		const double z = p_radius_m - r;
+		const double t_cond = (k_m > 0.0) ? t_surface_k + q_surf * z / k_m - a_w_m3 * z * z / (2.0 * k_m) : t_surface_k;
+		lid = lid && t_cond < t_ad;
+		r_t_at[i] = lid ? t_cond : t_ad;
+		const double g = g_const * p_m_in[i] / std::max(r * r, 1.0);
+		t_ad *= 1.0 + alpha_at(alpha_m0, k0_m, kp_m, p_p_at[i]) * g * p_dr / std::max(cp_m, 1.0);
 	}
-	const int N = 192;
+	double t_core = la_physical("CORE_MANTLE_BOUNDARY_TEMP_K");
+	for (int i = p_i_core - 1; i >= 0; --i) {
+		const double r = (double(i) + 0.5) * p_dr;
+		r_t_at[i] = t_core;
+		const double g = g_const * p_m_in[i] / std::max(r * r, 1.0);
+		t_core *= 1.0 + alpha_at(alpha_c0, k0_c, kp_c, p_p_at[i]) * g * p_dr / std::max(cp_c, 1.0);
+	}
+}
+
+// ONE SHOT FROM THE CENTRE: for a central pressure, integrate dp/dr = -rho g and dm/dr = 4 pi r^2 rho
+// outward until the pressure reaches one atmosphere, reading each shell's density at its own pressure
+// and at the temperature the previous shot's geotherm gives its radius. Mass and radius both rise with
+// the central pressure, so either is found by bisection on it. The metal core is the composition's mass
+// fraction, laid first; the shells above it are the silicate mixture.
+static RadialProfile shoot_profile(double p_centre_pa, double p_t_c, const RadialProfile &p_last) {
+	RadialProfile out;
+	const int N_MAX = 4096;
 	const double g_const = la_physical("GRAVITATIONAL_CONSTANT");
 	const double p_std = la_physical("STANDARD_PRESSURE_PA");
 	const double f_core = LAElementAbundances::core_mass_fraction();
-	const double dr = p_radius_m / double(N);
-	std::vector<double> rho(N, 0.0), m_in(N, 0.0), p_at(N, p_std);
-	const double rho_shell0 = LAPlanetComposition::shell_density(p_t_c, p_std);
-	const double rho_core0 = LASubstances::density("metal", p_t_c, p_std);
-	if (rho_shell0 <= 0.0 || rho_core0 <= 0.0) {
+	// The target mass sets where the core ends; an unsolved profile takes the declared body's.
+	const double m_target = p_last.mass > 0.0 ? p_last.mass
+			: double(LABodySeeds::of("planet").get("mass_kg", 0.0));
+	// The step: a 192nd of the radius that mass would have uncompressed at the surface's state.
+	const double rho_un = LAPlanetComposition::shell_density(p_t_c, p_std);
+	if (!(m_target > 0.0) || !(rho_un > 0.0)) {
 		return out;
 	}
-	int i_core = int(double(N) * LAPlanetComposition::core_radius_frac(p_t_c, p_std));
-	for (int i = 0; i < N; ++i) {
-		rho[i] = (i < i_core) ? rho_core0 : rho_shell0;
-	}
-	for (int pass = 0; pass < 24; ++pass) {
-		double acc = 0.0;
-		for (int i = 0; i < N; ++i) {
-			const double r_lo = double(i) * dr;
-			const double r_hi = r_lo + dr;
-			acc += rho[i] * (4.0 / 3.0) * kPi * (r_hi * r_hi * r_hi - r_lo * r_lo * r_lo);
-			m_in[i] = acc;
+	const double dr = std::pow(3.0 * m_target / (4.0 * kPi * rho_un), 1.0 / 3.0) / 192.0;
+	std::vector<double> rho, m_in, p_at, t_at;
+	double p = p_centre_pa;
+	double m = 0.0;
+	int i_core = -1;
+	for (int i = 0; i < N_MAX && p > p_std; ++i) {
+		const double r_lo = double(i) * dr;
+		const double r_mid = r_lo + 0.5 * dr;
+		const double r_hi = r_lo + dr;
+		// The temperature this shell had on the last shot, at this radius; the surface's before any.
+		double t_c = p_t_c;
+		if (p_last.n > 0) {
+			const int j = std::min(p_last.n - 1, int(r_mid / p_last.dr));
+			t_c = p_last.t_at[j];
 		}
-		const double total = acc;
-		if (!(total > 0.0)) {
+		const bool core = i_core < 0 && (m < f_core * m_target);
+		const double d = core ? LASubstances::density("metal", t_c, p) : LAPlanetComposition::shell_density(t_c, p);
+		if (!(std::isfinite(d) && d > 0.0)) {
+			out.n = -1;
 			return out;
 		}
-		// The core boundary is a MASS fraction, so it moves as the profile compresses.
-		i_core = 0;
-		while (i_core < N && m_in[i_core] < f_core * total) {
-			++i_core;
+		if (!core && i_core < 0) {
+			i_core = i;
 		}
-		// Hydrostatic pressure, integrated inward from one atmosphere at the surface.
-		double p = p_std;
-		for (int i = N - 1; i >= 0; --i) {
-			const double r_mid = (double(i) + 0.5) * dr;
-			const double g = g_const * m_in[i] / (r_mid * r_mid);
-			p += rho[i] * g * dr;
-			p_at[i] = p;
-		}
-		for (int i = 0; i < N; ++i) {
-			const double d = (i < i_core) ? LASubstances::density("metal", p_t_c, p_at[i])
-										  : LAPlanetComposition::shell_density(p_t_c, p_at[i]);
-			if (d > 0.0) {
-				rho[i] = d;
-			}
-		}
+		rho.push_back(d);
+		p_at.push_back(p);
+		t_at.push_back(t_c);
+		m += d * (4.0 / 3.0) * kPi * (r_hi * r_hi * r_hi - r_lo * r_lo * r_lo);
+		m_in.push_back(m);
+		const double g = g_const * m / (r_hi * r_hi);
+		p -= d * g * dr;
 	}
-	double total = 0.0;
-	for (int i = 0; i < N; ++i) {
-		const double r_lo = double(i) * dr;
-		const double r_hi = r_lo + dr;
-		total += rho[i] * (4.0 / 3.0) * kPi * (r_hi * r_hi * r_hi - r_lo * r_lo * r_lo);
+	if (rho.empty() || i_core < 0) {
+		return out;
 	}
-	out.n = N;
-	out.m_in = m_in;
+	out.n = int(rho.size());
 	out.i_core = i_core;
 	out.dr = dr;
 	out.p_at = p_at;
-	out.mass = total;
+	out.t_at = t_at;
+	out.m_in = m_in;
+	out.mass = m;
 	return out;
 }
 
-static double mass_at_radius(double p_radius_m, double p_t_c) {
-	return radial_profile(p_radius_m, p_t_c).mass;
+// The profile's temperatures replaced by the geotherm solved on its own grid, for the next shot.
+static RadialProfile with_geotherm(RadialProfile p_prof, double p_t_c) {
+	if (p_prof.n <= 0) {
+		return p_prof;
+	}
+	const double kelvin = la_physical("KELVIN_OFFSET");
+	const double r_body = double(p_prof.n) * p_prof.dr;
+	std::vector<double> t_k(p_prof.n, p_t_c + kelvin);
+	geotherm_on_profile(r_body, p_t_c, p_prof.n, p_prof.i_core, p_prof.dr, p_prof.m_in, p_prof.p_at, t_k);
+	for (int i = 0; i < p_prof.n; ++i) {
+		p_prof.t_at[i] = t_k[i] - kelvin;
+	}
+	return p_prof;
+}
+
+// The profile whose surface stands at `p_radius_m`: bisection on the central pressure, the geotherm
+// re-solved on each converged shot until the radius holds.
+static RadialProfile radial_profile(double p_radius_m, double p_t_c) {
+	RadialProfile last;
+	if (!(p_radius_m > 0.0)) {
+		return last;
+	}
+	for (int outer = 0; outer < 6; ++outer) {
+		double lo = la_physical("STANDARD_PRESSURE_PA") * 10.0;
+		double hi = 1.0e13;
+		RadialProfile best;
+		for (int i = 0; i < 60; ++i) {
+			const double mid = std::sqrt(lo * hi);
+			const RadialProfile prof = shoot_profile(mid, p_t_c, last);
+			const double r = prof.n > 0 ? double(prof.n) * prof.dr : 0.0;
+			if (prof.n == 0 || (prof.n > 0 && r < p_radius_m)) {
+				lo = mid;
+			} else if (prof.n < 0) {
+				hi = mid;
+			} else {
+				hi = mid;
+				best = prof;
+			}
+		}
+		if (best.n <= 0) {
+			return best;
+		}
+		last = with_geotherm(best, p_t_c);
+	}
+	return last;
+}
+
+PackedFloat32Array LAPlanetComposition::geotherm_k(double p_radius_m, double p_t_c) {
+	const RadialProfile prof = radial_profile(p_radius_m, p_t_c);
+	PackedFloat32Array out;
+	out.resize(prof.n);
+	const double kelvin = la_physical("KELVIN_OFFSET");
+	for (int i = 0; i < prof.n; i++) {
+		out[i] = float(prof.t_at[i] + kelvin);
+	}
+	return out;
 }
 
 // THE BODY'S OWN FIELD at every cell of a grid, from the relaxed radial profile: g = G m(<r)/r^2 and
@@ -556,29 +660,39 @@ double LAPlanetComposition::radius_for_mass(double p_mass_kg, double p_t_c) {
 	if (!(p_mass_kg > 0.0)) {
 		return 0.0;
 	}
-	const double p_std = la_physical("STANDARD_PRESSURE_PA");
-	const double rho_un = shell_density(p_t_c, p_std);
-	if (rho_un <= 0.0) {
-		return 0.0;
-	}
-	// The uncompressed body is the largest it can be, so it brackets the answer from above.
-	double hi = std::pow(3.0 * p_mass_kg / (4.0 * kPi * rho_un), 1.0 / 3.0) * 1.2;
-	double lo = hi * 0.2;
-	for (int i = 0; i < 48; ++i) {
-		const double mid = 0.5 * (lo + hi);
-		if (mass_at_radius(mid, p_t_c) < p_mass_kg) {
-			lo = mid;
-		} else {
-			hi = mid;
+	RadialProfile last;
+	last.mass = p_mass_kg;
+	double r_out = 0.0;
+	for (int outer = 0; outer < 6; ++outer) {
+		double lo = la_physical("STANDARD_PRESSURE_PA") * 10.0;
+		double hi = 1.0e13;
+		RadialProfile best;
+		for (int i = 0; i < 60; ++i) {
+			const double mid = std::sqrt(lo * hi);
+			const RadialProfile prof = shoot_profile(mid, p_t_c, last);
+			if (prof.n == 0 || (prof.n > 0 && prof.mass < p_mass_kg)) {
+				lo = mid;
+			} else if (prof.n < 0) {
+				hi = mid;
+			} else {
+				hi = mid;
+				best = prof;
+			}
 		}
+		if (best.n <= 0) {
+			return 0.0;
+		}
+		r_out = double(best.n) * best.dr;
+		last = with_geotherm(best, p_t_c);
+		last.mass = p_mass_kg;
 	}
-	return 0.5 * (lo + hi);
+	return r_out;
 }
 
 // Fill the field's mineral mirrors: a differentiated body — metal core, one silicate shell of the
 // registry's own mineral mix. Differentiation at ~10^13 steps is not computable, so the layering is
 // seeded; the maintainer's decision, not a law.
-void LAPlanetComposition::seed(Object *p_field, double p_t_c) {
+void LAPlanetComposition::seed(Object *p_field, double p_t_c, const PackedFloat32Array &p_t_rock) {
 	ERR_FAIL_NULL(p_field);
 	const Dictionary w = shell_minerals();
 	Object *grid = p_field->get("_grid");
@@ -593,15 +707,16 @@ void LAPlanetComposition::seed(Object *p_field, double p_t_c) {
 	std::vector<std::vector<double>> amounts(prof.n, std::vector<double>(keys.size(), 0.0));
 	std::vector<double> metal_at(prof.n, 0.0);
 	for (int j = 0; j < prof.n; j++) {
+		const double t_j = j < int(prof.t_at.size()) ? prof.t_at[j] : p_t_c;
 		double v_shell = 0.0;
 		for (int i = 0; i < keys.size(); i++) {
-			v_shell += double(w[keys[i]]) / substance_density(String(keys[i]), p_t_c, prof.p_at[j]);
+			v_shell += double(w[keys[i]]) / substance_density(String(keys[i]), t_j, prof.p_at[j]);
 		}
 		for (int i = 0; i < keys.size(); i++) {
-			const double rho = substance_density(String(keys[i]), p_t_c, prof.p_at[j]);
+			const double rho = substance_density(String(keys[i]), t_j, prof.p_at[j]);
 			amounts[j][i] = (double(w[keys[i]]) / rho) / v_shell * rho / substance_molar_mass(String(keys[i]));
 		}
-		metal_at[j] = substance_density("metal", p_t_c, prof.p_at[j]) / substance_molar_mass("metal");
+		metal_at[j] = substance_density("metal", t_j, prof.p_at[j]) / substance_molar_mass("metal");
 	}
 	Array cargs;
 	cargs.push_back(p_field);
@@ -643,6 +758,28 @@ void LAPlanetComposition::seed(Object *p_field, double p_t_c) {
 	const int SUB = 4;
 	const double w_sub = 1.0 / double(SUB * SUB * SUB);
 	std::vector<double> acc(ch.size(), 0.0);
+	// Each sample's amount is at its shell's own T; the cell's rock stands at the cell's own T, so every
+	// sample is carried to it over its expansion and the lattice fills exactly the chord's volume there.
+	const Dictionary table = LASubstances::table();
+	std::vector<double> alpha(ch.size(), 0.0), tref(ch.size(), 0.0), k0(ch.size(), 0.0), kp(ch.size(), 4.0);
+	for (int i = 0; i < ch.size(); i++) {
+		const Dictionary sub = table.get(ch[i], Dictionary());
+		alpha[i] = double(sub.get("expansion_per_k", 0.0));
+		tref[i] = double(sub.get("density_ref_t_c", 0.0));
+		k0[i] = double(sub.get("bulk_modulus_pa", sub.get("bulk_modulus_solid_pa", 0.0)));
+		kp[i] = double(sub.get("bulk_modulus_deriv", 4.0));
+	}
+	const Dictionary metal_sub = table.get("metal", Dictionary());
+	const double alpha_m = double(metal_sub.get("expansion_per_k", 0.0));
+	const double tref_m = double(metal_sub.get("density_ref_t_c", 0.0));
+	const double k0_m = double(metal_sub.get("bulk_modulus_pa", metal_sub.get("bulk_modulus_solid_pa", 0.0)));
+	const double kp_m = double(metal_sub.get("bulk_modulus_deriv", 4.0));
+	const double p_std = la_physical("STANDARD_PRESSURE_PA");
+	// alpha * K_T stays constant under pressure (Anderson 1995): the same law the density carries.
+	auto alpha_at = [&](double a0, double k, double kprime, double p) {
+		const double dp = p - p_std;
+		return (k > 0.0 && dp > 0.0) ? a0 * k / (k + kprime * dp) : a0;
+	};
 	for (int c = 0; c < cc; c++) {
 		const float f = frac.size() == cc ? frac[c] : (solid[c] != 0 ? 1.0f : 0.0f);
 		cw[c] = f > 0.0f ? 1.0f : 0.0f;
@@ -659,19 +796,24 @@ void LAPlanetComposition::seed(Object *p_field, double p_t_c) {
 					const Vector3 p = la_cw[c] + Vector3(float((a + 0.5) * se - 0.5 * e), float((b + 0.5) * se - 0.5 * e),
 							float((d + 0.5) * se - 0.5 * e));
 					const int j = std::min(prof.n - 1, int((p - centre).length() / prof.dr));
+					const double t_j = j < int(prof.t_at.size()) ? prof.t_at[j] : p_t_c;
+					const double p_j = j < int(prof.p_at.size()) ? prof.p_at[j] : p_std;
 					if (j < prof.i_core) {
-						m_acc += metal_at[j];
+						m_acc += metal_at[j] * (1.0 + alpha_at(alpha_m, k0_m, kp_m, p_j) * (t_j - tref_m));
 						continue;
 					}
 					for (int i = 0; i < ch.size(); i++) {
-						acc[i] += col[i] >= 0 ? amounts[j][col[i]] : 0.0;
+						acc[i] += col[i] >= 0 ? amounts[j][col[i]] * (1.0 + alpha_at(alpha[i], k0[i], kp[i], p_j) * (t_j - tref[i])) : 0.0;
 					}
 				}
 			}
 		}
-		mw[c] = float(m_acc * w_sub * f);
+		const double t_rock = c < p_t_rock.size() ? double(p_t_rock[c]) : p_t_c;
+		const int j_c = std::min(prof.n - 1, int((la_cw[c] - centre).length() / prof.dr));
+		const double p_c = j_c < int(prof.p_at.size()) ? prof.p_at[j_c] : p_std;
+		mw[c] = float(m_acc * w_sub * f / (1.0 + alpha_at(alpha_m, k0_m, kp_m, p_c) * (t_rock - tref_m)));
 		for (int i = 0; i < ch.size(); i++) {
-			sw[i][c] = float(acc[i] * w_sub * f);
+			sw[i][c] = float(acc[i] * w_sub * f / (1.0 + alpha_at(alpha[i], k0[i], kp[i], p_c) * (t_rock - tref[i])));
 		}
 	}
 	p_field->set("_cement", cement);
@@ -962,7 +1104,8 @@ void LAPlanetComposition::_bind_methods() {
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("core_radius_m", "radius_m", "t_c"), &core_radius_m);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("body_field", "grid", "centre", "radius_m", "t_c"), &body_field);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("upload_body_field", "rd", "bufs", "grid", "centre", "radius_m", "t_c"), &upload_body_field);
-	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("seed", "field", "t_c"), &seed);
+	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("geotherm_k", "radius_m", "t_surface_c"), &geotherm_k);
+	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("seed", "field", "t_c", "t_rock"), &seed);
 }
 
 // --- LARadiogenicDecay ------------------------------------------------------------------------------

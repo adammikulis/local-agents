@@ -130,26 +130,22 @@ void LAFieldDriver::step(const Array &p_passes, const PackedStringArray &p_names
 		}
 		const int64_t cl = _rd->compute_list_begin();
 		p->call("dispatch", _rd, cl, p_ctx, p_cc, p_groups);
-		// EVERY PASS READS WHAT THE PREVIOUS ONE WROTE, and one submit does not order them against
-		// each other. The probed path submits between passes, which orders them already.
-		if (!probed) {
-			_rd->compute_list_add_barrier(cl);
-		}
 		_rd->compute_list_end();
-		if (probed) {
-			_rd->submit();
-			_rd->sync();
-			p_probe.call(i, i < p_names.size() ? p_names[i] : String());
-		} else {
+		// ONE PASS IS THE MOST A SUBMIT MAY HOLD: the device's fence wait is finite and a whole step in
+		// one submit outran it. A submit per pass also orders each pass after the one before it.
+		if (!probed) {
 			_rd->capture_timestamp(i < p_names.size() ? p_names[i] : String());
 		}
+		_rd->submit();
+		_rd->sync();
+		if (probed) {
+			p_probe.call(i, i < p_names.size() ? p_names[i] : String());
+		}
 	}
-	if (probed) {
-		// Leave an in-flight submit so the drain's contract is unchanged. An empty list is a legal no-op.
-		const int64_t tail = _rd->compute_list_begin();
-		_rd->compute_list_end();
-		(void)tail;
-	}
+	// Leave an in-flight submit so the drain's contract is unchanged. An empty list is a legal no-op.
+	const int64_t tail = _rd->compute_list_begin();
+	_rd->compute_list_end();
+	(void)tail;
 	_rd->submit();
 }
 

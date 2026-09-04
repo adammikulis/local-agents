@@ -15,7 +15,7 @@ void main() {
 	uint i = gl_GlobalInvocationID.x * 5u;
 	float h_total = probe[i];
 	float p_pa = probe[i + 1u];
-	float n_gas_mol = probe[i + 2u];
+	float room_m3 = probe[i + 2u];
 	SubstanceTh subs[LA_MIX_MAX];
 	float mass[LA_MIX_MAX];
 	subs[0] = la_h2o();
@@ -28,9 +28,9 @@ void main() {
 	mass[3] = 0.0;
 	bool pinned;
 	float progress;
-	float t = la_mix_state(subs, mass, 2, h_total, p_pa, n_gas_mol, 0.0, pinned, progress);
+	float t = la_mix_state(subs, mass, 2, h_total, p_pa, room_m3, 0.0, pinned, progress);
 	vec4 st = la_enthalpy_to_state(subs[0], h_total, p_pa, 0.0);
 	probe[i] = t + st.x + progress + float(pinned)
-		+ la_mix_enthalpy_at(subs, mass, 2, t, p_pa, n_gas_mol, 0.0)
+		+ la_mix_enthalpy_at(subs, mass, 2, t, p_pa, room_m3, 0.0)
 		+ la_state_to_enthalpy(subs[1], t, p_pa, 0.0);
 }

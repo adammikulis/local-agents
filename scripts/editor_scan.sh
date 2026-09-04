@@ -80,31 +80,14 @@ if [[ -n "$SCAN_KEY" && "$(cat "$VERDICT_FILE" 2>/dev/null)" == "$SCAN_KEY" ]]; 
 fi
 rm -f "$VERDICT_FILE"
 
-# mkdir is atomic on every filesystem we care about, so it is the portable lock primitive here (macOS has
-# no flock(1)). MACHINE-WIDE, and shared with scripts/godot_import.sh: a per-project lock excluded nothing
-# once every lane ran in its own worktree, and what races is the shared GDExtension load.
-LOCK_DIR="${TMPDIR:-/tmp}/la_godot_extension.lock"
+# MACHINE-WIDE, shared with scripts/godot_import.sh: what races is the shared GDExtension load.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot_lock.sh"
+LOCK_DIR="$GODOT_LOCK_DIR"
 mkdir -p "${PROJECT}/.godot" 2>/dev/null || true
-
-waited=0
-until mkdir "$LOCK_DIR" 2>/dev/null; do
-  # Reclaim a lock whose owner died (a crashed or killed scan must not block everyone forever).
-  if [[ -f "$LOCK_DIR/pid" ]]; then
-    owner="$(cat "$LOCK_DIR/pid" 2>/dev/null || echo "")"
-    if [[ -n "$owner" ]] && ! kill -0 "$owner" 2>/dev/null; then
-      echo "editor_scan: clearing stale lock from dead pid $owner" >&2
-      rm -rf "$LOCK_DIR"
-      continue
-    fi
-  fi
-  if (( waited >= LOCK_TIMEOUT )); then
-    echo "editor_scan: timed out after ${LOCK_TIMEOUT}s waiting for $LOCK_DIR" >&2
-    exit 2
-  fi
-  sleep 2
-  waited=$(( waited + 2 ))
-done
-echo $$ > "$LOCK_DIR/pid"
+la_dir_lock "$LOCK_DIR" "$LOCK_TIMEOUT" 2 || {
+  echo "editor_scan: timed out after ${LOCK_TIMEOUT}s waiting for $LOCK_DIR" >&2
+  exit 2
+}
 
 LOG="$(mktemp)"
 PARSE_LOG="$(mktemp)"

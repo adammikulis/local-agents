@@ -163,6 +163,8 @@ bool la_active_levels(uint gidx) {
 			if (c < params.cell_count) {
 				uint lv = la_row_level(c);
 				atomicMax(level_peak[params.level], lv);
+				// The cell's own ask, so a refusal can name the cell; the assignment pass rewrites it.
+				atomicMax(tlevel[c], lv);
 			}
 		}
 		return true;

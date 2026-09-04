@@ -10,28 +10,36 @@
 
 GODOT_LOCK_DIR="${TMPDIR:-/tmp}/la_godot_extension.lock"
 
-# godot_lock [timeout_seconds]
-godot_lock() {
-	local timeout="${1:-${LA_GODOT_LOCK_TIMEOUT:-900}}"
+# la_dir_lock <path> <timeout_s> <poll_s>. The lock is a symlink whose target is the owner's pid: one
+# atomic create carries the owner, so an ownerless lock cannot exist, and a dead owner's is reclaimed.
+la_dir_lock() {
+	local lock="$1" timeout="$2" poll="${3:-1}"
 	local waited=0 owner
-	until mkdir "$GODOT_LOCK_DIR" 2>/dev/null; do
-		if [ -f "$GODOT_LOCK_DIR/pid" ]; then
-			owner="$(cat "$GODOT_LOCK_DIR/pid" 2>/dev/null || echo "")"
-			if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
-				echo "godot_lock: clearing stale lock from dead pid $owner" >&2
-				rm -rf "$GODOT_LOCK_DIR"
-				continue
-			fi
+	while :; do
+		# A directory here is a lock of the old shape; it is never taken, only reclaimed or waited on.
+		if [ ! -d "$lock" ] && ln -s "$$" "$lock" 2>/dev/null; then
+			return 0
+		fi
+		owner="$(readlink "$lock" 2>/dev/null || cat "$lock/pid" 2>/dev/null || echo "")"
+		if [ -z "$owner" ] || ! kill -0 "$owner" 2>/dev/null; then
+			echo "$(basename "$lock"): clearing stale lock from dead pid ${owner:-none}" >&2
+			rm -rf "$lock"
+			continue
 		fi
 		if [ "$waited" -ge "$timeout" ]; then
-			echo "godot_lock: timed out after ${timeout}s waiting for $GODOT_LOCK_DIR" >&2
 			return 1
 		fi
-		sleep 1
-		waited=$((waited + 1))
+		sleep "$poll"
+		waited=$((waited + poll))
 	done
-	echo $$ > "$GODOT_LOCK_DIR/pid"
-	return 0
+}
+
+# godot_lock [timeout_seconds]
+godot_lock() {
+	la_dir_lock "$GODOT_LOCK_DIR" "${1:-${LA_GODOT_LOCK_TIMEOUT:-900}}" 1 || {
+		echo "godot_lock: timed out waiting for $GODOT_LOCK_DIR" >&2
+		return 1
+	}
 }
 
 godot_unlock() {

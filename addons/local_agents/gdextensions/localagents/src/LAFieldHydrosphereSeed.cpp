@@ -46,8 +46,9 @@ void LAFieldHydrosphereSeed::seed(Object *p_field) {
 	const PackedFloat32Array porosity = p_field->get("_porosity");
 	// The share of each cell below the sea shell and above its ground: the terrain's own ocean.
 	const PackedFloat32Array water = p_field->get("_water_fraction");
+	const PackedFloat32Array rock = p_field->get("_rock_fraction");
 	if (!grid || cc <= 0 || h2o.size() != cc || regolith.size() != cc || porosity.size() != cc
-			|| water.size() != cc) {
+			|| water.size() != cc || rock.size() != cc) {
 		UtilityFunctions::push_error("LAFieldHydrosphereSeed: no water fraction, regolith or porosity per cell, "
 				"so the hydrosphere has nowhere to stand.");
 		return;
@@ -61,11 +62,12 @@ void LAFieldHydrosphereSeed::seed(Object *p_field) {
 				"could split between its surface and its pore space, so the planet would seed dry.");
 		return;
 	}
+	// Porosity is a share of the ROCK's volume: the pore space of a cell is its rock's.
 	double pore = 0.0;
 	for (int c = 0; c < cc && c < edges.size(); c++) {
 		if (regolith[c] != 0) {
 			const double e = double(edges[c]);
-			pore += double(porosity[c]) * e * e * e;
+			pore += double(porosity[c]) * double(MAX(rock[c], 0.0f)) * e * e * e;
 		}
 	}
 	// NO PORE SPACE IS A BROKEN REGOLITH WALK: every box on this body has rock in it, and rock has
@@ -81,17 +83,18 @@ void LAFieldHydrosphereSeed::seed(Object *p_field) {
 		return;
 	}
 	const double sat = MIN(ground_kg / (kg_m3 * pore), 1.0);
+	PackedFloat32Array pore_w = p_field->get("_h2o_pore");
+	pore_w.resize(cc);
 	float *w = h2o.ptrw();
-	// THE SEA STANDS WHERE THE SHAPE PUTS IT, and the pore water wherever there is rock. A cell holding
-	// both holds both: the sea in its own volume, the pore water in the rock's.
+	float *pw = pore_w.ptrw();
+	// THE SEA STANDS WHERE THE SHAPE PUTS IT, and the pore water wherever there is rock: two channels, the
+	// sea in its own volume and the pore water in the rock's.
 	for (int c = 0; c < cc; c++) {
-		double f = double(MAX(water[c], 0.0f));
-		if (regolith[c] != 0) {
-			f += sat * double(porosity[c]);
-		}
-		w[c] = float(MIN(f, 1.0) * full_mol);
+		w[c] = float(MIN(double(MAX(water[c], 0.0f)), 1.0) * full_mol);
+		pw[c] = regolith[c] != 0 ? float(sat * double(porosity[c]) * double(MAX(rock[c], 0.0f)) * full_mol) : 0.0f;
 	}
 	p_field->set("_h2o", h2o);
+	p_field->set("_h2o_pore", pore_w);
 }
 
 void LAFieldHydrosphereSeed::_bind_methods() {

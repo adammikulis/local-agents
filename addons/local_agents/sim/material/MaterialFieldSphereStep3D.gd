@@ -84,18 +84,19 @@ func seed_tick() -> bool:
 	var g_solved: PackedFloat32Array = LAFieldLithostaticSeed.vertical(_f, _f._gpu.read_raw("g_rest"))
 	# The barometric profile is a function of the SOLVED POTENTIAL, so the solve's own phi goes with it.
 	if LAProcessSet.has_record("pass", GRAVITY_PASS):
-		LAFieldLithostaticSeed.shape_atmosphere(_f, LAMaterialField3D.INITIAL_TEMP, _f._body_measure,
-			g_solved, _f._gravity.phi_abs())
-	var p_marched: PackedFloat32Array = LAFieldLithostaticSeed.compress(_f, g_solved)
-	LAFieldEnthalpySeed.seed(_f, LAFieldGeothermSeed.profile(_f, LAMaterialField3D.INITIAL_TEMP), p_marched)
+		LAFieldLithostaticSeed.shape_atmosphere(_f, LAMaterialField3D.INITIAL_TEMP, g_solved, _f._gravity.phi_abs())
+	var balance: Dictionary = LAFieldLithostaticSeed.compress(_f, g_solved, _f._t_rock)
+	LAFieldEnthalpySeed.seed(_f, _f._t_rock, balance.get("fluid", PackedFloat32Array()), balance.get("rock", PackedFloat32Array()))
 	# WEIGH THE BODY once the march has compressed the rock it stands on.
 	_f._body_measure.measure(_f, LABodySeeds.spin_axis_of(_f._body_key))
 	if _f._gpu != null:                                # hand the device what those walks produced
 		_f._gpu._seed_regolith()                       # permeability mask, grain size, Athy porosity
 		# The march's own pressure, so the first state derive reads the world at it rather than at zero,
 		# where every condensed phase would be asked to boil.
-		_f._gpu._seed("pressure", p_marched)
+		_f._gpu._seed("pressure", balance.get("pressure", PackedFloat32Array()))
+		_f._gpu._seed("p_fluid", balance.get("fluid", PackedFloat32Array()))
 		_f._gpu._seed("e_j_m3", _f._e)
+		_f._gpu._seed("e_lith_j_m3", _f._e_lith)
 		# Every matter channel, not a hand-written subset: the balance march touched all of them.
 		for name in LAFieldCellMass3D.mirror_names(_f):
 			_f._gpu.seed_field(String(name), _f.get("_" + String(name)), _f._seal)
@@ -145,14 +146,12 @@ func _store_seeded(k: String) -> void:
 ## "below": no water table, no basins to flood, and no gas for water to displace out of.
 func _seed_under_gravity() -> void:
 	_f._gravity.solve()      # g FIRST: every "below"/"above" below here is a slot chosen from it
-	_f._compute_regolith()        # the permeable aquifer band (+ initial water table) for groundwater flow
+	LAFieldCellMass3D.regolith(_f)   # the aquifer band and its porosity, walked in the GDExtension
 	if not _f._regolith.has(1):
 		push_error("The regolith walk marked no cell permeable, so every rock cell has zero porosity, the "
 			+ "water table is unprimed and darcy_resistance() makes the groundwater row inert. The walk "
 			+ "reads `below` from solved gravity: it ran before the solve was dispatched and drained.")
-	LAFieldHydrosphereSeed.seed(_f)   # the body's own water, priority-flooded into its basins
-	# The water landed in already-seeded cells: displace the gas it occupies.
-	LAFieldLithostaticSeed.displace_gas_from_water(_f)
+	LAFieldHydrosphereSeed.seed(_f)   # the body's own water, in its basins and its pores
 
 
 ## ONE step: SIM_SECONDS_PER_STEP of simulated time. Every per-step term happens once here, so a
@@ -220,7 +219,7 @@ func step() -> void:
 ## StateDerivePass every step, never conserved and never uploaded; `vel_*` is the emergent wind
 ## field that wind3_at reads.
 const MIRRORS: Dictionary = {
-	"e_j_m3": "_e", "temp": "_temp", "h2o": "_h2o", "h2o_solid": "_h2o_solid",
+	"e_j_m3": "_e", "e_lith_j_m3": "_e_lith", "temp": "_temp", "temp_lith": "_temp_lith", "h2o": "_h2o", "h2o_pore": "_h2o_pore", "h2o_solid": "_h2o_solid",
 	"h2o_liquid": "_h2o_liquid", "h2o_vapour": "_h2o_vapour", "silicate": "_silicate",
 	"porosity": "_porosity", "fire": "_fire", "fuel": "_fuel", "fert": "_fert", "o2": "_o2",
 	"co2": "_co2", "biomass": "_biomass", "cement": "_cement", "silicate_melt": "_silicate_melt",

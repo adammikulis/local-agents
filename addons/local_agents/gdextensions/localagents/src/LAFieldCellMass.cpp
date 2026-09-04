@@ -114,8 +114,8 @@ void LAFieldCellMass3D::upload_regolith(RenderingDevice *p_rd, const Dictionary 
 	}
 }
 
-void LAFieldCellMass3D::regolith(Object *p_field, int p_shells) {
-	if (!p_field || p_shells <= 0) {
+void LAFieldCellMass3D::regolith(Object *p_field) {
+	if (!p_field) {
 		return;
 	}
 	Object *grid = Object::cast_to<Object>(p_field->get("_grid"));
@@ -132,8 +132,11 @@ void LAFieldCellMass3D::regolith(Object *p_field, int p_shells) {
 	cargs.append(p_field);
 	const Vector3 centre = la_call_gd("res://addons/local_agents/sim/material/FieldGeometry3D.gd", "centre", cargs);
 	const double sea_r = double(p_field->call("sea_radius"));
-	const double shell_m = la_physical("GROUNDWATER_CIRCULATION_M") / double(p_shells);
+	const double circulation_m = la_physical("GROUNDWATER_CIRCULATION_M");
 	const double phi0 = la_physical("REGOLITH_SURFACE_POROSITY");
+	const PackedFloat32Array depth = p_field->get("_surface_depth");
+	const PackedFloat32Array edges = grid->call("cell_edges");
+	const PackedFloat32Array rock_fr = p_field->get("_rock_fraction");
 	const double z_c = la_physical("COMPACTION_LENGTH_M");
 	const double d_low = la_physical("GRAIN_D_LOWLAND_M");
 	const double d_up = la_physical("GRAIN_D_UPLAND_M");
@@ -145,28 +148,24 @@ void LAFieldCellMass3D::regolith(Object *p_field, int p_shells) {
 	mask.fill(0);
 	grain.fill(0.0f);
 	por.fill(0.0f);
-	std::vector<int> burial(cc, -1);
+	// THE AQUIFER IS A DEPTH: rock whose top lies within the circulation depth of its own ground. The
+	// porosity is Athy's law averaged over the rock's depth span in the cell, whatever the cell's size.
 	std::vector<double> radius(cc, 0.0);
+	std::vector<double> z_top(cc, -1.0), z_bot(cc, -1.0);
 	double highest = sea_r;
-	const bool walkable = up.size() >= cc && cw.size() == cc * 3;
+	const bool walkable = up.size() >= cc && cw.size() == cc * 3 && depth.size() == cc && edges.size() >= cc
+			&& rock_fr.size() == cc;
 	for (int c = 0; c < cc && walkable; c++) {
 		radius[c] = std::hypot(cw[c * 3] - double(centre.x), cw[c * 3 + 1] - double(centre.y), cw[c * 3 + 2] - double(centre.z));
-		if (solid[c] == 0) {
+		// Any rock counts, locked or not: a cut cell's rock is the ground's own first metres.
+		if (!(rock_fr[c] > 0.0f)) {
 			continue;
 		}
-		int at = c;
-		for (int k = 0; k < p_shells; k++) {
-			const int hi = up[at];
-			if (hi < 0 || hi >= cc) {
-				break;
-			}
-			if (solid[hi] == 0) {
-				burial[c] = k;
-				break;
-			}
-			at = hi;
-		}
-		if (burial[c] == 0) {
+		const double e = double(edges[c]);
+		const double d = double(depth[c]);
+		z_top[c] = std::max(d - 0.5 * e, 0.0);
+		z_bot[c] = d + 0.5 * e;
+		if (z_top[c] < circulation_m) {
 			highest = std::max(highest, radius[c]);
 		}
 	}
@@ -175,15 +174,30 @@ void LAFieldCellMass3D::regolith(Object *p_field, int p_shells) {
 	float *gw = grain.ptrw();
 	float *pw = por.ptrw();
 	for (int c = 0; c < cc; c++) {
-		const int shells = burial[c];
-		if (shells < 0) {
+		if (z_bot[c] <= z_top[c] || z_top[c] >= circulation_m) {
 			continue;
 		}
 		const double height = std::clamp((radius[c] - sea_r) / relief, 0.0, 1.0);
-		const double z = (double(shells) + 0.5) * shell_m;
+		const double span = z_bot[c] - z_top[c];
 		mw[c] = 1;
 		gw[c] = float(d_low * std::pow(d_up / d_low, height));
-		pw[c] = float(phi0 * std::exp(-z / z_c));
+		pw[c] = float(phi0 * z_c / span * (std::exp(-z_top[c] / z_c) - std::exp(-z_bot[c] / z_c)));
+	}
+	int marked = 0;
+	int solids = 0;
+	double z_min = 1.0e300;
+	for (int c = 0; c < cc; c++) {
+		marked += mw[c] != 0 ? 1 : 0;
+		if (z_bot[c] > z_top[c]) {
+			solids++;
+			z_min = std::min(z_min, z_top[c]);
+		}
+	}
+	if (marked == 0) {
+		UtilityFunctions::push_error(String("LAFieldCellMass3D.regolith: no rock within ")
+				+ String::num(circulation_m) + " m of its ground: " + String::num_int64(solids)
+				+ " rock-bearing cells, tables " + (walkable ? "walked" : "MISSING (surface depth or edges)")
+				+ ", shallowest rock top " + String::num(z_min) + " m.");
 	}
 	p_field->set("_regolith", mask);
 	p_field->set("_grain", grain);
@@ -251,9 +265,47 @@ double LAFieldCellMass3D::gas_moles_at(Object *p_field, int p_c, double p_cell_m
 	return n;
 }
 
-Dictionary LAFieldCellMass3D::seed_enthalpy(Object *p_field, Object *p_grid,
+// THE ROCK'S OWN TEMPERATURE per cell, C: the geotherm's mean over the depth span of the rock the cell
+// holds, running down from the local ground; a cell with no rock reads the surface's.
+PackedFloat32Array LAFieldCellMass3D::rock_temperature(Object *p_field, Object *p_grid,
 		const PackedFloat32Array &p_profile, double p_r_body, double p_t_surface_c,
-		const PackedFloat32Array &p_p_pa, const PackedFloat32Array &p_depth) {
+		const PackedFloat32Array &p_depth) {
+	PackedFloat32Array out;
+	if (!p_field || !p_grid) {
+		return out;
+	}
+	const int cc = int(p_field->get("_cell_count"));
+	const PackedFloat32Array edges = p_grid->call("cell_edges");
+	const double kelvin = la_physical("KELVIN_OFFSET");
+	const int samples = p_profile.size();
+	out.resize(cc);
+	float *w = out.ptrw();
+	for (int c = 0; c < cc; c++) {
+		const double depth = c < p_depth.size() ? double(p_depth[c]) : 0.0;
+		const double e = c < edges.size() ? double(edges[c]) : 0.0;
+		const double d_lo = std::max(depth - 0.5 * e, 0.0);
+		const double d_hi = depth + 0.5 * e;
+		double t_rock = p_t_surface_c;
+		if (samples >= 2 && p_r_body > 0.0 && d_hi > d_lo) {
+			const int n_s = 16;
+			double acc = 0.0;
+			for (int k = 0; k < n_s; k++) {
+				const double d = d_lo + (d_hi - d_lo) * (double(k) + 0.5) / double(n_s);
+				const double x = std::max(p_r_body - d, 0.0) / p_r_body * double(samples - 1);
+				int i = int(std::floor(x));
+				i = std::min(std::max(i, 0), samples - 2);
+				acc += double(p_profile[i]) + (double(p_profile[i + 1]) - double(p_profile[i])) * (x - double(i));
+			}
+			t_rock = acc / double(n_s) - kelvin;
+		}
+		w[c] = float(t_rock);
+	}
+	return out;
+}
+
+Dictionary LAFieldCellMass3D::seed_enthalpy(Object *p_field, Object *p_grid,
+		const PackedFloat32Array &p_t_rock, double p_t_surface_c,
+		const PackedFloat32Array &p_p_pa, const PackedFloat32Array &p_p_rock) {
 	Dictionary out;
 	if (!p_field || !p_grid) {
 		return out;
@@ -263,7 +315,7 @@ Dictionary LAFieldCellMass3D::seed_enthalpy(Object *p_field, Object *p_grid,
 	const Dictionary table = LASubstances::table();
 	const char *MATTER_GD = "res://addons/local_agents/sim/material/MatterChannels.gd";
 	// Every matter channel once: its mirror, substance, molar mass, entry, sensible capacity, gas flag.
-	struct Chan { PackedFloat32Array arr; String sub; double molar; int entry; double cap; bool gas; double full; };
+	struct Chan { PackedFloat32Array arr; String sub; double molar; int entry; double cap; bool gas; bool lattice; double full; };
 	std::vector<Chan> chans;
 	const Array names = rows.keys();
 	for (int i = 0; i < names.size(); i++) {
@@ -289,38 +341,40 @@ Dictionary LAFieldCellMass3D::seed_enthalpy(Object *p_field, Object *p_grid,
 		ch.entry = int(la_call_gd(MATTER_GD, "entry_of", a1));
 		ch.cap = double(la_call_gd(MATTER_GD, "specific_heat", a1));
 		ch.gas = String(row.get("phase", "")) == "gas";
+		ch.lattice = bool(row.get("lattice", false));
 		// mol/m^3 at which a cell is full of it: the same full amount state_derive.glsl's props carry.
 		ch.full = LASubstances::full_mol_m3(sub);
 		chans.push_back(ch);
 	}
 	const PackedVector3Array centres = p_grid->get("centres");
 	const PackedFloat32Array vol = p_grid->call("cell_volumes");
+	const PackedFloat32Array rock_fr = p_field->get("_rock_fraction");
+	const double full_h2o = LASubstances::full_mol_m3("h2o");
+	const double kg_per_mol_h2o = double(Dictionary(table.get("h2o", Dictionary())).get("molar_mass", 0.0));
 	const Vector3 centre = p_field->call("centre");
 	const double kelvin = la_physical("KELVIN_OFFSET");
-	const int samples = p_profile.size();
 	PackedFloat32Array h;
 	h.resize(cc);
 	float *hw = h.ptrw();
+	PackedFloat32Array h_lith;
+	h_lith.resize(cc);
+	float *lw = h_lith.ptrw();
 	double total_j = 0.0;
 	for (int c = 0; c < cc; c++) {
 		hw[c] = 0.0f;
+		lw[c] = 0.0f;
 		const double cell_m3 = c < vol.size() ? double(vol[c]) : 0.0;
 		if (!(cell_m3 > 0.0) || c >= p_p_pa.size() || c >= centres.size()) {
 			continue;
 		}
-		// THE GEOTHERM RUNS DOWN FROM THE LOCAL GROUND: an ocean floor or valley is at the surface's
-		// temperature, whatever its radius; a cell above its ground holds the surface air's.
-		const double depth = c < p_depth.size() ? double(p_depth[c]) : p_r_body - double((centres[c] - centre).length());
-		const double r = p_r_body - depth;
-		double t_c = p_t_surface_c;
-		if (samples >= 2 && p_r_body > 0.0 && depth > 0.0 && r > 0.0) {
-			const double x = r / p_r_body * double(samples - 1);
-			int i = int(std::floor(x));
-			i = std::min(std::max(i, 0), samples - 2);
-			t_c = double(p_profile[i]) + (double(p_profile[i + 1]) - double(p_profile[i])) * (x - double(i)) - kelvin;
-		}
+		// The rock and its pore water hold the rock's own temperature, the sea and the air the surface's.
+		const double t_rock = c < p_t_rock.size() ? double(p_t_rock[c]) : p_t_surface_c;
+		const double f_rock = c < rock_fr.size() ? std::max(double(rock_fr[c]), 0.0) : 0.0;
+		const double t_gas = f_rock < 1.0 ? p_t_surface_c : t_rock;
+		// The fluid's entries at the fluid's own pressure, the lattice's at the column its rock carries.
 		const double p_pa = std::max(double(p_p_pa[c]), 0.0);
-		double n_gas = 0.0, m_h2o = 0.0, m_sil = 0.0, mc = 0.0, total_kg = 0.0;
+		const double p_rock = c < p_p_rock.size() ? std::max(double(p_p_rock[c]), 0.0) : p_pa;
+		double v_cond = 0.0, m_h2o_sea = 0.0, m_h2o_pore = 0.0, m_sil = 0.0, mc_rock = 0.0, mc_gas = 0.0, total_kg = 0.0;
 		for (const Chan &ch : chans) {
 			const double a = double(ch.arr[c]);
 			if (!(a > 0.0)) {
@@ -328,27 +382,38 @@ Dictionary LAFieldCellMass3D::seed_enthalpy(Object *p_field, Object *p_grid,
 			}
 			const double m = a * ch.molar * cell_m3;
 			total_kg += m;
-			if (ch.gas) {
-				n_gas += a * cell_m3;
+			if (!ch.gas && ch.full > 0.0) {
+				v_cond += a / ch.full;
 			}
 			if (ch.entry == 0) {
-				m_h2o += m;
+				(ch.lattice ? m_h2o_pore : m_h2o_sea) += m;
 			} else if (ch.entry == 1) {
 				m_sil += m;
+			} else if (ch.gas) {
+				mc_gas += m * ch.cap;
 			} else {
-				mc += m * ch.cap;
+				mc_rock += m * ch.cap;
 			}
 		}
 		if (!(total_kg > 0.0)) {
 			continue;   // no matter, no joules to hold
 		}
-		double h_j = mc * (t_c + kelvin);
-		if (m_h2o > 0.0) {
-			h_j += m_h2o * LAMixtureEnthalpy::specific_enthalpy("h2o", t_c, p_pa, m_h2o, n_gas);
+		// The gas room: the cell less every condensed volume, where the vapour stands at saturation.
+		const double room = cell_m3 * std::max(1.0 - v_cond, 0.0);
+		// TWO RESERVOIRS: the lattice (rock and its pore water) at the geotherm, the fluid (sea, air) at
+		// the surface. Seeded rock is bedrock, so every mineral is the lattice's.
+		double h_l = mc_rock * (t_rock + kelvin);
+		double h_f = mc_gas * (t_gas + kelvin);
+		if (m_h2o_sea > 0.0) {
+			h_f += m_h2o_sea * LAMixtureEnthalpy::specific_enthalpy("h2o", p_t_surface_c, p_pa, m_h2o_sea, room);
+		}
+		if (m_h2o_pore > 0.0) {
+			h_l += m_h2o_pore * LAMixtureEnthalpy::specific_enthalpy("h2o", t_rock, p_rock, m_h2o_pore, 0.0);
 		}
 		if (m_sil > 0.0) {
-			h_j += m_sil * LAMixtureEnthalpy::specific_enthalpy("silicate", t_c, p_pa, m_sil, n_gas);
+			h_l += m_sil * LAMixtureEnthalpy::specific_enthalpy("silicate", t_rock, p_rock, m_sil, 0.0);
 		}
+		const double h_j = h_l + h_f;
 		// THE CELL KEEPS INTERNAL ENERGY: U = H - pV over the room the lithic matter leaves, the same
 		// room state_derive.glsl reads the enthalpy back over.
 		double v_lith = 0.0;
@@ -359,12 +424,17 @@ Dictionary LAFieldCellMass3D::seed_enthalpy(Object *p_field, Object *p_grid,
 			}
 			v_lith += a / ch.full;
 		}
-		const double room_f = std::max(1.0 - std::min(v_lith, 1.0), 0.0);
-		const double e_j = h_j - p_pa * room_f * cell_m3;
-		hw[c] = float(e_j / cell_m3);
+		// The fluid's pV is the fluid's: a cell whose free matter is nothing has no room at any pressure,
+		// and the room is what the lattice leaves, its pore water included.
+		const double v_pore = full_h2o > 0.0 ? m_h2o_pore / (kg_per_mol_h2o * full_h2o * cell_m3) : 0.0;
+		const double room_f = std::max(1.0 - std::min(v_lith + v_pore, 1.0), 0.0);
+		const double e_j = h_j - (h_f > 0.0 ? p_pa * room_f * cell_m3 : 0.0);
+		hw[c] = float((e_j - h_l) / cell_m3);
+		lw[c] = float(h_l / cell_m3);
 		total_j += e_j;
 	}
 	out["e"] = h;
+	out["e_lith"] = h_lith;
 	out["total_j"] = total_j;
 	return out;
 }
@@ -398,13 +468,16 @@ void LAFieldCellMass3D::_bind_methods() {
 			D_METHOD("upload_regolith", "rd", "bufs", "field"), &LAFieldCellMass3D::upload_regolith);
 	ClassDB::bind_static_method("LAFieldCellMass3D",
 			D_METHOD("upload_solid", "rd", "bufs", "field"), &LAFieldCellMass3D::upload_solid);
-	ClassDB::bind_static_method("LAFieldCellMass3D", D_METHOD("regolith", "field", "shells"), &LAFieldCellMass3D::regolith);
+	ClassDB::bind_static_method("LAFieldCellMass3D", D_METHOD("regolith", "field"), &LAFieldCellMass3D::regolith);
 	ClassDB::bind_static_method("LAFieldCellMass3D",
 			D_METHOD("masses_at", "field", "cell", "cell_m3"), &LAFieldCellMass3D::masses_at);
 	ClassDB::bind_static_method("LAFieldCellMass3D",
 			D_METHOD("gas_moles_at", "field", "cell", "cell_m3"), &LAFieldCellMass3D::gas_moles_at);
 	ClassDB::bind_static_method("LAFieldCellMass3D",
-			D_METHOD("seed_enthalpy", "field", "grid", "profile", "r_body", "t_surface_c", "p_pa", "depth"),
+			D_METHOD("rock_temperature", "field", "grid", "profile", "r_body", "t_surface_c", "depth"),
+			&LAFieldCellMass3D::rock_temperature);
+	ClassDB::bind_static_method("LAFieldCellMass3D",
+			D_METHOD("seed_enthalpy", "field", "grid", "t_rock", "t_surface_c", "p_pa", "p_rock"),
 			&LAFieldCellMass3D::seed_enthalpy);
 	ClassDB::bind_static_method("LAFieldCellMass3D", D_METHOD("mirrors", "field"),
 			&LAFieldCellMass3D::mirrors);

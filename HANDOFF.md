@@ -14,43 +14,65 @@ on the file it named. If you know the cause you are close enough to fix it, so f
 
 **THE LIST IS ORDERED BY WHAT IS UPSTREAM OF WHAT: item 1 is what every item below it is measured against.** Re-order it at every landing.
 
-**WORK THE LADDER IN ORDER.** `scripts/agent_harness.sh ladder` names the first red rung; nothing above it
-is measured, and no item about a higher rung is examined until the rungs below it are green.
+**THE LADDER ADVANCES ONE APPROVED DEMO AT A TIME.** A rung is built only after the maintainer has
+approved a demo of the rung below it, cut as a scene plus a `LocalAgentDemoEntry` in
+`addons/local_agents/examples/demos/`. `scripts/agent_harness.sh ladder` names the first red rung;
+nothing above the last APPROVED rung is examined.
 
 ---
 
-## 1. OPEN CELLS AT THE CONTINUUM'S EDGE OUTRUN THEIR SOUND SPEED
+## 1. THE SLICE DOES NOT REFINE BELOW HALF A SCALE HEIGHT
 
-`scripts/sim_run.sh --rung 3 --frames 3 --report mach_max` reads a Mach number above one in the thin
-cells just under the collisionless cut, and `check_rung_acoustic.sh` fails on it.
+`scripts/sim_run.sh --slice --rung 0 --frames 1 --report grid_target_edge_m,grid_max_level` reads the
+planet's scale-height edge and no refinement inside the box: the spec carries no finest edge, the
+band refines uniformly, and a slice on a hilltop and one on a coast seed the same regolith saturation
+(`regolith_wet_cells` over `regolith_cells`, both to publish).
 
-## 1b. THE VENTED COLUMN'S ENERGY BOOK DOES NOT CLOSE
+## 2. A --ui RUN NEVER FRAMES THE SLICE, AND THE GROUND UNDER THE EYE IS NOT BUILT
 
-`scripts/check_atmosphere_at_rest.sh`: the rest arm is at rest; the vent arm (top face to space) reads an
-energy residual near a tenth of the turnover against its float bar.
+`LA_SLICE_BOX="0,surface,0,24,32,24,4000" LA_RUN_TIMEOUT=110 scripts/run_sim_offscreen.sh --path .
+addons/local_agents/game/VoxelWorld.tscn -- --sandbox --planet-only --no-fauna --rung=0 --ui
+--shoot=/tmp/s.png` frames the whole body, not the box; `scripts/agent_harness.sh ground` exits 2 at
+any rung. No renderer draws a per-cell vector field (gravity at rung 1, wind at rung 3).
 
-## 2. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the books above it
+## 3. THE RUNG-0, RUNG-1 AND RUNG-2 DEMOS ARE NOT CUT
+
+`scripts/check_demo_catalog.sh` lists no per-rung slice demo. Each is a scene declaring its rung and
+the slice box, and an entry; cut in order, each approved before the next rung is built.
+
+## 4. NOT EXAMINED UNTIL THE RUNG-2 DEMO IS APPROVED — rung 3
+
+- `scripts/sim_run.sh --rung 3 --frames 8` on the planet ends with `timeout waiting for fence`.
+- `LA_REST_CELL_M=68000 LA_REST_CELLS=8 scripts/check_atmosphere_at_rest.sh` reads a rest departure
+  above its bar on a land column.
+- `scripts/check_atmosphere_at_rest.sh`: the vent arm (top face to space) reads an energy residual
+  near a tenth of the turnover against its float bar.
+- `scripts/sim_run.sh --rung 3 --frames 3 --report nonfinite_cells,mach_max` refuses a water record at
+  light speed by the second frame; `LA_PASS_PROBE=mach LA_PASS_PROBE_STEPS=1 scripts/sim_run.sh --rung 3
+  --frames 1` names the cell and its faces.
+- Maintainer's decision, standing: the acoustic part of the momentum equation goes implicit (one
+  Helmholtz solve per field step on `gravity_poisson.glsl`'s operator shape), the field step is derived
+  from the advective CFL, and `SIM_SECONDS_PER_STEP` is deleted. Declared in `docs/APPROXIMATIONS.md`
+  when built.
+
+## 5. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the books above it
 
 - The open-boundary books at run level: `scripts/sim_run.sh --frames 20 --slice-capture C` then
   `LA_RUN_TIMEOUT=900 scripts/sim_run.sh --slice --slice-state C --frames 650` fires
   CONSERVATION_VIOLATION on h2o, nitrogen, mineral, element_C and element_O.
 - The h2o book on a shut box: with every wall shut, `scripts/agent_harness.sh sim --rung=8 --frames 20`
   ends with `h2o_total` below its sealed baseline while the element and mineral books close.
+- A `--ui` run with fauna never reports: `LA_RUN_TIMEOUT=110 scripts/run_sim_offscreen.sh --path .
+  addons/local_agents/game/VoxelWorld.tscn -- --sandbox --ui --run-frames=20` prints no report and
+  logs no error; the same arm with `--planet-only --no-fauna` reports.
 
-## 3. A --ui run with fauna never reports, and the terrain does not reach the eye inside a run
-
-`LA_RUN_TIMEOUT=110 scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn --
---sandbox --ui --run-frames=20` never prints a report and logs no error; the same arm with
-`--planet-only --no-fauna` reports. `scripts/agent_harness.sh ground` exits 2: the terrain under the
-camera is never built inside the run's frames, at any rung.
-
-## 4. Reduce the rest on the device
+## 6. Reduce the rest on the device
 
 `FieldPassAttribution3D._sums` walks the channels it downloads at a checkpoint; a reduce dispatch per
 checkpoint replaces it. Three shapes refused a row and say why: `sea_surface_stats`, `lava_shell_diag`,
 `rock_radial_profile`.
 
-## 5. Build the binding registry
+## 7. Build the binding registry
 
 SSBO binding numbers are a bare integer in GLSL and a second bare integer in each uniform-set builder.
 Build `addons/local_agents/sim/material/Bindings.gd` on `Channels.gd`'s shape and one gate absorbing the

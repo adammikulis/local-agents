@@ -287,6 +287,7 @@ if [[ "$cmd" == "lint" ]]; then
     gate check_no_direct_refcounted_invocation
     gate check_no_inferred_typing
     gate check_tool_safety
+    gate check_lock_reclaim
     gate check_godot_launcher
     gpu_gate check_no_focus_theft
     gate check_api_version

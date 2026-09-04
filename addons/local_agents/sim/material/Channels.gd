@@ -7,7 +7,9 @@ static func rows() -> Dictionary:
 	var D: GDScript = load("res://addons/local_agents/sim/material/reactions/ReactionDefs.gd")
 	return {
 		"e_j_m3":      {"residency": "hot",         "slot": -1,          "substance": "",           "phase": "",       "unit": "", "kind": "state"},
+		"e_lith_j_m3": {"residency": "hot",         "slot": -1,          "substance": "",           "phase": "",       "unit": "", "kind": "state"},
 		"h2o":         {"residency": "hot",         "slot": D.H2O,       "substance": "h2o",        "phase": "",       "unit": "mol_m3", "kind": "state"},
+		"h2o_pore":    {"residency": "slow",        "slot": -1,          "substance": "h2o",        "phase": "",       "unit": "mol_m3", "kind": "state", "lattice": true},
 		"silicate":    {"residency": "slow",        "slot": D.SILICATE,  "substance": "silicate",   "phase": "",       "unit": "mol_m3", "kind": "state", "lithic": true},
 		"metal":       {"residency": "static",      "slot": D.METAL,       "substance": "metal",       "phase": "solid", "unit": "mol_m3", "kind": "state", "lithic": true},
 		"olivine":     {"residency": "static",      "slot": D.OLIVINE,     "substance": "olivine",     "phase": "solid", "unit": "mol_m3", "kind": "state", "lithic": true},
@@ -45,9 +47,9 @@ static func rows() -> Dictionary:
 
 ## Buffers a pass recomputes from the channels every step, and the driver copies back on every drain.
 static func derived_buffers() -> PackedStringArray:
-	return PackedStringArray(["temp", "h2o_solid", "h2o_liquid", "h2o_vapour", "liquid", "silicate_melt",
+	return PackedStringArray(["temp", "temp_lith", "conductivity_lith", "h2o_solid", "h2o_liquid", "h2o_vapour", "liquid", "silicate_melt",
 		"silicate_susp_water", "silicate_susp_air", "silicate_bed", "vel_x", "vel_y", "vel_z",
-		"pressure", "rho_bulk", "conductivity", "solid", "fire", "discharge",
+		"pressure", "p_fluid", "rho_bulk", "conductivity", "solid", "fire", "discharge",
 		"rad_absorbed", "rad_emitted"])
 
 
@@ -108,6 +110,16 @@ static func slot_substance() -> Dictionary:
 	for slot in der:
 		if String(der[slot]) != "":
 			out[int(slot)] = String(der[slot])
+	return out
+
+
+## Channels that sit in the lattice by its cement share: the lithic phases and the water in their pores.
+static func lattice_channels() -> PackedStringArray:
+	var out: PackedStringArray = PackedStringArray()
+	var tbl: Dictionary = rows()
+	for name in tbl:
+		if bool(tbl[name].get("lithic", false)) or bool(tbl[name].get("lattice", false)):
+			out.append(String(name))
 	return out
 
 

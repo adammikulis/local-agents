@@ -118,24 +118,11 @@ REASON_FILE="$(mktemp "${TMPDIR:-/tmp}/la_offscreen_reason.XXXXXX")"
 # mkdir is the portable primitive (macOS has no flock(1)), and a lock whose owner died is reclaimed.
 SIM_LOCK="${TMPDIR:-/tmp}/la_sim_gpu.lock"
 SIM_LOCK_TIMEOUT="${LA_SIM_LOCK_TIMEOUT:-1800}"
-waited=0
-until mkdir "$SIM_LOCK" 2>/dev/null; do
-  if [ -f "$SIM_LOCK/pid" ]; then
-    owner="$(cat "$SIM_LOCK/pid" 2>/dev/null || echo "")"
-    if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
-      echo "run_sim_offscreen: clearing stale GPU lock from dead pid $owner" >&2
-      rm -rf "$SIM_LOCK"
-      continue
-    fi
-  fi
-  if [ "$waited" -ge "$SIM_LOCK_TIMEOUT" ]; then
-    echo "run_sim_offscreen: timed out after ${SIM_LOCK_TIMEOUT}s waiting for the GPU lock." >&2
-    exit 2
-  fi
-  sleep 2
-  waited=$(( waited + 2 ))
-done
-echo $$ > "$SIM_LOCK/pid"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot_lock.sh"
+la_dir_lock "$SIM_LOCK" "$SIM_LOCK_TIMEOUT" 2 || {
+  echo "run_sim_offscreen: timed out after ${SIM_LOCK_TIMEOUT}s waiting for the GPU lock." >&2
+  exit 2
+}
 
 cleanup() {
   rm -rf "$SIM_LOCK"

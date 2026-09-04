@@ -28,27 +28,24 @@ var _water_fraction: PackedFloat32Array = PackedFloat32Array()  # share of the c
 var _ground_d: PackedFloat32Array = PackedFloat32Array()        # depth of the ground under the cell's fluid below its centre, m
 # One h2o channel, every phase; mol/m^3 of the cell. Phase is derived per cell.
 var _h2o: PackedFloat32Array = PackedFloat32Array()
+var _h2o_pore: PackedFloat32Array = PackedFloat32Array()   # water in the rock's pores, mol/m^3
 var _h2o_solid: PackedFloat32Array = PackedFloat32Array()    # share of _h2o that is ice
-var _h2o_liquid: PackedFloat32Array = PackedFloat32Array()   # share that is liquid, free or in pores
+var _h2o_liquid: PackedFloat32Array = PackedFloat32Array()   # share that is free liquid; pore water is h2o_pore
 var _h2o_vapour: PackedFloat32Array = PackedFloat32Array()   # share that is vapour
 
 const INITIAL_TEMP: float = 15.0
 # Gas channel seeds, mol/m^3.
 const O2_AMBIENT: float = 0.0
-const CO2_AMBIENT: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.PREBIOTIC_MOLE_FRAC_CO2
-const N2_AMBIENT: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.PREBIOTIC_MOLE_FRAC_N2
-const H2_AMBIENT: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.PREBIOTIC_MOLE_FRAC_H2
-const CO_AMBIENT: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.PREBIOTIC_MOLE_FRAC_CO
-const SO2_AMBIENT: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.PREBIOTIC_MOLE_FRAC_SO2
-const H2S_AMBIENT: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.PREBIOTIC_MOLE_FRAC_H2S
-const CH4_AMBIENT: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.PREBIOTIC_MOLE_FRAC_CH4
 const SNOW_PRESENT: float = 1.9e-4 * MAX_MASS
 const ICE_DEPTH: float = 0.5 * MAX_MASS
 const FOG_MAX_TEMP: float = 12.0
 # Condensate at which a cell counts as covered, mol/m^3.
 const CONDENSE_COVER_MIN: float = 5.0e-5 / LAPhysical.MOLAR_MASS_WATER_KG_MOL
-var _e: PackedFloat32Array = PackedFloat32Array()        # THE STATE: internal energy J/m^3 per cell
-var _temp: PackedFloat32Array = PackedFloat32Array()     # DERIVED °C, rewritten by StateDerivePass each step
+var _e: PackedFloat32Array = PackedFloat32Array()        # THE STATE: the fluid's internal energy J/m^3 per cell
+var _e_lith: PackedFloat32Array = PackedFloat32Array()   # THE STATE: the lattice's internal energy J/m^3 per cell
+var _t_rock: PackedFloat32Array = PackedFloat32Array()   # the geotherm's mean over each cell's rock, C, at the seed
+var _temp: PackedFloat32Array = PackedFloat32Array()     # DERIVED °C of the fluid, rewritten by StateDerivePass each step
+var _temp_lith: PackedFloat32Array = PackedFloat32Array()   # DERIVED °C of the lattice
 # The mineral amounts, mol/m^3 of the cell. Silicate melt and suspended shares are derived on the GPU;
 # how much of a cell's rock is consolidated is `_cement`.
 var _silicate: PackedFloat32Array = PackedFloat32Array()
@@ -116,7 +113,6 @@ var _atmos = null                                     # LAMaterialFieldAtmos3D
 var _ledger = null                                       # LAMaterialFieldLedger3D
 var _channels = null                                     # LAMaterialFieldChannels3D
 var _report_mod = null                                   # LAMaterialFieldReport3D
-var _regolith_mod = null                                 # LAMaterialFieldRegolith3D
 var _biota = null                                        # LAMaterialFieldBiota3D
 const BoundaryScript: GDScript = preload("res://addons/local_agents/sim/material/FieldBoundary3D.gd")
 var _boundary = null                                     # LAFieldBoundary3D — the box-face boundary provider
@@ -128,7 +124,6 @@ const AtmosScript: GDScript = preload("res://addons/local_agents/sim/material/Ma
 const LedgerScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldLedger3D.gd")
 const ChannelsScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldChannels3D.gd")
 const ReportScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldReport3D.gd")
-const RegolithScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldRegolith3D.gd")
 const BiotaScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldBiota3D.gd")
 
 
@@ -141,8 +136,6 @@ func _init() -> void:
 	_channels.setup(self)
 	_report_mod = ReportScript.new()
 	_report_mod.setup(self)
-	_regolith_mod = RegolithScript.new()
-	_regolith_mod.setup(self)
 	_biota = BiotaScript.new()
 	_biota.setup(self)
 
@@ -197,8 +190,6 @@ func sea_radius() -> float:
 	return 0.0
 
 
-const RENDER_MIN: float = 0.08 * MAX_MASS # min water amount in a cell for its top face to render
-const SEA_WAVE_EPS: float = 0.6           # calm-sea top faces within this of the sea shell are left to the ocean plane
 var _ready_sim: bool = false
 var _seal = null
 
@@ -250,11 +241,14 @@ func _alloc_channels() -> void:
 	_solid = PackedByteArray()
 	_solid.resize(_cell_count)
 	_h2o = _cells_filled(0.0)
+	_h2o_pore = _cells_filled(0.0)
 	_h2o_solid = _cells_filled(0.0)
 	_h2o_liquid = _cells_filled(0.0)
 	_h2o_vapour = _cells_filled(0.0)
 	_e = _cells_filled(0.0)
+	_e_lith = _cells_filled(0.0)
 	_temp = _cells_filled(INITIAL_TEMP)
+	_temp_lith = _cells_filled(INITIAL_TEMP)
 	# Mineral amounts: seeded from the solid mask on activate; the silicate is GPU-owned thereafter.
 	_silicate = _cells_filled(0.0)
 	_cement = _cells_filled(0.0)
@@ -266,15 +260,8 @@ func _alloc_channels() -> void:
 	_apatite = _cells_filled(0.0)
 	_fuel = _cells_filled(0.0)
 	_fire = _cells_filled(0.0)
-	# THE AIR, seeded once and finite thereafter, in mol/m^3.
-	_o2 = _cells_filled(O2_AMBIENT)
-	_co2 = _cells_filled(CO2_AMBIENT)
-	_n2 = _cells_filled(N2_AMBIENT)
-	_h2 = _cells_filled(H2_AMBIENT)
-	_co = _cells_filled(CO_AMBIENT)
-	_so2 = _cells_filled(SO2_AMBIENT)
-	_h2s = _cells_filled(H2S_AMBIENT)
-	_ch4 = _cells_filled(CH4_AMBIENT)
+	for gas in ["o2", "co2", "n2", "h2", "co", "so2", "h2s", "ch4"]:
+		set("_" + gas, _cells_filled(0.0))
 	# Detritus + fungus start empty; carcasses/ash deposit detritus, fungus grows on it (decomposer loop).
 	_detritus = _cells_filled(0.0)
 	_org_h = _cells_filled(0.0)
@@ -392,10 +379,9 @@ func sample_solidity() -> void:
 func _seed_silicate() -> void:
 	if _silicate.size() != _cell_count or _cement.size() != _cell_count or _solid.size() != _cell_count:
 		return
-	LAPlanetComposition.seed(self, INITIAL_TEMP)
-	# Shape the CPU arrays BEFORE the driver's seed_field reads them. The hydrostatic balance waits for
-	# the gravity solve; LAMaterialFieldSphereStep3D.seed_tick marches it once g exists.
-	LAFieldLithostaticSeed.clear_gas_in_rock(self)
+	var r_body: float = LABodySeeds.seed_radius_m(_body_key)
+	_t_rock = LAFieldCellMass3D.rock_temperature(self, _grid, LAFieldGeothermSeed.profile_k(r_body, INITIAL_TEMP), r_body, INITIAL_TEMP, _surface_depth)
+	LAPlanetComposition.seed(self, INITIAL_TEMP, _t_rock)
 	_body_measure = LABodyMeasure.new()
 	_body_measure.measure(self, LABodySeeds.spin_axis_of(_body_key))
 
@@ -405,8 +391,6 @@ var _porosity: PackedFloat32Array = PackedFloat32Array()
 var _regolith: PackedByteArray = PackedByteArray()
 var _grain: PackedFloat32Array = PackedFloat32Array()    # representative grain diameter (m) per regolith cell
 
-func _compute_regolith() -> void:
-	_regolith_mod.compute()
 
 
 ## Release the GPU driver's local RenderingDevice while the tree is still up, so every RID is freed cleanly.

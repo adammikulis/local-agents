@@ -9,7 +9,7 @@ const GeoScript: GDScript = preload("res://addons/local_agents/sim/material/reac
 const ThermoScript: GDScript = preload("res://addons/local_agents/sim/material/reactions/ReactionThermo.gd")
 
 # The sweep's CO2 condition: the seeded ambient, mol/m^3 (a channel amount is moles).
-const CO2_AT_CELL: float = LAMaterialField3D.CO2_AMBIENT
+const CO2_AT_CELL: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.PREBIOTIC_MOLE_FRAC_CO2
 # Robie & Hemingway 1995; CODATA for CO2. Derived from the table, so this is the cross-check.
 const DECARB_DH_J_MOL: float = 89890.0
 const DECARB_DS_J_MOL_K: float = 162.32

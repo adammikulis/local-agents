@@ -8,15 +8,14 @@ const WATER_BOIL_C: float = 100.0
 const WATER_DENSITY_KG_M3: float = 997.0    # liquid water at 25 C
 ## Volumetric thermal expansivity of liquid water at 25 °C, 1/K (Kell 1975, J. Chem. Eng. Data 20:97).
 const WATER_VOLUME_EXPANSION_PER_K: float = 2.57e-4
-## Liquid water density 0-150 C at 1 atm, kg/m^3 = (A0 + A1 t + ... + A5 t^5) / (1 + B1 t), t in C
-## (Kell 1975, J. Chem. Eng. Data 20:97). Carries the 4 C maximum a linear expansivity cannot.
-const KELL_A0: float = 999.83952
-const KELL_A1: float = 16.945176      # Kell 1975
-const KELL_A2: float = -7.9870401e-3  # Kell 1975
-const KELL_A3: float = -46.170461e-6  # Kell 1975
-const KELL_A4: float = 105.56302e-9   # Kell 1975
-const KELL_A5: float = -280.54253e-12 # Kell 1975
-const KELL_B1: float = 16.879850e-3   # Kell 1975
+# Saturated liquid water, rho/rho_c = 1 + sum b_i tau^(k_i), tau = 1 - T/T_c: IAPWS SR1-86 (1992).
+const WATER_CRITICAL_DENSITY_KG_M3: float = 322.0   # IAPWS SR1-86 (1992)
+const IAPWS_SAT_RHO_B1: float = 1.99274064   # IAPWS SR1-86 (1992)
+const IAPWS_SAT_RHO_B2: float = 1.09965342   # IAPWS SR1-86 (1992)
+const IAPWS_SAT_RHO_B3: float = -0.510839303   # IAPWS SR1-86 (1992)
+const IAPWS_SAT_RHO_B4: float = -1.75493479   # IAPWS SR1-86 (1992)
+const IAPWS_SAT_RHO_B5: float = -45.5170352   # IAPWS SR1-86 (1992)
+const IAPWS_SAT_RHO_B6: float = -6.74694450e5   # IAPWS SR1-86 (1992)
 ## Isothermal compressibility of liquid water at 25 °C, 1/Pa (Kell 1975), and its reciprocal.
 const WATER_ISOTHERMAL_COMPRESSIBILITY_PER_PA: float = 4.525e-10
 const WATER_BULK_MODULUS_PA: float = 1.0 / WATER_ISOTHERMAL_COMPRESSIBILITY_PER_PA

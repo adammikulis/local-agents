@@ -176,18 +176,23 @@ precise float la_boil_c_at(SubstanceTh s, float p_pa) {
 }
 
 // la_boil_c_at read the other way: the liquid-vapour boundary as a PRESSURE. One curve, two ends.
-// Liquid water's specific volume, m^3/kg, off Kell's density polynomial over its 0-150 C range.
-const float KELL_A0 = 999.83952;         // LAPhysical.KELL_A0
-const float KELL_A1 = 16.945176;         // LAPhysical.KELL_A1
-const float KELL_A2 = -7.9870401e-3;     // LAPhysical.KELL_A2
-const float KELL_A3 = -46.170461e-6;     // LAPhysical.KELL_A3
-const float KELL_A4 = 105.56302e-9;      // LAPhysical.KELL_A4
-const float KELL_A5 = -280.54253e-12;    // LAPhysical.KELL_A5
-const float KELL_B1 = 16.879850e-3;      // LAPhysical.KELL_B1
+// Liquid water's specific volume, m^3/kg: the saturated liquid from the triple point to the critical
+// point, tau = 1 - T / T_c.
+const float WATER_RHO_CRIT = 322.0;              // LAPhysical.WATER_CRITICAL_DENSITY_KG_M3
+const float WATER_T_CRIT_C = 373.946;            // LAPhysical.WATER_CRITICAL_T_C
+const float WATER_T_TRIPLE_C = 0.01;             // LAPhysical.WATER_TRIPLE_T_C
+const float SAT_RHO_B1 = 1.99274064;             // LAPhysical.IAPWS_SAT_RHO_B1
+const float SAT_RHO_B2 = 1.09965342;             // LAPhysical.IAPWS_SAT_RHO_B2
+const float SAT_RHO_B3 = -0.510839303;           // LAPhysical.IAPWS_SAT_RHO_B3
+const float SAT_RHO_B4 = -1.75493479;            // LAPhysical.IAPWS_SAT_RHO_B4
+const float SAT_RHO_B5 = -45.5170352;            // LAPhysical.IAPWS_SAT_RHO_B5
+const float SAT_RHO_B6 = -6.74694450e5;          // LAPhysical.IAPWS_SAT_RHO_B6
 float la_water_liquid_v_m3_kg(float t_c) {
-	float t = clamp(t_c, 0.0, 150.0);
-	float rho = (KELL_A0 + t * (KELL_A1 + t * (KELL_A2 + t * (KELL_A3 + t * (KELL_A4 + t * KELL_A5)))))
-		/ (1.0 + KELL_B1 * t);
+	float t_k = clamp(t_c, WATER_T_TRIPLE_C, WATER_T_CRIT_C) + LA_KELVIN_OFFSET;
+	float tau = max(1.0 - t_k / (WATER_T_CRIT_C + LA_KELVIN_OFFSET), 0.0);
+	float t3 = pow(tau, 1.0 / 3.0);
+	float rho = WATER_RHO_CRIT * (1.0 + SAT_RHO_B1 * t3 + SAT_RHO_B2 * t3 * t3 + SAT_RHO_B3 * pow(tau, 5.0 / 3.0)
+		+ SAT_RHO_B4 * pow(tau, 16.0 / 3.0) + SAT_RHO_B5 * pow(tau, 43.0 / 3.0) + SAT_RHO_B6 * pow(tau, 110.0 / 3.0));
 	return 1.0 / rho;
 }
 

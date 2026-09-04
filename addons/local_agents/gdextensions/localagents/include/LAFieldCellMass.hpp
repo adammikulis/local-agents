@@ -23,7 +23,7 @@ public:
 	static void upload_solid(RenderingDevice *p_rd, const Dictionary &p_bufs, Object *p_field);
 	// The regolith walk: the permeable mask, Athy porosity and grain size of the `p_shells` solid shells
 	// under the ground surface, climbing the solved up-table. Writes _regolith, _grain, _porosity.
-	static void regolith(Object *p_field, int p_shells);
+	static void regolith(Object *p_field);
 	static double gas_moles_at(Object *p_field, int p_c, double p_cell_m3);
 	// [mirror array, molar mass kg/mol] for every channel the field carries as an amount of matter.
 	static Array mirrors(Object *p_field);
@@ -36,8 +36,10 @@ public:
 	// geotherm temperature and marched pressure, everything else sensible at its capacity. Returns
 	// {"h": J/m^3 per cell, "total_j": joules created}. p_profile is T(r) in kelvin over SAMPLES radii
 	// from the centre to p_r_body; cells outside the body take p_t_surface_c.
-	static Dictionary seed_enthalpy(Object *p_field, Object *p_grid, const PackedFloat32Array &p_profile,
-			double p_r_body, double p_t_surface_c, const PackedFloat32Array &p_p_pa, const PackedFloat32Array &p_depth);
+	static PackedFloat32Array rock_temperature(Object *p_field, Object *p_grid, const PackedFloat32Array &p_profile,
+			double p_r_body, double p_t_surface_c, const PackedFloat32Array &p_depth);
+	static Dictionary seed_enthalpy(Object *p_field, Object *p_grid, const PackedFloat32Array &p_t_rock,
+			double p_t_surface_c, const PackedFloat32Array &p_p_pa, const PackedFloat32Array &p_p_rock);
 	// Moles per m^3 summed into kilograms per m^3 for one cell. Times the cell's own volume is its mass.
 	static double kg_m3_at(const Array &p_mirrors, int p_c);
 
