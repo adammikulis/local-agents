@@ -20,7 +20,7 @@ const FPS_PROBE_FRAMES: int = 150
 ## rather than a command line. UNSET and empty defer to the CLI, the world record and the environment.
 @export var process_rung: int = LAProcessSet.UNSET
 @export var slice_box: String = ""
-## The vector field this world's glyphs draw: "off", "wind", "gravity". UNSET defers to --vectors.
+## The vector field this world's glyphs draw: "off", "wind", "gravity"; UNSET takes what the rung holds.
 @export var field_vectors: String = LAFieldVectors.SOURCE_UNSET
 
 var _input: LAVoxelInputController = null

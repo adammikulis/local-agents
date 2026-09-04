@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # THE DEMO LOOKS AT THE WORLD IT IS STANDING ON. The shot is taken once the ground under the camera is
-# drawn, and publishes where the eye stood, what the 3-D half of the frame holds, and — with
-# LA_GROUND_SLICE set — whether the eye stood INSIDE the slice box and how many glyphs it drew.
+# drawn, and publishes where the eye stood, what the SCENE holds with every HUD panel dropped, whether
+# the eye stood INSIDE the slice box, and how many field glyphs the rung's own world gave it to draw.
 # EXIT 0 the eye stands over built, drawn ground and is aimed at it · 1 it is not · 2 could not run.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -11,23 +11,25 @@ PNG="$(mktemp "${TMPDIR:-/tmp}/la_ground.XXXXXX").png"
 LOG="$(mktemp "${TMPDIR:-/tmp}/la_ground_log.XXXXXX")"
 trap 'rm -f "$PNG" "$LOG"' EXIT
 
-# THE ACCEPTANCE ARM IS THE SLICE: its box is framed and the wind drawn over it. LA_GROUND_BODY=1 frames
-# the whole body instead, with no vector source, so the arrow count is not asked for.
-EXTRA=()
+# THE ACCEPTANCE ARM IS THE SLICE: its box is framed and drawn. LA_GROUND_BODY=1 frames the whole body
+# instead. NO --vectors IS ASKED FOR: the world draws the highest vector field its own processes make,
+# and this gate then holds it to what that rung contains.
 if [ "${LA_GROUND_BODY:-}" = "" ]; then
 	SLICE="${LA_GROUND_SLICE:-$("$ROOT/scripts/sim_run.sh" --print-slice-box)}"
 	export LA_SLICE_BOX="$SLICE"
-	EXTRA=("--vectors=wind")
 else
 	SLICE=""
 fi
+# The rung this run's world is built at. A rung solves gravity from 1 and moves momentum from 3, so a
+# rung below those has no vector field to draw and must draw none.
+RUNG="${LA_GROUND_RUNG:-0}"
 
 # --shoot-frames is a FLOOR, not the shot: the scene is asked every frame past it whether the ground
 # under the eye has arrived, and is photographed when it says yes. Raising it hides a slow mesher.
 LA_RUN_TIMEOUT="${LA_GROUND_TIMEOUT:-100}" "$ROOT/scripts/run_sim_offscreen.sh" --path "$ROOT" \
 	addons/local_agents/game/VoxelWorld.tscn \
-	-- --sandbox --planet-only --no-fauna --rung=0 --ui "--shoot=$PNG" \
-	"--shoot-frames=${LA_GROUND_FRAMES:-60}" ${EXTRA[@]+"${EXTRA[@]}"} > "$LOG" 2>&1
+	-- --sandbox --planet-only --no-fauna "--rung=$RUNG" --ui "--shoot=$PNG" \
+	"--shoot-frames=${LA_GROUND_FRAMES:-60}" > "$LOG" 2>&1
 
 # A PICTURE TAKEN THROUGH A RENDERER THAT REFUSED A SHADER IS NOT EVIDENCE. A .gdshader that fails to
 # compile draws black and the run finishes normally, so the shot looks like a measurement and is not one.
@@ -63,9 +65,12 @@ mean="$(read_num scene_mean)"
 var="$(read_num scene_var)"
 contrast="$(read_num scene_contrast)"
 spread="$(read_num scene_spread)"
+var_sky="$(read_num scene_var_sky)"
+var_ground="$(read_num scene_var_ground)"
 split="$(read_num scene_split)"
 if [ -z "$alt" ] || [ -z "$pitch" ] || [ -z "$ahead" ] || [ -z "$aim" ] || [ -z "$mean" ] || [ -z "$var" ] \
-	|| [ -z "$contrast" ] || [ -z "$spread" ] || [ -z "$split" ]; then
+	|| [ -z "$contrast" ] || [ -z "$spread" ] || [ -z "$split" ] || [ -z "$var_sky" ] \
+	|| [ -z "$var_ground" ]; then
 	echo "check_ground_drawn: the shot did not say where it stood, so nothing was measured." >&2
 	exit 2
 fi
@@ -97,23 +102,46 @@ awk -v c="$contrast" -v s="$spread" 'BEGIN { exit (c > 0.0 && c > s) ? 0 : 1 }' 
 	echo "  wobble: there is no sky/ground horizon in the frame, only one brightness." >&2
 	fail=1
 }
-# AND IT IS A LANDSCAPE, NOT A GRADIENT: what a row holds beats what separates neighbouring rows. Terrain
-# and sea carry detail across the frame; a flat wash or a bare vertical ramp carries none.
-awk -v v="$var" -v s="$spread" 'BEGIN { exit (v > 0.0 && sqrt(v) > s) ? 0 : 1 }' || {
-	echo "FAIL  the scene carries ${var} of variance along its rows against ${spread} between them:" >&2
-	echo "  the frame is a wash or a bare gradient, not a lit landscape." >&2
+# AND NEITHER SIDE OF THAT SPLIT IS A FLAT SHEET. Sky carries its scatter gradient and the sun's glow
+# across a row; ground carries relief and shading across one. A frame that drew nothing reads zero on
+# whichever side it failed, whatever brightness it failed at.
+awk -v a="$var_sky" -v b="$var_ground" 'BEGIN { exit (a > 0.0 && b > 0.0) ? 0 : 1 }' || {
+	echo "FAIL  above the split the scene varies ${var_sky} along its rows and below it ${var_ground}:" >&2
+	echo "  a side reading zero drew one flat colour, not sky or ground." >&2
 	fail=1
 }
 
 if [ -n "$SLICE" ]; then
 	inside="$(read_flag cam_in_slice)"
-	arrows="$(read_num field_arrows)"
 	[ "$inside" = "true" ] || {
 		echo "FAIL  the eye stands OUTSIDE the slice box it was given: it framed some other place." >&2
 		fail=1
 	}
+fi
+
+# A RUNG DRAWS ONLY THE FIELDS ITS OWN WORLD MAKES. Gravity is solved from rung 1 and momentum moves from
+# rung 3, so a world below both has no vector field: it must draw NOTHING and say so, and a placeholder
+# arrow over a world with no velocity is the picture claiming a measurement nobody took.
+arrows="$(read_num field_arrows)"
+absent="$(grep -c '^FIELD_VECTORS_ABSENT=' "$LOG")"
+if [ "$RUNG" -ge 1 ]; then
 	awk -v n="${arrows:-0}" 'BEGIN { exit (n > 0) ? 0 : 1 }' || {
-		echo "FAIL  the run drew ${arrows:-0} field-vector glyphs, so the field is not in the picture." >&2
+		echo "FAIL  rung ${RUNG} holds a vector field and the run drew ${arrows:-0} glyphs of it." >&2
+		fail=1
+	}
+	[ "$absent" -eq 0 ] || {
+		echo "FAIL  rung ${RUNG} holds a vector field, but the run reported it absent:" >&2
+		grep -m2 '^FIELD_VECTORS_ABSENT=' "$LOG" >&2
+		fail=1
+	}
+else
+	awk -v n="${arrows:-0}" 'BEGIN { exit (n == 0) ? 0 : 1 }' || {
+		echo "FAIL  rung ${RUNG} has no gravity and no momentum, so it has no vector field — and the run" >&2
+		echo "  drew ${arrows} glyphs of one. An arrow there is a measurement nobody took." >&2
+		fail=1
+	}
+	[ "$absent" -gt 0 ] || {
+		echo "FAIL  rung ${RUNG} holds no vector field and the run never said so: no FIELD_VECTORS_ABSENT." >&2
 		fail=1
 	}
 fi

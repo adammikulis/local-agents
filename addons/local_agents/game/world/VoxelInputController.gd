@@ -43,7 +43,7 @@ var _overview: bool = false             # --overview: frame a wide whole-island 
 var _farview: bool = false              # --farview: pull the vista out to max zoom (ocean-coverage test)
 var _rain_force: bool = false           # --rain: force the rain visual on (verification aid)
 var _debug_demo: bool = false
-var _vectors: String = LAFieldVectors.SOURCE_OFF   # --vectors=wind|gravity: the field the glyphs draw
+var _vectors: String = LAFieldVectors.SOURCE_UNSET  # --vectors=wind|gravity|off; unset = what the rung holds
 var _debug_field: String = ""           # --debug-field=<channel>: pre-enable a substrate heatmap (biomass/lava/…)
 var _debug_behaviors: String = ""       # --debug-behaviors[=a,b]: pre-enable behavior-state highlights (default foraging+hunting)
 var _llm_highlight: bool = false        # --llm-highlight: pre-enable the thinking/queued tints + report live counts

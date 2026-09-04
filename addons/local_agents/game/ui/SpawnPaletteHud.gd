@@ -231,13 +231,16 @@ func _build_palette_buttons() -> void:
 	_palette_group = ButtonGroup.new()
 	_palette_group.allow_unpress = true
 
-	for kind in LIFE_KINDS:
-		_life_cluster.add_child(_make_kind_button(_palette_group, kind))
+	# A world with no life offers nothing to spawn into it; the whole cluster goes, caption and all.
+	_life_cluster.visible = LAWorldOffers.has_life()
+	if _life_cluster.visible:
+		for kind in LIFE_KINDS:
+			_life_cluster.add_child(_make_kind_button(_palette_group, kind))
 	for kind in IMPACT_KINDS:
 		_disaster_cluster.add_child(_make_kind_button(_palette_group, kind))
 
 	# Diagnostic: confirm a palette button carries its registry-keyed name+hotkey tooltip (one-time log).
-	var sample: Button = _kind_buttons.get("rabbit", null)
+	var sample: Button = _kind_buttons.get("rabbit", null) if _life_cluster.visible else null
 	if sample != null:
 		print("PALETTE_TOOLTIP={kind:\"rabbit\", tooltip:\"%s\"}" % sample.tooltip_text.replace("\n", " / "))
 

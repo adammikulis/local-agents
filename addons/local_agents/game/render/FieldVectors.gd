@@ -1,18 +1,21 @@
 class_name LAFieldVectors
 extends MultiMeshInstance3D
 
-## ONE ARROW GLYPH PER OPEN FIELD CELL, at every altitude the box holds, aimed along a chosen vector
-## field: the cell's own velocity, or the gravity solved at it. Presentation only — it reads the drained
-## mirrors and never asks the field for anything.
+## ONE ARROW GLYPH PER OPEN FIELD CELL, aimed along a vector field THE WORLD ACTUALLY CONTAINS: the
+## cell's velocity, or the gravity solved at it. A world holding neither draws nothing.
 
 const ArrowShader: Shader = preload("res://addons/local_agents/game/render/FieldArrow.gdshader")
 
-## A scene that declares nothing defers to the game shell's --vectors flag; OFF is a declaration that
-## the world draws no glyphs, and outranks it.
+## UNSET takes the highest field the world's own processes produce; OFF says this world draws no glyphs
+## and outranks the game shell's --vectors flag.
 const SOURCE_UNSET: String = "unset"
 const SOURCE_OFF: String = "off"
 const SOURCE_WIND: String = "wind"
 const SOURCE_GRAVITY: String = "gravity"
+
+## The process record each source reads off. No record, no field, no glyph.
+const GRAVITY_PASS: String = "GravityPass.gd"
+const MOMENTUM_TRANSPORT: String = "mom_flux"
 
 ## PRESENTATION SCALE for the wind ramp, m/s: a jet stream. At it the glyph is full length and the ramp
 ## is saturated. The gravity ramp has no constant — it saturates at the body's own measured surface
@@ -26,9 +29,6 @@ const CAP_ANGLE: float = 0.8
 const MIN_SUBTEND_RAD: float = 0.002
 const REBUILD_PERIOD: float = 0.22
 const RECENTER_DOT: float = 0.999
-## Glyph length at zero magnitude, as a fraction of the cell edge. A calm cell is DRAWN, in the calm
-## colour, or an absence of flow would be indistinguishable from an absence of field.
-const CALM_FRAC: float = 0.18
 ## Glyph girth as a fraction of the cell edge.
 const THICK_FRAC: float = 0.22
 const STRIPES: int = 6
@@ -69,11 +69,36 @@ func setup(field, camera: Node3D, centre: Vector3, sea_radius: float) -> void:
 	_apply_source()
 
 
-## The vector field drawn, set by the game shell's --vectors flag or the debug panel. An unknown name
-## draws nothing rather than something else.
+## The vector field drawn. UNSET takes the highest this world holds; a source the world does not contain
+## is refused, once and out loud, and nothing stands in for it.
 func set_source(want: String) -> void:
 	source = want
+	if want != SOURCE_OFF:
+		var pick: String = highest_source() if want == SOURCE_UNSET else want
+		if pick == SOURCE_OFF or not has_source(pick):
+			print("FIELD_VECTORS_ABSENT=%s" % JSON.stringify(
+				{"source": "any" if want == SOURCE_UNSET else want, "rung": LAProcessSet.active()}))
+			push_error("this world's processes produce no vector field to draw")
+			pick = SOURCE_OFF
+		source = pick
 	_apply_source()
+
+
+## Whether this world's processes produce `want` at all. Gravity is solved by GravityPass; a velocity
+## exists only where momentum is transported.
+static func has_source(want: String) -> bool:
+	if want == SOURCE_GRAVITY:
+		return LAProcessSet.has_record("pass", GRAVITY_PASS)
+	if want == SOURCE_WIND:
+		return LAProcessSet.has_record("transport", MOMENTUM_TRANSPORT)
+	return false
+
+
+## The richest field this world holds: wind where matter moves, gravity where it only pulls, else none.
+static func highest_source() -> String:
+	if has_source(SOURCE_WIND):
+		return SOURCE_WIND
+	return SOURCE_GRAVITY if has_source(SOURCE_GRAVITY) else SOURCE_OFF
 
 
 ## The magnitude the ramp saturates at, in the source's own unit. 0 when the source names nothing this
@@ -174,7 +199,9 @@ func _rebuild(cam_pos: Vector3, radial: Vector3) -> void:
 			continue
 		var v: Vector3 = _vector_at(c, wind)
 		var mag: float = v.length()
-		var frac: float = CALM_FRAC + (1.0 - CALM_FRAC) * minf(mag / _ref, 1.0)
+		if mag <= 0.0:
+			continue                       # nothing to aim a glyph along; an arrow there would be invented
+		var frac: float = minf(mag / _ref, 1.0)
 		var alt: float = r - _sea_radius
 		alt_span = maxf(alt_span, absf(alt))
 		xforms.append(Transform3D(_aim(v, mag, edge * THICK_FRAC, edge * frac), pos))
@@ -197,11 +224,9 @@ func _vector_at(c: int, wind: bool) -> Vector3:
 	return _f._gravity.g_vec_at(c) if _f._gravity != null else Vector3.ZERO
 
 
-## A basis whose +Z runs along `v`, girth `w`, length `l`. A cell with no flow keeps the grid's own +Z:
-## a lattice of identically aimed calm glyphs reads as "nothing is moving here", which is the truth,
-## where an invented direction would not be.
+## A basis whose +Z runs along `v`, girth `w`, length `l`. Only a cell with flow reaches here.
 func _aim(v: Vector3, mag: float, w: float, l: float) -> Basis:
-	var z: Vector3 = Vector3.BACK if mag <= 0.0 else v / mag
+	var z: Vector3 = v / mag
 	var ref: Vector3 = Vector3.UP if absf(z.y) < 0.95 else Vector3.RIGHT
 	var x: Vector3 = ref.cross(z).normalized()
 	return Basis(x * w, z.cross(x) * w, z * l)

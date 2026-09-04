@@ -1,5 +1,5 @@
-// VoxelWaterSphere — the open sea on the spherical shell (LAOceanPlane). Swell displaces each vertex
-// along its radial and fades out with the camera's altitude above the shell.
+// VoxelWaterSphere — the open sea on the shell cap LAOceanPlane meshes under the eye. Each vertex
+// carries its own outward radial as its normal, and the swell displaces along it.
 shader_type spatial;
 render_mode specular_schlick_ggx, diffuse_burley, cull_back;
 
@@ -14,8 +14,9 @@ uniform vec3 foam_color : source_color = vec3(0.93, 0.97, 0.99);
 uniform float wave_amp = 1.4;          // crest height near the surface (world units)
 uniform float wave_scale = 0.020;      // spatial frequency of the swell
 uniform float wave_speed = 0.5;
-uniform float detail_fade_start = 55.0;   // camera altitude (world units above the shell) where waves start to flatten
+uniform float detail_fade_start = 55.0;   // eye altitude above the shell where waves start to flatten
 uniform float detail_fade_end = 850.0;    // altitude by which the sea is a smooth lit sphere (orbit)
+uniform float eye_altitude_m = 0.0;       // the eye's height over the shell, from LAOceanPlane
 uniform float shell_alpha : hint_range(0.0, 1.0) = 1.0;   // 1 = opaque (cheap default); <1 = translucent (HIGH preset)
 
 varying vec3 v_world;      // displaced world position
@@ -35,26 +36,21 @@ float wave_h(vec3 p, float t) {
 }
 
 void vertex() {
-	// The shell mesh is a SphereMesh centred on the node origin and the node sits at the planet centre, so
-	// the world planet centre is the model translation and the model-space radial is just normalize(VERTEX).
-	vec3 centre = MODEL_MATRIX[3].xyz;
-	float scale = length(MODEL_MATRIX[0].xyz);          // uniform node scale (tide scaling keeps it uniform)
-	vec3 radial_m = normalize(VERTEX);
+	// The cap's vertices are offsets from a node standing on the shell under the eye, and NORMAL is each
+	// one's own outward radial: no planet-sized coordinate ever enters the mesh.
+	vec3 radial_m = normalize(NORMAL);
 	vec3 wp = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 
-	// LOD: waves fade with CAMERA altitude above THIS shell point (shell radius = distance of the vertex to
-	// the centre), so up-close is choppy and orbit is a smooth marble — the pop against the near-cap is gone.
-	float shell_r = length(wp - centre);
-	float cam_alt = distance(CAMERA_POSITION_WORLD, centre) - shell_r;
-	float detail = 1.0 - smoothstep(detail_fade_start, detail_fade_end, cam_alt);
+	// LOD: the swell fades with the eye's altitude over the shell, so up close is choppy and orbit is a
+	// smooth marble.
+	float detail = 1.0 - smoothstep(detail_fade_start, detail_fade_end, eye_altitude_m);
 	float amp = wave_amp * detail;
 
 	float h = wave_h(wp, TIME) * amp;
-	// Displace along the model-space radial; convert the world-unit height into model units via the scale.
-	VERTEX += radial_m * (h / max(scale, 1.0e-4));
+	VERTEX += radial_m * h;
 
 	v_world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-	v_radial = normalize(v_world - centre);
+	v_radial = radial_m;
 	v_amp = amp;
 	v_crest = h / max(amp, 1.0e-3);
 }

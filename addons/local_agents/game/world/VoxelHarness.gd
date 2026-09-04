@@ -230,7 +230,7 @@ static func _scene_stats(w) -> String:
 	var tex: ViewportTexture = vp.get_texture() if vp != null else null
 	var img: Image = tex.get_image() if tex != null else null
 	if img == null or img.get_width() < 4 or img.get_height() < 4:
-		return "scene_mean=-1 scene_var=-1 scene_split=-1 scene_contrast=-1 scene_spread=-1"
+		return _absent_stats()
 	var hud: Array[Rect2] = _hud_rects(w, float(img.get_width()) * float(img.get_height()))
 	var means: PackedFloat32Array = PackedFloat32Array()
 	var vars: PackedFloat32Array = PackedFloat32Array()
@@ -252,8 +252,13 @@ static func _scene_stats(w) -> String:
 		means.append(sum / float(n))
 		vars.append(maxf(0.0, sq / float(n) - (sum / float(n)) * (sum / float(n))))
 	if means.size() < 4:
-		return "scene_mean=-1 scene_var=-1 scene_split=-1 scene_contrast=-1 scene_spread=-1"
+		return _absent_stats()
 	return _split_stats(means, vars)
+
+
+static func _absent_stats() -> String:
+	return ("scene_mean=-1 scene_var=-1 scene_split=-1 scene_contrast=-1 scene_spread=-1 "
+		+ "scene_var_sky=-1 scene_var_ground=-1")
 
 
 ## The shot's own sky/ground split, and what the step across it has to beat.
@@ -296,8 +301,18 @@ static func _split_stats(means: PackedFloat32Array, vars: PackedFloat32Array) ->
 	for i in rows:
 		var d2: float = means[i] - (up_m if i < best else low_m)
 		resid += d2 * d2
-	return "scene_mean=%.6f scene_var=%.6f scene_split=%.6f scene_contrast=%.6f scene_spread=%.6f" % [
-		mean_all, var_all, float(best) / float(rows), contrast, sqrt(resid / float(rows))]
+	# What each side of the split holds ALONG its own rows: sky is smooth across a row, ground is not.
+	var v_up: float = 0.0
+	var v_low: float = 0.0
+	for i in rows:
+		if i < best:
+			v_up += vars[i]
+		else:
+			v_low += vars[i]
+	return ("scene_mean=%.6f scene_var=%.6f scene_split=%.6f scene_contrast=%.6f scene_spread=%.6f "
+		+ "scene_var_sky=%.6f scene_var_ground=%.6f") % [
+		mean_all, var_all, float(best) / float(rows), contrast, sqrt(resid / float(rows)),
+		v_up / float(best), v_low / float(rows - best)]
 
 
 ## The HUD panels over the frame, in image pixels; a Control covering most of it is the layout root.

@@ -87,8 +87,8 @@ func _build_world_visuals() -> void:
 	if _sim.ecology().has_method("set_vegetation_renderer"):
 		_sim.ecology().set_vegetation_renderer(_veg_renderer)
 
-	# The calm sea: ONE GPU shell at sea_radius.
-	_ocean.setup_sphere(body.center(), body.sea_radius(), bool(_render_opts.get("ocean_transparent", true)))
+	# The sea: the shell at sea_radius, meshed as the cap the eye can see.
+	_ocean.setup(_camera, body.center(), body.sea_radius(), bool(_render_opts.get("ocean_transparent", true)))
 
 	# The field's condensate as ONE GPU particle system; phase is per-particle, off the cover texture.
 	_water.setup(material, _camera, _sky_ctrl.sun(), body.center(), body.sea_radius())
