@@ -14,7 +14,8 @@ on the file it named. If you know the cause you are close enough to fix it, so f
 
 **THE LIST IS ORDERED BY WHAT IS UPSTREAM OF WHAT: item 1 is what every item below it is measured against.** Re-order it at every landing.
 
-**THE LADDER ADVANCES ONE APPROVED DEMO AT A TIME.** A rung is built only after the maintainer has
+**THE LADDER ADVANCES ONE APPROVED DEMO AT A TIME, AND EACH DEMO ADDS EVIDENCE OF ITS OWN PROCESS THE
+MAINTAINER CAN SEE OR HEAR.** A run shows only what its rung contains. A rung is built only after the maintainer has
 approved a demo of the rung below it, cut as a scene plus a `LocalAgentDemoEntry` in
 `addons/local_agents/examples/demos/`. `scripts/agent_harness.sh ladder` names the first red rung;
 nothing above the last APPROVED rung is examined.
