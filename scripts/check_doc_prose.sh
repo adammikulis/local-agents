@@ -21,6 +21,13 @@ done
 # `bisect` as the debugging verb only: "bisected extent" is root-finding, not a claim about a cause.
 DIAGNOSIS='(?i)\b(the suspects?|suspects?|suspected|probably|likely|presumably|my guess|guess(ing)?|bisect|almost certainly|i think|smells like|the culprit is)\b'
 diag="$(rg -n --no-heading -e "$DIAGNOSIS" "${TARGETS[@]}" 2>/dev/null || true)"
+# A `Reading:` line is a fact read off the code: it names an identifier in backticks and hedges nothing.
+bad_reading="$(rg -n --no-heading -e '^\s*(- )?Reading:' "${TARGETS[@]}" 2>/dev/null | rg -v -e 'Reading:.*`[A-Za-z_][A-Za-z0-9_.()]*`' || true)"
+if [ -n "$bad_reading" ]; then
+	echo "check_doc_prose: a Reading: line names no identifier in backticks, so nobody can grep it." >&2
+	printf '%s\n' "$bad_reading" | sed 's/^/  /' >&2
+	exit 1
+fi
 if [ -n "$diag" ]; then
 	echo "check_doc_prose: a tracker item is guessing at a cause." >&2
 	printf '%s\n' "$diag" | sed 's/^/  /' >&2
