@@ -219,37 +219,109 @@ static func _arrow_count(w) -> int:
 	return int(vectors.drawn()) if vectors != null else 0
 
 
-## WHAT THE 3-D HALF OF THE PICTURE HOLDS, read off the surface about to be saved: mean luminance and
-## mean per-row variance over the middle of the frame, clear of the HUD bands that hug every edge. A
-## world that drew nothing reads near zero on both, and the HUD cannot stand in for scenery.
-const SCENE_SAMPLES: int = 48
-const SCENE_INSET: float = 0.25
+## What the picture holds, over the scene alone: every sample landing on a HUD panel is dropped.
+## Publishes scene_mean scene_var scene_split scene_contrast scene_spread.
+const SCENE_SAMPLES: int = 64
+## A Control this large is the layout root, not a panel: it covers the scene rather than hiding it.
+const HUD_MAX_FRAME_FRAC: float = 0.5
 
 static func _scene_stats(w) -> String:
 	var vp: Viewport = w.shot_viewport()
 	var tex: ViewportTexture = vp.get_texture() if vp != null else null
 	var img: Image = tex.get_image() if tex != null else null
 	if img == null or img.get_width() < 4 or img.get_height() < 4:
-		return "scene_mean=-1 scene_var=-1"
-	var x0: int = int(float(img.get_width()) * SCENE_INSET)
-	var y0: int = int(float(img.get_height()) * SCENE_INSET)
-	var span_x: int = img.get_width() - 2 * x0
-	var span_y: int = img.get_height() - 2 * y0
-	var mean_total: float = 0.0
-	var var_total: float = 0.0
+		return "scene_mean=-1 scene_var=-1 scene_split=-1 scene_contrast=-1 scene_spread=-1"
+	var hud: Array[Rect2] = _hud_rects(w, float(img.get_width()) * float(img.get_height()))
+	var means: PackedFloat32Array = PackedFloat32Array()
+	var vars: PackedFloat32Array = PackedFloat32Array()
 	for j in SCENE_SAMPLES:
-		var y: int = y0 + span_y * j / SCENE_SAMPLES
+		var y: int = img.get_height() * j / SCENE_SAMPLES
+		var n: int = 0
 		var sum: float = 0.0
 		var sq: float = 0.0
 		for i in SCENE_SAMPLES:
-			var v: float = img.get_pixel(x0 + span_x * i / SCENE_SAMPLES, y).get_luminance()
+			var p: Vector2 = Vector2(float(img.get_width() * i / SCENE_SAMPLES), float(y))
+			if _in_any(hud, p):
+				continue
+			var v: float = img.get_pixel(int(p.x), int(p.y)).get_luminance()
+			n += 1
 			sum += v
 			sq += v * v
-		var n: float = float(SCENE_SAMPLES)
-		mean_total += sum / n
-		var_total += maxf(0.0, sq / n - (sum / n) * (sum / n))
-	return "scene_mean=%.6f scene_var=%.6f" % [mean_total / float(SCENE_SAMPLES),
-		var_total / float(SCENE_SAMPLES)]
+		if n < SCENE_SAMPLES / 2:
+			continue                       # a row the HUD mostly covers is not a row of the scene
+		means.append(sum / float(n))
+		vars.append(maxf(0.0, sq / float(n) - (sum / float(n)) * (sum / float(n))))
+	if means.size() < 4:
+		return "scene_mean=-1 scene_var=-1 scene_split=-1 scene_contrast=-1 scene_spread=-1"
+	return _split_stats(means, vars)
+
+
+## The shot's own sky/ground split, and what the step across it has to beat.
+static func _split_stats(means: PackedFloat32Array, vars: PackedFloat32Array) -> String:
+	var rows: int = means.size()
+	var mean_all: float = 0.0
+	var var_all: float = 0.0
+	for i in rows:
+		mean_all += means[i]
+		var_all += vars[i]
+	mean_all /= float(rows)
+	var_all /= float(rows)
+	# Otsu's split: the row maximising the between-class variance, weighed by each side's share.
+	var best: int = 1
+	var score: float = -1.0
+	var contrast: float = 0.0
+	for k in range(1, rows):
+		var hi: float = 0.0
+		var lo: float = 0.0
+		for i in k:
+			hi += means[i]
+		for i in range(k, rows):
+			lo += means[i]
+		var d: float = absf(hi / float(k) - lo / float(rows - k))
+		var w: float = float(k) * float(rows - k) / float(rows * rows)
+		if w * d * d > score:
+			score = w * d * d
+			contrast = d
+			best = k
+	var up_m: float = 0.0
+	var low_m: float = 0.0
+	for i in best:
+		up_m += means[i]
+	for i in range(best, rows):
+		low_m += means[i]
+	up_m /= float(best)
+	low_m /= float(rows - best)
+	# The wobble left over once the split is taken out: what the contrast has to beat.
+	var resid: float = 0.0
+	for i in rows:
+		var d2: float = means[i] - (up_m if i < best else low_m)
+		resid += d2 * d2
+	return "scene_mean=%.6f scene_var=%.6f scene_split=%.6f scene_contrast=%.6f scene_spread=%.6f" % [
+		mean_all, var_all, float(best) / float(rows), contrast, sqrt(resid / float(rows))]
+
+
+## The HUD panels over the frame, in image pixels; a Control covering most of it is the layout root.
+static func _hud_rects(root: Node, frame_area: float) -> Array[Rect2]:
+	var out: Array[Rect2] = []
+	_collect_hud(root, frame_area, out)
+	return out
+
+
+static func _collect_hud(n: Node, frame_area: float, out: Array[Rect2]) -> void:
+	var c: Control = n as Control
+	if c != null and c.is_visible_in_tree():
+		var r: Rect2 = c.get_global_rect()
+		if r.size.x * r.size.y < HUD_MAX_FRAME_FRAC * frame_area:
+			out.append(r)
+	for ch in n.get_children():
+		_collect_hud(ch, frame_area, out)
+
+
+static func _in_any(rects: Array[Rect2], p: Vector2) -> bool:
+	for r in rects:
+		if r.has_point(p):
+			return true
+	return false
 
 
 ## HOW FAR DOWN THE VIEW AXIS THE GROUND STANDS, in metres: the terrain body's own collider, hit by a ray

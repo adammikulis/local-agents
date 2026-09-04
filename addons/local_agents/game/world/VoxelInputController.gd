@@ -29,9 +29,6 @@ var _render: bool = false
 var _streamer_persona: String = "hype"
 var _streamer_avatar_flavor: String = "male"
 
-var _time_of_day: float = 0.30
-var _lunar_phase: float = 0.15
-
 # Optional self-screenshot / smoke harness: pass `-- --shoot=<path> [--shoot-frames=N]`
 var _shoot_path: String = ""
 var _shoot_frames: int = 150
@@ -46,7 +43,7 @@ var _overview: bool = false             # --overview: frame a wide whole-island 
 var _farview: bool = false              # --farview: pull the vista out to max zoom (ocean-coverage test)
 var _rain_force: bool = false           # --rain: force the rain visual on (verification aid)
 var _debug_demo: bool = false
-var _vectors: String = ""               # --vectors=wind|gravity: which field the arrow glyphs draw
+var _vectors: String = LAFieldVectors.SOURCE_OFF   # --vectors=wind|gravity: the field the glyphs draw
 var _debug_field: String = ""           # --debug-field=<channel>: pre-enable a substrate heatmap (biomass/lava/…)
 var _debug_behaviors: String = ""       # --debug-behaviors[=a,b]: pre-enable behavior-state highlights (default foraging+hunting)
 var _llm_highlight: bool = false        # --llm-highlight: pre-enable the thinking/queued tints + report live counts
@@ -153,10 +150,6 @@ func parse_cmdline() -> void:
 			var world_seed: int = int(arg.substr("--seed=".length()))
 			LASimRng.reset(world_seed)
 			_seed_explicit = true
-		elif arg.begins_with("--time="):
-			_time_of_day = clampf(float(arg.substr("--time=".length())), 0.0, 1.0)
-		elif arg.begins_with("--lunar="):
-			_lunar_phase = clampf(float(arg.substr("--lunar=".length())), 0.0, 1.0)
 		elif arg == "--debug-demo":
 			_debug_demo = true
 		elif arg.begins_with("--vectors="):
@@ -783,8 +776,6 @@ func ui() -> bool: return _ui
 func render() -> bool: return _render
 func streamer_persona() -> String: return _streamer_persona
 func streamer_avatar_flavor() -> String: return _streamer_avatar_flavor
-func time_of_day_seed() -> float: return _time_of_day
-func lunar_seed() -> float: return _lunar_phase
 func shoot_path() -> String: return _shoot_path
 func shoot_frames() -> int: return _shoot_frames
 func run_frames() -> int: return _run_frames

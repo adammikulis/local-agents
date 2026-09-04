@@ -7,6 +7,8 @@ var _sim: LASimulation = null
 var _input: LAVoxelInputController = null
 var _render_opts: Dictionary = {}
 var _draw_m: float = 0.0                   # the streamed distance last asked for, metres
+## The vector field the world this layer draws declares. UNSET defers to the shell's --vectors flag.
+var declared_vectors: String = LAFieldVectors.SOURCE_UNSET
 
 # The node TREE is declared in RenderLayer.tscn; this script only wires it.
 @onready var _camera: Camera3D = $CameraRig
@@ -54,12 +56,12 @@ func _slice_box() -> AABB:
 
 
 func _build_sky() -> void:
-	_sky_ctrl.setup(_world, _sim.star(), _input.time_of_day_seed(), _input.lunar_seed(), _render_opts)
-	# The sky's blend and its zenith follow THIS camera, never a viewport lookup: a photographed run
+	_sky_ctrl.setup(_world, _sim.star(), _sim.moon(), _render_opts)
+	# The sky's altitude and its zenith follow THIS camera, never a viewport lookup: a photographed run
 	# draws through an off-screen SubViewport, whose parent window holds no camera at all.
-	_sky_ctrl.bind_camera(_camera, _sim.body().center())
+	_sky_ctrl.bind_camera(_camera, _sim.body().center(), _sim.body().sea_radius())
 	_sky_ctrl.enter_space_mode(_sim.body().center())
-	# The orbit drives the sky's space-mode direction. The orbit runs without one; this only gives it a sink.
+	# The orbit re-aims the sun as the bodies move. The orbit runs without one; this only gives it a sink.
 	if _sim.orbits() != null and _sim.orbits().has_method("set_sky_controller"):
 		_sim.orbits().set_sky_controller(_sky_ctrl)
 	# A SLICE has already been framed: the box says where this world is looked at, and nothing re-aims it.
@@ -91,19 +93,20 @@ func _build_world_visuals() -> void:
 	# The field's condensate as ONE GPU particle system; phase is per-particle, off the cover texture.
 	_water.setup(material, _camera, _sky_ctrl.sun(), body.center(), body.sea_radius())
 
-	# One arrow glyph per open cell, at every altitude, over the chosen vector field.
+	# One arrow glyph per open cell, at every altitude, over the chosen vector field. The scene's own
+	# declaration outranks the shell's flag; only an undeclared scene defers to it.
 	_vectors.setup(material, _camera, body.center(), body.sea_radius())
-	if _vectors.source == LAFieldVectors.SOURCE_OFF:
-		_vectors.set_source(_input.vectors())
+	_vectors.set_source(_input.vectors() if declared_vectors == LAFieldVectors.SOURCE_UNSET
+		else declared_vectors)
 
 	# The dynamic FLUID SURFACE: springs/rivers/waterfalls/lakes/floods meshed from the field's water column.
 	_water_surface.setup(material, _camera, terrain, _sky_ctrl.sun(), body.center(), body.sea_radius())
 
 	_sky_ctrl.bind_scene(material, _water)
 
-	# The terrain shader's climate basis: up is radial, altitude is height above the sea shell.
-	terrain.set_shader_param("planet_center", body.center())
-	terrain.set_shader_param("planet_sea_radius", body.sea_radius())
+	# The ground's reflectance, from the one place this world declares it.
+	terrain.set_shader_param("albedo_bare_ground", LAPhysical.ALBEDO_BARE_GROUND)
+	terrain.set_shader_param("albedo_snow_ice", LAPhysical.ALBEDO_SNOW_ICE)
 	# Hot ground glows — the live per-cell temperature as a 3D texture over the field box.
 	_heat_tex.setup(material, terrain)
 

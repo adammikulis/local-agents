@@ -7,7 +7,10 @@ extends MultiMeshInstance3D
 
 const ArrowShader: Shader = preload("res://addons/local_agents/game/render/FieldArrow.gdshader")
 
-const SOURCE_OFF: String = ""
+## A scene that declares nothing defers to the game shell's --vectors flag; OFF is a declaration that
+## the world draws no glyphs, and outranks it.
+const SOURCE_UNSET: String = "unset"
+const SOURCE_OFF: String = "off"
 const SOURCE_WIND: String = "wind"
 const SOURCE_GRAVITY: String = "gravity"
 
@@ -30,9 +33,8 @@ const CALM_FRAC: float = 0.18
 const THICK_FRAC: float = 0.22
 const STRIPES: int = 6
 
-## Which vector field the glyphs draw: "wind", "gravity", or empty for none. Empty defers to the game
-## shell's --vectors flag; a value declared here outranks it.
-@export var source: String = SOURCE_OFF
+## Which vector field the glyphs draw: "wind", "gravity", or "off".
+var source: String = SOURCE_OFF
 
 var _f = null
 var _camera: Node3D = null

@@ -369,13 +369,6 @@ func _approach_t() -> float:
 	return clampf(1.0 - (_rts_altitude() - RTS_ALT_MIN) / span, 0.0, 1.0)
 
 
-## How close the orbit camera is to the surface, for the sky cycle's altitude-aware atmosphere.
-func surface_blend() -> float:
-	if not _orbit_mode or _solar_view or _fly:
-		return 0.0
-	return 1.0
-
-
 func _update_orbit_transform() -> void:
 	# The solar overview writes its own absolute pose; never overwrite it with the RTS ground pose.
 	if _solar_view:

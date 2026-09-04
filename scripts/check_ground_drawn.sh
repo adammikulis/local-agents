@@ -53,7 +53,11 @@ ahead="$(read_num ground_ahead_m)"
 aim="$(read_num aim_ahead_m)"
 mean="$(read_num scene_mean)"
 var="$(read_num scene_var)"
-if [ -z "$alt" ] || [ -z "$pitch" ] || [ -z "$ahead" ] || [ -z "$aim" ] || [ -z "$mean" ] || [ -z "$var" ]; then
+contrast="$(read_num scene_contrast)"
+spread="$(read_num scene_spread)"
+split="$(read_num scene_split)"
+if [ -z "$alt" ] || [ -z "$pitch" ] || [ -z "$ahead" ] || [ -z "$aim" ] || [ -z "$mean" ] || [ -z "$var" ] \
+	|| [ -z "$contrast" ] || [ -z "$spread" ] || [ -z "$split" ]; then
 	echo "check_ground_drawn: the shot did not say where it stood, so nothing was measured." >&2
 	exit 2
 fi
@@ -76,11 +80,20 @@ awk -v g="$ahead" -v a="$aim" 'BEGIN { exit (g > 0.0 && a > 0.0 && g < 2.0 * a) 
 	echo "  the camera is aimed at a body that has not arrived where it is looking." >&2
 	fail=1
 }
-# AND THE WORLD IS IN THE PICTURE. Read off the middle of the frame, clear of the HUD bands: an unlit or
-# undrawn world is near-black and featureless there, whatever the panels around the edge are doing.
-awk -v m="$mean" -v v="$var" 'BEGIN { exit (m > 0.02 && v > 1.0e-4) ? 0 : 1 }' || {
-	echo "FAIL  the middle of the frame reads ${mean} mean, ${var} variance: the world is not in the" >&2
-	echo "  picture — one flat colour is a frame that drew nothing, black or white." >&2
+# AND THE WORLD IS IN THE PICTURE, read off the scene alone with every HUD panel dropped. A LIT
+# LANDSCAPE HAS A HORIZON: the shot finds the row that most separates what is above it from what is
+# below, and the step across it beats the row-to-row wobble left over on either side. Both sides of the
+# comparison come off this shot, so one flat colour reads zero for both and cannot pass at any brightness.
+awk -v c="$contrast" -v s="$spread" 'BEGIN { exit (c > 0.0 && c > s) ? 0 : 1 }' || {
+	echo "FAIL  the scene splits at ${split} of its height with a ${contrast} step against ${spread} of" >&2
+	echo "  wobble: there is no sky/ground horizon in the frame, only one brightness." >&2
+	fail=1
+}
+# AND IT IS A LANDSCAPE, NOT A GRADIENT: what a row holds beats what separates neighbouring rows. Terrain
+# and sea carry detail across the frame; a flat wash or a bare vertical ramp carries none.
+awk -v v="$var" -v s="$spread" 'BEGIN { exit (v > 0.0 && sqrt(v) > s) ? 0 : 1 }' || {
+	echo "FAIL  the scene carries ${var} of variance along its rows against ${spread} between them:" >&2
+	echo "  the frame is a wash or a bare gradient, not a lit landscape." >&2
 	fail=1
 }
 
