@@ -14,10 +14,45 @@ FRAMES="${LA_LADDER_FRAMES:-8}"
 GODOT="${GODOT:-godot}"
 command -v "$GODOT" >/dev/null 2>&1 || { echo "ERROR: godot not on PATH — a gate that cannot run FAILS." >&2; exit 2; }
 
+# --slice climbs a BOX rather than the whole planet. The box is sim_run.sh's, which is where that literal
+# is declared; an explicit spec overrides it. Said first, because a reader must know which world was climbed.
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --slice)
+      shift
+      case "${1:-}" in
+        ""|--*) LA_LADDER_SLICE="$("$ROOT/scripts/sim_run.sh" --print-slice-box)" ;;
+        *) LA_LADDER_SLICE="$1"; shift ;;
+      esac
+      export LA_LADDER_SLICE
+      ;;
+    *) echo "check_process_ladder: unknown argument '$1'" >&2; exit 2 ;;
+  esac
+done
+if [ -n "${LA_LADDER_SLICE:-}" ]; then
+  export LA_LADDER_SLICE
+  printf 'LADDER_ARM={"slice":"%s"}\n' "$LA_LADDER_SLICE"
+else
+  printf 'LADDER_ARM={"slice":null}\n'
+fi
+
+LADDER_TIMING="$(mktemp "${TMPDIR:-/tmp}/la_ladder_timing.XXXXXX")" || exit 2
+TIMEFORMAT='%R'
+la_timed() {  # la_timed <label> <command...> — runs it, records its wall seconds, returns its status
+  local label="$1"
+  shift
+  local el rc
+  exec 3>&1
+  el="$( { time "$@" 1>&3 2>&3; } 2>&1 1>&3 )"
+  rc=$?
+  printf '%s\t%s\n' "$el" "$label" >> "$LADDER_TIMING"
+  return "$rc"
+}
+
 # THE RUNGS AND THEIR GATES, read out of LAProcessSet so this script keeps no second copy of the table.
 PROBE_REL="addons/local_agents/tests/zz_ladder_list.gd"
 PROBE="$ROOT/$PROBE_REL"
-trap 'rm -f "$PROBE" "$PROBE.uid"' EXIT INT TERM
+trap 'rm -f "$PROBE" "$PROBE.uid" "$LADDER_TIMING"' EXIT INT TERM
 cat > "$PROBE" <<'GD'
 extends SceneTree
 
@@ -56,6 +91,7 @@ while IFS=$'\t' read -r tag name gates; do
   arm_rc=$?
   t1=$(date +%s)
   wall=$((t1 - t0))
+  printf '%s\trung %s %s (arm)\n' "$wall" "$n" "$name" >> "$LADDER_TIMING"
   step="$(la_rung_value "$arm" step_ms)"
   [ -n "$step" ] || step="$(la_rung_value "$arm" field_ms)"
   levels="$(la_rung_value "$arm" transport_levels)"
@@ -91,7 +127,7 @@ while IFS=$'\t' read -r tag name gates; do
       break 2
     fi
     echo "--- $g"
-    bash "$ROOT/scripts/$g"
+    la_timed "$g" bash "$ROOT/scripts/$g"
     grc=$?
     if [ "$grc" -ne 0 ]; then
       red_name="$name"
@@ -110,6 +146,12 @@ if [ -n "$red_name" ]; then
   echo "examined: a reading taken over a broken rung is the interaction of two defects, not a measurement."
 fi
 printf 'LADDER={"green":"%s","first_red":"%s","frames":%s}\n' "$green_name" "${red_name:-none}" "$FRAMES"
+if [ -s "$LADDER_TIMING" ]; then
+  sort -rn -k1,1 "$LADDER_TIMING" | awk -F'\t' '
+    BEGIN { printf "LADDER_TIMING={" }
+    { gsub(/"/, "", $2); printf "%s\"%s\":%s", (NR > 1 ? "," : ""), $2, ($1 == "" ? "0" : $1) }
+    END { print "}" }'
+fi
 
 # THE RATCHET. The rung the demo world runs at only rises; a lower finding is reported, never written.
 if [ "$green" -ge 0 ] && [ -f "$PLAYABLE" ]; then

@@ -6,7 +6,7 @@
 
 # USAGE
 #   scripts/sim_run.sh [--frames N] [--seed N] [--rung N] [--path DIR] [--fauna] [--full] [--keep]
-#                      [--from-seal]
+#                      [--reseed] [--print-slice-box]
 #                      [--slice] [--slice-box SPEC] [--slice-state FILE] [--slice-capture FILE]
 #                      [--report k1,k2,...] [--raw] [-- <extra scene args>]
 
@@ -14,11 +14,11 @@
 #   --rung N | --seed N   the processes the world contains (LAProcessSet, default docs/PLAYABLE_RUNG) / sim seed
 #   --path DIR     project dir (default .) — point it at a worktree
 #   --fauna | --full  keep animals (needs --full) / drop --planet-only (default is pure geophysics)
-#   --slice [--slice-box "ox,oy,oz,nx,ny,nz,cell_m"]  run a SLICE (default: surface at +Y, 24x32x24 of 4 km)
+#   --slice [--slice-box "ox,oy,oz,nx,ny,nz,cell_m"]  run a SLICE; --print-slice-box prints the default
 #   --slice-state F | --slice-capture F  consume a face-state capture in a slice / record one in a GLOBAL run
 #   --report LIST  comma-separated SIM_REPORT keys to print (default: the conservation set)
 #   --raw | --keep  print the whole SIM_REPORT as formatted JSON / keep the log file and print its path
-#   --from-seal    seed the world from the bake this arm's key names, writing one on a miss
+#   --reseed       walk the seeding rather than reading the bake this arm's key names
 
 # EXIT 0 clean · 3 stale shaders · 4 the run logged engine errors, numbers withheld · 5 a UI node was
 # built without --ui · 124 never reported · 125 hung after reporting · 126 CONSERVATION_VIOLATION.
@@ -37,7 +37,11 @@ SLICE=0
 SLICE_BOX=""
 SLICE_STATE=""
 SLICE_CAPTURE=""
-FROM_SEAL=0
+# THE SEEDING IS A FUNCTION OF THE TREE, SO IT IS WALKED ONCE AND READ BACK. --reseed walks it again.
+FROM_SEAL=1
+# The default slice box, declared HERE and nowhere else: ox,oy,oz,nx,ny,nz,cell_m, standing on the
+# surface at +Y. `surface` is resolved by the world against the body's own radius.
+DEFAULT_SLICE_BOX="0,surface,0,24,32,24,4000"
 REPORT_KEYS="conservation,conservation_failed,conservation_audited,energy_run_drift,energy_held_first,energy_residual,energy_booked,o2_first,o2_total,mineral_first,mineral_total,h2o_first,h2o_total,element_C_total_first,element_C_total,temp_ground_mean,phenomena_kinds,field_ms,transport_levels"
 EXTRA=()
 
@@ -55,7 +59,8 @@ while [ $# -gt 0 ]; do
     --slice-box) SLICE=1; SLICE_BOX="$2"; shift 2 ;;
     --slice-state) SLICE_STATE="$2"; shift 2 ;;
     --slice-capture) SLICE_CAPTURE="$2"; shift 2 ;;
-    --from-seal) FROM_SEAL=1; shift ;;
+    --reseed) FROM_SEAL=0; shift ;;
+    --print-slice-box) printf '%s\n' "$DEFAULT_SLICE_BOX"; exit 0 ;;
     --raw) RAW=1; shift ;;
     --keep) KEEP=1; shift ;;
     --report) REPORT_KEYS="$2"; shift 2 ;;
@@ -86,7 +91,7 @@ fi
 # --- SLICE / CAPTURE ENV. The default box stands on the surface at +Y. `surface` is resolved by the world
 # against the body's own radius: nothing out here has to know how big the planet is.
 if [ "$SLICE" -eq 1 ] || [ -n "$SLICE_CAPTURE" ]; then
-  [ -n "$SLICE_BOX" ] || SLICE_BOX="0,surface,0,24,32,24,4000"
+  [ -n "$SLICE_BOX" ] || SLICE_BOX="$DEFAULT_SLICE_BOX"
 fi
 if [ "$SLICE" -eq 1 ]; then
   export LA_SLICE_BOX="$SLICE_BOX"
@@ -113,15 +118,19 @@ ARGS=(--sandbox "--run-frames=${FRAMES}" "--seed=${SEED}")
 
 # THE SEEDING WALKS ARE A FUNCTION OF THIS ARM, NOT OF ITS LENGTH: the frame count is left out of the key
 # on purpose, so every arm over one world shares one bake.
-if [ "$FROM_SEAL" -eq 1 ]; then
+# A CALLER THAT NAMED ITS OWN BAKE KEEPS IT: the key it set names the world it means to compare.
+if [ "$FROM_SEAL" -eq 1 ] && [ -z "${LA_SEAL_KEY:-}" ]; then
   SEAL_KEY="$("$SCRIPT_DIR/cache_key.sh" capture --path "$PROJ" "seed=$SEED" "rung=${RUNG:-default}" \
     "full=$FULL" "fauna=$FAUNA" "slice=$SLICE" \
     "box=$(if [ "$SLICE" -eq 1 ]; then printf '%s' "$SLICE_BOX"; fi)" 2>/dev/null || echo "")"
   if [ -n "$SEAL_KEY" ]; then
     export LA_SEAL_KEY="$SEAL_KEY"
   else
-    echo "sim_run: --from-seal, but no content key describes this tree, so this arm seeds." >&2
+    echo "sim_run: no content key describes this tree, so this arm walks the seeding." >&2
   fi
+fi
+if [ "$FROM_SEAL" -eq 0 ]; then
+  unset LA_SEAL_KEY
 fi
 
 LOG="$(mktemp "${TMPDIR:-/tmp}/la_sim_run.XXXXXX")"
@@ -194,6 +203,18 @@ fi
 # The probe prints through godot's stdout, which the exit path can truncate; the --log-file tap flushes
 # live, so the tap is the record and this forwards it, deduplicated against the lines that got through.
 grep '^PASS_PROBE=' "$LOG" 2>/dev/null | awk '!seen[$0]++' || true
+
+# HIT OR MISS, SAID OUT LOUD, off the world's OWN account of how it was sealed. On stderr: stdout carries
+# the report a caller parses.
+ORIGIN="$(grep -oE '"world_seal_origin" *: *"[a-z]+"' "$LOG" 2>/dev/null | tail -1 \
+  | sed -e 's/.*"\([a-z]*\)"$/\1/')"
+case "${ORIGIN:-}" in
+  restored) SEAL_HIT=hit ;;
+  seeded) SEAL_HIT=miss ;;
+  *) SEAL_HIT=unreported ;;
+esac
+printf 'SEAL_CACHE={"bake":"%s","origin":"%s","key":"%s"}\n' \
+  "$SEAL_HIT" "${ORIGIN:-none}" "${LA_SEAL_KEY:-none}" >&2
 
 REPORT_KEYS="$REPORT_KEYS" RAW="$RAW" python3 "$SCRIPT_DIR/lib_report.py" "$LOG"
 

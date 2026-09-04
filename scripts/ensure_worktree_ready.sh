@@ -29,6 +29,7 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$REPO_ROOT/scripts/lib_import.sh"
 BIN_REL="addons/local_agents/gdextensions/localagents/bin"
+DEPS_REL="addons/local_agents/gdextensions/localagents/thirdparty"
 QUIET="${LA_WORKTREE_QUIET:-}"
 
 say() { [[ -n "$QUIET" ]] || echo "worktree_ready: $*" >&2; }
@@ -59,6 +60,22 @@ if [[ ! -e "$REPO_ROOT/$BIN_REL" ]]; then
   else
     echo "ERROR: no compiled GDExtension at $PRIMARY/$BIN_REL, and none here." >&2
     echo "       Build it in the primary checkout first. Running the suite without it tests nothing." >&2
+    exit 2
+  fi
+fi
+
+# --- 1b. the fetched dependency sources ---------------------------------------------------------------
+# The dependency cache is keyed by the commits actually checked out under thirdparty/. With none there the
+# key names a tree nobody built, so check_deps_cache_relocatable reads an empty entry and cannot run.
+if [ ! -e "$REPO_ROOT/$DEPS_REL" ]; then
+  if [ -d "$PRIMARY/$DEPS_REL" ]; then
+    rm -f "$REPO_ROOT/$DEPS_REL"
+    ln -s "$PRIMARY/$DEPS_REL" "$REPO_ROOT/$DEPS_REL"
+    say "linked $DEPS_REL -> $PRIMARY/$DEPS_REL"
+    changed=1
+  else
+    echo "ERROR: no fetched thirdparty/ at $PRIMARY/$DEPS_REL, so this tree names a dependency cache" >&2
+    echo "       entry nobody filled and every gate that reads one examines nothing." >&2
     exit 2
   fi
 fi

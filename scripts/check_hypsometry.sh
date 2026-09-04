@@ -9,13 +9,19 @@ SCRIPT_DIR="$(cd "${BASH_SOURCE[0]%/*}" && pwd)"
 source "$SCRIPT_DIR/lib_require.sh"
 # shellcheck source=lib_godot.sh
 source "$SCRIPT_DIR/lib_godot.sh"
+# shellcheck source=lib_capture.sh
+source "$SCRIPT_DIR/lib_capture.sh"
 require_tool godot
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 RUNNER="$SCRIPT_DIR/check_hypsometry.gd"
 [ -f "$RUNNER" ] || { echo "ERROR: check_hypsometry.sh cannot find its runner at $RUNNER." >&2; exit 2; }
 
-OUT="$(la_godot --headless --path "$REPO_ROOT" -s "$RUNNER" 2>&1)"
+if la_cap_dir >/dev/null; then
+  OUT="$(la_headless hypsometry)" || exit 2
+else
+  OUT="$(la_godot --headless --path "$REPO_ROOT" -s "$RUNNER" 2>&1)"
+fi
 SUMMARY="$(printf '%s\n' "$OUT" | grep -o 'HYPSOMETRY={.*}' | tail -n 1)"
 if [ -z "$SUMMARY" ]; then
   printf '%s\n' "$OUT" | tail -20

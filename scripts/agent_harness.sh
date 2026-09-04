@@ -240,25 +240,35 @@ if [[ "$cmd" == "lint" ]]; then
     lint_unrunnable=0
     lint_skipped=0
     lint_not_examined=0
-    run_gate() {
-      local label="$1"
-      shift
-      local rc=0
-      "$@" || rc=$?
-      case "$rc" in
+    # EVERY GATE IS ENQUEUED, THEN DRAINED. The CPU-only gates run in a worker pool and the ones that can
+    # start an engine run in place; the drain replays output in enqueue order, so this log does not depend
+    # on how the work was scheduled. LA_LINT_JOBS=1 runs the queue in one lane.
+    . "$SCRIPT_DIR/lib_lint_queue.sh"
+    if ! la_lq_init; then
+      echo "LINT_UNRUNNABLE: lib_lint_queue.sh (2) — no writable temp directory, so NO GATE RAN."
+      exit 2
+    fi
+    trap la_lq_cleanup EXIT
+    la_lq_account() {
+      case "$2" in
         0) ;;
         1)
-          echo "LINT_FAIL: $label ($rc)"
+          echo "LINT_FAIL: $1 ($2)"
           lint_failed=$((lint_failed + 1))
           ;;
         3)
           lint_not_examined=$((lint_not_examined + 1))
           ;;
         *)
-          echo "LINT_UNRUNNABLE: $label ($rc)"
+          echo "LINT_UNRUNNABLE: $1 ($2)"
           lint_unrunnable=$((lint_unrunnable + 1))
           ;;
       esac
+    }
+    run_gate() {
+      local label="$1"
+      shift
+      la_lq_add "$label" "$@"
     }
     gate() { run_gate "$1.sh" "$SCRIPT_DIR/$1.sh"; }
     # GATES THAT NEED A REAL GPU, declared ONCE. Each launches a sim through run_sim_offscreen.sh, and
@@ -267,7 +277,7 @@ if [[ "$cmd" == "lint" ]]; then
     GPU_GATES="check_no_focus_theft check_quiet_window check_presentation_absent check_body_measured check_gravity_solve check_finite_channels check_radiative_row check_alt_bands check_weathering_rate_law check_lifeless_planet check_boundary_momentum_book check_boundary_wrap check_boundary_books check_escape_law check_slice_exterior check_gas_in_rock check_active_rows check_derive_fixed_point check_driver_native check_stack_balance check_momentum_orphans check_cell_budget"
     gpu_gate() {
       if [[ "${LA_NO_GPU:-0}" == "1" ]]; then
-        echo "LINT_SKIPPED_NO_GPU: $1.sh (declared in GPU_GATES; run it on a machine with a GPU)"
+        la_lq_note "$1.sh" "LINT_SKIPPED_NO_GPU: $1.sh (declared in GPU_GATES; run it on a machine with a GPU)"
         lint_skipped=$((lint_skipped + 1))
         return
       fi
@@ -376,6 +386,9 @@ if [[ "$cmd" == "lint" ]]; then
     gate check_reaction_energy
     gate check_cache_invalidation
     gate check_launch_count
+
+    la_lq_drain
+    la_lq_timing LINT_TIMING
     # EVERY GATE RUNS. Fail-fast meant one red gate hid every gate after it.
     if [[ $lint_unrunnable -gt 0 ]]; then
       echo "LINT_SUMMARY: $lint_unrunnable gate(s) COULD NOT RUN, $lint_failed violation(s). Every gate ran;"
