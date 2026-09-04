@@ -1,0 +1,7 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://addons/local_agents/game/VoxelWorld.tscn" id="1_voxelworld"]
+
+[node name="SliceRung0Demo" instance=ExtResource("1_voxelworld")]
+process_rung = 0
+slice_box = "0,surface,0,24,32,24,4000"

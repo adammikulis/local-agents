@@ -14,7 +14,6 @@ uniform sampler2DArray field_tex : filter_nearest;
 uniform vec3 planet_center;
 uniform vec3 cam_pos;
 uniform vec3 cam_dir;      // normalize(cam_pos - planet_center)
-uniform vec3 prevailing;   // slow cloud-drift axis (planet spin axis)
 uniform vec3 sun_dir;      // world dir toward the star (basis.z of the sun light)
 uniform float cap_cos;     // cos(cap half-angle) — emit only in the camera-facing dome
 uniform float sea_radius;
@@ -32,7 +31,6 @@ const float FOG_SCALE = 22.0;
 const float RAIN_W = 2.0;
 const float RAIN_H = 12.0;
 const float SNOW_SCALE = 3.2;
-const float CLOUD_SPEED = 2.2;
 const float RAIN_SPEED = 34.0;
 const float SNOW_SPEED = 6.0;
 
@@ -137,26 +135,23 @@ void process() {
 	float sx = 0.0;
 	float sy = 0.0;
 	vec3 drift = vec3(0.0);
-	vec3 tang = normalize(cross(prevailing, dir));
 	if (phase < 0.0) {
 		sx = 0.0;
 		sy = 0.0;
-	} else if (phase < 0.5) {         // cloud — big soft puff, slow tangential drift
+	} else if (phase < 0.5) {         // cloud — big soft puff
 		sx = CLOUD_SCALE * szr * (0.7 + clamp(density * 3.0, 0.0, 1.0) * 0.5);
 		sy = sx;
-		drift = tang * CLOUD_SPEED;
-	} else if (phase < 1.5) {         // fog — flatter, hugs the ground, slower drift
+	} else if (phase < 1.5) {         // fog — flatter, hugs the ground
 		sx = FOG_SCALE * szr;
 		sy = sx * 0.7;
-		drift = tang * CLOUD_SPEED * 0.5;
 	} else if (phase < 2.5) {         // rain — thin tall streak, falls radially inward
 		sx = RAIN_W;
 		sy = RAIN_H;
-		drift = -dir * RAIN_SPEED + tang * 1.5;
-	} else {                          // snow — small flake, slow inward flutter
+		drift = -dir * RAIN_SPEED;
+	} else {                          // snow — small flake, falls radially inward
 		sx = SNOW_SCALE;
 		sy = SNOW_SCALE;
-		drift = -dir * SNOW_SPEED + tang * 2.0;
+		drift = -dir * SNOW_SPEED;
 	}
 	pos += drift * DELTA;             // disable_velocity render mode -> integrate manually
 	TRANSFORM[3] = vec4(pos, 1.0);

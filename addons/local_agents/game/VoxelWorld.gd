@@ -16,6 +16,11 @@ static func planet_radius() -> float:
 
 const FPS_PROBE_FRAMES: int = 150
 
+## THE RUNG this world declares and the SLICE BOX its field is laid on, so a per-rung demo is a scene
+## rather than a command line. UNSET and empty defer to the CLI, the world record and the environment.
+@export var process_rung: int = LAProcessSet.UNSET
+@export var slice_box: String = ""
+
 var _input: LAVoxelInputController = null
 var _sim: LASimulation = null
 var _render: LARenderLayer = null
@@ -66,6 +71,10 @@ func _ready() -> void:
 
 	_sim = SimulationScene.instantiate()
 	add_child(_sim)
+	if process_rung != LAProcessSet.UNSET:
+		_sim.process_rung = process_rung
+	if slice_box != "":
+		_sim.material_field().set_meta(LAFieldSlice3D.META_BOX, slice_box)
 	_sim.build({"planet": _planet_opts()})
 	_sim.set_probe_flags(_input.overview(), _input.farview(), _input.auto_meteor(), _input.auto_select())
 	if _input.llm():
@@ -77,17 +86,16 @@ func _ready() -> void:
 	_actors_root = _sim.actors_root()
 	_spawn = _sim.spawn_controller()
 
-	var host: Node = _presentation_host()
 	if _input.render() or _input.ui():
 		_render = RenderLayerScene.instantiate()
-		host.add_child(_render)
+		add_child(_render)
 		_render.build(self, _sim, _input)
 		_camera = _render.camera()
 		_sky_ctrl = _render.sky_controller()
 
 	if _input.ui():
 		_ui = UiLayerScene.instantiate()
-		host.add_child(_ui)
+		add_child(_ui)
 		_ui.build(self, _sim, _render, _input)
 		_hud = _ui.hud()
 		_audio = _ui.audio()
@@ -101,25 +109,22 @@ func _ready() -> void:
 
 	# Wire the input controller's auto-demo hooks now that every scene ref exists.
 	_input.bind(_sim.terrain(), _camera, _body, _sim.star(), _material, _sim.meteor_impacts(), _interaction, _ecology)
-	# The perf bench times the surface that actually drew the frame, which is the off-screen target.
-	if _input.perf_frames() > 0:
-		RenderingServer.viewport_set_measure_render_time(shot_viewport().get_viewport_rid(), true)
 	_begin_trailer_shot()
+	_move_offscreen.call_deferred()
 
 
 # A run that is PHOTOGRAPHED or TIMED draws into an off-screen SubViewport of --shoot-size, so the OS
-# window keeps its one pixel and no picture ever reaches a monitor. Every other run renders into the
-# window, which is where a player watches it.
-func _presentation_host() -> Node:
-	var off_screen: bool = _input.shoot_path() != "" or _input.perf_frames() > 0
-	if not off_screen or not (_input.render() or _input.ui()):
-		return self
-	_shot_viewport = SubViewport.new()
-	_shot_viewport.name = "ShotViewport"
-	_shot_viewport.size = _input.shoot_size()
-	_shot_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
-	add_child(_shot_viewport)
-	return _shot_viewport
+# window keeps its one pixel and no picture ever reaches a monitor. THE WHOLE SCENE moves into it, not
+# the presentation layers alone: a camera in one viewport over a world in another photographs black.
+func _move_offscreen() -> void:
+	if _input.shoot_path() == "" and _input.perf_frames() <= 0:
+		return
+	if not (_input.render() or _input.ui()):
+		return
+	_shot_viewport = LocalAgentDemoHarness.offscreen_shot_viewport(self)
+	# The perf bench times the surface that actually drew the frame, which is the off-screen target.
+	if _input.perf_frames() > 0:
+		RenderingServer.viewport_set_measure_render_time(_shot_viewport.get_viewport_rid(), true)
 
 
 ## The surface a screenshot is read back from. LocalAgentDemoHarness asks for it by name.

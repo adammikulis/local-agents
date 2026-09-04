@@ -296,7 +296,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `RIPPLE_MAX` | 16 | presentation or diagnostic buffer length, not physics | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `RIPPLE_SPEED` | 9.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `RIPPLE_DECAY` | 0.7 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `WIND_SCALE` | 6.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldReport3D.gd` | `HEAVY_EVERY_FRAMES` | 64 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldReport3D.gd` | `CLIMATE_BANDS` | 6 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialField3D.gd` | `INITIAL_TEMP` | 15.0 | inherited, unreviewed | Stage 2 substrate rewrite |

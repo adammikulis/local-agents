@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # THE DEMO LOOKS AT THE WORLD IT IS STANDING ON. The shot is taken once the ground under the camera is
-# drawn, and publishes where the eye stood, what it was aimed at, and what each half of the frame holds.
-# EXIT 0 the eye stands over built ground and is aimed at it · 1 it is not · 2 could not run, a run whose
-# terrain never arrived included.
+# drawn, and publishes where the eye stood, what the 3-D half of the frame holds, and — with
+# LA_GROUND_SLICE set — whether the eye stood INSIDE the slice box and how many glyphs it drew.
+# EXIT 0 the eye stands over built, drawn ground and is aimed at it · 1 it is not · 2 could not run.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh"
@@ -11,37 +11,47 @@ PNG="$(mktemp "${TMPDIR:-/tmp}/la_ground.XXXXXX").png"
 LOG="$(mktemp "${TMPDIR:-/tmp}/la_ground_log.XXXXXX")"
 trap 'rm -f "$PNG" "$LOG"' EXIT
 
+# A SLICE run frames its box and draws the wind over it. Without one the whole body is framed and no
+# vector source is named, so the arrow count is not asked for.
+SLICE="${LA_GROUND_SLICE:-}"
+EXTRA=()
+if [ -n "$SLICE" ]; then
+	export LA_SLICE_BOX="$SLICE"
+	EXTRA=("--vectors=wind")
+fi
+
+# --shoot-frames is a FLOOR, not the shot: the scene is asked every frame past it whether the ground
+# under the eye has arrived, and is photographed when it says yes. Raising it hides a slow mesher.
 LA_RUN_TIMEOUT="${LA_GROUND_TIMEOUT:-100}" "$ROOT/scripts/run_sim_offscreen.sh" --path "$ROOT" \
 	addons/local_agents/game/VoxelWorld.tscn \
 	-- --sandbox --planet-only --no-fauna --rung=0 --ui "--shoot=$PNG" \
-	"--shoot-frames=${LA_GROUND_FRAMES:-600}" > "$LOG" 2>&1
+	"--shoot-frames=${LA_GROUND_FRAMES:-60}" ${EXTRA[@]+"${EXTRA[@]}"} > "$LOG" 2>&1
 
 shot="$(grep -m1 '^SHOT_SAVED=' "$LOG")"
-halves="$(grep -m1 '^SHOT_STRUCTURE=' "$LOG")"
-if [ -z "$shot" ] || [ -z "$halves" ]; then
+if [ -z "$shot" ]; then
 	echo "check_ground_drawn: the run published no shot, so nothing was photographed." >&2
 	tail -20 "$LOG" >&2
 	exit 2
 fi
 echo "$shot"
-echo "$halves"
 
-meshed="$(printf '%s' "$shot" | rg -N -o -e 'ground_meshed=(true|false)' | rg -N -o -e '(true|false)')"
+read_num() { printf '%s' "$shot" | rg -N -o -e "$1=-?[0-9.]+" | rg -N -o -e '\-?[0-9.]+'; }
+read_flag() { printf '%s' "$shot" | rg -N -o -e "$1=(true|false)" | rg -N -o -e '(true|false)'; }
+
+meshed="$(read_flag ground_meshed)"
 if [ "$meshed" != "true" ]; then
 	echo "check_ground_drawn: the terrain under the camera was never built in this run's frames," >&2
 	echo "  so the picture is of a body that had not arrived. Nothing was measured." >&2
 	exit 2
 fi
 
-alt="$(printf '%s' "$shot" | rg -N -o -e 'cam_alt_m=-?[0-9.]+' | rg -N -o -e '\-?[0-9.]+')"
-pitch="$(printf '%s' "$shot" | rg -N -o -e 'cam_pitch_deg=-?[0-9.]+' | rg -N -o -e '\-?[0-9.]+')"
-ahead="$(printf '%s' "$shot" | rg -N -o -e 'ground_ahead_m=-?[0-9.]+' | rg -N -o -e '\-?[0-9.]+')"
-aim="$(printf '%s' "$shot" | rg -N -o -e 'aim_ahead_m=-?[0-9.]+' | rg -N -o -e '\-?[0-9.]+')"
-up="$(printf '%s' "$halves" | rg -N -o -e '"upper_mean":[0-9.]+' | rg -N -o -e '[0-9.]+')"
-low="$(printf '%s' "$halves" | rg -N -o -e '"lower_mean":[0-9.]+' | rg -N -o -e '[0-9.]+')"
-upv="$(printf '%s' "$halves" | rg -N -o -e '"upper":[0-9.]+' | rg -N -o -e '[0-9.]+')"
-lowv="$(printf '%s' "$halves" | rg -N -o -e '"lower":[0-9.]+' | rg -N -o -e '[0-9.]+')"
-if [ -z "$alt" ] || [ -z "$pitch" ] || [ -z "$ahead" ] || [ -z "$aim" ] || [ -z "$up" ] || [ -z "$low" ]; then
+alt="$(read_num cam_alt_m)"
+pitch="$(read_num cam_pitch_deg)"
+ahead="$(read_num ground_ahead_m)"
+aim="$(read_num aim_ahead_m)"
+mean="$(read_num scene_mean)"
+var="$(read_num scene_var)"
+if [ -z "$alt" ] || [ -z "$pitch" ] || [ -z "$ahead" ] || [ -z "$aim" ] || [ -z "$mean" ] || [ -z "$var" ]; then
 	echo "check_ground_drawn: the shot did not say where it stood, so nothing was measured." >&2
 	exit 2
 fi
@@ -64,11 +74,26 @@ awk -v g="$ahead" -v a="$aim" 'BEGIN { exit (g > 0.0 && a > 0.0 && g < 2.0 * a) 
 	echo "  the camera is aimed at a body that has not arrived where it is looking." >&2
 	fail=1
 }
-# A rendered world is not one flat colour: a dead renderer draws two identical, featureless halves.
-awk -v u="$up" -v l="$low" -v uv="$upv" -v lv="$lowv" \
-	'BEGIN { d = u - l; if (d < 0) d = -d; exit (d > 0.01 || uv > 1.0e-4 || lv > 1.0e-4) ? 0 : 1 }' || {
-	echo "FAIL  the frame has no structure at all ($up vs $low): the renderer drew nothing." >&2
+# AND THE WORLD IS IN THE PICTURE. Read off the middle of the frame, clear of the HUD bands: an unlit or
+# undrawn world is near-black and featureless there, whatever the panels around the edge are doing.
+awk -v m="$mean" -v v="$var" 'BEGIN { exit (m > 0.02 && v > 1.0e-4) ? 0 : 1 }' || {
+	echo "FAIL  the middle of the frame reads ${mean} mean, ${var} variance: the world is not in the" >&2
+	echo "  picture — one flat colour is a frame that drew nothing, black or white." >&2
 	fail=1
 }
+
+if [ -n "$SLICE" ]; then
+	inside="$(read_flag cam_in_slice)"
+	arrows="$(read_num field_arrows)"
+	[ "$inside" = "true" ] || {
+		echo "FAIL  the eye stands OUTSIDE the slice box it was given: it framed some other place." >&2
+		fail=1
+	}
+	awk -v n="${arrows:-0}" 'BEGIN { exit (n > 0) ? 0 : 1 }' || {
+		echo "FAIL  the run drew ${arrows:-0} field-vector glyphs, so the field is not in the picture." >&2
+		fail=1
+	}
+fi
+
 [ "$fail" -eq 0 ] || exit 1
 echo "check_ground_drawn: OK (the eye is ${alt} m up, pitched ${pitch}, framing ground at ${aim} m and meeting it at ${ahead} m)"

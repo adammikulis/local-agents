@@ -101,11 +101,9 @@ func try_spawn(_overview: bool, _farview: bool, _auto_meteor: bool, _auto_select
 		_ecology.populate_environment(ROCK_COUNT, clusters)
 		if not no_fauna and _ecology.has_method("stock_initial_aquatic"):
 			_ecology.stock_initial_aquatic()
-	# Framing is presentation: null without --ui, and where life was placed is already decided above.
-	if _camera != null and _camera.has_method("set_orbit_target"):
-		_camera.set_orbit_target(_body.center(), _body.radius())
-	# CAMPAIGN opens looking AT the herd: aim the orbit camera at the rabbit cluster (the close approach arc then
-	# frames them at eye level). orient_toward clears the deferred sunnyside so the herd aim wins.
+	# NOTHING RE-FRAMES THE VIEW HERE: the render layer framed the camera off the body or off the slice
+	# box, and a second framing at spawn undoes it.
+	# CAMPAIGN opens looking AT the herd; orient_toward clears the deferred sunnyside so the aim wins.
 	if _camera != null and _is_campaign() and _camera.has_method("orient_toward"):
 		var herd_dir: Vector3 = _campaign_herd_dir()
 		if herd_dir != Vector3.ZERO:

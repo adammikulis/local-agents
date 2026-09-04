@@ -34,7 +34,9 @@ var _hud: CanvasLayer = null
 var _input: LAVoxelInputController = null
 var _ecology: Node = null               # LAEcologyService — owns the kinship graph the family tree reads
 var _debug_panel: CanvasLayer = null    # LADebugPanel (left-docked debug menu)
-var _debug_overlay: Node3D = null       # LADebugOverlay (world-space highlight/path/wind gizmos)
+var _debug_overlay: Node3D = null       # LADebugOverlay (world-space highlight/path gizmos)
+var _vectors: LAFieldVectors = null     # the per-cell arrow glyphs the "wind" view switches on
+var _vector_legend: LAFieldVectorLegend = null
 var _family_tree: LAFamilyTreePanel = null  # right-docked kinship family-tree inspector (on-select reader)
 var _interaction: Node = null               # LAVoxelInteraction — for "select all thinking/queued" (late-bound)
 
@@ -79,16 +81,12 @@ func setup(world: Node, material: Node, terrain, sky: LAVoxelSkyController, hud:
 		_family_tree.set_kinship(_ecology.kinship())
 	if _input != null and _input.debug_demo():
 		# Verification aid: pre-enable a spread of gizmos so a screenshot shows them working.
-		_debug_overlay.set_wind(true)
 		_debug_overlay.set_paths(true)
 		_debug_overlay.set_highlight("species_bird", true)
 		_debug_overlay.set_highlight("species_fox", true)
 		_debug_overlay.set_highlight("nest", true)
-	elif _input != null and _input.wind_view():
-		# Wind-field verification: ONLY the emergent wind-arrow overlay (clean shot of funneling/fronts).
-		_debug_overlay.set_wind(true)
-	# Screenshot verification aids for the new debug tooling (mirrors --wind-view): pre-enable a field
-	# heatmap and/or behavior-state highlights so a windowed --shoot captures them with no manual clicks.
+	# Screenshot verification aids: pre-enable a field heatmap and/or behavior-state highlights so a
+	# windowed --shoot captures them with no manual clicks.
 	if _input != null and _input.debug_field() != "":
 		_on_debug_view(_input.debug_field(), true)
 	if _input != null and _input.debug_behaviors() != "":
@@ -102,6 +100,16 @@ func setup(world: Node, material: Node, terrain, sky: LAVoxelSkyController, hud:
 	var boot_vp: Viewport = world.get_viewport()
 	if boot_vp != null:
 		boot_vp.msaa_3d = Viewport.MSAA_4X
+
+
+## The per-cell vector glyphs the "wind" view drives, and the legend they are read against. Both are
+## the render/UI layers' nodes; a run with no --ui binds neither.
+func set_field_vectors(vectors: LAFieldVectors) -> void:
+	_vectors = vectors
+
+
+func set_vector_legend(legend: LAFieldVectorLegend) -> void:
+	_vector_legend = legend
 
 
 ## Late-bind the interaction controller (built after this wiring in the composition order) so the "select
@@ -142,8 +150,10 @@ func _on_debug_view(view: String, on: bool) -> void:
 			if _terrain != null and _terrain.has_method("set_shader_param"):
 				_terrain.set_shader_param("heat_debug", 1.0 if on else 0.0)
 		"wind":
-			if _debug_overlay != null:
-				_debug_overlay.set_wind(on)
+			if _vectors != null:
+				_vectors.set_source(LAFieldVectors.SOURCE_WIND if on else LAFieldVectors.SOURCE_OFF)
+			if _vector_legend != null:
+				_vector_legend.refresh()
 		_:
 			if FIELD_CHANNELS.has(view):
 				if on:

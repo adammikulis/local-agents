@@ -7,7 +7,6 @@ const BEAM_THICK: float = 0.09             # offset that fakes line thickness (4
 const RING_RADIUS: float = 1.4
 const RING_SEGS: int = 20
 const PATH_LEN: float = 5.0
-const WIND_GRID: int = 18            # denser sampling so local funneling/fronts read clearly in the arrows
 
 # Highlightable groups -> marker colour (mirrors the spawn-palette identity colours).
 const MARKER_COLORS: Dictionary = {
@@ -27,7 +26,6 @@ var _im: ImmediateMesh = null
 var _mat: StandardMaterial3D = null
 var _highlight: Dictionary = {}            # group name -> true (which types are highlighted)
 var _paths: bool = false
-var _wind: bool = false
 var _field_channel: String = ""           # active field-channel heatmap ("" = none). One at a time.
 
 # Field-channel heatmap: a grid of directions over the planet, each drawn as a colored radial spike
@@ -66,10 +64,6 @@ func set_paths(on: bool) -> void:
 	_paths = on
 
 
-func set_wind(on: bool) -> void:
-	_wind = on
-
-
 ## Select the active field-channel heatmap ("" = off). One channel at a time — enabling a new channel
 ## replaces the previous. Keys match LADebugPanel VIEWS (biomass/water_phase/snow/lava/rock_fill/co2/o2/
 ## charge/fertility).
@@ -81,15 +75,13 @@ func _process(_delta: float) -> void:
 	if _im == null:
 		return
 	_im.clear_surfaces()
-	if _highlight.is_empty() and not _paths and not _wind and _field_channel == "":
+	if _highlight.is_empty() and not _paths and _field_channel == "":
 		return                              # nothing to draw — leave the mesh empty (no cost)
 	_im.surface_begin(Mesh.PRIMITIVE_LINES)
 	if not _highlight.is_empty():
 		_draw_highlights()
 	if _paths:
 		_draw_paths()
-	if _wind:
-		_draw_wind()
 	if _field_channel != "":
 		_draw_field_channel()
 	_im.surface_end()
@@ -157,44 +149,6 @@ func _draw_paths() -> void:
 		var side: Vector3 = dir.cross(Vector3.UP).normalized() * 0.6
 		_line(tip, tip - dir * 1.0 + side, col)
 		_line(tip, tip - dir * 1.0 - side, col)
-
-
-# The emergent local wind as arrows over the planet: sampled on a lat/long grid, the same layout
-# _draw_field_channel uses, so direction and length (= local speed) vary across the sphere.
-func _draw_wind() -> void:
-	if _field == null or not _field.has_method("wind_at") or _terrain == null:
-		return
-	var shell: float = _field.sea_radius() + 48.0
-	# Map local speed (m/s-ish) to arrow length so slow air draws short stubs and jets draw long arrows.
-	const SPEED_REF: float = 5.0
-	const LEN_MIN: float = 4.0
-	const LEN_MAX: float = 24.0
-	const THICK: float = 0.7                   # parallel-line offset faking arrow thickness (visible far off)
-	var centre: Vector3 = _terrain.center() if _terrain.has_method("center") else Vector3.ZERO
-	for iy in range(1, WIND_GRID):
-		var theta: float = PI * float(iy) / float(WIND_GRID)
-		for ix in range(WIND_GRID * 2):
-			var phi: float = TAU * float(ix) / float(WIND_GRID * 2)
-			var radial: Vector3 = Vector3(sin(theta) * cos(phi), cos(theta), sin(theta) * sin(phi))
-			var probe: Vector3 = centre + radial * shell
-			var w: Vector2 = _field.wind_at(probe)
-			var speed: float = w.length()
-			if speed < 0.02:
-				continue
-			var dir: Vector3 = Vector3(w.x, 0.0, w.y) / speed
-			var arrow: float = clampf(LEN_MIN + speed / SPEED_REF * (LEN_MAX - LEN_MIN), LEN_MIN, LEN_MAX)
-			# Colour ramps calm(blue) -> fast(cyan/white) so speed reads at a glance too.
-			var t: float = clampf(speed / (SPEED_REF * 1.5), 0.0, 1.0)
-			var col: Color = Color(0.35 + 0.55 * t, 0.7 + 0.3 * t, 1.0, 0.85)
-			var side: Vector3 = dir.cross(radial).normalized()
-			var base: Vector3 = probe
-			var tip: Vector3 = base + dir * arrow
-			var hoff: Vector3 = side * THICK
-			# Shaft (doubled for thickness) + arrowhead.
-			_line(base + hoff, tip + hoff, col)
-			_line(base - hoff, tip - hoff, col)
-			_line(tip, tip - dir * (arrow * 0.32) + side * (arrow * 0.18), col)
-			_line(tip, tip - dir * (arrow * 0.32) - side * (arrow * 0.18), col)
 
 
 func _draw_field_channel() -> void:

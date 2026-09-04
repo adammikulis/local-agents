@@ -19,7 +19,6 @@ const RECENTER_DOT: float = 0.999          # rebuild early if the camera radial 
 const RIPPLE_MAX: int = 16                 # ring-buffer length; the shader's copy is generated
 const RIPPLE_SPEED: float = 9.0            # ring expansion (world units / s)
 const RIPPLE_DECAY: float = 0.7            # amplitude e-fold time (1/s)
-const WIND_SCALE: float = 6.0              # field.wind() magnitude → shader wind_strength (0..2)
 
 var _f = null                              # LAMaterialField3D
 var _camera: Node3D = null
@@ -109,7 +108,7 @@ func _process(delta: float) -> void:
 	global_transform = Transform3D(Basis(x_axis, radial, z_axis), _center)
 
 	_age_ripples(delta)
-	_push_frame_uniforms()
+	_push_frame_uniforms(radial)
 
 	# Rebuild geometry on a throttle, or early when the camera has orbited enough to move the cap.
 	_accum += delta
@@ -151,13 +150,20 @@ func _age_ripples(delta: float) -> void:
 	_ripples = kept
 
 
-func _push_frame_uniforms() -> void:
+func _push_frame_uniforms(radial: Vector3) -> void:
 	if _mat == null:
 		return
-	var w: Vector2 = _f.wind() if _f.has_method("wind") else Vector2.ZERO
-	var wdir: Vector2 = w.normalized() if w.length() > 1.0e-4 else Vector2(1.0, 0.0)
+	# THE WIND OVER THIS PATCH, not a mean over the body: the cell the patch is centred on, projected
+	# into the patch's own frame, which is what the flat Y-up water shader reads. The wave dial saturates
+	# at the reference the arrow glyphs' ramp does, so one reading drives both pictures.
+	var ground: Vector3 = _center + radial * _sea_radius
+	var w3: Vector3 = _f.wind3_at(ground.x, ground.y, ground.z)
+	var local: Vector3 = global_transform.basis.inverse() * w3
+	var flat: Vector2 = Vector2(local.x, local.z)
+	var wdir: Vector2 = flat.normalized() if flat.length() > 1.0e-4 else Vector2(1.0, 0.0)
 	_mat.set_shader_parameter("wind_dir", wdir)
-	_mat.set_shader_parameter("wind_strength", clampf(w.length() * WIND_SCALE, 0.0, 2.0))
+	_mat.set_shader_parameter("wind_strength",
+		clampf(2.0 * w3.length() / LAFieldVectors.WIND_REF_M_S, 0.0, 2.0))
 	# Impact ripples: pad to RIPPLE_MAX with (centre.x, centre.z, age, strength) in WORLD xz (what the shader reads).
 	var packed: Array = []
 	packed.resize(RIPPLE_MAX)

@@ -28,19 +28,30 @@ planet's scale-height edge and no refinement inside the box: the spec carries no
 band refines uniformly, and a slice on a hilltop and one on a coast seed the same regolith saturation
 (`regolith_wet_cells` over `regolith_cells`, both to publish).
 
-## 2. A --ui RUN NEVER FRAMES THE SLICE, AND THE GROUND UNDER THE EYE IS NOT BUILT
+## 2. THE GROUND UNDER THE EYE IS NOT BUILT ON THE WHOLE BODY
 
-`LA_SLICE_BOX="0,surface,0,24,32,24,4000" LA_RUN_TIMEOUT=110 scripts/run_sim_offscreen.sh --path .
-addons/local_agents/game/VoxelWorld.tscn -- --sandbox --planet-only --no-fauna --rung=0 --ui
---shoot=/tmp/s.png` frames the whole body, not the box; `scripts/agent_harness.sh ground` exits 2 at
-any rung. No renderer draws a per-cell vector field (gravity at rung 1, wind at rung 3).
+`scripts/agent_harness.sh ground` exits 2: its shot reads `ground_meshed=false`, and the view axis
+first meets built ground far past where the pose framed it. The same gate over a box,
+`LA_GROUND_SLICE="0,surface,0,24,32,24,4000" scripts/check_ground_drawn.sh`, exits 0.
 
-## 3. THE RUNG-0, RUNG-1 AND RUNG-2 DEMOS ARE NOT CUT
+## 3. THE SURFACE READS AS ONE WHITE SHEET
 
-`scripts/check_demo_catalog.sh` lists no per-rung slice demo. Each is a scene declaring its rung and
-the slice box, and an entry; cut in order, each approved before the next rung is built.
+The shot that gate saves has almost no structure in it: the ground, the sea and the sky come back at
+one brightness. `LA_GROUND_SLICE="0,surface,0,24,32,24,4000" scripts/check_ground_drawn.sh` publishes
+`scene_mean` and `scene_var` beside the shot.
 
-## 4. NOT EXAMINED UNTIL THE RUNG-2 DEMO IS APPROVED — rung 3
+## 4. THE RUNG-1 AND RUNG-2 DEMOS ARE NOT CUT
+
+`scripts/check_demo_catalog.sh` lists `slice_rung0.tres` and nothing above it. Each is a scene
+declaring its rung and the slice box, and an entry; cut in order, each approved before the next rung
+is built.
+
+## 5. TWO REDUCE ROWS ARE NAMED BY A RUNG AND DECLARED BY NOBODY
+
+`rg -n -e wind_x_sum -e wind_z_sum` finds both in `LAProcessSet.cpp`'s `ACOUSTIC_REDUCE` and in no
+`reduce/*.gd` row. Removing them rebuilds the extension.
+
+## 6. NOT EXAMINED UNTIL THE RUNG-2 DEMO IS APPROVED — rung 3
 
 - `scripts/sim_run.sh --rung 3 --frames 8` on the planet ends with `timeout waiting for fence`.
 - `LA_REST_CELL_M=68000 LA_REST_CELLS=8 scripts/check_atmosphere_at_rest.sh` reads a rest departure
@@ -55,7 +66,7 @@ the slice box, and an entry; cut in order, each approved before the next rung is
   from the advective CFL, and `SIM_SECONDS_PER_STEP` is deleted. Declared in `docs/APPROXIMATIONS.md`
   when built.
 
-## 5. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the books above it
+## 7. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the books above it
 
 - The open-boundary books at run level: `scripts/sim_run.sh --frames 20 --slice-capture C` then
   `LA_RUN_TIMEOUT=900 scripts/sim_run.sh --slice --slice-state C --frames 650` fires
@@ -66,13 +77,13 @@ the slice box, and an entry; cut in order, each approved before the next rung is
   addons/local_agents/game/VoxelWorld.tscn -- --sandbox --ui --run-frames=20` prints no report and
   logs no error; the same arm with `--planet-only --no-fauna` reports.
 
-## 6. Reduce the rest on the device
+## 8. Reduce the rest on the device
 
 `FieldPassAttribution3D._sums` walks the channels it downloads at a checkpoint; a reduce dispatch per
 checkpoint replaces it. Three shapes refused a row and say why: `sea_surface_stats`, `lava_shell_diag`,
 `rock_radial_profile`.
 
-## 7. Build the binding registry
+## 9. Build the binding registry
 
 SSBO binding numbers are a bare integer in GLSL and a second bare integer in each uniform-set builder.
 Build `addons/local_agents/sim/material/Bindings.gd` on `Channels.gd`'s shape and one gate absorbing the

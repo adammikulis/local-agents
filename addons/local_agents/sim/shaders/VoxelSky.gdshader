@@ -15,6 +15,9 @@ uniform vec3 sky_horizon_color : source_color = vec3(0.72, 0.80, 0.88);
 // Night visibility of stars + moon (0 day .. 1 night) and overall star brightness.
 uniform float night : hint_range(0.0, 1.0) = 0.0;
 uniform float star_intensity = 1.0;
+// The local vertical at the eye. The zenith, the air mass and the horizon are measured from it: on a
+// sphere world +Y is the pole, not the horizon anywhere but the poles.
+uniform vec3 planet_up = vec3(0.0, 1.0, 0.0);
 
 // ALTITUDE fade: 0 = down at the surface (blue atmosphere), 1 = up in space (black sky + stars everywhere).
 // Driven per-frame from the camera's surface_blend so the sky CROSSFADES atmosphere<->space instead of the
@@ -53,14 +56,14 @@ float air_mass(float cos_up) {
 }
 
 // Closed-form single-scatter radiance looking along `dir` with the sun toward `sun_n` (both normalized).
-vec3 atmosphere(vec3 dir, vec3 sun_n) {
+vec3 atmosphere(vec3 dir, vec3 sun_n, vec3 up) {
 	float cos_theta = dot(dir, sun_n);
 	float ray_phase = 0.75 * (1.0 + cos_theta * cos_theta);
 	float g2 = mie_g * mie_g;
 	float mie_phase = (1.0 - g2) / pow(max(1.0 + g2 - 2.0 * mie_g * cos_theta, 1.0e-4), 1.5) * (0.25 / PI);
 
-	float view_mass = air_mass(dir.y);
-	float sun_mass = air_mass(sun_n.y);
+	float view_mass = air_mass(dot(dir, up));
+	float sun_mass = air_mass(dot(sun_n, up));
 
 	// Sunlight reaching the scattering column, reddened by the long slanted path at low sun (sunset).
 	vec3 sun_transmit = exp(-(rayleigh_beta + mie_beta) * sun_mass * 1.4);
@@ -105,9 +108,11 @@ void sky() {
 	// --- Daytime sky: analytic Rayleigh+Mie scatter from sun_dir. At night the scatter self-darkens (the
 	// sun is below the horizon, so its transmit term → ~0), and we blend to the controller's dark night
 	// gradient as `night` rises so the moon/stars read against a deep-blue floor, not pure black. ---
+	vec3 up_n = normalize(planet_up);
+	float up_d = dot(dir, up_n);
 	vec3 sun_n = normalize(sun_dir);
-	vec3 scatter = atmosphere(dir, sun_n);
-	vec3 night_sky = mix(sky_horizon_color, sky_top_color, smoothstep(0.0, 0.4, dir.y));
+	vec3 scatter = atmosphere(dir, sun_n, up_n);
+	vec3 night_sky = mix(sky_horizon_color, sky_top_color, smoothstep(0.0, 0.4, up_d));
 	vec3 sky_col = mix(scatter, night_sky, night);
 	// No painted ground hemisphere. On a spherical planet the lower half of the view is REAL terrain, so a
 	// sky-drawn ground band only ever showed up as a hard false horizon line at dir.y = 0 (the old
@@ -120,11 +125,11 @@ void sky() {
 	col = mix(col, space_color, space_amount);
 	// ...but keep a thin ATMOSPHERIC LIMB: a bright scatter band hugging the horizon that survives into
 	// space, so from orbit the planet wears a glowing blue rim instead of a hard black edge.
-	float limb = exp(-abs(dir.y) * 7.0) * smoothstep(0.0, 0.25, dir.y + 0.12);
-	col += atmosphere(normalize(vec3(dir.x, max(dir.y, 0.02), dir.z)), sun_n) * limb * space_amount * 0.7;
+	float limb = exp(-abs(up_d) * 7.0) * smoothstep(0.0, 0.25, up_d + 0.12);
+	col += atmosphere(normalize(dir + up_n * max(0.02 - up_d, 0.0)), sun_n, up_n) * limb * space_amount * 0.7;
 
 	// --- Stars: at night above the horizon, and everywhere once out in space (as the atmosphere fades) ---
-	float above = smoothstep(0.0, 0.15, dir.y);
+	float above = smoothstep(0.0, 0.15, up_d);
 	float star_gate = mix(above, 1.0, space_amount);       // in space stars fill the sphere, not just overhead
 	float star_vis = max(night, space_amount);             // visible at night OR in space
 	float stars = starfield(dir) * star_vis * star_intensity * star_gate;

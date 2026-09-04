@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="LocalAgentDemoEntry" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/examples/DemoEntry.gd" id="1_entry"]
+
+[resource]
+script = ExtResource("1_entry")
+order = 130
+title = "Slice, rung 0: state"
+description = "One box of the planet, laid on the real terrain and stepped by the bottom rung alone: matter, energy and phase; nothing moves. No gravity is solved, no pressure stands and no wind blows, so the vector glyphs are off and the picture is the state the world was seeded into."
+scene_path = "res://addons/local_agents/examples/SliceRung0Demo.tscn"
+requires_model = false
+requires_voxel_backend = true
