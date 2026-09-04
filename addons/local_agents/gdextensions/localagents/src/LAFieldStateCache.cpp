@@ -48,6 +48,13 @@ String LAFieldStateCache::mask_key(const Dictionary &p_opts, int p_nx, int p_ny,
 		}
 		parts.append(p_sources[i] + String("=") + src->get_as_text().sha256_text());
 	}
+	// The walks this key stands for are NATIVE, so a rebuilt extension is a different walk.
+	Ref<FileAccess> hf = FileAccess::open(
+			"res://addons/local_agents/gdextensions/localagents/bin/SOURCE_HASH", FileAccess::READ);
+	if (hf.is_null()) {
+		return String();
+	}
+	parts.append(String("ext=") + hf->get_as_text());
 	return String("\n").join(parts).sha256_text();
 }
 

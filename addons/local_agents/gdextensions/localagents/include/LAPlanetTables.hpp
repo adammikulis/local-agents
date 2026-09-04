@@ -54,6 +54,10 @@ public:
 	static PackedByteArray solid_of(const PackedFloat32Array &p_fraction);
 	static PackedFloat32Array surface_depth(Object *p_grid, Object *p_terrain, const Vector3 &p_centre);
 	static double sea_level_m(double p_r_m, double p_ocean_m3, const PackedFloat64Array &p_area_below, const PackedFloat64Array &p_elevation_m);
+	// THE WATER TABLE, m above the sea: the one equipotential a connected aquifer stands at, solved so the
+	// pore space it saturates over the sea holds p_groundwater_m3. Capped at the ground by its consumer.
+	static double water_table_m(double p_r_m, double p_groundwater_m3, double p_sea_level_m,
+			const PackedFloat64Array &p_area_below, const PackedFloat64Array &p_elevation_m);
 	static double radius_for_mass(double p_mass_kg, double p_t_c);
 	static double core_radius_m(double p_radius_m, double p_t_c);
 	static Dictionary body_field(Object *p_grid, const Vector3 &p_centre, double p_radius_m, double p_t_c);

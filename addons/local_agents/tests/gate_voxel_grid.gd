@@ -58,7 +58,7 @@ func _init() -> void:
 	# N LEVELS: a band around a sphere's surface, refined until the edge is under the target, 2:1 balanced.
 	var t = LAVoxelGrid.new()
 	t.build(9, 9, 9, 100.0, Vector3(-450.0, -450.0, -450.0))
-	t.adopt_geometry(LAGridGeometry.build_to_budget(Vector3i(9, 9, 9), t.origin, 100.0, Vector3.ZERO, _Sphere.new(300.0), 40.0, 60.0, 12.0, 2147483647, Vector3.ZERO, Vector3.ZERO, 0.0))
+	t.adopt_geometry(LAGridGeometry.build_to_budget(Vector3i(9, 9, 9), t.origin, 100.0, Vector3.ZERO, _Sphere.new(300.0), 40.0, 60.0, 12.0, LAFieldGridBudget.CELLS_PER_LEVEL_PAD, 2147483647, Vector3.ZERO, Vector3.ZERO, 0.0))
 	var tv: Dictionary = t.validate()
 	if not bool(tv["ok"]): fail += 1
 	if t.max_level < 3: fail += 1

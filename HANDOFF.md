@@ -32,12 +32,12 @@ band refines uniformly, and a slice on a hilltop and one on a coast seed the sam
 
 `scripts/agent_harness.sh ground` exits 2: its shot reads `ground_meshed=false`, and the view axis
 first meets built ground far past where the pose framed it. The same gate over a box,
-`LA_GROUND_SLICE="0,surface,0,24,32,24,4000" scripts/check_ground_drawn.sh`, exits 0.
+`LA_GROUND_SLICE="0,surface,0,3,24,3,5120,10" scripts/check_ground_drawn.sh`, exits 0.
 
 ## 3. THE SURFACE READS AS ONE WHITE SHEET
 
 The shot that gate saves has almost no structure in it: the ground, the sea and the sky come back at
-one brightness. `LA_GROUND_SLICE="0,surface,0,24,32,24,4000" scripts/check_ground_drawn.sh` publishes
+one brightness. `LA_GROUND_SLICE="0,surface,0,3,24,3,5120,10" scripts/check_ground_drawn.sh` publishes
 `scene_mean` and `scene_var` beside the shot.
 
 ## 4. THE RUNG-1 AND RUNG-2 DEMOS ARE NOT CUT
