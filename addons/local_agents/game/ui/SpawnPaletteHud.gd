@@ -14,6 +14,7 @@ const THUMB_PX: int = 64
 # The palette is split into two visible clusters. Order within each drives the number hotkeys
 # (LIFE -> 1..8, IMPACT -> Shift+1..8); KINDS is the flat union for lookups. A meteor is the only thing
 # the player can cause: weather and geology are observed, never spawned.
+const FLORA_KINDS: PackedStringArray = ["plant", "tree"]
 const LIFE_KINDS: PackedStringArray = [
 	"plant", "tree", "rabbit", "fox", "bird", "vulture", "villager", "fish",
 ]
@@ -231,8 +232,13 @@ func _build_palette_buttons() -> void:
 	_palette_group = ButtonGroup.new()
 	_palette_group.allow_unpress = true
 
+	# Each kind is offered only where its own kingdom lives in this world; with neither, the cluster
+	# goes entirely, caption and all.
+	_life_cluster.visible = LAWorldOffers.has_life() or LAWorldOffers.has_flora()
 	for kind in LIFE_KINDS:
-		_life_cluster.add_child(_make_kind_button(_palette_group, kind))
+		var alive: bool = LAWorldOffers.has_flora() if FLORA_KINDS.has(kind) else LAWorldOffers.has_life()
+		if alive:
+			_life_cluster.add_child(_make_kind_button(_palette_group, kind))
 	for kind in IMPACT_KINDS:
 		_disaster_cluster.add_child(_make_kind_button(_palette_group, kind))
 

@@ -63,7 +63,7 @@ func _buffers(cc: int) -> Dictionary:
 		"bodyf_x": cc, "bodyf_y": cc, "bodyf_z": cc,
 		"k_cond": {"n": cc, "ghosts": true}, "gas_r": {"n": cc, "ghosts": true},
 		"gas_gamma": {"n": cc, "ghosts": true}, "mach": cc, "g_rest": {"n": cc * 3, "ghosts": true}, "cap_lith": {"n": cc, "ghosts": true}, "lattice_frac": {"n": cc, "ghosts": true},
-		"rad_w_m3": {"n": cc, "ghosts": true}, "ke_j_m3": cc, "pe_j_m3": cc, "grav_phi": cc, "grav_ref": cc, "lithic_frac": {"n": cc, "ghosts": true}, "lithic_kg": {"n": cc, "ghosts": true}})
+		"rad_w_m3": {"n": cc, "ghosts": true}, "ke_j_m3": cc, "pe_j_m3": cc, "grav_phi": {"n": cc, "ghosts": true}, "grav_ref": {"n": cc, "ghosts": true}, "lithic_frac": {"n": cc, "ghosts": true}, "lithic_kg": {"n": cc, "ghosts": true}})
 
 
 func _setup(bufs: Dictionary, _cc: int) -> void:

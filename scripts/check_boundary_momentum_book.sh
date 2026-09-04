@@ -293,7 +293,7 @@ if la_cap_dir >/dev/null; then
 else
   CAP="${LA_BND_MOM_CAP:-$(mktemp "${TMPDIR:-/tmp}/bnd_mom_cap.XXXXXX")}"
   OWN_CAP=1
-  sim_out="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --rung 3 \
+  sim_out="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --body --rung 3 \
     --frames "$SIM_FRAMES" \
     --slice-capture "$CAP" --report momentum_book_bnd 2>&1)"
   sim_rc=$?
@@ -326,7 +326,7 @@ if [ ! -s "$CAP" ] || ! grep -q '"samples"' "$CAP"; then
   exit 2
 fi
 REPLAY_FRAMES="${LA_BND_MOM_REPLAY_FRAMES:-15}"
-replay_out="$(LA_SLICE_REPLAY=1 "$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --slice --keep \
+replay_out="$(LA_SLICE_REPLAY=1 "$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --keep \
   --rung 3 --slice-state "$CAP" --frames "$REPLAY_FRAMES" --report momentum_book_bnd 2>&1)"
 replay_rc=$?
 drop_cap

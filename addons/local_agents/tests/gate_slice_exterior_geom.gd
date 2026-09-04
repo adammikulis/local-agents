@@ -35,7 +35,7 @@ func _box(spec: String) -> LAFieldSlice3D:
 
 ## A global grid whose cells dwarf the slice box: the vertical faces must still draw on different cells.
 func _coarse() -> void:
-	var box: LAFieldSlice3D = _box("0,%f,0,24,32,24,4000" % BODY_R)
+	var box: LAFieldSlice3D = _box("0,%f,0,24,32,24,4000,4000" % BODY_R)
 	var grid: LAVoxelGrid = LAVoxelGrid.new()
 	var gd: Vector3i = LAVoxelGrid.dims_for(DOMAIN_R, 2.0 * DOMAIN_R / 24.0)
 	grid.build(gd.x, gd.y, gd.z, 2.0 * DOMAIN_R / 24.0, -0.5 * float(gd.x) * (2.0 * DOMAIN_R / 24.0) * Vector3.ONE)
@@ -61,7 +61,7 @@ func _coarse() -> void:
 
 ## A global grid finer than the slice box: every face's exterior lies wholly beyond that face.
 func _fine() -> void:
-	var box: LAFieldSlice3D = _box("0,10000,0,8,8,8,100")
+	var box: LAFieldSlice3D = _box("0,10000,0,8,8,8,100,100")
 	var grid: LAVoxelGrid = LAVoxelGrid.new()
 	grid.build(40, 40, 40, 100.0, Vector3(-2000.0, 8000.0, -2000.0))
 	var faces: Array = Cap.exterior_faces(grid, box.offset, box)
@@ -82,7 +82,7 @@ func _fine() -> void:
 
 ## A global grid of one cell: it cannot tell the faces apart, so every face is NAMED, not copied.
 func _unresolvable() -> void:
-	var box: LAFieldSlice3D = _box("0,%f,0,24,32,24,4000" % BODY_R)
+	var box: LAFieldSlice3D = _box("0,%f,0,24,32,24,4000,4000" % BODY_R)
 	var grid: LAVoxelGrid = LAVoxelGrid.new()
 	grid.build(1, 1, 1, 4.0 * DOMAIN_R, Vector3(-2.0 * DOMAIN_R, -2.0 * DOMAIN_R, -2.0 * DOMAIN_R))
 	var faces: Array = Cap.exterior_faces(grid, box.offset, box)

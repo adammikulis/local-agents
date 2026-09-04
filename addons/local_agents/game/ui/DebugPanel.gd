@@ -13,11 +13,13 @@ signal select_llm_requested(kind: String)
 signal perf_overlay_toggled(on: bool)
 signal render_debug_toggled(mode: String, on: bool)  # "wireframe" | "overdraw"
 
-# [display label, view_toggled key] — the DebugOverlay samples that channel.
+# [display label, view_toggled key, the field channel it samples] — the DebugOverlay samples that
+# channel, so a world that never moves it has nothing to show and the toggle is not offered.
 const FIELD_VIEWS: Array = [
-	["Biomass", "biomass"], ["Water phase", "water_phase"], ["Snow / ice", "snow"],
-	["Melt", "melt"], ["Mineral", "silicate"], ["CO₂", "co2"], ["O₂", "o2"],
-	["Charge", "charge"], ["Fertility", "fertility"],
+	["Biomass", "biomass", "biomass"], ["Water phase", "water_phase", "h2o"],
+	["Snow / ice", "snow", "h2o"], ["Melt", "melt", "silicate_melt"],
+	["Mineral", "silicate", "silicate"], ["CO₂", "co2", "co2"], ["O₂", "o2", "o2"],
+	["Charge", "charge", "charge"], ["Fertility", "fertility", "fertility"],
 ]
 
 # [display label, scene group to light up]
@@ -47,39 +49,45 @@ var _collapsed: bool = false
 func _ready() -> void:
 	_header.pressed.connect(_toggle_collapsed)
 
+	# EVERY TOGGLE BELOW IS OFFERED ONLY WHERE THE WORLD HOLDS WHAT IT READS. Temperature is derived from
+	# the state every world carries; the rest each name their own process or their own population.
 	_add_section("VIEWS")
 	_add_check("Temperature", func(on: bool) -> void: view_toggled.emit("temp", on))
-	_add_check("Wind", func(on: bool) -> void: view_toggled.emit("wind", on))
-	_add_check("Scent", func(on: bool) -> void: view_toggled.emit("scent", on))
+	if LAWorldOffers.has_wind():
+		_add_check("Wind", func(on: bool) -> void: view_toggled.emit("wind", on))
+	if LAWorldOffers.has_life():
+		_add_check("Scent", func(on: bool) -> void: view_toggled.emit("scent", on))
 	for frow in FIELD_VIEWS:
 		var vkey: String = frow[1]
-		_add_check(frow[0], func(on: bool) -> void: view_toggled.emit(vkey, on))
+		if LAWorldOffers.moves(String(frow[2])):
+			_add_check(frow[0], func(on: bool) -> void: view_toggled.emit(vkey, on))
 
-	_add_section("HIGHLIGHT · SPECIES")
-	for row in HIGHLIGHTS:
-		var group: String = row[1]
-		_add_check(row[0], func(on: bool) -> void: highlight_toggled.emit(group, on))
+	if LAWorldOffers.has_life():
+		_add_section("HIGHLIGHT · SPECIES")
+		for row in HIGHLIGHTS:
+			var group: String = row[1]
+			_add_check(row[0], func(on: bool) -> void: highlight_toggled.emit(group, on))
 
-	_add_section("HIGHLIGHT · BEHAVIOR")
-	for brow in BEHAVIORS:
-		var bkey: String = brow[1]
-		_add_check(brow[0], func(on: bool) -> void: behavior_toggled.emit(bkey, on))
+		_add_section("HIGHLIGHT · BEHAVIOR")
+		for brow in BEHAVIORS:
+			var bkey: String = brow[1]
+			_add_check(brow[0], func(on: bool) -> void: behavior_toggled.emit(bkey, on))
 
-	_add_section("HIGHLIGHT · LOCAL MODEL")
-	for lrow in LLM_HIGHLIGHTS:
-		var lkey: String = lrow[1]
-		_add_check(lrow[0], func(on: bool) -> void: behavior_toggled.emit(lkey, on))
-	var pick_llm: Button = Button.new()
-	pick_llm.text = "◎  Select thinking / queued"
-	pick_llm.add_theme_font_size_override("font_size", 12)
-	pick_llm.pressed.connect(func() -> void: select_llm_requested.emit("any"))
-	_body.add_child(pick_llm)
+		_add_section("HIGHLIGHT · LOCAL MODEL")
+		for lrow in LLM_HIGHLIGHTS:
+			var lkey: String = lrow[1]
+			_add_check(lrow[0], func(on: bool) -> void: behavior_toggled.emit(lkey, on))
+		var pick_llm: Button = Button.new()
+		pick_llm.text = "◎  Select thinking / queued"
+		pick_llm.add_theme_font_size_override("font_size", 12)
+		pick_llm.pressed.connect(func() -> void: select_llm_requested.emit("any"))
+		_body.add_child(pick_llm)
 
-	_add_section("INSPECT")
-	_add_check("Family tree", func(on: bool) -> void: family_tree_toggled.emit(on))
+		_add_section("INSPECT")
+		_add_check("Family tree", func(on: bool) -> void: family_tree_toggled.emit(on))
 
-	_add_section("OVERLAY")
-	_add_check("Intended paths", func(on: bool) -> void: paths_toggled.emit(on))
+		_add_section("OVERLAY")
+		_add_check("Intended paths", func(on: bool) -> void: paths_toggled.emit(on))
 
 	_add_section("PERF")
 	# Start OFF with no emit — the applied quality preset owns the real render state.

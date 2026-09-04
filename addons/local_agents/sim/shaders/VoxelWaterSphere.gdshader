@@ -1,57 +1,23 @@
-// VoxelWaterSphere — the planet-scale open sea drawn on the spherical ocean shell (LAOceanPlane).
-//
-// The near-cap fluid surface (MaterialFieldRender3D + VoxelWater.gdshader) assumes a flat Y-up world and
-// so cannot draw the whole planet sea — from mid distance it hands off to this shell. The old shell was a
-// plain StandardMaterial deep-blue ball that POPPED against the animated near-cap water. This shader gives
-// the shell the SAME water look but on a sphere: waves displace each vertex along its RADIAL normal (not
-// world +Y), and every wavelength/amplitude fades to a smooth lit sphere as the camera pulls back — so the
-// sea LODs continuously from choppy-up-close to a calm blue marble at orbit, with zero wave cost when far.
-// Cheap by construction: a handful of sines, no textures, no CPU upload; the LOD fade is computed in-shader
-// from the camera altitude so distant frames pay almost nothing. (Explicit intent; matches VoxelWater palette.)
+// VoxelWaterSphere — the open sea on the shell cap LAOceanPlane meshes under the eye. Each vertex
+// carries its own outward radial as its normal, and the swell displaces along it.
 shader_type spatial;
 render_mode specular_schlick_ggx, diffuse_burley, cull_back;
 
 #include "res://addons/local_agents/sim/shaders/generated.gdshaderinc"
 
-// Palette — the deep-sea end of VoxelWater.gdshader so the shell and the near-cap surface read as one sea.
-uniform vec3 deep_color : source_color = vec3(0.01, 0.11, 0.30);      // deep ocean blue
-uniform vec3 shallow_color : source_color = vec3(0.05, 0.30, 0.46);   // wave-crest / shoulder tint
-uniform vec3 sky_tint : source_color = vec3(0.44, 0.63, 0.83);        // reflected at grazing angles (fresnel)
+// Reflectance of the open sea and of the foam on it. Set from LAPhysical by LAOceanPlane; the hue is
+// water's own (it absorbs red first), the magnitude is the measured albedo.
+uniform vec3 deep_color : source_color = vec3(0.01, 0.11, 0.30);
+uniform vec3 shallow_color : source_color = vec3(0.05, 0.30, 0.46);
 uniform vec3 foam_color : source_color = vec3(0.93, 0.97, 0.99);
 
 uniform float wave_amp = 1.4;          // crest height near the surface (world units)
 uniform float wave_scale = 0.020;      // spatial frequency of the swell
 uniform float wave_speed = 0.5;
-uniform float detail_fade_start = 55.0;   // camera altitude (world units above the shell) where waves start to flatten
+uniform float detail_fade_start = 55.0;   // eye altitude above the shell where waves start to flatten
 uniform float detail_fade_end = 850.0;    // altitude by which the sea is a smooth lit sphere (orbit)
+uniform float eye_altitude_m = 0.0;       // the eye's height over the shell, from LAOceanPlane
 uniform float shell_alpha : hint_range(0.0, 1.0) = 1.0;   // 1 = opaque (cheap default); <1 = translucent (HIGH preset)
-
-// EMERGENT SEA ICE — the ocean shell reads WHITE where the field froze the sea (cold poles / winter hemisphere)
-// and stays blue where it is open. `sea_ice_tex` is a 6-layer cube-face coverage texture (R = per-column frozen
-// 0..1), baked by LASeaIceShaderController from the conserved `_snow` channel; `sea_ice_enabled` is 0 until it
-// is bound (so the shell is a plain blue sea with no texture until the first bake / when disabled).
-uniform sampler2DArray sea_ice_tex : filter_linear;
-uniform float sea_ice_enabled = 0.0;
-uniform vec3 sea_ice_color : source_color = vec3(0.90, 0.94, 0.97);   // pale polar ice / pack-ice white
-uniform float sea_ice_edge = 0.06;                                    // coverage where ice starts to show (soft cap rim)
-
-int face_of(vec3 d) {
-	vec3 a = abs(d);
-	if (a.x >= a.y && a.x >= a.z) { return d.x >= 0.0 ? 0 : 1; }
-	if (a.y >= a.z) { return d.y >= 0.0 ? 2 : 3; }
-	return d.z >= 0.0 ? 4 : 5;
-}
-
-// Sea-ice coverage (0..1) at a radial direction — the topmost-sea-cell frozen fraction baked per column.
-float sea_ice_at(vec3 dir) {
-	int f = face_of(dir);
-	float denom = dot(dir, FACE_N[f]);
-	if (denom < 0.0001) { return 0.0; }
-	vec3 p = dir / denom;
-	float u = clamp((dot(p, FACE_R[f]) + 1.0) * 0.5, 0.0, 0.99999);
-	float v = clamp((dot(p, FACE_U[f]) + 1.0) * 0.5, 0.0, 0.99999);
-	return textureLod(sea_ice_tex, vec3(u, v, float(f)), 0.0).r;
-}
 
 varying vec3 v_world;      // displaced world position
 varying vec3 v_radial;     // outward radial (undisplaced sphere normal)
@@ -70,26 +36,21 @@ float wave_h(vec3 p, float t) {
 }
 
 void vertex() {
-	// The shell mesh is a SphereMesh centred on the node origin and the node sits at the planet centre, so
-	// the world planet centre is the model translation and the model-space radial is just normalize(VERTEX).
-	vec3 centre = MODEL_MATRIX[3].xyz;
-	float scale = length(MODEL_MATRIX[0].xyz);          // uniform node scale (tide scaling keeps it uniform)
-	vec3 radial_m = normalize(VERTEX);
+	// The cap's vertices are offsets from a node standing on the shell under the eye, and NORMAL is each
+	// one's own outward radial: no planet-sized coordinate ever enters the mesh.
+	vec3 radial_m = normalize(NORMAL);
 	vec3 wp = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 
-	// LOD: waves fade with CAMERA altitude above THIS shell point (shell radius = distance of the vertex to
-	// the centre), so up-close is choppy and orbit is a smooth marble — the pop against the near-cap is gone.
-	float shell_r = length(wp - centre);
-	float cam_alt = distance(CAMERA_POSITION_WORLD, centre) - shell_r;
-	float detail = 1.0 - smoothstep(detail_fade_start, detail_fade_end, cam_alt);
+	// LOD: the swell fades with the eye's altitude over the shell, so up close is choppy and orbit is a
+	// smooth marble.
+	float detail = 1.0 - smoothstep(detail_fade_start, detail_fade_end, eye_altitude_m);
 	float amp = wave_amp * detail;
 
 	float h = wave_h(wp, TIME) * amp;
-	// Displace along the model-space radial; convert the world-unit height into model units via the scale.
-	VERTEX += radial_m * (h / max(scale, 1.0e-4));
+	VERTEX += radial_m * h;
 
 	v_world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-	v_radial = normalize(v_world - centre);
+	v_radial = radial_m;
 	v_amp = amp;
 	v_crest = h / max(amp, 1.0e-3);
 }
@@ -112,21 +73,13 @@ void fragment() {
 	float whitecap = smoothstep(0.72, 1.0, crest) * clamp(v_amp / max(wave_amp, 1.0e-3), 0.0, 1.0);
 	col = mix(col, foam_color, whitecap * 0.6);
 
-	// Fresnel sky sheen at grazing angles — the calm-water rim that reads as reflective ocean.
+	// The sky the sea reflects is the sky the environment holds: a smooth surface reflecting a radiance
+	// cubemap, never a painted tint.
 	float fres = pow(1.0 - clamp(dot(normalize(NORMAL), normalize(VIEW)), 0.0, 1.0), 4.0);
-	col = mix(col, sky_tint, fres * 0.3);
-
-	// --- EMERGENT SEA ICE: whiten where the field froze the sea (cold poles / winter). Open sea stays blue. ---
-	float ice = 0.0;
-	if (sea_ice_enabled > 0.5) {
-		ice = smoothstep(sea_ice_edge, sea_ice_edge + 0.35, sea_ice_at(v_radial));
-	}
-	col = mix(col, sea_ice_color, ice);
 
 	ALBEDO = col;
-	// Ice is a rough matte white (no ocean sheen); open water keeps its glossy fresnel look.
-	ROUGHNESS = mix(mix(0.06, 0.18, crest), 0.85, ice);
+	ROUGHNESS = mix(0.06, 0.18, crest);
 	METALLIC = 0.0;
-	SPECULAR = mix(0.8, 0.2, ice);
-	ALPHA = clamp(max(max(shell_alpha, ice), fres * 0.4 + whitecap), 0.0, 1.0);
+	SPECULAR = 0.8;
+	ALPHA = clamp(max(shell_alpha, fres * 0.4 + whitecap), 0.0, 1.0);
 }

@@ -149,9 +149,18 @@ git -C "$ROOT" merge --no-ff "$BRANCH" -m "$SUBJECT" >/dev/null 2>&1 || {
 # The PRIMARY has just moved, so its .godot is stale: a new class_name is unregistered and a new .glsl
 # unimported, which makes check_parse_all red and a GPU field silently dead. Its bin is stale the same
 # way: the lane's bin was linted against the tree that landed, so it is the one every tree copies next.
+# A LANE'S BIN IS COPIED ONLY WHEN IT WAS BUILT FROM THE SOURCES THAT LANDED; otherwise the primary
+# builds its own, or every launch from it is refused as stale.
 BIN_REL="addons/local_agents/gdextensions/localagents/bin"
-if [ -d "$LANE_WT/$BIN_REL" ] && [ ! -L "$LANE_WT/$BIN_REL" ]; then
+. "$SCRIPT_DIR/lib_godot.sh"
+LANDED_HASH="$(la_extension_hash "$ROOT")"
+LANE_HASH="$(cat "$LANE_WT/$BIN_REL/SOURCE_HASH" 2>/dev/null || echo "")"
+if [ -d "$LANE_WT/$BIN_REL" ] && [ ! -L "$LANE_WT/$BIN_REL" ] && [ "$LANE_HASH" = "$LANDED_HASH" ]; then
 	rm -rf "$ROOT/$BIN_REL" && cp -R "$LANE_WT/$BIN_REL" "$ROOT/$BIN_REL"
+elif [ "$(cat "$ROOT/$BIN_REL/SOURCE_HASH" 2>/dev/null || echo "")" != "$LANDED_HASH" ]; then
+	echo "integrate: the primary's bin does not match the landed sources; building." >&2
+	"$ROOT/addons/local_agents/gdextensions/localagents/scripts/build_extension.sh" --platform macos >/dev/null 2>&1 \
+		|| echo "integrate: build_extension.sh FAILED; every launch from the primary is refused until it is rebuilt." >&2
 fi
 "$ROOT/scripts/godot_import.sh" "$ROOT" || true
 "$ROOT/scripts/editor_scan.sh" --path "$ROOT" >/dev/null 2>&1 || \

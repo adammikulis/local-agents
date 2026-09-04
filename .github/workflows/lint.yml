@@ -3,7 +3,8 @@ name: Lint
 # Runs `scripts/agent_harness.sh lint` — the exact command CLAUDE.md names as THE gate, so that a green
 # local lint means a green CI and there is no second list of checks to drift from the first.
 #
-# The gate list lives in the harness, never here: a second list drifts from the first.
+# The gate list lives in scripts/gates.toml and scripts/gate_runner.py runs it, never here:
+# a second list drifts from the first.
 #
 # EXIT 1 IS A VIOLATION. EXIT 2 MEANS A GATE COULD NOT RUN, and it is a failure on purpose — a gate that
 # examined nothing is not a pass. Several of these scripts need `rg`, `awk` or `godot`; a job failing with 2
@@ -76,8 +77,8 @@ jobs:
           scripts/editor_scan.sh --path . || true
 
       - name: Lint
-        # LA_NO_GPU skips exactly the gates in the harness's GPU_GATES, which check_gpu_gate_list.sh holds
-        # to the gates that really launch a sim. They are run on the dev host, never silently dropped.
+        # LA_NO_GPU skips exactly the kind=gpu rows of scripts/gates.toml, which check_gpu_gate_list.sh
+        # holds to the gates that really launch a sim. gpu-lint.yml runs them on a GPU runner.
         env:
           LA_NO_GPU: "1"
         run: |

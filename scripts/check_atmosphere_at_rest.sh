@@ -20,8 +20,8 @@ VENT_FRAMES="${LA_REST_VENT_FRAMES:-4}"
 
 # One column run at the given face spec. Prints the three readings, space separated, or nothing.
 column() {
-	LA_BOUNDARY_FACES="$1" "$ROOT/scripts/sim_run.sh" --path "$ROOT" --slice --rung 3 \
-		--slice-box "0,surface,0,1,${CELLS},1,${CELL}" --frames "${2:-$FRAMES}" \
+	LA_BOUNDARY_FACES="$1" "$ROOT/scripts/sim_run.sh" --path "$ROOT" --rung 3 \
+		--slice-box "0,surface,0,1,${CELLS},1,${CELL},${CELL}" --frames "${2:-$FRAMES}" \
 		--report mach_max,momentum_mass_kg,pressure_rest_rel,transport_levels,bnd_n2,energy_residual_rel,energy_held,energy_turnover_j,energy_stock,energy_stock_open 2>&1
 }
 
