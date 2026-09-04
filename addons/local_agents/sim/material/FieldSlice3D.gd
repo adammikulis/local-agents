@@ -1,9 +1,9 @@
 class_name LAFieldSlice3D
 extends RefCounted
 
-## A SLICE of the declared body: a small box on the planet, seeded from the real terrain, fed at its faces
-## by LAFieldBoundary3D. Spec "ox,oy,oz,nx,ny,nz,cell_m" — box-centre offset (m, body frame), cells per
-## axis, COARSEST cell edge; an offset component may be `surface`. Node meta -> setting -> env.
+## A SLICE of the declared body: a box on the planet, seeded from the real terrain, fed at its faces by
+## LAFieldBoundary3D. Spec "ox,oy,oz,nx,ny,nz,cell_m,fine_m", the offset in m in the body frame with one
+## component allowed to read `surface`. Node meta -> setting -> env.
 
 const CaptureScript: GDScript = preload("res://addons/local_agents/sim/material/FieldBoundaryCapture3D.gd")
 
@@ -13,13 +13,17 @@ const META_BOX: StringName = &"slice_box"
 const STATE_SETTING: String = "local_agents/sim/slice_state"
 const STATE_ENV: String = "LA_SLICE_STATE"
 const REPLAY_ENV: String = "LA_SLICE_REPLAY"
-## WRAP sides need a torus at least this wide; REPLAY rims this deep.
-const MIN_CELLS: int = 2 * LAFieldBoundary3D.RIM_CELLS
+## A REPLAY pair nudges over RIM_CELLS rows inward of each face, so an axis carrying one needs both rims.
+## A torus needs only two cells across it, or a cell faces itself on both sides.
+const MIN_REPLAY_CELLS: int = 2 * LAFieldBoundary3D.RIM_CELLS
+const MIN_WRAP_CELLS: int = 2
 
 var error: String = ""
 var offset: Vector3 = Vector3.ZERO
 var dims: Vector3i = Vector3i.ZERO
 var cell_size: float = 0.0
+## Finest cell edge the box refines to, metres: cell_size halved a whole number of times.
+var fine_size: float = 0.0
 ## Offset axis given as `surface`, resolved against the body in apply(); -1 when the spec was all numbers.
 var surface_axis: int = -1
 ## Face slot -> Array of per-sample states, fed through replay(); empty outside replay mode.
@@ -45,23 +49,14 @@ static func parse(spec: String) -> LAFieldSlice3D:
 
 
 func _parse(spec: String) -> bool:
-	var t: PackedStringArray = spec.split(",")
-	if t.size() != 7:
-		return _fail("spec \"%s\" has %d fields; ox,oy,oz,nx,ny,nz,cell_m is 7" % [spec, t.size()])
-	offset = Vector3.ZERO
-	for i in 3:
-		if t[i].strip_edges().to_lower() == "surface":
-			surface_axis = i
-		else:
-			offset[i] = t[i].to_float()
-	dims = Vector3i(t[3].to_int(), t[4].to_int(), t[5].to_int())
-	cell_size = t[6].to_float()
-	if dims.x < 1 or dims.y < 1 or dims.z < 1:
-		return _fail("the box is %s cells; every axis needs at least one" % str(dims))
-	if cell_size <= 0.0:
-		return _fail("cell_m must be positive, got %f" % cell_size)
-	if offset.length() <= 0.0 and surface_axis < 0:
-		return _fail("the offset locates the box ON the body; zero puts it at the centre and names no local vertical")
+	var p: Dictionary = LAGridGeometry.parse_slice_spec(spec)
+	if p.has("error"):
+		return _fail(String(p["error"]))
+	offset = p["offset"]
+	dims = p["dims"]
+	cell_size = float(p["cell_size"])
+	fine_size = float(p["fine_size"])
+	surface_axis = int(p["surface_axis"])
 	return true
 
 
@@ -84,15 +79,6 @@ func _resolve_offset(body) -> bool:
 	return true
 
 
-## The box in world space, the surface axis resolved against `radius`.
-func world_aabb(centre: Vector3, radius: float) -> AABB:
-	var off: Vector3 = offset
-	if surface_axis >= 0:
-		off[surface_axis] = radius
-	var size: Vector3 = Vector3(dims) * cell_size
-	return AABB(centre + off - 0.5 * size, size)
-
-
 ## Lay the field over the slice box against the real terrain, and configure its face boundary.
 func apply(field, body, terrain) -> bool:
 	if error != "":
@@ -111,24 +97,24 @@ func apply(field, body, terrain) -> bool:
 		field._terrain_opts = terrain.generator_options()
 	var centre: Vector3 = Vector3(body.center()) + offset
 	var half: Vector3 = 0.5 * Vector3(dims) * cell_size
-	# The slice is a region of the one construction path, under the same refinement rule as the body.
+	# The slice is a region of the one construction path, under the same refinement rule as the body, and
+	# it declares its own finest edge instead of taking the planet's scale-height target.
 	field.setup_box(centre - half, dims, cell_size, terrain, body.center(), LocalAgentSimWorld.MODELLED_ATMOSPHERE_HEIGHT_M,
-		LocalAgentSimWorld.MODELLED_ATMOSPHERE_HEIGHT_M,
-		LAFieldGridBudget.target_edge_m("planet", float(body.radius()), LAMaterialField3D.INITIAL_TEMP), float(body.radius()))
+		LocalAgentSimWorld.MODELLED_ATMOSPHERE_HEIGHT_M, fine_size, float(body.radius()))
 	_configure_boundary(field)
 	return error == ""
 
 
-## A wrapped axis is a torus and a replayed one carries a rim: both need width. An axis whose faces are
-## shut or open carries neither, so it may be one cell.
+## A wrapped axis is a torus and a replayed one carries a relaxation rim: they need different widths. An
+## axis whose faces are shut or open carries neither, so it may be one cell.
 func _rim_fits(modes: PackedStringArray) -> bool:
 	for axis in 3:
-		var rim: bool = false
+		var need: int = 0
 		for h in 2:
-			rim = rim or modes[axis * 2 + h] == "wrap" or modes[axis * 2 + h] == "replay"
-		if rim and dims[axis] < MIN_CELLS:
-			return _fail("axis %d is %d cells and carries a rim, which needs at least %d"
-				% [axis, dims[axis], MIN_CELLS])
+			var m: String = modes[axis * 2 + h]
+			need = maxi(need, MIN_REPLAY_CELLS if m == "replay" else (MIN_WRAP_CELLS if m == "wrap" else 0))
+		if dims[axis] < need:
+			return _fail("axis %d is %d cells and its faces need at least %d" % [axis, dims[axis], need])
 	return true
 
 

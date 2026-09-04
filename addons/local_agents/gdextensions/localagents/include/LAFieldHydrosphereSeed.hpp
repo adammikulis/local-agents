@@ -2,6 +2,7 @@
 #define LOCAL_AGENTS_LA_FIELD_HYDROSPHERE_SEED_HPP
 
 #include <godot_cpp/classes/ref_counted.hpp>
+#include <godot_cpp/variant/dictionary.hpp>
 
 namespace godot {
 
@@ -14,6 +15,8 @@ class LAFieldHydrosphereSeed : public RefCounted {
 
 public:
 	static void seed(Object *p_field);
+	// Regolith cells, and how many of them carry pore water: where the table stands in this box.
+	static Dictionary wetness(Object *p_field);
 
 protected:
 	static void _bind_methods();

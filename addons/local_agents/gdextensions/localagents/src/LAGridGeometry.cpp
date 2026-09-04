@@ -5,7 +5,6 @@
 #include "LAPhysicalRead.hpp"
 #include "LAScriptCall.hpp"
 #include "LAFieldStateCache.hpp"
-#include <godot_cpp/variant/aabb.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 #include "LATerrainLattice.hpp"
 #include <godot_cpp/variant/utility_functions.hpp>
@@ -354,6 +353,26 @@ PackedFloat32Array LAGridGeometry::edges(Object *p_grid) {
 	return out;
 }
 
+PackedInt32Array LAGridGeometry::level_counts(Object *p_grid) {
+	PackedInt32Array out;
+	if (!p_grid) {
+		return out;
+	}
+	const PackedByteArray levels = p_grid->get("levels");
+	const int n = MIN(int(p_grid->get("cell_count")), int(levels.size()));
+	out.resize(int(p_grid->get("max_level")) + 1);
+	for (int i = 0; i < out.size(); i++) {
+		out.set(i, 0);
+	}
+	for (int c = 0; c < n; c++) {
+		const int lv = int(levels[c]);
+		if (lv < out.size()) {
+			out.set(lv, out[lv] + 1);
+		}
+	}
+	return out;
+}
+
 PackedFloat32Array LAGridGeometry::volumes(Object *p_grid) {
 	PackedFloat32Array out = edges(p_grid);
 	float *w = out.ptrw();
@@ -375,81 +394,91 @@ Dictionary LAGridGeometry::build(const Vector3i &p_dims, const PackedByteArray &
 
 namespace {
 
-// One terrain sample per base cell at its centre, and the relief the terrain spans: the band test's inputs.
-struct SurfaceSamples {
-	std::vector<double> rs;
-	double relief = 0.0;
+// THE TERRAIN SURFACE, PER POINT: the generator's own signed radial distance, negative under ground.
+// The lattice is the same one the solid mask reads, so the grid resolves the ground the field has.
+struct SurfaceProbe {
+	const LATerrainLattice *lat = nullptr;
+	Object *terrain = nullptr;
+	Vector3 centre;
+
+	bool valid() const { return lat != nullptr || terrain != nullptr; }
+
+	double at(const Vector3 &p) const {
+		if (lat != nullptr) {
+			return lat->sample(p);
+		}
+		const Vector3 rel = p - centre;
+		const double r = double(rel.length());
+		if (!(r > 0.0)) {
+			return 0.0;
+		}
+		return r - double(terrain->call("surface_radius", rel / float(r)));
+	}
 };
 
-SurfaceSamples sample_surface(const Vector3i &p_dims, const Vector3 &p_origin, double p_cell_size,
-		const Vector3 &p_centre, Object *p_terrain, double p_target_edge_m) {
-	SurfaceSamples out;
-	const int nx = MAX(p_dims.x, 1), ny = MAX(p_dims.y, 1), nz = MAX(p_dims.z, 1);
-	const int base_count = nx * ny * nz;
-	out.rs.assign(base_count, NAN);
+SurfaceProbe probe_surface(const Vector3i &p_dims, const Vector3 &p_origin, double p_cell_size,
+		const Vector3 &p_centre, Object *p_terrain) {
+	SurfaceProbe out;
+	out.centre = p_centre;
 	if (!p_terrain || !p_terrain->has_method("surface_radius")) {
 		return out;
 	}
-	if (p_terrain->has_method("max_surface_radius") && p_terrain->has_method("planet_radius")) {
-		out.relief = std::abs(double(p_terrain->call("max_surface_radius")) - double(p_terrain->call("planet_radius")));
-	}
-	std::vector<Vector3> dir(base_count);
-	for (int b = 0; b < base_count; b++) {
-		const Vector3 bo(float(b % nx) + 0.5f, float((b / nx) % ny) + 0.5f, float(b / (nx * ny)) + 0.5f);
-		const Vector3 rel = p_origin + bo * float(p_cell_size) - p_centre;
-		const double r = double(rel.length());
-		dir[b] = r > 0.0 ? rel / float(r) : Vector3(0, 1, 0);
-	}
-	// Bisection along every direction at once between the terrain's lowest and highest surface: the
-	// generator's signed distance, batched, instead of a ray march per direction.
-	// The surface along each direction: a bisection on the terrain's lattice between its lowest and
-	// highest surface, no ray march.
 	if (p_terrain->has_method("min_surface_radius") && p_terrain->has_method("max_surface_radius")) {
-		const double r_lo0 = double(p_terrain->call("min_surface_radius"));
-		const double r_hi0 = double(p_terrain->call("max_surface_radius"));
-		// The same lattice the solid mask reads, sized by the box.
+		const double r_lo = double(p_terrain->call("min_surface_radius"));
+		const double r_hi = double(p_terrain->call("max_surface_radius"));
+		const int nx = MAX(p_dims.x, 1), ny = MAX(p_dims.y, 1), nz = MAX(p_dims.z, 1);
+		// LA_APPROX: chord_quadrature_lattice
 		const double extent = p_cell_size * MAX(MAX(nx, ny), nz);
-		const LATerrainLattice &lat = LATerrainLattice::build(p_terrain, p_origin, extent, LATerrainLattice::lod_for(extent), 32, p_centre, r_lo0, r_hi0);
+		const LATerrainLattice &lat = LATerrainLattice::build(p_terrain, p_origin, extent,
+				LATerrainLattice::lod_for(extent), 32, p_centre, r_lo, r_hi);
 		if (lat.valid()) {
-			for (int b = 0; b < base_count; b++) {
-				double lo = r_lo0, hi = r_hi0;
-				for (int i = 0; i < 24; i++) {
-					const double mid = 0.5 * (lo + hi);
-					if (lat.sample(p_centre + dir[b] * float(mid)) < 0.0) {
-						lo = mid;
-					} else {
-						hi = mid;
-					}
-				}
-				out.rs[b] = 0.5 * (lo + hi);
-			}
+			out.lat = &lat;
 			return out;
 		}
 	}
-	for (int b = 0; b < base_count; b++) {
-		out.rs[b] = double(p_terrain->call("surface_radius", dir[b]));
-	}
+	out.terrain = p_terrain;
 	return out;
 }
 
 Dictionary build_graded_sampled(const Vector3i &p_dims, const Vector3 &p_origin, double p_cell_size,
-		const Vector3 &p_centre, const SurfaceSamples &p_s, double p_below_m, double p_above_m,
-		double p_target_edge_m, const Vector3 &p_focus_min, const Vector3 &p_focus_max,
-		double p_focus_edge_m) {
+		const Vector3 &p_centre, const SurfaceProbe &p_s, double p_below_m, double p_above_m,
+		double p_target_edge_m, double p_cells_per_level, const Vector3 &p_focus_min,
+		const Vector3 &p_focus_max, double p_focus_edge_m) {
 	Lattice lat = uniform(p_dims);
-	const bool can = p_cell_size > 0.0 && p_target_edge_m > 0.0 && int(p_s.rs.size()) == int(lat.leaves.size());
+	// A BOX OFF THE BODY CENTRE HAS A FOCUS -- the radial axis through its own centre. A box AROUND the
+	// body has none, and the lateral rule is then off.
+	const int nbase[3] = { lat.nx, lat.ny, lat.nz };
+	double mid[3], axis[3] = { 0.0, 0.0, 0.0 };
+	double mid_r2 = 0.0;
+	for (int a = 0; a < 3; a++) {
+		mid[a] = double(p_origin[a]) + 0.5 * double(nbase[a]) * p_cell_size;
+		axis[a] = mid[a] - double(p_centre[a]);
+		mid_r2 += axis[a] * axis[a];
+	}
+	const bool focused = mid_r2 > 0.0;
+	if (focused) {
+		const double inv = 1.0 / std::sqrt(mid_r2);
+		for (int a = 0; a < 3; a++) {
+			axis[a] *= inv;
+		}
+	}
+	const bool can = p_cell_size > 0.0 && p_target_edge_m > 0.0 && p_s.valid() && p_cells_per_level > 0.0;
 	if (can) {
-		const std::vector<double> &rs_base = p_s.rs;
-		const double relief = p_s.relief;
 		refine_lattice(lat, [&](const Leaf &l) {
 			if (lat.edge_leaf(l)) {
 				return false;   // THE BOX FACE STAYS COARSEST: an exterior and a torus are 1:1 on a face
 			}
 			const double edge = edge_of(p_cell_size, l.level);
 			const int b = l.base;
-			const Vector3 bo(float(b % lat.nx), float((b / lat.nx) % lat.ny), float(b / (lat.nx * lat.ny)));
-			const Vector3 lo(float(l.lx) + 0.5f, float(l.ly) + 0.5f, float(l.lz) + 0.5f);
-			const Vector3 p = p_origin + (bo + lo * float(std::pow(0.5, double(l.level)))) * float(p_cell_size);
+			const double bo[3] = { double(b % lat.nx), double((b / lat.nx) % lat.ny),
+				double(b / (lat.nx * lat.ny)) };
+			const int loc[3] = { l.lx, l.ly, l.lz };
+			const double sc = std::pow(0.5, double(l.level));
+			double pd[3];
+			for (int a = 0; a < 3; a++) {
+				pd[a] = double(p_origin[a]) + (bo[a] + (double(loc[a]) + 0.5) * sc) * p_cell_size;
+			}
+			const Vector3 p = Vector3(float(pd[0]), float(pd[1]), float(pd[2]));
 			// A FOCUS BOX is resolved to its own edge: a slab recorded from this world is resolved by it.
 			if (p_focus_edge_m > 0.0 && edge > p_focus_edge_m) {
 				const float h = float(0.5 * edge);
@@ -461,18 +490,35 @@ Dictionary build_graded_sampled(const Vector3i &p_dims, const Vector3 &p_origin,
 			if (!(edge > p_target_edge_m)) {
 				return false;
 			}
-			// A cell counts when its own CUBE reaches the band, not just its centre.
+			// Signed radial distance from the ground; a cell counts when its own CUBE reaches, not its centre.
+			const double d_surf = p_s.at(p);
+			if (!std::isfinite(d_surf)) {
+				return false;
+			}
 			const double pad = 0.5 * std::sqrt(3.0) * edge;
-			const Vector3 rel = p - p_centre;
-			const double r = double(rel.length());
-			if (!(r > 0.0)) {
+			if (d_surf < -(p_below_m + pad) || d_surf > p_above_m + pad) {
+				return false;   // past the depth and the air column this world models at all
+			}
+			// ONE LEVEL PER SHELL: a level's cells stand within p_cells_per_level of their own edges of
+			// the ground, so the surface is finest and each level's shell doubles outward.
+			if (!(std::abs(d_surf) < p_cells_per_level * edge)) {
 				return false;
 			}
-			const double rs = rs_base[l.base];
-			if (!std::isfinite(rs)) {
-				return false;
+			if (focused) {
+				double along = 0.0, off2 = 0.0;
+				for (int a = 0; a < 3; a++) {
+					along += (pd[a] - mid[a]) * axis[a];
+				}
+				for (int a = 0; a < 3; a++) {
+					const double t = (pd[a] - mid[a]) - along * axis[a];
+					off2 += t * t;
+				}
+				const double core = p_cells_per_level * edge;
+				if (!(off2 < core * core)) {
+					return false;   // past the focus core, whose radius doubles with the level's edge
+				}
 			}
-			return r >= rs - p_below_m - pad - relief && r <= rs + p_above_m + pad + relief;
+			return true;
 		});
 	}
 	return emit(lat);
@@ -482,26 +528,26 @@ Dictionary build_graded_sampled(const Vector3i &p_dims, const Vector3 &p_origin,
 
 Dictionary LAGridGeometry::build_graded(const Vector3i &p_dims, const Vector3 &p_origin,
 		double p_cell_size, const Vector3 &p_centre, Object *p_terrain, double p_below_m,
-		double p_above_m, double p_target_edge_m, const Vector3 &p_focus_min, const Vector3 &p_focus_max,
-		double p_focus_edge_m) {
+		double p_above_m, double p_target_edge_m, double p_cells_per_level, const Vector3 &p_focus_min,
+		const Vector3 &p_focus_max, double p_focus_edge_m) {
 	return build_graded_sampled(p_dims, p_origin, p_cell_size, p_centre,
-			sample_surface(p_dims, p_origin, p_cell_size, p_centre, p_terrain, p_target_edge_m), p_below_m,
-			p_above_m, p_target_edge_m, p_focus_min, p_focus_max, p_focus_edge_m);
+			probe_surface(p_dims, p_origin, p_cell_size, p_centre, p_terrain), p_below_m,
+			p_above_m, p_target_edge_m, p_cells_per_level, p_focus_min, p_focus_max, p_focus_edge_m);
 }
 
 Dictionary LAGridGeometry::build_to_budget(const Vector3i &p_dims, const Vector3 &p_origin,
 		double p_cell_size, const Vector3 &p_centre, Object *p_terrain, double p_below_m,
-		double p_above_m, double p_target_edge_m, int p_budget, const Vector3 &p_focus_min,
-		const Vector3 &p_focus_max, double p_focus_edge_m) {
+		double p_above_m, double p_target_edge_m, double p_cells_per_level, int p_budget,
+		const Vector3 &p_focus_min, const Vector3 &p_focus_max, double p_focus_edge_m) {
 	// COARSE TO FINE: each halving of the target is tried only after the coarser grid fit, so the first
 	// grid that would not fit is never built.
 	Dictionary best = build(p_dims, PackedByteArray());
 	best["target_edge_m"] = p_cell_size;
-	const SurfaceSamples samples = sample_surface(p_dims, p_origin, p_cell_size, p_centre, p_terrain, p_target_edge_m);
+	const SurfaceProbe probe = probe_surface(p_dims, p_origin, p_cell_size, p_centre, p_terrain);
 	double target = 0.5 * p_cell_size;
 	while (p_target_edge_m > 0.0 && p_budget > 0 && target > 0.0) {
-		Dictionary next = build_graded_sampled(p_dims, p_origin, p_cell_size, p_centre, samples,
-				p_below_m, p_above_m, target, p_focus_min, p_focus_max, p_focus_edge_m);
+		Dictionary next = build_graded_sampled(p_dims, p_origin, p_cell_size, p_centre, probe,
+				p_below_m, p_above_m, target, p_cells_per_level, p_focus_min, p_focus_max, p_focus_edge_m);
 		if (int(next.get("cell_count", 0)) > p_budget) {
 			break;
 		}
@@ -523,6 +569,57 @@ double LAGridGeometry::target_edge_m(double p_mass_kg, double p_radius_m, double
 	const double g = la_physical("GRAVITATIONAL_CONSTANT") * p_mass_kg / (p_radius_m * p_radius_m);
 	const double h = la_physical("DRY_AIR_GAS_CONSTANT_J_KGK") * (p_t_c + la_physical("KELVIN_OFFSET")) / g;
 	return h / p_cells_per_h;
+}
+
+Dictionary LAGridGeometry::parse_slice_spec(const String &p_spec) {
+	Dictionary out;
+	const PackedStringArray t = p_spec.split(",");
+	if (t.size() != 8) {
+		out["error"] = String("spec \"") + p_spec + "\" has " + String::num_int64(t.size())
+				+ " fields; ox,oy,oz,nx,ny,nz,cell_m,fine_m is 8, the eighth the finest cell edge in m.";
+		return out;
+	}
+	Vector3 off;
+	int surface_axis = -1;
+	for (int i = 0; i < 3; i++) {
+		if (t[i].strip_edges().to_lower() == "surface") {
+			surface_axis = i;
+		} else {
+			off[i] = float(t[i].to_float());
+		}
+	}
+	const Vector3i dims(int(t[3].to_int()), int(t[4].to_int()), int(t[5].to_int()));
+	const double cell = t[6].to_float();
+	const double fine = t[7].to_float();
+	if (dims.x < 1 || dims.y < 1 || dims.z < 1) {
+		out["error"] = String("the box is ") + String(Variant(dims)) + " cells; every axis needs at least one.";
+		return out;
+	}
+	if (!(cell > 0.0)) {
+		out["error"] = String("cell_m must be positive, got ") + String::num(cell);
+		return out;
+	}
+	// AN OCTREE HALVES AN EDGE, so the finest edge is the coarsest over a power of two, within the depth
+	// the Morton code carries.
+	const double levels = (fine > 0.0 && cell >= fine) ? std::log2(cell / fine) : -1.0;
+	const int whole = int(std::lround(levels));
+	if (!(levels >= 0.0) || std::abs(levels - double(whole)) > 1.0e-6 || whole > MAX_LEVEL) {
+		out["error"] = String("cell_m ") + String::num(cell) + " m is not fine_m " + String::num(fine)
+				+ " m halved a whole number of times, within the " + String::num_int64(MAX_LEVEL)
+				+ " levels the octree carries.";
+		return out;
+	}
+	if (!(off.length() > 0.0) && surface_axis < 0) {
+		out["error"] = "the offset locates the box ON the body; zero puts it at the centre and names no local vertical.";
+		return out;
+	}
+	out["offset"] = off;
+	out["dims"] = dims;
+	out["cell_size"] = cell;
+	out["fine_size"] = fine;
+	out["surface_axis"] = surface_axis;
+	out["levels"] = whole;
+	return out;
 }
 
 int LAGridGeometry::cell_budget() {
@@ -573,7 +670,7 @@ double LAGridGeometry::face_distance(Object *p_grid, int p_c, int p_f) {
 
 Dictionary LAGridGeometry::refine_field_grid(Object *p_grid, Object *p_terrain, const Vector3 &p_centre,
 		double p_body_radius, double p_below_m, double p_above_m, double p_target_edge_m,
-		const String &p_focus_spec, const String &p_cache_key) {
+		double p_cells_per_level, const String &p_focus_spec, const String &p_cache_key) {
 	Dictionary out;
 	if (!p_grid) {
 		return out;
@@ -586,15 +683,18 @@ Dictionary LAGridGeometry::refine_field_grid(Object *p_grid, Object *p_terrain, 
 	Vector3 f_min, f_max;
 	double f_edge = 0.0;
 	if (!p_focus_spec.is_empty()) {
-		Array args;
-		args.append(p_focus_spec);
-		const Variant parsed = la_call_gd("res://addons/local_agents/sim/material/FieldSlice3D.gd", "parse", args);
-		Object *box = parsed;
-		if (box && String(box->get("error")).is_empty()) {
-			const AABB a = box->call("world_aabb", p_centre, p_body_radius);
-			f_min = a.position;
-			f_max = a.position + a.size;
-			f_edge = double(box->get("cell_size"));
+		const Dictionary box = parse_slice_spec(p_focus_spec);
+		if (!box.has("error")) {
+			Vector3 off = box["offset"];
+			const int sa = int(box["surface_axis"]);
+			if (sa >= 0) {
+				off[sa] = float(p_body_radius);
+			}
+			const Vector3i bd = box["dims"];
+			f_edge = double(box["cell_size"]);
+			const Vector3 size = Vector3(float(bd.x), float(bd.y), float(bd.z)) * float(f_edge);
+			f_min = p_centre + off - 0.5f * size;
+			f_max = f_min + size;
 		}
 	}
 	// The key: the terrain and box (the mask cache's own key), the band, the extension, the focus.
@@ -605,13 +705,15 @@ Dictionary LAGridGeometry::refine_field_grid(Object *p_grid, Object *p_terrain, 
 	Ref<FileAccess> hf = FileAccess::open("res://addons/local_agents/gdextensions/localagents/bin/SOURCE_HASH", FileAccess::READ);
 	const String ext_hash = hf.is_valid() ? hf->get_as_text() : String();
 	const String key = String(mask_key + String("|grid|") + String::num(p_target_edge_m, 3) + String("|")
-			+ String::num(p_below_m, 3) + String("|") + String::num(p_above_m, 3) + String("|") + ext_hash
+			+ String::num(p_below_m, 3) + String("|") + String::num(p_above_m, 3) + String("|")
+			+ String::num(p_cells_per_level, 3) + String("|") + String::num_int64(budget) + String("|") + ext_hash
 			+ String("|") + p_focus_spec + String("|") + String::num(f_edge, 3) + String("|") + p_cache_key).sha256_text();
 	Dictionary g = LAFieldStateCache::load_blob(key);
 	if (g.is_empty()) {
 		const Vector3i dims(int(p_grid->get("nx")), int(p_grid->get("ny")), int(p_grid->get("nz")));
 		g = build_to_budget(dims, p_grid->get("origin"), double(p_grid->get("cell_size")), p_centre,
-				p_terrain, p_below_m, p_above_m, p_target_edge_m, budget, f_min, f_max, f_edge);
+				p_terrain, p_below_m, p_above_m, p_target_edge_m, p_cells_per_level, budget, f_min, f_max,
+				f_edge);
 		LAFieldStateCache::save_blob(key, g);
 	}
 	return g;
@@ -826,27 +928,33 @@ double LAGridGeometry::weighted(const PackedFloat32Array &p_arr, const PackedFlo
 }
 
 void LAGridGeometry::_bind_methods() {
+	BIND_CONSTANT(MAX_LEVEL);
 	ClassDB::bind_static_method("LAGridGeometry", D_METHOD("edges", "grid"), &LAGridGeometry::edges);
 	ClassDB::bind_static_method("LAGridGeometry", D_METHOD("volumes", "grid"), &LAGridGeometry::volumes);
+	ClassDB::bind_static_method("LAGridGeometry", D_METHOD("level_counts", "grid"),
+			&LAGridGeometry::level_counts);
 	ClassDB::bind_static_method("LAGridGeometry",
 			D_METHOD("build_graded", "dims", "origin", "cell_size", "centre", "terrain", "below_m",
-					"above_m", "target_edge_m", "focus_min", "focus_max", "focus_edge_m"),
+					"above_m", "target_edge_m", "cells_per_level", "focus_min", "focus_max", "focus_edge_m"),
 			&LAGridGeometry::build_graded);
 	ClassDB::bind_static_method("LAGridGeometry",
 			D_METHOD("build_to_budget", "dims", "origin", "cell_size", "centre", "terrain", "below_m",
-					"above_m", "target_edge_m", "budget", "focus_min", "focus_max", "focus_edge_m"),
+					"above_m", "target_edge_m", "cells_per_level", "budget", "focus_min", "focus_max",
+					"focus_edge_m"),
 			&LAGridGeometry::build_to_budget);
 	ClassDB::bind_static_method("LAGridGeometry",
 			D_METHOD("target_edge_m", "mass_kg", "radius_m", "t_c", "cells_per_h"),
 			&LAGridGeometry::target_edge_m);
 	ClassDB::bind_static_method("LAGridGeometry", D_METHOD("cell_budget"), &LAGridGeometry::cell_budget);
+	ClassDB::bind_static_method("LAGridGeometry", D_METHOD("parse_slice_spec", "spec"),
+			&LAGridGeometry::parse_slice_spec);
 	ClassDB::bind_static_method("LAGridGeometry", D_METHOD("wrap_partner", "grid", "c", "d"),
 			&LAGridGeometry::wrap_partner);
 	ClassDB::bind_static_method("LAGridGeometry", D_METHOD("face_distance", "grid", "c", "f"),
 			&LAGridGeometry::face_distance);
 	ClassDB::bind_static_method("LAGridGeometry",
 			D_METHOD("refine_field_grid", "grid", "terrain", "centre", "body_radius", "below_m", "above_m",
-					"target_edge_m", "focus_spec", "cache_key"),
+					"target_edge_m", "cells_per_level", "focus_spec", "cache_key"),
 			&LAGridGeometry::refine_field_grid);
 	ClassDB::bind_static_method("LAGridGeometry", D_METHOD("cell_at", "grid", "point"),
 			&LAGridGeometry::cell_at);

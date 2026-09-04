@@ -30,7 +30,7 @@ if la_cap_dir >/dev/null; then
 else
   CAP="$(mktemp "${TMPDIR:-/tmp}/la_bnd_cap.XXXXXX")" && mv "$CAP" "$CAP.json" && CAP="$CAP.json"
   OWN_CAP=1
-  cap_out="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --frames "${LA_BND_CAP_FRAMES:-20}" \
+  cap_out="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --body --frames "${LA_BND_CAP_FRAMES:-20}" \
     --rung "$CAP_RUNG" --slice-capture "$CAP" --report h2o_total 2>&1)"
 fi
 drop_cap() { [ "$OWN_CAP" -eq 1 ] && rm -f "$CAP"; return 0; }
@@ -261,7 +261,7 @@ fi
 
 # --- arm two: the real slice consumes the same capture and the crossings reach the ledger -------------
 ERRLOG="$(mktemp "${TMPDIR:-/tmp}/la_bnd_books.XXXXXX")"
-slice_out="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --slice --slice-state "$CAP" \
+slice_out="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --slice-state "$CAP" \
   --rung "$CAP_RUNG" --frames "${LA_BND_SLICE_FRAMES:-60}" --raw 2>"$ERRLOG")"
 slice_rc=$?
 drop_cap

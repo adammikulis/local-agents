@@ -54,7 +54,7 @@ if [[ ! -e "$REPO_ROOT/$BIN_REL" ]]; then
   if [[ -d "$PRIMARY/$BIN_REL" ]]; then
     rm -f "$REPO_ROOT/$BIN_REL"
     mkdir -p "$(dirname "$REPO_ROOT/$BIN_REL")"
-    ln -s "$PRIMARY/$BIN_REL" "$REPO_ROOT/$BIN_REL"
+    cp -R "$PRIMARY/$BIN_REL" "$REPO_ROOT/$BIN_REL"
     say "linked $BIN_REL -> $PRIMARY/$BIN_REL"
     changed=1
   else

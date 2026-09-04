@@ -153,7 +153,7 @@ void LAFieldCellMass3D::regolith(Object *p_field) {
 	std::vector<double> radius(cc, 0.0);
 	std::vector<double> z_top(cc, -1.0), z_bot(cc, -1.0);
 	double highest = sea_r;
-	const bool walkable = up.size() >= cc && cw.size() == cc * 3 && depth.size() == cc && edges.size() >= cc
+	const bool walkable = up.size() >= cc && cw.size() >= cc * 3 && depth.size() == cc && edges.size() >= cc
 			&& rock_fr.size() == cc;
 	for (int c = 0; c < cc && walkable; c++) {
 		radius[c] = std::hypot(cw[c * 3] - double(centre.x), cw[c * 3 + 1] - double(centre.y), cw[c * 3 + 2] - double(centre.z));
