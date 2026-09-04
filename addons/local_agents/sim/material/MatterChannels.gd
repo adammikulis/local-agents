@@ -2,7 +2,7 @@ class_name LAMatterChannels
 extends RefCounted
 
 ## THE MATTER CHANNELS THE KERNELS BIND, AND THE ONE WEIGHING OF THEM.
-## `kernels3d/matter_channels.glsli` is the GPU half: same order, same binding slots, same switch.
+## `kernels3d/matter_channels.glsli` is the GPU half: same order, same switch. LABindings owns the slots.
 
 ## Mixture entries — state_derive.glsl E_*. Two substances carry a phase ladder; the rest are linear in T.
 enum Entry { H2O, SILICATE, SENSIBLE }
@@ -51,15 +51,6 @@ const CHANNELS: PackedStringArray = [
 ## weighs a cell.
 const KERNEL_SLOTS: int = 26
 
-## Channels past the first 14 bind from 54 up: 14-53 were already taken by the two kernels' own buffers.
-const HIGH_BINDING_BASE: int = 54
-const LOW_SLOTS: int = 14
-
-
-## The GPU binding a channel index occupies, in both kernels that include matter_channels.glsli.
-static func binding_of(i: int) -> int:
-	return i if i < LOW_SLOTS else HIGH_BINDING_BASE + (i - LOW_SLOTS)
-
 
 ## kg one mole of a channel's substance carries, in CHANNELS order: a channel amount is mol/m^3, so mass
 ## per m^3 is amount times this. Empty when the table lacks a datum — a missing measurement is missing.
@@ -94,16 +85,6 @@ static func _per_channel(prop: String) -> PackedFloat32Array:
 	return out
 
 
-## The names in `want` that `bufs` has no buffer for.
-static func absent(bufs: Dictionary, want: PackedStringArray) -> PackedStringArray:
-	var out: PackedStringArray = PackedStringArray()
-	for name: String in want:
-		var v: Variant = bufs.get(name, null)
-		if not (v is RID and (v as RID).is_valid()):
-			out.append(name)
-	return out
-
-
 ## Every channel LAChannels declares as matter must be in CHANNELS, or a cell is weighed incomplete.
 ## Names the disagreement and returns false.
 static func covers_the_matter_channels(label: String) -> bool:
@@ -120,5 +101,5 @@ static func covers_the_matter_channels(label: String) -> bool:
 		return true
 	push_error("%s: CHANNELS disagrees with LAChannels. Not bound: [%s]. Not matter: [%s]. "
 		% [label, String(", ").join(uncovered), String(", ").join(unknown)]
-		+ "Add the binding to kernels3d/matter_channels.glsli and the name here, in the same order.")
+		+ "Add the buffer to LABindings, kernels3d/matter_channels.glsli and the name here.")
 	return false

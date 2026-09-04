@@ -2,10 +2,14 @@
 # RUNG 1 — GRAVITY. A BODY HAS AS MUCH WATER AS IT HAS, and the grid does not decide how much: the seeded
 # H2O stock, in moles off the conservation rows, against the hydrosphere the body record declares. Read at
 # rung 1, the rung whose vertical the flood needs to find a basin at all.
-# EXIT 0 the water is the body's own · 1 it is not · 2 the gate could not run.
+# THE ARM IS THE BODY: a box on the surface holds a fraction of the ocean, so on a slice arm this is
+# NOT EXAMINED.
+# EXIT 0 the water is the body's own · 1 it is not · 2 could not run · 3 the arm was a slice.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_rung.sh"
+. "$ROOT/scripts/lib_capture.sh"
+la_body_scoped "$(basename "$0")" || exit $?
 
 # THE SEA STANDS WHERE THE SHAPE PUTS IT, read at the grid's own resolution: the quadrature's departure
 # is a ratchet, docs/HYDROSPHERE_SEED_REL, never a budget the seed scales to.
@@ -23,7 +27,8 @@ if [ -z "$M_H2O" ]; then
 	exit 2
 fi
 
-out="$(la_rung_report 1 "$FRAMES" "h2o_total,body_seed_hydrosphere_kg")"
+out="$("$ROOT/scripts/sim_run.sh" --body --rung 1 --frames "$FRAMES" \
+	--report "h2o_total,body_seed_hydrosphere_kg" 2>&1)"
 rc=$?
 moles="$(la_rung_value "$out" h2o_total)"
 declared="$(la_rung_value "$out" body_seed_hydrosphere_kg)"

@@ -63,21 +63,16 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 			push_error(("ReducePass: row \"%s\" names %s, which nothing allocates. Its reading is ABSENT, "
 				+ "not zero, and its consumer publishes null.") % [String(row["key"]), ", ".join(absent)])
 			continue
-		_sets.append(_uset(_pipe, [
-			[1, _single(bufs, src)],
-			[2, _single(bufs, aux) if aux != "" else solid],
-			[3, solid],
-			[4, _partials],
-			[5, bufs[ref] if ref != "" else solid],
-			[6, _single(bufs, gate) if gate != "" else solid],
-			[7, _single(bufs, gate_aux) if gate_aux != "" else solid],
-			[8, _single(bufs, aux2) if aux2 != "" else solid],
-			[9, nbr],
-			[10, vert_up],
-			[11, vert_down],
-			[92, _single(bufs, "slot_off")],
-			[93, _single(bufs, "face_partner")],
-			[94, _single(bufs, "cell_edge")]]))
+		# A row that names no aux, gate or ref binds `solid` into those slots: already bound, and read
+		# through a predicate the row leaves off.
+		_sets.append(_uset(_pipe, LABindings.set_for("reduce.glsl", bufs, {
+			"reduce_src": _single(bufs, src),
+			"reduce_aux": _single(bufs, aux) if aux != "" else solid,
+			"reduce_aux2": _single(bufs, aux2) if aux2 != "" else solid,
+			"reduce_ref": bufs[ref] if ref != "" else solid,
+			"reduce_gate": _single(bufs, gate) if gate != "" else solid,
+			"reduce_gate_aux": _single(bufs, gate_aux) if gate_aux != "" else solid,
+			"reduce_partials": _partials})))
 		_rows.append(row)
 		_folds.append(_fold_mode(int(row["op"])))
 		_keys.append(String(row["key"]))

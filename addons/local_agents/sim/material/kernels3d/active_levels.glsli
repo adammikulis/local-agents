@@ -7,24 +7,24 @@
 
 // A detector list: the cells it found, and args slot 3 their count. No `restrict`:
 // a full-grid row binds one buffer into all three slots.
-layout(set = 0, binding = 34, std430) buffer ActiveIdx { uint active_idx[]; };
-layout(set = 0, binding = 35, std430) buffer ActiveArgs { uint active_args[]; };
+layout(set = 0, binding = LA_BIND_ACTIVE_IDX, std430) buffer ActiveIdx { uint active_idx[]; };
+layout(set = 0, binding = LA_BIND_ACTIVE_ARGS, std430) buffer ActiveArgs { uint active_args[]; };
 // TEMPORAL LEVELS. A cell's own stable timestep is dt/2^tlevel; the ghost tail is level 0. `level_idx`
 // holds every cell sorted by level, and `level_args` per level: indirect groups, the histogram count,
 // the sorted offset, the scatter cursor and the suffix count of cells at that level or finer.
-layout(set = 0, binding = 80, std430) buffer TLevel { uint tlevel[]; };
-layout(set = 0, binding = 81, std430) buffer LevelIdx { uint level_idx[]; };
-layout(set = 0, binding = 82, std430) buffer LevelArgs { uint level_args[]; };
+layout(set = 0, binding = LA_BIND_TLEVEL, std430) buffer TLevel { uint tlevel[]; };
+layout(set = 0, binding = LA_BIND_LEVEL_IDX, std430) buffer LevelIdx { uint level_idx[]; };
+layout(set = 0, binding = LA_BIND_LEVEL_ARGS, std430) buffer LevelArgs { uint level_args[]; };
 // Per row group: the coarsest level its state can afford, atomically reduced.
-layout(set = 0, binding = 83, std430) buffer LevelPeak { uint level_peak[]; };
+layout(set = 0, binding = LA_BIND_LEVEL_PEAK, std430) buffer LevelPeak { uint level_peak[]; };
 // ACTIVITY: substeps since matter last crossed a cell, one counter per row group.
-layout(set = 0, binding = 84, std430) buffer Quiet { uint quiet[]; };
+layout(set = 0, binding = LA_BIND_ACT_QUIET, std430) buffer Quiet { uint quiet[]; };
 // The compaction's dedup claim and its unsorted queue, one entry per cell.
-layout(set = 0, binding = 85, std430) buffer ActClaim { uint act_claim[]; };
-layout(set = 0, binding = 86, std430) buffer ActQueue { uint act_q[]; };
+layout(set = 0, binding = LA_BIND_ACT_CLAIM, std430) buffer ActClaim { uint act_claim[]; };
+layout(set = 0, binding = LA_BIND_ACT_QUEUE, std430) buffer ActQueue { uint act_q[]; };
 // Cells another kernel changed, slot 3 of the args carrying their count.
-layout(set = 0, binding = 87, std430) buffer WakeQueue { uint wake_q[]; };
-layout(set = 0, binding = 88, std430) buffer WakeArgs { uint wake_args[]; };
+layout(set = 0, binding = LA_BIND_ACT_WAKE, std430) buffer WakeQueue { uint wake_q[]; };
+layout(set = 0, binding = LA_BIND_ACT_WAKE_ARGS, std430) buffer WakeArgs { uint wake_args[]; };
 
 // The coarsest level a cell's own state can afford; defined by the kernel that includes this.
 uint la_row_level(uint c);

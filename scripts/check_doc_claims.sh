@@ -85,40 +85,77 @@ fi
 # EVERY FILE PATH A GATED DOC CITES MUST EXIST. No directive opts a path in: a path in backticks IS the
 # claim, and the class it closes is the one nobody writes a directive for -- prose naming a file that was
 # deleted out from under it. To say a path is absent ON PURPOSE, deleted and staying deleted or named as
-# work not yet built, write `<!-- claim: nofile <repo-relative path> -->` beside it. That claim is checked
-# above and goes red the day the file appears, so the escape cannot rot into a permanent exemption.
-PATH_EXT='gd|glsl|glsli|gdshader|sh|py|md|tscn|cfg|gdextension|cpp|hpp|yml|json|patch|txt'
-PATH_RE="^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_.-]+)*\.($PATH_EXT)(:[0-9]+(,[0-9]+)*)?$"
+# work not yet built, write a nofile claim beside it. That claim is checked above and goes red the day the
+# file appears, so the escape cannot rot into a permanent exemption.
+# ONE PASS over the gated docs, resolving each backticked span against the working tree and the index.
+INDEX_FILE="$(mktemp "${TMPDIR:-/tmp}/la_doc_index.XXXXXX")" || exit 2
+trap 'rm -f "$INDEX_FILE"' EXIT
+git -C "$ROOT" ls-files > "$INDEX_FILE" 2>/dev/null
+[ -s "$INDEX_FILE" ] || { echo "check_doc_claims: could not list the tree." >&2; exit 2; }
 
-# rg skips hidden directories by default, and .github/workflows is cited by name.
-INDEX="$(git -C "$ROOT" ls-files 2>/dev/null)"
-[ -n "$INDEX" ] || { echo "check_doc_claims: could not list the tree." >&2; exit 2; }
-EXEMPT="$(rg -o --no-filename -e '<!--[[:space:]]*claim:[[:space:]]*nofile[[:space:]]+[^[:space:]]+' \
-	"${DOCS[@]}" 2>/dev/null | awk '{print $NF}')"
+PATHS_OUT="$(ROOT="$ROOT" INDEX_FILE="$INDEX_FILE" python3 - "${DOCS[@]}" <<'PY'
+import os, re, sys
 
-paths=0
-while IFS= read -r line; do
-	src="${line%%:*}"; rest="${line#*:}"
-	lno="${rest%%:*}"; body="${rest#*:}"
-	case "$body" in *"<!--"*"claim:"*) continue ;; esac
-	for span in $(printf '%s' "$body" | rg -o '`[^`]+`' | tr -d '`' | tr ' ' '\n'); do
-		word="${span#res://}"
-		word="${word%[,;)]}"
-		word="${word#(}"
-		printf '%s' "$word" | rg -q "$PATH_RE" || continue
-		printf '%s\n' "$EXEMPT" | grep -qxF "$word" && continue
-		p="${word%%:*}"
-		printf '%s\n' "$EXEMPT" | grep -qxF "$p" && continue
-		paths=$((paths + 1))
-		[ -e "$ROOT/$p" ] && continue
-		printf '%s\n' "$INDEX" \
-			| awk -v s="/$p" '(i = index($0, s)) > 0 && i == length($0) - length(s) + 1 { hit = 1; exit }
-				END { exit !hit }' \
-			&& continue
-		verdict 1 "$(basename "$src"):$lno" \
-			"\`$word\` names a file that is not in the tree. Fix the path, or declare it nofile."
-	done
-done < <(rg -n --no-heading -e '`[^`]+`' "${DOCS[@]}" 2>/dev/null)
+root, index_file = os.environ["ROOT"], os.environ["INDEX_FILE"]
+PATH_EXT = "gd|glsl|glsli|gdshader|sh|py|md|tscn|cfg|gdextension|cpp|hpp|yml|json|patch|txt"
+PATH_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_.-]+)*\.(?:%s)(?::[0-9]+(?:,[0-9]+)*)?"
+                     % PATH_EXT)
+TICK = chr(96)
+SPAN = re.compile(TICK + "[^" + TICK + "]+" + TICK)
+NOFILE = re.compile(r"<!--\s*claim:\s*nofile\s+(\S+)")
+
+index = [ln.strip() for ln in open(index_file, errors="replace") if ln.strip()]
+by_tail = {}
+for entry in index:
+    by_tail.setdefault(entry.rsplit("/", 1)[-1], []).append(entry)
+
+docs = {}
+exempt = set()
+for path in sys.argv[1:]:
+    docs[path] = open(path, errors="replace").read().splitlines()
+    for line in docs[path]:
+        for m in NOFILE.finditer(line):
+            exempt.add(m.group(1))
+
+paths = 0
+bad = []
+for path, lines in docs.items():
+    for lno, line in enumerate(lines, 1):
+        if TICK not in line or ("<!--" in line and "claim:" in line):
+            continue
+        for span in SPAN.findall(line):
+            for word in span.strip(TICK).split():
+                if word.startswith("res://"):
+                    word = word[len("res://"):]
+                if word[-1:] in ",;)":
+                    word = word[:-1]
+                if word.startswith("("):
+                    word = word[1:]
+                if not PATH_RE.fullmatch(word):
+                    continue
+                p = word.split(":", 1)[0]
+                if word in exempt or p in exempt:
+                    continue
+                paths += 1
+                if os.path.exists(os.path.join(root, p)):
+                    continue
+                if any(e == p or e.endswith("/" + p) for e in by_tail.get(p.rsplit("/", 1)[-1], ())):
+                    continue
+                bad.append((os.path.basename(path), lno, word))
+
+for base, lno, word in bad:
+    print("FALSE CLAIM  %s:%d" % (base, lno), file=sys.stderr)
+    print("             %s%s%s names a file that is not in the tree. Fix the path, or declare it nofile."
+          % (TICK, word, TICK), file=sys.stderr)
+print(paths)
+raise SystemExit(1 if bad else 0)
+PY
+)"
+rc=$?
+[ "$rc" -le 1 ] || { echo "check_doc_claims: the path pass could not run." >&2; exit 2; }
+[ "$rc" -eq 0 ] || fail=1
+paths="$(printf '%s' "$PATHS_OUT" | tail -1)"
+case "${paths:-}" in "" | *[!0-9]*) paths=0 ;; esac
 
 if [ "$paths" -eq 0 ]; then
 	echo "check_doc_claims: found NO cited file path. The docs lost them or the pattern rotted." >&2

@@ -117,7 +117,7 @@ func _shader_of(kernel: RID) -> RID:
 ## Uniform set 0 from [binding, rid] entries.
 func _uset(kernel: RID, entries: Array) -> RID:
 	var shader: RID = _shader_of(kernel)
-	if _rd == null or not shader.is_valid():
+	if _rd == null or not shader.is_valid() or entries.is_empty():
 		return RID()
 	var uniforms: Array[RDUniform] = []
 	for e in entries:

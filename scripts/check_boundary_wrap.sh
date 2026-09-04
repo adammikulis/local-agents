@@ -18,7 +18,7 @@ command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 not on PATH — a g
 FRAMES="${LA_BND_WRAP_FRAMES:-40}"
 ERRLOG="$(mktemp "${TMPDIR:-/tmp}/la_bnd_wrap.XXXXXX")"
 out="$(LA_BOUNDARY_FACES="wrap,wrap,shut,shut,wrap,wrap" \
-  "$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --slice --frames "$FRAMES" --raw 2>"$ERRLOG")"
+  "$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --frames "$FRAMES" --raw 2>"$ERRLOG")"
 rc=$?
 case "$rc" in
   0|122|123) ;;

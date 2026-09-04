@@ -46,8 +46,10 @@ const MODELLED_ATMOSPHERE_HEIGHT_M: float = 1.0e5
 ## Cells per axis of a SLICE box laid on the body instead of a box around the whole planet. ZERO = no
 ## slice here; the project setting / LA_SLICE_BOX env can still configure one (node wins when set).
 @export var slice_cells: Vector3i = Vector3i.ZERO
-## Cell edge of the slice box, metres.
+## Cell edge of the slice box, metres: the COARSEST the box carries.
 @export_range(1.0, 1.0e5, 1.0, "or_greater", "suffix:m") var slice_cell_size_m: float = 4000.0
+## Finest cell edge the slice refines to, metres. Must be slice_cell_size_m halved a whole number of times.
+@export_range(0.1, 1.0e5, 0.1, "or_greater", "suffix:m") var slice_fine_m: float = 4000.0
 ## Offset of the slice box's centre from the body centre, metres, body frame. Its direction is the
 ## slice's local vertical, so it must be nonzero.
 @export var slice_offset_m: Vector3 = Vector3.ZERO
@@ -177,9 +179,9 @@ func _build_sphere() -> bool:
 	add_child(_material)
 	# Node exports outrank the project setting, which outranks LA_SLICE_BOX.
 	if slice_cells != Vector3i.ZERO:
-		_material.set_meta(LAFieldSlice3D.META_BOX, "%f,%f,%f,%d,%d,%d,%f" % [
+		_material.set_meta(LAFieldSlice3D.META_BOX, "%f,%f,%f,%d,%d,%d,%f,%f" % [
 			slice_offset_m.x, slice_offset_m.y, slice_offset_m.z,
-			slice_cells.x, slice_cells.y, slice_cells.z, slice_cell_size_m])
+			slice_cells.x, slice_cells.y, slice_cells.z, slice_cell_size_m, slice_fine_m])
 	var slice: LAFieldSlice3D = LAFieldSlice3D.of(_material)
 	if slice != null:
 		if not slice.apply(_material, _body, _terrain):

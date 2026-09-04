@@ -22,6 +22,7 @@ var _first_element_o: float = NAN
 var _conservation = null                         # LAMaterialFieldConservation3D — the law, enforced
 var _seal = null                                 # LAMaterialFieldSeal3D — SEEDING -> SEALED, the line the books start at
 var _seal_announced: bool = false                # WORLD_SEALED printed once, from the step-driven phase
+var _level_counts: PackedInt32Array = PackedInt32Array()  # cells per refinement level, walked once
 var _heavy_cache: Dictionary = {}                        # last computed instrument block
 var _heavy_frame: int = -1_000_000                       # physics tick it was computed on
 
@@ -141,11 +142,15 @@ func report() -> Dictionary:
 		_seal_announced = true
 		print("WORLD_SEALED=", JSON.stringify(_seal.report()))
 	var q: LAMaterialFieldQueries3D = _f._queries
+	if _level_counts.is_empty():
+		_level_counts = LAGridGeometry.level_counts(_f._grid)
 	# `lava` and `fire` are demand-gated, so each of these blocks carries a provenance flag.
 	var molten: Dictionary = q.molten_counts()
 	var fire: Dictionary = q.fire_stats()
 	var r: Dictionary = {
 		"grid_cells": _f._grid.cell_count, "grid_max_level": _f._grid.max_level, "grid_target_edge_m": _f._grid.target_edge_m,
+		"grid_fine_edge_m": _f._grid.cell_size * pow(0.5, float(_f._grid.max_level)),
+		"grid_level_counts": _level_counts,
 		"wet_cells": _f.wet_cell_count(), "heat_peak": _f.peak_heat(), "heat_cells": _f.hot_cell_count(),
 		"cloud_cells": _f.cloud_cell_count(), "cloud_cover": _f.avg_cloud_cover(),
 		"fog_cover": _f.avg_fog_cover(), "vapour_total": _f.vapour_total(),
@@ -223,6 +228,7 @@ func _heavy_block() -> Dictionary:
 		return _heavy_cache
 	_heavy_frame = frame
 	var d: Dictionary = surface_climate()
+	d.merge(LAFieldHydrosphereSeed.wetness(_f))
 	d.merge(LAFieldPressureAudit.inversions(_f))
 	var step: int = _f._gpu._step_index if _f._gpu != null else 0
 	# momentum — Σ m*v over the air, the third conserved quantity of mechanics.

@@ -4,59 +4,29 @@ extends Node
 
 const SkyCycleScript: GDScript = preload("res://addons/local_agents/game/world/VoxelSkyCycle.gd")
 
-const SUN_BODY_RADIUS: float = 60.0
-const SUN_EMISSION_ENERGY: float = 6.0
-const SUN_CORE_COLOR: Color = Color(1.0, 0.94, 0.72)
-
 var _star: Node3D = null    # LAStar, owned by the simulation — read, never created here
-var _sun_body: MeshInstance3D = null  # the glowing disc, parented to the star
-var _sky: Node = null       # LAVoxelSkyCycle — sky/sun/moon/environment + day/night clock
+var _sky: Node = null       # LAVoxelSkyCycle — the scattering atmosphere and the sun that lights it
 
 
-## Build the sky cycle as a child of `world` and hang the sun disc on the simulation's `star`.
-func setup(world: Node, star: Node3D, time_of_day: float, lunar_phase: float, render_opts: Dictionary = {}) -> void:
+## Build the sky cycle as a child of `world`, lit by the simulation's `star` and `moon`.
+func setup(world: Node, star: Node3D, moon: Node3D, render_opts: Dictionary = {}) -> void:
 	_star = star
 	_sky = SkyCycleScript.new()
 	_sky.name = "SkyCycle"
 	world.add_child(_sky)
-	_sky.setup(world, time_of_day, lunar_phase, render_opts)
+	_sky.setup(world, render_opts)
+	_sky.bind_bodies(star, moon)
 	# The sky cycle draws the lighting; the star's own light stays hidden so they do not double up. Hiding it
 	# does not affect the field — a hidden DirectionalLight3D still carries its transform and metadata.
 	if _star != null and _star.has_method("light") and _star.light() != null:
 		_star.light().visible = false
-	if _star != null:
-		_build_sun_body(_star)
 
 
-## Attach the glowing sun disc as a child of the star node so it always sits at the star's world position.
-func _build_sun_body(star: Node3D) -> void:
-	_sun_body = MeshInstance3D.new()
-	_sun_body.name = "SunBody"
-	var sphere: SphereMesh = SphereMesh.new()
-	sphere.radius = SUN_BODY_RADIUS
-	sphere.height = SUN_BODY_RADIUS * 2.0
-	sphere.radial_segments = 24
-	sphere.rings = 12
-	_sun_body.mesh = sphere
-	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.albedo_color = SUN_CORE_COLOR
-	mat.emission_enabled = true
-	mat.emission = SUN_CORE_COLOR
-	mat.emission_energy_multiplier = SUN_EMISSION_ENERGY
-	mat.disable_receive_shadows = true
-	_sun_body.material_override = mat
-	_sun_body.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	# Never fade/cull the sun — it stays lit at whatever orbit distance the camera pulls to.
-	_sun_body.extra_cull_margin = 16384.0
-	star.add_child(_sun_body)
-
-
-## PLANETARY SKY: view from space (dark starfield + low ambient) with the sun FIXED shining star->planet;
-## the spinning planet turns under it → a stark star-lit day/night terminator sweeps the surface.
+## THE ORBIT MOVED: re-derive the direction the sunlight travels, star -> body. The simulation's orbit
+## integrator calls this every step; it is the only thing that aims the sun.
 func enter_space_mode(body_center: Vector3) -> void:
-	if _sky != null and _sky.has_method("set_space_mode") and _star != null:
-		_sky.set_space_mode((body_center - _star.global_position).normalized())
+	if _sky != null and _star != null:
+		_sky.set_sun_shine((body_center - _star.global_position).normalized())
 
 
 ## The sky cycle reads the field each frame (cloud-cover dimming) + pushes the day/night colour tint to
@@ -66,11 +36,11 @@ func bind_scene(material, water) -> void:
 		_sky.bind_scene(material, water)
 
 
-## The camera the frame is drawn through and the body it stands on: the sky's altitude blend and its
-## local vertical.
-func bind_camera(camera: Node3D, planet_centre: Vector3) -> void:
+## The camera the frame is drawn through and the body it stands on: the sky's own altitude and its local
+## vertical.
+func bind_camera(camera: Node3D, planet_centre: Vector3, sea_radius: float) -> void:
 	if _sky != null and _sky.has_method("bind_camera"):
-		_sky.bind_camera(camera, planet_centre)
+		_sky.bind_camera(camera, planet_centre, sea_radius)
 
 
 func update(delta: float) -> void:

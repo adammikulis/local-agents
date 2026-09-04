@@ -40,6 +40,9 @@ const MIN_EYE_CLEARANCE: float = 6.0      # eye never sits closer than this abov
 const TERRAIN_FOLLOW_TIME: float = 0.35   # ease time (s) of the terrain-radius follow — smooths ridges under the eye
 
 const PAN_REFERENCE_DISTANCE: float = 100.0
+## Bearings the ground is asked about, as a fraction of the half-field of view: the frame is not
+## resolved until its coarsest is, or half the picture streams in after the shot.
+const FRAME_PROBE_FRAC: Array[float] = [-1.0, -0.5, 0.0, 0.5, 1.0]
 
 var _focus: Vector3 = Vector3.ZERO
 var _distance: float = 140.0
@@ -83,7 +86,9 @@ var _reach_m: float = 0.0                      # span the fly speed is a fractio
 var _rts_pitch: float = deg_to_rad(RTS_PITCH_DEG)
 var _smooth_surface_r: float = 0.0
 var _ground_ready: bool = false
-var _ground_res: float = INF     # metres of voxel edge of the drawn ground under the eye and the gaze
+var _ground_res: float = INF     # coarsest voxel edge of the drawn ground ACROSS THE FRAME
+var _ground_res_prev: float = -1.0   # the same, one update ago: equal means the streamer has settled
+var _look_res: float = INF       # voxel edge of the ground the gaze lands on
 var _aim_distance: float = 0.0   # eye to look point, metres
 
 var _geosync: bool = false
@@ -369,13 +374,6 @@ func _approach_t() -> float:
 	return clampf(1.0 - (_rts_altitude() - RTS_ALT_MIN) / span, 0.0, 1.0)
 
 
-## How close the orbit camera is to the surface, for the sky cycle's altitude-aware atmosphere.
-func surface_blend() -> float:
-	if not _orbit_mode or _solar_view or _fly:
-		return 0.0
-	return 1.0
-
-
 func _update_orbit_transform() -> void:
 	# The solar overview writes its own absolute pose; never overwrite it with the RTS ground pose.
 	if _solar_view:
@@ -397,6 +395,7 @@ func _update_orbit_transform() -> void:
 	var look_r: float = _surface_radius_at(radial)
 	var look_known: bool = not is_nan(look_r)
 	var look_res: float = INF if not look_known else _ground_resolution_at(_orbit_center + radial * look_r)
+	_look_res = look_res
 	if look_known and not _ground_ready:
 		_smooth_surface_r = 0.0                                 # the ease smooths ridges, not the drop off the hold
 	var base_r: float = _eased_surface_radius(look_r if look_known else ceiling)
@@ -417,7 +416,8 @@ func _update_orbit_transform() -> void:
 	var pos_off: Vector3 = pos - _orbit_center
 	var eye_dir: Vector3 = pos_off.normalized() if pos_off.length() > 0.001 else radial
 	var eye_r: float = _surface_radius_at(eye_dir)
-	_ground_res = maxf(look_res,
+	_ground_res_prev = _ground_res
+	_ground_res = maxf(_frame_ground_res(look_pt, pos, back.cross(upn)),
 		INF if is_nan(eye_r) else _ground_resolution_at(_orbit_center + eye_dir * eye_r))
 	var min_r: float = (ceiling if is_nan(eye_r) else eye_r) + MIN_EYE_CLEARANCE
 	if pos_off.length() < min_r:
@@ -757,15 +757,31 @@ func _ground_resolution_at(surface_pt: Vector3) -> float:
 	return _geosync_body.meshed_resolution_at(surface_pt)
 
 
+## THE COARSEST GROUND THE FRAME HOLDS, not the ground under one ray: the look point walked across the
+## frame's own width at the range it was framed at. A shot taken when the gaze point alone is fine
+## catches the rest of the picture still coarse.
+func _frame_ground_res(look_pt: Vector3, eye: Vector3, right: Vector3) -> float:
+	var half_w: float = eye.distance_to(look_pt) * tan(deg_to_rad(fov) * 0.5)
+	var worst: float = 0.0
+	for f: float in FRAME_PROBE_FRAC:
+		var dir: Vector3 = (look_pt + right * (f * half_w) - _orbit_center).normalized()
+		var r: float = _surface_radius_at(dir)
+		if is_nan(r):
+			return INF
+		worst = maxf(worst, _ground_resolution_at(_orbit_center + dir * r))
+	return worst
+
+
 ## True while the pose is solved from ground the terrain has actually built under the eye.
 func ground_ready() -> bool:
 	return _ground_ready
 
 
-## THE DRAWN GROUND IS RESOLVED FINER THAN THE EYE STANDS ABOVE IT, under the eye and under the gaze both,
-## so what the camera sees is the real surface and not a coarse stand-in that can swallow the eye.
+## The gaze is drawn as finely as the eye stands above it, and the coarsest ground across the frame has
+## stopped changing: the streamer has finished with this view.
 func ground_resolved() -> bool:
-	return _ground_ready and _ground_res <= maxf(_rts_altitude(), MIN_EYE_CLEARANCE)
+	return _ground_ready and _look_res <= maxf(_rts_altitude(), MIN_EYE_CLEARANCE) \
+		and is_finite(_ground_res) and is_equal_approx(_ground_res, _ground_res_prev)
 
 
 ## How far down the view axis the pose put its look point: the ground the frame was composed around.

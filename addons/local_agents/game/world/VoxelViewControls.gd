@@ -78,6 +78,8 @@ func _build_ui() -> void:
 	_planet_btn.pressed.connect(func() -> void: _host.set_solar_view(false))
 	_solar_btn = _make_button("Solar System", view_group, box)
 	_solar_btn.pressed.connect(func() -> void: _host.set_solar_view(true))
+	# The system view frames bodies pulling on each other. A world that solves no gravity has no system.
+	_solar_btn.visible = LAWorldOffers.has_system()
 
 	_add_divider(box)
 

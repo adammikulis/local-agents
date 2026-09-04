@@ -69,6 +69,27 @@ la_cap_state() {
 	printf '%s' "$cap/slice_state.json"
 }
 
+# The arm the capture was taken on: LADDER_ARM={"slice":"<box>"} or {"slice":null}.
+la_cap_arm() {
+	local cap
+	cap="$(la_cap_dir)" || return 1
+	[ -s "$cap/arm" ] || return 1
+	cat "$cap/arm"
+}
+
+# A GATE THAT COMPARES A RUN TO THE WHOLE BODY'S DECLARED RECORD CANNOT READ A BOX. On a slice capture
+# it is NOT EXAMINED — never a pass, never a violation. With no capture it takes its own --body arm.
+# $1 the gate script's basename.
+la_body_scoped() {
+	local arm
+	arm="$(la_cap_arm 2>/dev/null || true)"
+	case "$arm" in
+		*'"slice":null'* | "") return 0 ;;
+	esac
+	echo "LINT_NOT_EXAMINED: $1 is body-scoped; the capture is a slice arm"
+	return 3
+}
+
 # The rung the shared arm ran at, so a replay of its face state runs in the same world.
 la_cap_rung() {
 	local cap

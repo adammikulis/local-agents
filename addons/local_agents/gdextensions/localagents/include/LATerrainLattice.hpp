@@ -88,6 +88,9 @@ struct LATerrainLattice {
 		out.n = int(std::ceil(p_extent / out.spacing)) + 2;
 		out.origin = p_origin;
 		out.d.assign(size_t(out.n) * out.n * out.n, 0.0f);
+		int probe_bx = -1, probe_by = -1, probe_bz = -1;
+		int generated = 0;
+		double probe_spread = 0.0;
 		for (int bz = 0; bz < out.n; bz += p_block) {
 			for (int by = 0; by < out.n; by += p_block) {
 				for (int bx = 0; bx < out.n; bx += p_block) {
@@ -127,6 +130,23 @@ struct LATerrainLattice {
 						return out;
 					}
 					const float *src = reinterpret_cast<const float *>(bytes.ptr());
+					generated++;
+					// The layout probe needs a block whose distance VARIES: a transposed index is invisible
+					// inside a block that reads one value throughout.
+					if (bx + p_block <= out.n && by + p_block <= out.n && bz + p_block <= out.n) {
+						const int nv = p_block * p_block * p_block;
+						double lo_v = src[0], hi_v = src[0];
+						for (int i = 1; i < nv; i++) {
+							lo_v = std::min(lo_v, double(src[i]));
+							hi_v = std::max(hi_v, double(src[i]));
+						}
+						if (hi_v - lo_v > probe_spread) {
+							probe_spread = hi_v - lo_v;
+							probe_bx = bx;
+							probe_by = by;
+							probe_bz = bz;
+						}
+					}
 					for (int z = 0; z < p_block && bz + z < out.n; z++) {
 						for (int y = 0; y < p_block && by + y < out.n; y++) {
 							for (int x = 0; x < p_block && bx + x < out.n; x++) {
@@ -139,30 +159,57 @@ struct LATerrainLattice {
 				}
 			}
 		}
-		// THE LATTICE IS CHECKED AGAINST THE TERRAIN IT WAS BUILT FROM: lattice points inside the box that
-		// lie in the relief band, the terrain's own signed distance against the lattice's. The generator
-		// clips the distance a few voxels from the surface, so the sign is held everywhere and the value
-		// only within a spacing of the surface; a layout, origin or spacing defect flips signs.
-		if (p_terrain->has_method("sdf_at") && p_r_lo > 0.0 && p_r_hi > 0.0) {
-			int checked = 0;
-			const int stride = std::max(out.n / 24, 1);
-			for (int z = 0; z < out.n && checked < 64; z += stride) {
-				for (int y = 0; y < out.n && checked < 64; y += stride) {
-					for (int x = 0; x < out.n && checked < 64; x += stride) {
-						const Vector3 pt = p_origin + Vector3(float(x), float(y), float(z)) * float(out.spacing);
-						const double r = double((pt - p_centre).length());
-						if (r < p_r_lo || r > p_r_hi) {
-							continue;
-						}
-						const double want = double(p_terrain->call("sdf_at", pt));
-						const double got = double(out.at(x, y, z));
-						checked++;
-						const bool sign_off = (want < 0.0) != (got < 0.0) && std::abs(want) > out.spacing;
-						const bool near_off = std::abs(want) <= out.spacing && std::abs(want - got) > out.spacing;
-						if (!std::isfinite(want) || sign_off || near_off) {
-							UtilityFunctions::push_error(String("LATerrainLattice: the lattice disagrees with the terrain by ")
-									+ String::num(std::abs(want - got)) + " m at a band point (spacing "
-									+ String::num(out.spacing) + " m), so it is not the terrain's distance and nothing reads it.");
+		// THE LATTICE IS CHECKED AGAINST THE GENERATOR ON A HALF-BLOCK OFFSET, once per axis: the same
+		// distance from the same source through a different index origin, so a transposed layout, a
+		// shifted origin or a wrong spacing shows where the two overlap. A slab, not a corner, so the
+		// overlap spans the block on the axes it is not offset on. The terrain's own `sdf_at` cannot be
+		// the reference: it is a RADIAL depth below the outermost ground, and at a cave wall it reads
+		// kilometres of rock where the generator's distance reads the boundary it stands on.
+		if (generated > 0 && !(probe_spread > out.spacing)) {
+			UtilityFunctions::push_error("LATerrainLattice: no generated block holds a varying distance, so "
+					"the layout could not be checked and the lattice is not trusted.");
+			out.d.clear();
+			out.n = 0;
+			return out;
+		}
+		for (int axis = 0; axis < 3 && probe_bx >= 0; axis++) {
+			const int half = p_block / 2;
+			int off[3] = { 0, 0, 0 };
+			off[axis] = half;
+			const Vector3 bo2 = p_origin + Vector3(float(probe_bx + off[0]), float(probe_by + off[1]),
+					float(probe_bz + off[2])) * float(out.spacing);
+			Variant vb2 = ClassDB::instantiate("VoxelBuffer");
+			Object *buf2 = Object::cast_to<Object>(vb2);
+			if (!buf2) {
+				out.d.clear();
+				out.n = 0;
+				return out;
+			}
+			buf2->call("create", p_block, p_block, p_block);
+			buf2->call("set_channel_depth", CHANNEL_SDF, DEPTH_32_BIT);
+			gen->call("generate_block", vb2, Vector3i(int(std::lround(bo2.x)), int(std::lround(bo2.y)),
+					int(std::lround(bo2.z))), p_lod);
+			const PackedByteArray b2 = buf2->call("get_channel_as_byte_array", CHANNEL_SDF);
+			if (b2.size() < p_block * p_block * p_block * 4) {
+				out.d.clear();
+				out.n = 0;
+				return out;
+			}
+			const float *s2 = reinterpret_cast<const float *>(b2.ptr());
+			const int span[3] = { axis == 0 ? half : p_block, axis == 1 ? half : p_block,
+				axis == 2 ? half : p_block };
+			for (int z = 0; z < span[2]; z++) {
+				for (int y = 0; y < span[1]; y++) {
+					for (int x = 0; x < span[0]; x++) {
+						const double a = double(out.at(probe_bx + off[0] + x, probe_by + off[1] + y,
+								probe_bz + off[2] + z));
+						const double b = double(s2[y + p_block * (x + p_block * z)]);
+						if (!std::isfinite(a) || !std::isfinite(b)
+								|| std::abs(a - b) > 1.0e-3 * std::max(1.0, std::abs(a))) {
+							UtilityFunctions::push_error(String("LATerrainLattice: the same generator read through "
+									"two index origins disagrees by ") + String::num(std::abs(a - b))
+									+ " m (spacing " + String::num(out.spacing)
+									+ " m), so the lattice layout is not the terrain's and nothing reads it.");
 							out.d.clear();
 							out.n = 0;
 							return out;

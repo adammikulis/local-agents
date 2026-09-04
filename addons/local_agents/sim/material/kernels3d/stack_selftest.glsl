@@ -1,13 +1,15 @@
 #[compute]
 #version 450
 
+#include "bindings.glsli"
+
 // ONE CELL, AT REST. The six faces of a cube must return exactly the weight of what it holds, or a cell
 // standing still accelerates. scripts/check_stack_balance.gd dispatches this and reads the residual.
 #include "stack.glsli"
 
 layout(local_size_x = 64) in;
 
-layout(set = 0, binding = 0, std430) restrict buffer Probe { float probe[]; };
+layout(set = 0, binding = LA_BIND_STACK_PROBE, std430) restrict buffer Probe { float probe[]; };
 
 // Floats per case: edge, g, m_cond, m_total, p_mean, then the gravity direction.
 const uint LA_CASE = 8u;
