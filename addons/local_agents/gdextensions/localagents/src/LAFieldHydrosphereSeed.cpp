@@ -1,7 +1,9 @@
 #include "LAFieldHydrosphereSeed.hpp"
 
 #include "LABodySystem.hpp"
+#include "LAGridGeometry.hpp"
 #include "LAPhysicalRead.hpp"
+#include "LAPlanetTables.hpp"
 #include "LAScriptCall.hpp"
 #include "LASubstances.hpp"
 
@@ -9,6 +11,7 @@
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
+#include <godot_cpp/variant/packed_float64_array.hpp>
 #include <godot_cpp/variant/packed_int32_array.hpp>
 #include <godot_cpp/variant/vector3.hpp>
 
@@ -24,8 +27,6 @@ using namespace godot;
 namespace {
 
 const char *GEOMETRY_GD = "res://addons/local_agents/sim/material/FieldGeometry3D.gd";
-// LAVoxelGrid.slot_off: 7 entries per cell, the last ending its faces.
-const int SLOT_STRIDE = 7;
 
 Vector3 field_centre(Object *p_field) {
 	Array args;
@@ -54,6 +55,8 @@ void LAFieldHydrosphereSeed::seed(Object *p_field) {
 		return;
 	}
 	const PackedFloat32Array edges = grid->call("cell_edges");
+	const PackedFloat32Array depth = p_field->get("_surface_depth");
+	const PackedFloat64Array cw = LAGridGeometry::centres_f64(grid);
 	const Dictionary body = LABodySeeds::of("planet");
 	const double water_kg = double(body.get("hydrosphere_kg", 0.0));
 	const double ground_kg = double(body.get("groundwater_kg", 0.0));
@@ -62,42 +65,79 @@ void LAFieldHydrosphereSeed::seed(Object *p_field) {
 				"could split between its surface and its pore space, so the planet would seed dry.");
 		return;
 	}
-	// Porosity is a share of the ROCK's volume: the pore space of a cell is its rock's.
-	double pore = 0.0;
-	for (int c = 0; c < cc && c < edges.size(); c++) {
-		if (regolith[c] != 0) {
-			const double e = double(edges[c]);
-			pore += double(porosity[c]) * double(MAX(rock[c], 0.0f)) * e * e * e;
-		}
-	}
-	// NO PORE SPACE IS A BROKEN REGOLITH WALK: every box on this body has rock in it, and rock has
-	// porosity, so a walk that finds none found nothing rather than a body without groundwater.
-	if (!(pore > 0.0)) {
-		UtilityFunctions::push_error("LAFieldHydrosphereSeed: the regolith walk found no pore space, so "
-				"the body's groundwater has nowhere to stand.");
-		return;
-	}
 	const double full_mol = LASubstances::full_mol_m3("h2o");
 	const double kg_m3 = la_physical("MOLAR_MASS_WATER_KG_MOL") * full_mol;
 	if (!(full_mol > 0.0) || !(kg_m3 > 0.0)) {
 		return;
 	}
-	const double sat = MIN(ground_kg / (kg_m3 * pore), 1.0);
+	const double body_r = LABodySeeds::seed_radius_m("planet");
+	const double sea_r = double(p_field->call("sea_radius"));
+	if (!(body_r > 0.0) || !(sea_r > 0.0) || depth.size() != cc || cw.size() < cc * 3
+			|| edges.size() < cc) {
+		UtilityFunctions::push_error("LAFieldHydrosphereSeed: no sea shell, ground depth or cell centres, "
+				"so there is no surface for the water table to be measured from.");
+		return;
+	}
+	// LA_APPROX: seed_water_table_equipotential
+	const double h_wt = LAPlanetComposition::water_table_m(body_r, ground_kg / kg_m3, sea_r - body_r,
+			la_physical_array("HYPSOMETRY_AREA_BELOW"), la_physical_array("HYPSOMETRY_ELEVATION_M"));
+	if (!std::isfinite(h_wt)) {
+		return;
+	}
+	const Vector3 centre = field_centre(p_field);
 	PackedFloat32Array pore_w = p_field->get("_h2o_pore");
 	pore_w.resize(cc);
 	float *w = h2o.ptrw();
 	float *pw = pore_w.ptrw();
-	// THE SEA STANDS WHERE THE SHAPE PUTS IT, and the pore water wherever there is rock: two channels, the
-	// sea in its own volume and the pore water in the rock's.
+	// THE SEA STANDS WHERE THE SHAPE PUTS IT, and the pore water under the water table: two channels, the
+	// sea in its own volume and the pore water in the rock's, wherever the rock is below the table.
 	for (int c = 0; c < cc; c++) {
 		w[c] = float(MIN(double(MAX(water[c], 0.0f)), 1.0) * full_mol);
-		pw[c] = regolith[c] != 0 ? float(sat * double(porosity[c]) * double(MAX(rock[c], 0.0f)) * full_mol) : 0.0f;
+		pw[c] = 0.0f;
+		if (regolith[c] == 0) {
+			continue;
+		}
+		const double r = std::hypot(cw[c * 3] - double(centre.x), cw[c * 3 + 1] - double(centre.y),
+				cw[c * 3 + 2] - double(centre.z));
+		// The table is one equipotential CAPPED AT THE GROUND: under the sea the ground is the sea floor,
+		// so the pore beneath it stands at the sea's own head; on land the cap is a spring.
+		const double r_wt = MIN(r + double(depth[c]), sea_r + h_wt);
+		const double e = double(edges[c]);
+		const double below = e > 0.0 ? (r_wt - (r - 0.5 * e)) / e : 0.0;
+		const double fill = MIN(MAX(below, 0.0), 1.0);
+		pw[c] = float(fill * double(porosity[c]) * double(MAX(rock[c], 0.0f)) * full_mol);
 	}
 	p_field->set("_h2o", h2o);
 	p_field->set("_h2o_pore", pore_w);
 }
 
+Dictionary LAFieldHydrosphereSeed::wetness(Object *p_field) {
+	Dictionary out;
+	if (!p_field) {
+		return out;
+	}
+	const PackedByteArray regolith = p_field->get("_regolith");
+	const PackedFloat32Array pore = p_field->get("_h2o_pore");
+	const int n = MIN(int(p_field->get("_cell_count")), MIN(int(regolith.size()), int(pore.size())));
+	if (n <= 0) {
+		return out;
+	}
+	int cells = 0, wet = 0;
+	for (int c = 0; c < n; c++) {
+		if (regolith[c] == 0) {
+			continue;
+		}
+		cells++;
+		wet += pore[c] > 0.0f ? 1 : 0;
+	}
+	out["regolith_cells"] = cells;
+	out["regolith_wet_cells"] = wet;
+	return out;
+}
+
 void LAFieldHydrosphereSeed::_bind_methods() {
 	ClassDB::bind_static_method("LAFieldHydrosphereSeed", D_METHOD("seed", "field"),
 			&LAFieldHydrosphereSeed::seed);
+	ClassDB::bind_static_method("LAFieldHydrosphereSeed", D_METHOD("wetness", "field"),
+			&LAFieldHydrosphereSeed::wetness);
 }

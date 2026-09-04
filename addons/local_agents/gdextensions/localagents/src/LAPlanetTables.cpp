@@ -838,12 +838,18 @@ Dictionary LAPlanetComposition::surface_fractions(Object *p_grid, Object *p_terr
 	}
 	const int cc = int(p_grid->get("cell_count"));
 	const PackedVector3Array cw = p_grid->get("centres");
+	// The RADIUS in double: float32 spacing at a body's radius is half a metre, a whole fine cell.
+	const PackedFloat64Array cwd = LAGridGeometry::centres_f64(p_grid);
 	double lo = -1.0, hi = -1.0;
 	if (p_terrain->has_method("min_surface_radius") && p_terrain->has_method("max_surface_radius")) {
 		lo = double(p_terrain->call("min_surface_radius"));
 		hi = double(p_terrain->call("max_surface_radius"));
 	}
 	const PackedFloat32Array edge = p_grid->call("cell_edges");
+	auto radius_of = [&](int c) {
+		return std::hypot(cwd[c * 3] - double(p_centre.x), cwd[c * 3 + 1] - double(p_centre.y),
+				cwd[c * 3 + 2] - double(p_centre.z));
+	};
 	PackedFloat32Array rock, water, ground;
 	rock.resize(cc);
 	water.resize(cc);
@@ -853,15 +859,14 @@ Dictionary LAPlanetComposition::surface_fractions(Object *p_grid, Object *p_terr
 	float *gw = ground.ptrw();
 	std::vector<int> ask;
 	for (int c = 0; c < cc; c++) {
-		const double r = double((cw[c] - p_centre).length());
+		const double r = radius_of(c);
 		const double pad = c < edge.size() ? 0.5 * std::sqrt(3.0) * double(edge[c]) : 0.0;
 		ww[c] = 0.0f;
 		// The ground under a cell the relief never reaches: the cell's own bottom along the vertical,
 		// so a band of water in it starts at its lowest corner.
 		{
 			const Vector3 rel = cw[c] - p_centre;
-			const double r0 = double(rel.length());
-			const Vector3 up = r0 > 0.0 ? rel / float(r0) : Vector3(0, 1, 0);
+			const Vector3 up = rel.length() > 0.0 ? rel / rel.length() : Vector3(0, 1, 0);
 			const double e = c < edge.size() ? double(edge[c]) : 0.0;
 			gw[c] = float(0.5 * e * (std::abs(up.x) + std::abs(up.y) + std::abs(up.z)));
 		}
@@ -894,11 +899,11 @@ Dictionary LAPlanetComposition::surface_fractions(Object *p_grid, Object *p_terr
 		const double e = c < edge.size() ? double(edge[c]) : base;
 		const double h = 0.5 * e;
 		const Vector3 rel = cw[c] - p_centre;
-		const double r0 = double(rel.length());
-		if (!(r0 > 0.0)) {
+		const double r0 = radius_of(c);
+		if (!(rel.length() > 0.0)) {
 			continue;
 		}
-		const Vector3 up = rel / float(r0);
+		const Vector3 up = rel / rel.length();
 		// A lateral basis across the vertical.
 		Vector3 a = std::abs(up.y) < 0.9 ? Vector3(0, 1, 0).cross(up) : Vector3(1, 0, 0).cross(up);
 		a = a.normalized();
@@ -1026,13 +1031,61 @@ double LAPlanetComposition::sea_level_m(double p_r_m, double p_ocean_m3, const P
 	return 0.5 * (lo + hi);
 }
 
+// Saturated pore column standing ABOVE the sea under ground at elevation p_e_m, m of water per m^2, with
+// the table p_h_m over the sea: Athy porosity integrated from the table down to sea level.
+static double pore_above_sea(double p_e_m, double p_h_m, double p_phi0, double p_zc, double p_aquifer_m) {
+	const double z_hi = std::min(std::max(p_e_m, 0.0), p_aquifer_m);
+	const double z_wt = std::max(p_e_m - p_h_m, 0.0);
+	if (!(z_hi > z_wt)) {
+		return 0.0;
+	}
+	return p_phi0 * p_zc * (std::exp(-z_wt / p_zc) - std::exp(-z_hi / p_zc));
+}
+
+double LAPlanetComposition::water_table_m(double p_r_m, double p_groundwater_m3, double p_sea_level_m,
+		const PackedFloat64Array &p_area_below, const PackedFloat64Array &p_elevation_m) {
+	const int n = std::min(p_area_below.size(), p_elevation_m.size());
+	const double phi0 = la_physical("REGOLITH_SURFACE_POROSITY");
+	const double zc = la_physical("COMPACTION_LENGTH_M");
+	const double aq = la_physical("GROUNDWATER_CIRCULATION_M");
+	if (n < 2 || !(p_r_m > 0.0) || !(phi0 > 0.0) || !(zc > 0.0) || !(aq > 0.0)) {
+		return 0.0;
+	}
+	auto volume = [&](double h) {
+		double acc = 0.0;
+		for (int i = 1; i < n; i++) {
+			const double a = pore_above_sea(p_elevation_m[i - 1] - p_sea_level_m, h, phi0, zc, aq);
+			const double b = pore_above_sea(p_elevation_m[i] - p_sea_level_m, h, phi0, zc, aq);
+			acc += 0.5 * (a + b) * (p_area_below[i] - p_area_below[i - 1]);
+		}
+		return 4.0 * kPi * p_r_m * p_r_m * acc;
+	};
+	// The table cannot stand above the highest ground, and there it saturates every pore over the sea.
+	double hi = std::max(p_elevation_m[n - 1] - p_sea_level_m, 0.0);
+	if (volume(hi) < p_groundwater_m3) {
+		UtilityFunctions::push_error("LAPlanetComposition: the body declares more groundwater than the pore "
+				"space standing over its sea can hold, so the table would stand above the ground everywhere.");
+		return hi;
+	}
+	double lo = 0.0;
+	for (int i = 0; i < 64; i++) {
+		const double mid = 0.5 * (lo + hi);
+		if (volume(mid) < p_groundwater_m3) {
+			lo = mid;
+		} else {
+			hi = mid;
+		}
+	}
+	return 0.5 * (lo + hi);
+}
+
 PackedFloat32Array LAPlanetComposition::surface_depth(Object *p_grid, Object *p_terrain, const Vector3 &p_centre) {
 	PackedFloat32Array out;
 	if (!p_grid || !p_terrain) {
 		return out;
 	}
 	const int cc = int(p_grid->get("cell_count"));
-	const PackedVector3Array cw = p_grid->get("centres");
+	const PackedFloat64Array cw = LAGridGeometry::centres_f64(p_grid);
 	double lo = -1.0, hi = -1.0;
 	if (p_terrain->has_method("min_surface_radius") && p_terrain->has_method("max_surface_radius")) {
 		lo = double(p_terrain->call("min_surface_radius"));
@@ -1049,13 +1102,15 @@ PackedFloat32Array LAPlanetComposition::surface_depth(Object *p_grid, Object *p_
 	out.resize(cc);
 	float *w = out.ptrw();
 	for (int c = 0; c < cc; c++) {
-		const Vector3 rel = cw[c] - p_centre;
-		const double r = double(rel.length());
+		const double rx = cw[c * 3] - double(p_centre.x);
+		const double ry = cw[c * 3 + 1] - double(p_centre.y);
+		const double rz = cw[c * 3 + 2] - double(p_centre.z);
+		const double r = std::hypot(rx, ry, rz);
 		if (!(r > 0.0)) {
 			w[c] = float(lo);
 			continue;
 		}
-		const Vector3 dir = rel / float(r);
+		const Vector3 dir(float(rx / r), float(ry / r), float(rz / r));
 		double a = lo, b = hi;
 		for (int i = 0; i < 24; i++) {
 			const double m = 0.5 * (a + b);
@@ -1089,6 +1144,7 @@ void LAPlanetComposition::_bind_methods() {
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("solid_of", "fraction"), &solid_of);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("surface_depth", "grid", "terrain", "centre"), &surface_depth);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("sea_level_m", "r_m", "ocean_m3", "area_below", "elevation_m"), &sea_level_m);
+	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("water_table_m", "r_m", "groundwater_m3", "sea_level_m", "area_below", "elevation_m"), &water_table_m);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("mg_number"), &mg_number);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("an_fraction"), &an_fraction);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("apatite_f_fraction"), &apatite_f_fraction);
