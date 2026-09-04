@@ -30,7 +30,7 @@ band refines uniformly, and a slice on a hilltop and one on a coast seed the sam
 
 ## 2. A --ui RUN NEVER FRAMES THE SLICE, AND THE GROUND UNDER THE EYE IS NOT BUILT
 
-`LA_SLICE_BOX="0,surface,0,24,32,24,4000" LA_RUN_TIMEOUT=110 scripts/run_sim_offscreen.sh --path .
+`LA_SLICE_BOX="0,surface,0,3,24,3,5120,10" LA_RUN_TIMEOUT=110 scripts/run_sim_offscreen.sh --path .
 addons/local_agents/game/VoxelWorld.tscn -- --sandbox --planet-only --no-fauna --rung=0 --ui
 --shoot=/tmp/s.png` frames the whole body, not the box; `scripts/agent_harness.sh ground` exits 2 at
 any rung. No renderer draws a per-cell vector field (gravity at rung 1, wind at rung 3).

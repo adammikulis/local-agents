@@ -14,7 +14,7 @@
 #   --rung N | --seed N   the processes the world contains (LAProcessSet, default docs/PLAYABLE_RUNG) / sim seed
 #   --path DIR     project dir (default .) — point it at a worktree
 #   --fauna | --full  keep animals (needs --full) / drop --planet-only (default is pure geophysics)
-#   --slice [--slice-box "ox,oy,oz,nx,ny,nz,cell_m"]  run a SLICE; --print-slice-box prints the default
+#   --slice [--slice-box "ox,oy,oz,nx,ny,nz,cell_m,fine_m"]  a SLICE; --print-slice-box prints the default
 #   --slice-state F | --slice-capture F  consume a face-state capture in a slice / record one in a GLOBAL run
 #   --report LIST  comma-separated SIM_REPORT keys to print (default: the conservation set)
 #   --raw | --keep  print the whole SIM_REPORT as formatted JSON / keep the log file and print its path
@@ -39,9 +39,10 @@ SLICE_STATE=""
 SLICE_CAPTURE=""
 # THE SEEDING IS A FUNCTION OF THE TREE, SO IT IS WALKED ONCE AND READ BACK. --reseed walks it again.
 FROM_SEAL=1
-# The default slice box, declared HERE and nowhere else: ox,oy,oz,nx,ny,nz,cell_m, standing on the
-# surface at +Y. `surface` is resolved by the world against the body's own radius.
-DEFAULT_SLICE_BOX="0,surface,0,24,32,24,4000"
+# The default slice box, declared HERE and nowhere else: ox,oy,oz,nx,ny,nz,cell_m,fine_m, standing on
+# the surface at +Y. `surface` is resolved by the world against the body's own radius. A 15 km footprint,
+# a 123 km column, 10 m at the ground.
+DEFAULT_SLICE_BOX="0,surface,0,3,24,3,5120,10"
 REPORT_KEYS="conservation,conservation_failed,conservation_audited,energy_run_drift,energy_held_first,energy_residual,energy_booked,o2_first,o2_total,mineral_first,mineral_total,h2o_first,h2o_total,element_C_total_first,element_C_total,temp_ground_mean,phenomena_kinds,field_ms,transport_levels"
 EXTRA=()
 

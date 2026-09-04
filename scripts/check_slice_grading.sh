@@ -10,8 +10,14 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 require_tool rg
 require_tool python3
 
-# ox,oy,oz,nx,ny,nz,cell_m,fine_m -- a 15 km footprint, a 123 km column, 10 m at the ground.
-BOX="0,surface,0,3,24,3,5120,10"
+# THE BOX THE LADDER AND THE DEMO ACTUALLY RUN, from its one declaration in sim_run.sh.
+BOX="$("$ROOT/scripts/sim_run.sh" --print-slice-box)"
+case "$BOX" in
+	*,*,*,*,*,*,*,*) ;;
+	*) echo "check_slice_grading: the default slice box \"$BOX\" has no eighth field, so it declares no" >&2
+	   echo "                     finest edge and nothing refines toward one." >&2
+	   exit 1 ;;
+esac
 FINE="${BOX##*,}"
 
 CAP="$(rg -N -o '^[0-9]+$' "$ROOT/docs/CELL_BUDGET" 2>/dev/null | head -1)"
