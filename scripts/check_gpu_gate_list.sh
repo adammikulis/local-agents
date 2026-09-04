@@ -26,6 +26,7 @@ actual=""
 for b in $in_lint; do
 	f="$ROOT/scripts/$b.sh"
 	[ -f "$f" ] || continue
+	[ "$b" = "check_gpu_gate_list" ] && continue   # this scan names the patterns it looks for
 	if rg -q -e '"\$[A-Za-z_][A-Za-z_0-9]*[^"]*/(run_sim_offscreen|sim_run)\.sh"' "$f" \
 		|| rg -q -e '[$][(]la_(report|report_raw|marker|cap_state|cap_front)\b' "$f" \
 		|| rg -q -e '/bin/lasim"' "$f"; then
