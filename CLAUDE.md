@@ -178,8 +178,14 @@ concentration and abiotic organic synthesis are 0.4. `docs/0.5_CREATURE_FEATURES
 - **The acceptance arm is a slice of the planet** (`scripts/sim_run.sh --slice`): a box on the surface,
   graded to a declared finest cell edge under `docs/CELL_BUDGET`. The whole planet is a smoke test.
 - **A rung is built only after the maintainer has approved a demo of the rung below it.** Each rung's
-  demo is a scene plus a `LocalAgentDemoEntry` in `addons/local_agents/examples/demos/`. Cut it, launch
-  it, stop.
+  demo is a scene plus a `LocalAgentDemoEntry` in `addons/local_agents/examples/demos/`. Cut it, write
+  "what you should see", launch it, stop; the maintainer's feedback decides.
+- **Each rung's demo ADDS something the maintainer can verify by eye or by ear**, and that something
+  is the rung's own process acting: rung 1 shows things falling under the solved g, rung 3 shows air
+  moving. A rung whose demo looks and sounds like the rung below has not been demonstrated.
+- **A rung's run shows, draws, offers or asks for only what its world contains.** No placeholder for
+  an absent field, no HUD control for an absent process, no gate requesting a field the rung lacks;
+  every renderer, control and gate derives what it may show from `LAProcessSet`.
 - **Target architecture: a standalone native sim process.** Physics runs in its own executable with its
   own compute device, clock and CLI; gates run it with no Godot launch; Godot is a client that attaches
   to view and steer. Physics in Godot's process is a holdover, not the design.
