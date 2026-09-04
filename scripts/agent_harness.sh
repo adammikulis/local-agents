@@ -59,11 +59,10 @@ Commands:
                 scores is the half that moves. Prints the table row ready to paste. Takes its own
                 comparison runs for determinism and observer independence, so it is minutes.
                 e.g. agent_harness.sh score --frames 300
-  lint          Run every structural gate: file length (soft 1300 warn / hard 1500 fail),
-                no-direct-refcounted, no ':=' typing, @tool write safety, demo catalogue,
-                public surface, whole-tree parse, no native class reached by name, physical constants
-                (GLSL kernel copies must equal LAPhysical), reaction balance. Policy markers
-                stay advisory. CI runs this exact command, so a green here is a green there.
+  lint [args]   Run every structural gate listed in scripts/gates.toml, through
+                scripts/gate_runner.py. Text gates run in a worker pool, engine-touching ones alone.
+                CI runs this exact command, so a green here is a green there.
+                Args reach the runner: --only NAME, --mutate NAME, --timing, --json OUT, --jobs N.
                 Exit 0 clean · 1 a gate reported a violation · 2 a gate COULD NOT RUN.
   -h | --help   Show this help and exit 0.
 
@@ -231,182 +230,13 @@ SECONDS=0
 exit_code=0
 if [[ "$cmd" == "lint" ]]; then
   set +e
-  {
-    set +e
-    # A gate answers with 0 clean, 1 a violation, anything else it COULD NOT RUN. The two are different
-    # facts about the tree and the caller reads only $?, so they get different exit codes: could-not-run
-    # examined nothing, so its silence is not a pass, and it outranks a violation.
-    lint_failed=0
-    lint_unrunnable=0
-    lint_skipped=0
-    lint_not_examined=0
-    # EVERY GATE IS ENQUEUED, THEN DRAINED. The CPU-only gates run in a worker pool and the ones that can
-    # start an engine run in place; the drain replays output in enqueue order, so this log does not depend
-    # on how the work was scheduled. LA_LINT_JOBS=1 runs the queue in one lane.
-    . "$SCRIPT_DIR/lib_lint_queue.sh"
-    if ! la_lq_init; then
-      echo "LINT_UNRUNNABLE: lib_lint_queue.sh (2) — no writable temp directory, so NO GATE RAN."
-      exit 2
-    fi
-    trap la_lq_cleanup EXIT
-    la_lq_account() {
-      case "$2" in
-        0) ;;
-        1)
-          echo "LINT_FAIL: $1 ($2)"
-          lint_failed=$((lint_failed + 1))
-          ;;
-        3)
-          lint_not_examined=$((lint_not_examined + 1))
-          ;;
-        *)
-          echo "LINT_UNRUNNABLE: $1 ($2)"
-          lint_unrunnable=$((lint_unrunnable + 1))
-          ;;
-      esac
-    }
-    run_gate() {
-      local label="$1"
-      shift
-      la_lq_add "$label" "$@"
-    }
-    gate() { run_gate "$1.sh" "$SCRIPT_DIR/$1.sh"; }
-    # GATES THAT NEED A REAL GPU, declared ONCE. Each launches a sim through run_sim_offscreen.sh, and
-    # create_local_rendering_device() is null without one. LA_NO_GPU=1 skips exactly these and says which;
-    # check_gpu_gate_list.sh holds this list to the gates that actually launch a run, both ways.
-    GPU_GATES="check_no_focus_theft check_quiet_window check_presentation_absent check_body_measured check_gravity_solve check_finite_channels check_radiative_row check_alt_bands check_weathering_rate_law check_lifeless_planet check_boundary_momentum_book check_boundary_wrap check_boundary_books check_escape_law check_slice_exterior check_ground_drawn check_gas_in_rock check_active_rows check_derive_fixed_point check_driver_native check_stack_balance check_momentum_orphans check_cell_budget"
-    gpu_gate() {
-      if [[ "${LA_NO_GPU:-0}" == "1" ]]; then
-        la_lq_note "$1.sh" "LINT_SKIPPED_NO_GPU: $1.sh (declared in GPU_GATES; run it on a machine with a GPU)"
-        lint_skipped=$((lint_skipped + 1))
-        return
-      fi
-      gate "$1"
-    }
-
-    # ONE RUN PER LINT. Every gate below reads this capture instead of starting its own engine.
-    if LA_CAPTURE_DIR="$("$SCRIPT_DIR/lint_capture.sh")"; then
-      export LA_LINT_CAPTURE="$LA_CAPTURE_DIR"
-      echo "LINT_CAPTURE=$LA_LINT_CAPTURE"
-    else
-      echo "LINT_UNRUNNABLE: lint_capture.sh (2)"
-      lint_unrunnable=$((lint_unrunnable + 1))
-    fi
-
-    gate check_max_file_length
-    gate check_no_direct_refcounted_invocation
-    gate check_no_inferred_typing
-    gate check_tool_safety
-    gate check_lock_reclaim
-    gate check_godot_launcher
-    gpu_gate check_no_focus_theft
-    gate check_api_version
-    gate check_bin_relocatable
-    gate check_deps_cache_relocatable
-    gate check_gpu_gate_list
-    gpu_gate check_quiet_window
-    gpu_gate check_presentation_absent
-    gate check_demo_catalog
-    gate check_public_surface
-    gate check_physical_constants
-    gate check_model_parameters
-    gate check_model_parameters_ceiling
-  gate check_cited_authority
-    gate check_kernel_paths
-    gate check_kernel_includes
-    gate check_no_stored_derived
-    gate check_no_privileged_axis
-    gate check_pressure_split
-    gate check_stack_ssot
-    gpu_gate check_stack_balance
-    gate check_no_empty_floor
-    gpu_gate check_momentum_orphans
-    gpu_gate check_cell_budget
-    gate check_gdscript_budget
-    gate check_run_budget
-    gate check_comment_ratio
-    gate check_comment_history
-    gate check_comment_block
-    gate check_neighbour_slots
-    gate check_process_set
-    gate check_process_ui
-    gpu_gate check_alt_bands
-    gpu_gate check_gas_in_rock
-    gate check_sim_determinism
-    gate check_binding_collisions
-    gate check_transport_alias
-    gate check_declared_and_dispatched
-    gate check_gate_fixtures
-    gate check_doc_claims
-    gate check_doc_prose
-    gate check_no_deferral
-    gate check_potential_differences
-    gate check_readme_commands
-    gate check_approximations
-    gate check_comment_density
-    # Same gate over first-party GDScript; sim/material is covered by the call above.
-    run_gate "check_comment_density.sh (gdscript)" env EXCLUDE_RE=/thirdparty/ \
-      "$SCRIPT_DIR/check_comment_density.sh" "$REPO_ROOT/addons/local_agents"
-    gate check_enthalpy_ssot
-    gate check_generated_constants
-    gate check_seed_phase
-    gate check_element_composition
-    gate check_faint_young_sun
-    gate check_condensed_moduli
-    gate check_reaction_balance
-    gate check_reaction_rate_units
-    gate check_framerate_independence
-    gate check_parse_all
-    gate check_no_native_by_name
-    gate check_step_quantum
-    gate check_no_global_cfl
-    gpu_gate check_active_rows
-    gpu_gate check_driver_native
-    gate check_comment_claims
-    gate check_no_silent_fallback
-    gate check_no_invented_fallback
-    gate check_no_shim
-    gate check_duplicate_logic
-    gate check_never_assigned
-    gate check_voxel_grid
-    gate check_hypsometry
-    gpu_gate check_gravity_solve
-    gpu_gate check_finite_channels
-    gpu_gate check_radiative_row
-    gpu_gate check_weathering_rate_law
-    gpu_gate check_lifeless_planet
-  gpu_gate check_body_measured
-    gpu_gate check_derive_fixed_point
-    gpu_gate check_boundary_momentum_book
-    gpu_gate check_boundary_wrap
-    gpu_gate check_boundary_books
-    gpu_gate check_escape_law
-    gpu_gate check_slice_exterior
-    gpu_gate check_ground_drawn
-    gate check_shaders_compile
-    gate check_reaction_energy
-    gate check_cache_invalidation
-    gate check_launch_count
-
-    la_lq_drain
-    la_lq_timing LINT_TIMING
-    # EVERY GATE RUNS. Fail-fast meant one red gate hid every gate after it.
-    if [[ $lint_unrunnable -gt 0 ]]; then
-      echo "LINT_SUMMARY: $lint_unrunnable gate(s) COULD NOT RUN, $lint_failed violation(s). Every gate ran;"
-      echo "              a gate that could not run examined nothing, so this is not a physics failure."
-      exit 2
-    fi
-    if [[ $lint_failed -gt 0 ]]; then
-      echo "LINT_SUMMARY: $lint_failed gate(s) failed. Every gate ran; the list above is complete."
-      exit 1
-    fi
-    if [[ $lint_skipped -gt 0 || $lint_not_examined -gt 0 ]]; then
-      echo "LINT_SUMMARY: passed, with $lint_skipped GPU gate(s) SKIPPED and $lint_not_examined above the ladder's rung — this run did not examine them."
-      exit 0
-    fi
-    echo "All lint gates passed (file length gates at soft 1300 / hard 1500; policy markers are advisory)."
-    exit 0
-  } 2>&1 | tee "$LOG_FILE"
+  # THE GATE LIST IS scripts/gates.toml AND THE RUNNER IS scripts/gate_runner.py. A second list drifts
+  # from the first, so this is a call and nothing else. Flags after `lint` reach the runner.
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "LINT_UNRUNNABLE: gate_runner.py (2) — python3 is not on PATH, so NO GATE RAN." | tee "$LOG_FILE"
+    exit 2
+  fi
+  python3 "$SCRIPT_DIR/gate_runner.py" "$@" 2>&1 | tee "$LOG_FILE"
   exit_code=${PIPESTATUS[0]}
   set -e
 else
