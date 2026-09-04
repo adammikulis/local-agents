@@ -14,12 +14,11 @@ const NX: int = 6
 const NY: int = 12
 const CELL: float = 1.0
 const G: float = 9.80665
-const DT_S: float = 1000.0
+const DT_S: float = 1.0
+const STEPS: int = 1
 ## Porosity and grain diameter per column, m.
 const POROSITY: Array = [0.10, 0.20, 0.30, 0.40, 0.40, 0.40]
 const GRAIN_M: Array = [4.0e-3, 4.0e-3, 4.0e-3, 4.0e-3, 6.0e-5, 2.0e-4]
-## The front: cells at or above this row hold pore water, the ones below are dry.
-const WET_FROM: int = 6
 
 
 func _init() -> void:
@@ -85,18 +84,32 @@ func _init() -> void:
 	var before: PackedFloat32Array = rig.read("h2o_pore")
 	var solid: PackedFloat32Array = rig.read("solid")
 
-	flux.pre_step(rig.rd, ctx, cc, 1)
-	rig.step_only(flux, ctx)
+	for _s in STEPS:
+		flux.pre_step(rig.rd, ctx, cc, 1)
+		rig.step_only(flux, ctx)
+		flux.wake_all()
 	var after: PackedFloat32Array = rig.read("h2o_pore")
+	var claim: PackedInt32Array = rig.rd.buffer_get_data(rig.bufs["act_claim"]).to_int32_array()
+	var level: PackedInt32Array = rig.rd.buffer_get_data(rig.bufs["tlevel"]).to_int32_array()
 
 	var cols: Array = []
 	for x in NX:
-		var front: int = rig.grid.index(x, WET_FROM - 1, 0)
-		var donor: int = rig.grid.index(x, WET_FROM, 0)
+		var col_before: Array = []
+		var col_after: Array = []
+		for y in NY:
+			var c: int = rig.grid.index(x, y, 0)
+			col_before.append(float(before[c]))
+			col_after.append(float(after[c]))
 		cols.append({"porosity": float(POROSITY[x]), "grain_m": float(GRAIN_M[x]),
-			"solid": float(solid[donor]),
-			"donor_before": float(before[donor]), "donor_after": float(after[donor]),
-			"front_before": float(before[front]), "front_after": float(after[front])})
+			"solid": float(solid[rig.grid.index(x, 0, 0)]),
+			"pore_before": col_before, "pore_after": col_after,
+			"claim": int(claim[rig.grid.index(x, 0, 0)]),
+			"tlevel": int(level[rig.grid.index(x, 0, 0)]),
+			"g_rest_y": float(rig.read("g_rest")[rig.grid.index(x, 1, 0) * 3 + 1]),
+			"porosity_read": float(rig.read("porosity")[rig.grid.index(x, 1, 0)]),
+			"grain_read": float(rig.read("grain")[rig.grid.index(x, 1, 0)]),
+			"cement_read": float(rig.read("cement")[rig.grid.index(x, 1, 0)]),
+			"edge": float(rig.read("cell_edge")[rig.grid.index(x, 1, 0)])})
 	print('BENCH_RAW_DARCY=' + JSON.stringify({"cell_m": CELL, "g": G, "dt_s": DT_S,
 		"full_h2o_mol_m3": full_h2o, "kozeny_carman_c": LAPhysical.KOZENY_CARMAN_C,
 		"water_rho_kg_m3": LAPhysical.WATER_DENSITY_KG_M3, "columns": cols}))
