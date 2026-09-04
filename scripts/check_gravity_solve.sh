@@ -21,6 +21,7 @@ set -uo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
 la_examined "$(basename "$0")" || exit $?
+la_body_scoped "$(basename "$0")" || exit $?
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GODOT="${GODOT:-godot}"
@@ -263,7 +264,7 @@ fi
 # ARM TWO — the field the SIM seeds, not one this script built.
 # ---------------------------------------------------------------------------------------------------
 SIM_FRAMES="${LA_GRAVITY_FRAMES:-20}"
-sim_out="$(la_report gravity_gauss_rel,gravity_total_mass_kg \
+sim_out="$(la_report gravity_gauss_rel,gravity_total_mass_kg --body \
   --path "$REPO_ROOT" --frames "$SIM_FRAMES" 2>&1)"
 sim_rc=$?
 printf '%s\n' "$sim_out" | grep -E '^gravity_' || true

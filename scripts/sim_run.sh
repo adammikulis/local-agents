@@ -6,16 +6,17 @@
 
 # USAGE
 #   scripts/sim_run.sh [--frames N] [--seed N] [--rung N] [--path DIR] [--fauna] [--full] [--keep]
-#                      [--reseed] [--print-slice-box]
-#                      [--slice] [--slice-box SPEC] [--slice-state FILE] [--slice-capture FILE]
+#                      [--reseed] [--print-slice-box] [--body | --slice]
+#                      [--slice-box SPEC] [--slice-state FILE] [--slice-capture FILE]
 #                      [--report k1,k2,...] [--raw] [-- <extra scene args>]
 
 #   --frames N     run length in SIMULATED STEPS (default 200; the conservation gate needs 600+)
 #   --rung N | --seed N   the processes the world contains (LAProcessSet, default docs/PLAYABLE_RUNG) / sim seed
 #   --path DIR     project dir (default .) — point it at a worktree
 #   --fauna | --full  keep animals (needs --full) / drop --planet-only (default is pure geophysics)
-#   --slice [--slice-box "ox,oy,oz,nx,ny,nz,cell_m"]  run a SLICE; --print-slice-box prints the default
-#   --slice-state F | --slice-capture F  consume a face-state capture in a slice / record one in a GLOBAL run
+#   --body | --slice  the WHOLE PLANET (a smoke test) or a box on its surface (the acceptance arm,
+#                     the default). --slice-box "ox,oy,oz,nx,ny,nz,cell_m,fine_m"; --print-slice-box prints it
+#   --slice-state F | --slice-capture F  consume a face-state capture in a slice / record one under --body
 #   --report LIST  comma-separated SIM_REPORT keys to print (default: the conservation set)
 #   --raw | --keep  print the whole SIM_REPORT as formatted JSON / keep the log file and print its path
 #   --reseed       walk the seeding rather than reading the bake this arm's key names
@@ -33,15 +34,17 @@ FAUNA=0
 FULL=0
 RAW=0
 KEEP=0
-SLICE=0
+# THE ACCEPTANCE ARM IS THE SLICE. The whole planet is the smoke test, under --body.
+SLICE=1
 SLICE_BOX=""
 SLICE_STATE=""
 SLICE_CAPTURE=""
 # THE SEEDING IS A FUNCTION OF THE TREE, SO IT IS WALKED ONCE AND READ BACK. --reseed walks it again.
 FROM_SEAL=1
-# The default slice box, declared HERE and nowhere else: ox,oy,oz,nx,ny,nz,cell_m, standing on the
-# surface at +Y. `surface` is resolved by the world against the body's own radius.
-DEFAULT_SLICE_BOX="0,surface,0,24,32,24,4000"
+# The default slice box, declared HERE and nowhere else: ox,oy,oz,nx,ny,nz,cell_m,fine_m, standing on
+# the surface at +Y. `surface` is resolved by the world against the body's own radius. A 15 km footprint,
+# a 123 km column, 10 m at the ground.
+DEFAULT_SLICE_BOX="0,surface,0,3,24,3,5120,10"
 REPORT_KEYS="conservation,conservation_failed,conservation_audited,energy_run_drift,energy_held_first,energy_residual,energy_booked,o2_first,o2_total,mineral_first,mineral_total,h2o_first,h2o_total,element_C_total_first,element_C_total,temp_ground_mean,phenomena_kinds,field_ms,transport_levels"
 EXTRA=()
 
@@ -56,6 +59,7 @@ while [ $# -gt 0 ]; do
     --full) FULL=1; shift ;;
     --with-ui) WITH_UI=1; shift ;;
     --slice) SLICE=1; shift ;;
+    --body) SLICE=0; shift ;;
     --slice-box) SLICE=1; SLICE_BOX="$2"; shift 2 ;;
     --slice-state) SLICE_STATE="$2"; shift 2 ;;
     --slice-capture) SLICE_CAPTURE="$2"; shift 2 ;;
@@ -102,7 +106,7 @@ elif [ -n "$SLICE_STATE" ]; then
 fi
 if [ -n "$SLICE_CAPTURE" ]; then
   if [ "$SLICE" -eq 1 ]; then
-    echo "sim_run: --slice-capture is a GLOBAL run's flag; a slice cannot record its own exterior." >&2
+    echo "sim_run: --slice-capture needs --body; a slice cannot record its own exterior." >&2
     exit 2
   fi
   export LA_SLICE_CAPTURE="$SLICE_CAPTURE"
@@ -134,7 +138,7 @@ if [ "$FROM_SEAL" -eq 0 ]; then
 fi
 
 LOG="$(mktemp "${TMPDIR:-/tmp}/la_sim_run.XXXXXX")"
-echo "sim_run: ${FRAMES} steps, seed ${SEED}${FULL:+}$([ "$FULL" -eq 0 ] && echo ' --planet-only')$([ "$FAUNA" -eq 0 ] && echo ' --no-fauna')" >&2
+echo "sim_run: ${FRAMES} steps, seed ${SEED}$([ "$SLICE" -eq 1 ] && echo " slice $SLICE_BOX" || echo ' --body')$([ "$FULL" -eq 0 ] && echo ' --planet-only')$([ "$FAUNA" -eq 0 ] && echo ' --no-fauna')" >&2
 
 LA_RUN_TIMEOUT="${LA_RUN_TIMEOUT:-120}" \
   "$SCRIPT_DIR/run_sim_offscreen.sh" --path "$PROJ" \

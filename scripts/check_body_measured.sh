@@ -3,11 +3,13 @@
 # radius is where that matter ends, its gravity follows from both, and its day is the seeded angular
 # momentum over the inertia the matter has. This asserts the measurement agrees with the seed, which is
 # the check that would have caught a planet ten times heavier than the one it was asked for.
-# EXIT 0 clean · 1 a body disagrees with its own seed · 2 the gate could not run.
+# THE ARM IS THE BODY: a box on the surface is not the body, so on a slice arm this is NOT EXAMINED.
+# EXIT 0 clean · 1 a body disagrees with its own seed · 2 could not run · 3 the arm was a slice.
 set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
 la_examined "$(basename "$0")" || exit $?
+la_body_scoped "$(basename "$0")" || exit $?
 
 # The grid quantises a sphere into cubes, so the matter that lands is not exactly the matter asked for.
 # This is the blockiness of the seeded shape and NOTHING ELSE; it tightens as the grid refines, and it is
@@ -18,7 +20,7 @@ DERIVED_TOL="${LA_BODY_DERIVED_TOL:-0.01}"
 FRAMES="${LA_BODY_FRAMES:-6}"
 
 KEYS="body_measured,body_mass_kg,body_seed_mass_kg,body_radius_m,body_surface_g_m_s2,body_inertia_kg_m2,body_seed_spin_l,body_day_s"
-out="$(la_report "$KEYS" --path "$REPO_ROOT" --frames "$FRAMES" 2>&1)"
+out="$(la_report "$KEYS" --path "$REPO_ROOT" --body --frames "$FRAMES" 2>&1)"
 rc=$?
 
 val() {

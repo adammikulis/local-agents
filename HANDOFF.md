@@ -14,44 +14,52 @@ on the file it named. If you know the cause you are close enough to fix it, so f
 
 **THE LIST IS ORDERED BY WHAT IS UPSTREAM OF WHAT: item 1 is what every item below it is measured against.** Re-order it at every landing.
 
-**THE LADDER ADVANCES ONE APPROVED DEMO AT A TIME.** A rung is built only after the maintainer has
+**THE LADDER ADVANCES ONE APPROVED DEMO AT A TIME, AND EACH DEMO ADDS EVIDENCE OF ITS OWN PROCESS THE
+MAINTAINER CAN SEE OR HEAR.** A run shows only what its rung contains. A rung is built only after the maintainer has
 approved a demo of the rung below it, cut as a scene plus a `LocalAgentDemoEntry` in
 `addons/local_agents/examples/demos/`. `scripts/agent_harness.sh ladder` names the first red rung;
 nothing above the last APPROVED rung is examined.
 
 ---
 
-## 1. THE SLICE DOES NOT REFINE BELOW HALF A SCALE HEIGHT
+## 1. THE PLANET'S SEEDED COLUMN IS NOT A FIXED POINT OF ITS DERIVE
 
-`scripts/sim_run.sh --slice --rung 0 --frames 1 --report grid_target_edge_m,grid_max_level` reads the
-planet's scale-height edge and no refinement inside the box: the spec carries no finest edge, the
-band refines uniformly, and a slice on a hilltop and one on a coast seed the same regolith saturation
-(`regolith_wet_cells` over `regolith_cells`, both to publish).
+`scripts/sim_run.sh --body --rung 2 --frames 6 --report pressure_rest_rel,derive_unconverged_cells`
+reads `pressure_rest_rel` above its bar with every cell converged, now that the ground cells are
+graded finer; the slice column (`scripts/sim_run.sh --rung 2 --frames 6`) reads zero.
 
-## 2. THE GROUND UNDER THE EYE IS NOT BUILT ON THE WHOLE BODY
+## 2. THE BODY RECORD OMITS THE PORE WATER BELOW THE SEA FLOOR, AND ONE POROSITY LAW SERVES EVERY ROCK
+
+`scripts/check_hydrosphere_mass.sh --body` is red: the water table saturates rock below sea level, and
+the declared `hydrosphere_kg`/`groundwater_kg` in `LABodySystem.cpp` (Gleick 1996) count the surface
+ocean and continental groundwater only. `REGOLITH_SURFACE_POROSITY` and `COMPACTION_LENGTH_M` (Athy
+1930, shales) are applied to basalt and basement. Cite the oceanic-crust and sediment pore-water
+reservoir and a porosity law per lithology from the substance table.
+
+## 3. THE GROUND UNDER THE EYE IS NOT BUILT ON THE WHOLE BODY
 
 `scripts/agent_harness.sh ground` exits 2: its shot reads `ground_meshed=false`, and the view axis
 first meets built ground far past where the pose framed it. The same gate over a box,
-`LA_GROUND_SLICE="0,surface,0,24,32,24,4000" scripts/check_ground_drawn.sh`, exits 0.
+`LA_GROUND_SLICE="0,surface,0,3,24,3,5120,10" scripts/check_ground_drawn.sh`, exits 0.
 
-## 3. THE SURFACE READS AS ONE WHITE SHEET
+## 4. THE SURFACE READS AS ONE WHITE SHEET
 
 The shot that gate saves has almost no structure in it: the ground, the sea and the sky come back at
-one brightness. `LA_GROUND_SLICE="0,surface,0,24,32,24,4000" scripts/check_ground_drawn.sh` publishes
+one brightness. `LA_GROUND_SLICE="0,surface,0,3,24,3,5120,10" scripts/check_ground_drawn.sh` publishes
 `scene_mean` and `scene_var` beside the shot.
 
-## 4. THE RUNG-1 AND RUNG-2 DEMOS ARE NOT CUT
+## 5. THE RUNG-1 AND RUNG-2 DEMOS ARE NOT CUT
 
 `scripts/check_demo_catalog.sh` lists `slice_rung0.tres` and nothing above it. Each is a scene
 declaring its rung and the slice box, and an entry; cut in order, each approved before the next rung
 is built.
 
-## 5. TWO REDUCE ROWS ARE NAMED BY A RUNG AND DECLARED BY NOBODY
+## 6. TWO REDUCE ROWS ARE NAMED BY A RUNG AND DECLARED BY NOBODY
 
 `rg -n -e wind_x_sum -e wind_z_sum` finds both in `LAProcessSet.cpp`'s `ACOUSTIC_REDUCE` and in no
 `reduce/*.gd` row. Removing them rebuilds the extension.
 
-## 6. NOT EXAMINED UNTIL THE RUNG-2 DEMO IS APPROVED — rung 3
+## 7. NOT EXAMINED UNTIL THE RUNG-2 DEMO IS APPROVED — rung 3
 
 - `scripts/sim_run.sh --rung 3 --frames 8` on the planet ends with `timeout waiting for fence`.
 - `LA_REST_CELL_M=68000 LA_REST_CELLS=8 scripts/check_atmosphere_at_rest.sh` reads a rest departure
@@ -66,7 +74,7 @@ is built.
   from the advective CFL, and `SIM_SECONDS_PER_STEP` is deleted. Declared in `docs/APPROXIMATIONS.md`
   when built.
 
-## 7. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the books above it
+## 8. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the books above it
 
 - The open-boundary books at run level: `scripts/sim_run.sh --frames 20 --slice-capture C` then
   `LA_RUN_TIMEOUT=900 scripts/sim_run.sh --slice --slice-state C --frames 650` fires
@@ -77,7 +85,7 @@ is built.
   addons/local_agents/game/VoxelWorld.tscn -- --sandbox --ui --run-frames=20` prints no report and
   logs no error; the same arm with `--planet-only --no-fauna` reports.
 
-## 8. Reduce the rest on the device
+## 9. Reduce the rest on the device
 
 `FieldPassAttribution3D._sums` walks the channels it downloads at a checkpoint; a reduce dispatch per
 checkpoint replaces it. Three shapes refused a row and say why: `sea_surface_stats`, `lava_shell_diag`,

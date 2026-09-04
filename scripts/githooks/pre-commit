@@ -21,8 +21,8 @@ if [ -x "$ROOT/scripts/check_comment_ratio.sh" ] && ! "$ROOT/scripts/check_comme
   echo "COMMIT BLOCKED: more comment than code."
   exit 1
 fi
-# LA_NO_GPU: the three gates in GPU_GATES each launch a REAL WINDOWED Godot, which appears on the
-# user's monitor and takes focus. A commit may not do that. They run in scripts/integrate.sh, which
+# LA_NO_GPU: every kind=gpu row of scripts/gates.toml launches a REAL Godot holding the machine-wide
+# GPU lock. A commit may not wait on that. A commit may not do that. They run in scripts/integrate.sh, which
 # lints the staged merge before anything reaches the dev branch, and in CI.
 out="$(LA_NO_GPU=1 "$ROOT/scripts/agent_harness.sh" lint 2>&1)"
 rc=$?

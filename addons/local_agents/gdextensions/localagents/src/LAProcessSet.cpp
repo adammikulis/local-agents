@@ -86,7 +86,7 @@ const char *const WATER_TRANSPORT[] = { "charge_separate", "charge_ohmic", nullp
 const char *const WATER_REDUCE[] = { "charge_stock", "charge_gross", "charge_peak", "e_peak",
 	"bolt_cells", nullptr };
 
-const char *const RADIATION_GATES[] = { "check_radiative_row.sh", nullptr };
+const char *const RADIATION_GATES[] = { "check_radiative_row.sh", "check_alt_bands.sh", nullptr };
 const char *const RADIATION_TRANSPORT[] = { "heat_radiate", nullptr };
 const char *const RADIATION_REDUCE[] = { "rad_absorbed", "rad_emitted", "sw_reflected",
 	"rad_sb_rel_max", nullptr };

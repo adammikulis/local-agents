@@ -1,14 +1,24 @@
 #!/usr/bin/env bash
-# ONE ENGINE RUN PER LINT. Records the shared sim arm and the one headless batch every gate reads, and
-# prints the capture directory; agent_harness.sh lint runs it once and exports LA_LINT_CAPTURE.
-# The arm is the union of what the GPU gates ask of a global run, and it records the slice box's
-# exterior face state so the boundary gates consume that capture rather than taking their own.
+# THE SHARED ARM AND THE ONE HEADLESS BATCH EVERY GATE READS, printed as a capture directory;
+# agent_harness.sh lint runs it once and exports LA_LINT_CAPTURE.
+# THE ACCEPTANCE ARM IS THE SLICE. A body run records the slice box's exterior face state, so the
+# boundary gates consume that capture rather than taking their own, and the slice stands in it.
+# --body makes the whole planet the arm instead, which is the smoke test.
 # EXIT 0 the capture stands · 2 it could not be made.
 set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 . "$SCRIPT_DIR/lib_godot.sh"
 . "$SCRIPT_DIR/lib_import.sh"
+
+ARM=slice
+while [ $# -gt 0 ]; do
+	case "$1" in
+		--slice) ARM=slice; shift ;;
+		--body) ARM=body; shift ;;
+		*) echo "lint_capture: unknown argument '$1'" >&2; exit 2 ;;
+	esac
+done
 
 CAP="${LA_LINT_CAPTURE:-}"
 if [ -z "$CAP" ]; then
@@ -30,10 +40,11 @@ KEEP_ENTRIES=4
 # the engine, and this arm's configuration. A docs-only or scripts-only change lints without launching a
 # sim, because nothing the run reads has moved.
 KEY="$("$SCRIPT_DIR/cache_key.sh" capture --path "$ROOT" \
-	"seed=$SEED" "rung=$CAP_RUNG" "frames=$FRAMES" "gpu=${LA_NO_GPU:-0}" 2>/dev/null || echo "")"
+	"seed=$SEED" "rung=$CAP_RUNG" "frames=$FRAMES" "arm=$ARM" "gpu=${LA_NO_GPU:-0}" 2>/dev/null || echo "")"
 if [ -n "$KEY" ] && [ -f "$CACHE_ROOT/$KEY/COMPLETE" ]; then
 	if cp -Rp "$CACHE_ROOT/$KEY/." "$CAP/" 2>/dev/null; then
 		rm -f "$CAP/COMPLETE"
+		[ -s "$CAP/arm" ] && cat "$CAP/arm" >&2
 		printf '%s\n' "$CAP"
 		exit 0
 	fi
@@ -64,9 +75,23 @@ fi
 # The rung is written beside the capture, because a face state replayed into another rung's interior is
 # an exterior from a different world.
 printf '%s\n' "$CAP_RUNG" > "$CAP/rung"
-"$SCRIPT_DIR/sim_run.sh" --path "$ROOT" --frames "$FRAMES" --seed "$SEED" --rung "$CAP_RUNG" --keep --raw \
-	--slice-capture "$CAP/slice_state.json" > "$CAP/report.raw" 2> "$CAP/sim_run.err"
+# THE EXTERIOR THE SLICE STANDS IN. Only the whole body can record its own faces, so this run is --body
+# whichever arm the acceptance report comes from, and the boundary gates read it instead of taking one.
+"$SCRIPT_DIR/sim_run.sh" --path "$ROOT" --body --frames "$FRAMES" --seed "$SEED" --rung "$CAP_RUNG" \
+	--slice-capture "$CAP/slice_state.json" --keep --raw > "$CAP/body.raw" 2> "$CAP/body.err"
 SIM_RC=$?
+if [ "$ARM" = "body" ]; then
+	mv -f "$CAP/body.raw" "$CAP/report.raw"
+	mv -f "$CAP/body.err" "$CAP/sim_run.err"
+else
+	rm -f "$CAP/body.raw"
+	while IFS= read -r kept; do rm -f "$kept"; done \
+		< <(sed -n 's/^sim_run: log kept at //p' "$CAP/body.err")
+	"$SCRIPT_DIR/sim_run.sh" --path "$ROOT" --frames "$FRAMES" --seed "$SEED" --rung "$CAP_RUNG" \
+		--slice-state "$CAP/slice_state.json" --keep --raw \
+		> "$CAP/report.raw" 2> "$CAP/sim_run.err"
+	SIM_RC=$?
+fi
 if [ -n "$POLL" ]; then kill "$POLL" 2>/dev/null; wait "$POLL" 2>/dev/null; fi
 
 LOG="$(sed -n 's/^sim_run: log kept at //p' "$CAP/sim_run.err" | head -1)"
@@ -81,6 +106,14 @@ else
 fi
 fi
 printf '%s\n' "$SIM_RC" > "$CAP/sim_run.rc"
+# THE ARM, PUBLISHED. A gate that compares a run to the whole body's declared record reads this and says
+# it was not examined rather than comparing a box to a planet.
+if [ "$ARM" = "body" ]; then
+	printf 'LADDER_ARM={"slice":null}\n' > "$CAP/arm"
+else
+	printf 'LADDER_ARM={"slice":"%s"}\n' "$("$SCRIPT_DIR/sim_run.sh" --print-slice-box)" > "$CAP/arm"
+fi
+cat "$CAP/arm" >&2
 
 BATCH_REL="addons/local_agents/tests/lint_headless_batch.gd"
 if [ ! -f "$ROOT/$BATCH_REL" ]; then
