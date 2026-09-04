@@ -132,8 +132,7 @@ func parse_cmdline() -> void:
 			_streamer_enabled = false
 			Engine.set_meta("la_smoke", true)
 		elif arg == "--planet-only" or arg == "--no-fauna":
-			Engine.set_meta("la_life_mode",
-				LAAblate.LIFE_PLANET_ONLY if arg == "--planet-only" else LAAblate.LIFE_NO_FAUNA)
+			_ablate_life(LAAblate.LIFE_PLANET_ONLY if arg == "--planet-only" else LAAblate.LIFE_NO_FAUNA)
 			_streamer_enabled = false          # nothing alive to commentate on
 		elif arg.begins_with("--quality="):
 			# Explicit graphics-quality preset for reproducible perf comparisons (potato/low/medium/high/ultra) —
@@ -794,6 +793,15 @@ func auto_select() -> bool: return _auto_select
 func debug_family() -> bool: return _debug_family
 func debug_demo() -> bool: return _debug_demo
 func vectors() -> String: return _vectors
+
+
+## THE STRONGEST ABLATION ANY FLAG ASKS FOR WINS. Both flags name overlapping worlds, so taking the last
+## one let `--planet-only --no-fauna` put the plants back that --planet-only had just removed.
+func _ablate_life(want: String) -> void:
+	var have: String = String(Engine.get_meta("la_life_mode", LAAblate.LIFE_FULL))
+	if have == LAAblate.LIFE_PLANET_ONLY or want == LAAblate.LIFE_PLANET_ONLY:
+		want = LAAblate.LIFE_PLANET_ONLY
+	Engine.set_meta("la_life_mode", want)
 func debug_field() -> String: return _debug_field
 func debug_behaviors() -> String: return _debug_behaviors
 

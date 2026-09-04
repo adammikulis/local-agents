@@ -207,11 +207,8 @@ static func shot_info(w) -> String:
 ## Whether the eye stands inside the slice box the field was laid on. False when there is no slice: a
 ## world without a box cannot have framed one.
 static func _cam_in_slice(w, cam: Camera3D) -> bool:
-	var field: Node = w._sim.material_field()
-	var slice = field._slice if "_slice" in field else null
-	if slice == null:
-		return false
-	return slice.world_aabb(w._body.center(), w._body.radius()).has_point(cam.global_position)
+	var box: AABB = LARenderLayer.slice_world_aabb(w._sim.material_field(), w._body)
+	return box.size.length() > 0.0 and box.has_point(cam.global_position)
 
 
 static func _arrow_count(w) -> int:
@@ -326,6 +323,7 @@ static func _collect_hud(n: Node, frame_area: float, out: Array[Rect2]) -> void:
 	var c: Control = n as Control
 	if c != null and c.is_visible_in_tree():
 		var r: Rect2 = c.get_global_rect()
+		print("HUDRECT=%s %s %s" % [n.get_path(), n.get_class(), r])   # PROBE
 		if r.size.x * r.size.y < HUD_MAX_FRAME_FRAC * frame_area:
 			out.append(r)
 	for ch in n.get_children():

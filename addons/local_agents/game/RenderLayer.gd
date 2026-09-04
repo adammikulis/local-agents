@@ -45,14 +45,18 @@ func _build_camera() -> void:
 	body.attach_viewer(_camera, true)
 
 
-## The configured slice box in world space, or a zero AABB when the field covers the whole body.
-func _slice_box() -> AABB:
-	var field: Node = _sim.material_field()
+## The configured slice box in world space, or a zero AABB when the field covers the whole body. The box
+## is its COARSE cells across: the finest edge is how deeply the octree refines inside it, not its size.
+static func slice_world_aabb(field: Node, body: Node3D) -> AABB:
 	var slice = field._slice if "_slice" in field else null
-	if slice == null:
+	if slice == null or body == null:
 		return AABB()
-	var body: Node3D = _sim.body()
-	return slice.world_aabb(body.center(), body.radius())
+	var size: Vector3 = Vector3(slice.dims) * slice.cell_size
+	return AABB(body.center() + slice.resolved_offset(body) - 0.5 * size, size)
+
+
+func _slice_box() -> AABB:
+	return slice_world_aabb(_sim.material_field(), _sim.body())
 
 
 func _build_sky() -> void:

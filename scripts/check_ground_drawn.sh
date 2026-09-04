@@ -25,11 +25,12 @@ fi
 RUNG="${LA_GROUND_RUNG:-0}"
 
 # --shoot-frames is a FLOOR, not the shot: the scene is asked every frame past it whether the ground
-# under the eye has arrived, and is photographed when it says yes. Raising it hides a slow mesher.
+# ACROSS THE FRAME has arrived and stopped changing, and is photographed when it says yes. The floor is
+# how long the world is given to arrive; this box's streamer does not settle inside a shorter one.
 LA_RUN_TIMEOUT="${LA_GROUND_TIMEOUT:-100}" "$ROOT/scripts/run_sim_offscreen.sh" --path "$ROOT" \
 	addons/local_agents/game/VoxelWorld.tscn \
 	-- --sandbox --planet-only --no-fauna "--rung=$RUNG" --ui "--shoot=$PNG" \
-	"--shoot-frames=${LA_GROUND_FRAMES:-60}" > "$LOG" 2>&1
+	"--shoot-frames=${LA_GROUND_FRAMES:-150}" > "$LOG" 2>&1
 
 # A PICTURE TAKEN THROUGH A RENDERER THAT REFUSED A SHADER IS NOT EVIDENCE. A .gdshader that fails to
 # compile draws black and the run finishes normally, so the shot looks like a measurement and is not one.
