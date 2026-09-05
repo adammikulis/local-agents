@@ -132,8 +132,7 @@ float mole_frac_to_mol_m3(uint i, float frac) {
 	return frac * max(pressure[i], 0.0) / (R_GAS * max(temp[i] + KELVIN_0, 1.0));
 }
 
-// mol/m^3 a cell full of its own liquid water holds: the IAPWS curve at that cell's own temperature,
-// so a warm sea and a cold one are not one density.
+// mol/m^3 a cell full of its own liquid water holds, at that cell's own temperature.
 float full_h2o_at(uint i) {
 	float v = la_water_liquid_v_m3_kg(temp[i]);
 	return v > 0.0 ? 1.0 / (v * M_H2O) : 0.0;
