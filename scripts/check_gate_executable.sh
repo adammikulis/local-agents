@@ -5,7 +5,7 @@
 # EXIT 0 every gate is executable · 1 one is not · 2 could not run.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-. "$ROOT/scripts/lib_require.sh" 2>/dev/null || true
+. "$ROOT/scripts/lib_require.sh" || { echo "check_gate_executable: lib_require.sh missing." >&2; exit 2; }
 require_tool git
 
 listing="$(git -C "$ROOT" ls-files -s 'scripts/check_*.sh' 2>/dev/null)"

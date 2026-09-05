@@ -20,7 +20,7 @@ static func noise_floor(cell_count: int) -> float:
 const GATED: Dictionary = {
 	"element_C_total": {"rel": "element_C_total_rel_drift"},
 	"element_O_total": {"rel": "element_O_total_rel_drift"},
-	"h2o_closed_total": {"rel": "h2o_rel_drift"},
+	"h2o_total": {"rel": "h2o_rel_drift"},
 	"nitrogen_all": {"rel": "nitrogen_rel_drift"},
 	"mineral_total": {"rel": "mineral_rel_drift"},
 	"lith_Fe_total": {"rel": "lith_Fe_rel_drift"},
@@ -29,6 +29,9 @@ const GATED: Dictionary = {
 	"lith_Na_total": {"rel": "lith_Na_rel_drift"},
 	"lith_Cl_total": {"rel": "lith_Cl_rel_drift"},
 	"lith_P_total": {"rel": "lith_P_rel_drift"},
+	"lith_Ca_total": {"rel": "lith_Ca_rel_drift"},
+	"lith_Ni_total": {"rel": "lith_Ni_rel_drift"},
+	"lith_F_total": {"rel": "lith_F_rel_drift"},
 	"energy_held": {"rel": "energy_residual_rel", "turnover": "energy_turnover_j", "stock": "energy_held"},
 	"charge_stock": {"rel": "charge_rel_drift", "turnover": "charge_gross", "stock": "charge_gross",
 		"needs": "charge_separate"},

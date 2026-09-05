@@ -89,6 +89,10 @@ private:
 	Dictionary _daughters;
 	bool _daughters_built = false;
 
+	// Elements no channel outside the lithosphere carries: their rock total IS the whole inventory.
+	PackedStringArray _lith_only;
+	bool _lith_only_built = false;
+
 	bool _sealed() const;
 	void _note_seed(const String &p_key, double p_value) const;
 
@@ -116,6 +120,7 @@ private:
 	void _publish_energy(Dictionary &p_out, int p_step, double p_inject_heat_j);
 	void _publish_charge(Dictionary &p_out, int p_step);
 	void _build_daughters();
+	void _build_lith_only();
 };
 
 } // namespace godot

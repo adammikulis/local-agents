@@ -41,10 +41,6 @@ static func elements_of(by_channel: Dictionary) -> Dictionary:
 	return out
 
 
-
-
-
-
 ## Everything LAFieldLedger needs to keep the books: the groups above, each channel's composition off the
 ## same balance the load-time gate checks, and the one spelling of a boundary key. Uploaded once.
 static func tables() -> Dictionary:

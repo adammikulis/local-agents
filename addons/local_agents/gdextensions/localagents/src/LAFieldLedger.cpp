@@ -17,9 +17,6 @@ namespace {
 const char *ENERGY_STORES[] = { "energy_stock", "energy_stock_lith", "energy_stock_open",
 	"energy_stock_open_lith", "energy_kinetic", "energy_potential" };
 
-// The conserved elements of the seeded rock that carry their own drift book.
-const char *LITH_BOOKS[] = { "Fe", "Mg", "Al", "Na", "Cl", "P" };
-
 inline double as_d(const Variant &p_v) {
 	return static_cast<double>(p_v);
 }
@@ -399,13 +396,11 @@ void LAFieldLedger::_publish_h2o(Dictionary &p_out, int p_step) {
 	const PackedStringArray group = _group("h2o");
 	if (_absent(group)) {
 		p_out["h2o_total"] = Variant();
-		p_out["h2o_closed_total"] = Variant();
 		return;
 	}
 	const Dictionary all = _latest["all"];
 	const double h2o = _sum_of(all, group);
 	p_out["h2o_total"] = Math::snapped(h2o, 0.01);
-	p_out["h2o_closed_total"] = Math::snapped(h2o, 0.01);
 	if (_latest.has("snow_cells")) {
 		p_out["snow_cells"] = _latest["snow_cells"];
 		p_out["ice_cells"] = _latest["ice_cells"];
@@ -435,12 +430,45 @@ void LAFieldLedger::_publish_mineral(Dictionary &p_out, int p_step, double p_min
 	// erupt_source injects mantle lava with no debit in the field, so the queue books it.
 	p_out["mineral_src_total"] = Math::snapped(p_mineral_minted, 0.01);
 	_run_pair(p_out, "mineral", "mineral", "mineral", total, p_step, boundary_of(group, "Si"));
-	// Every conserved element of the seeded rock gets its own drift book, keyed on its lith moles.
-	for (const char *el : LITH_BOOKS) {
-		_run_pair(p_out, String("lith_") + String(el), String("lith_") + String(el), String(),
-				as_d(lith.get(String(el), 0.0)), p_step, boundary_of(group, String(el)));
+	// Every element the rock alone holds gets its own drift book, keyed on its lith moles.
+	if (!_lith_only_built) {
+		_build_lith_only();
+	}
+	for (int i = 0; i < _lith_only.size(); i++) {
+		const String el = _lith_only[i];
+		_run_pair(p_out, "lith_" + el, "lith_" + el, String(), as_d(lith.get(el, 0.0)), p_step,
+				boundary_of(group, el));
 	}
 	_publish_daughters(p_out);
+}
+
+// An element some channel outside the rock also carries moves between pools, and a book over the rock
+// alone would read that transfer as drift; `mineral` already books Si.
+void LAFieldLedger::_build_lith_only() {
+	_lith_only_built = true;
+	Dictionary elsewhere;
+	const Array channels = _composition.keys();
+	for (int i = 0; i < channels.size(); i++) {
+		if (_lith.has(channels[i])) {
+			continue;
+		}
+		const Dictionary parts = _composition[channels[i]];
+		const Array els = parts.keys();
+		for (int j = 0; j < els.size(); j++) {
+			elsewhere[els[j]] = true;
+		}
+	}
+	for (int i = 0; i < _lith.size(); i++) {
+		const Dictionary parts = _composition.get(_lith[i], Dictionary());
+		const Array els = parts.keys();
+		for (int j = 0; j < els.size(); j++) {
+			const String el = els[j];
+			if (el == "Si" || elsewhere.has(el) || _lith_only.has(el)) {
+				continue;
+			}
+			_lith_only.push_back(el);
+		}
+	}
 }
 
 void LAFieldLedger::_build_daughters() {
