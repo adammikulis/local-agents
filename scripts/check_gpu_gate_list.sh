@@ -20,14 +20,31 @@ declared="$(printf '%s\n' "$LIST" | awk -F'\t' '$2 == "gpu" { print $1 }' | sort
 [ -n "$in_lint" ] || { echo "check_gpu_gate_list: gates.toml parsed to no gate." >&2; exit 2; }
 [ -n "$declared" ] || { echo "check_gpu_gate_list: gates.toml declares no gpu gate." >&2; exit 2; }
 
-# A gate needs a GPU when it EXECUTES a run — a quoted \$var path to the runner, or the native sim binary —
-# or when it READS the shared arm lint_capture.sh records, which only a GPU could have produced.
+# A gate that runs a HELPER that launches a sim needs a GPU exactly as much as one that launches it
+# itself, so the set of launching scripts is grown to a fixed point before the gates are asked.
+LAUNCH="run_sim_offscreen|sim_run"
+while :; do
+	grown=0
+	for f in "$ROOT"/scripts/*.sh; do
+		b="${f##*/}"; b="${b%.sh}"
+		case "$b" in lib_*) continue ;; esac   # a library is SOURCED; which of its functions run decides
+		case "|$LAUNCH|" in *"|$b|"*) continue ;; esac
+		if rg -q -e "\"\\\$[A-Za-z_][A-Za-z_0-9]*[^\"]*/($LAUNCH)\\.sh\"" "$f"; then
+			LAUNCH="$LAUNCH|$b"
+			grown=1
+		fi
+	done
+	[ "$grown" -eq 1 ] || break
+done
+
+# A gate needs a GPU when it EXECUTES a run — a quoted \$var path to a launching script, or the native
+# sim binary — or when it READS the shared arm lint_capture.sh records, which only a GPU could produce.
 actual=""
 for b in $in_lint; do
 	f="$ROOT/scripts/$b.sh"
 	[ -f "$f" ] || continue
 	[ "$b" = "check_gpu_gate_list" ] && continue   # this scan names the patterns it looks for
-	if rg -q -e '"\$[A-Za-z_][A-Za-z_0-9]*[^"]*/(run_sim_offscreen|sim_run)\.sh"' "$f" \
+	if rg -q -e "\"\\\$[A-Za-z_][A-Za-z_0-9]*[^\"]*/($LAUNCH)\\.sh\"" "$f" \
 		|| rg -q -e '[$][(]la_(report|report_raw|marker|cap_state|cap_front)\b' "$f" \
 		|| rg -q -e '/bin/lasim"' "$f"; then
 		actual="$actual $b"
