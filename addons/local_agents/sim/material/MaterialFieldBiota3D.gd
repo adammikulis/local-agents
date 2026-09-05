@@ -49,7 +49,7 @@ func setup(field) -> void:
 func _queue():
 	if _f == null or _f._inject == null:
 		return null
-	if _f._gpu == null or not _f._gpu.has_method("move_field_sparse"):
+	if _f._gpu == null or not _f._gpu.has_method("queue_sparse"):
 		return null
 	return _f._inject.queue
 

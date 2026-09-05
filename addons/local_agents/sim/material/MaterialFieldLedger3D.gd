@@ -2,7 +2,7 @@ class_name LAMaterialFieldLedger3D
 extends RefCounted
 
 ## THE conservation ledger. LAFieldLedger keeps the books in double; this drains the device into it and
-## hands it the queue's minted rock and injected joules, which the field owns and the ledger does not.
+## hands it the minted rock and the injected joules, which the field owns and the ledger does not.
 
 var _f = null
 var _n: LAFieldLedger = null
@@ -39,11 +39,11 @@ func total(key: String) -> float:
 	return _n.total(key)
 
 
-## erupt_source injects mantle lava with no debit in the field, so the queue books it.
+## erupt_source injects mantle lava with no debit in the field, so the device's injection tally books it.
 func _minted() -> float:
-	if _f._inject == null or _f._inject.queue == null:
+	if _f._gpu == null or not _f._gpu.has_method("inject_created"):
 		return 0.0
-	return float(_f._inject.queue.mineral_minted)
+	return float(_f._gpu.inject_created("silicate"))
 
 
 func _injected_j() -> float:
