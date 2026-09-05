@@ -243,7 +243,6 @@ func resample_terrain(world_pos: Vector3, radius: float) -> void:
 			mask[c] = 1 if _f._terrain.is_solid(_f.cell_world_pos_linear(c)) else 0
 		_f._solid = mask
 		return
-	var rock: PackedFloat32Array = _f._mirrors.array("silicate")
 	var solid: PackedByteArray = _f._solid
 	var src: PackedInt32Array = PackedInt32Array()
 	var was_rock: PackedInt32Array = PackedInt32Array()   # cells the field held as derived-solid bedrock
@@ -254,7 +253,7 @@ func resample_terrain(world_pos: Vector3, radius: float) -> void:
 	for c in cells:
 		if _f._terrain.is_solid(_f.cell_world_pos_linear(c)):
 			continue                                   # still rock — the edit did not reach this cell
-		var rf: float = rock[c]
+		var rf: float = _f._mirrors.at("silicate", c)
 		if rf <= 0.0 and solid[c] == 0:
 			continue                                   # already void in the substrate — nothing was excavated
 		if solid[c] != 0:
