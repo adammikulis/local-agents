@@ -105,6 +105,13 @@ var _fly: bool = false
 var _fly_pos: Vector3 = Vector3.ZERO
 var _fly_look: Vector3 = Vector3.FORWARD  # world-space unit forward (aim)
 
+# A scripted SHOT POSE placed over a site on the body: absolute, and re-solved as the ground arrives.
+var _pose: bool = false
+var _pose_site: Vector3 = Vector3.ZERO    # body-frame radial of the site the eye stands over
+var _pose_alt_m: float = 0.0              # metres above the ground at that site
+var _pose_pitch: float = 0.0              # radians from the horizon; negative looks down
+var _pose_yaw: float = 0.0                # radians about the site radial, from the framing axis
+
 const TRACK_LERP: float = 3.0             # focus/zoom ease rate toward the target, per second
 const TRACK_FOCUS_LIFT: float = 8.0       # keep the focus a touch above the ground foot of the storm
 var _track_target: Node3D = null
@@ -434,7 +441,7 @@ func _update_orbit_transform() -> void:
 	_ground_ready = look_known and not is_nan(eye_r)
 	global_position = pos
 	_aim_distance = pos.distance_to(look_pt)
-	look_at(look_pt, upn)
+	global_basis = Basis.looking_at(look_pt - pos, upn)
 	# FREE-LOOK aim offset (MMB drag): pivot the camera in place on top of the orbit pose, without moving the globe.
 	if not is_zero_approx(_aim_yaw) or not is_zero_approx(_aim_pitch):
 		rotate_object_local(Vector3.UP, _aim_yaw)
@@ -508,6 +515,7 @@ func is_solar_view() -> bool:
 
 
 func set_fly(on: bool) -> void:
+	_pose = false
 	if on == _fly:
 		return
 	if on:
@@ -536,6 +544,7 @@ func is_fly() -> bool:
 ## Directly place the drone (verification aid / scripted framing): position + a look target, then rebuild.
 func place_fly(pos: Vector3, look_target: Vector3) -> void:
 	_fly = true
+	_pose = false
 	_geosync = false
 	_solar_view = false
 	_fly_pos = pos
@@ -543,6 +552,87 @@ func place_fly(pos: Vector3, look_target: Vector3) -> void:
 	if d.length() > 0.001:
 		_fly_look = d.normalized()
 	_update_fly_transform()
+
+
+## A SHOT POSE: the eye `alt_m` metres over the ground at the framed site, aimed `pitch_deg` from the
+## horizon (negative looks down) and turned `yaw_deg` about the site's radial from the framing axis.
+func place_pose(alt_m: float, pitch_deg: float, yaw_deg: float) -> void:
+	_pose_site = _pose_site_dir()
+	_pose_alt_m = maxf(alt_m, MIN_EYE_CLEARANCE)
+	_pose_pitch = deg_to_rad(pitch_deg)
+	_pose_yaw = deg_to_rad(yaw_deg)
+	_pose = true
+	_fly = true
+	_geosync = false
+	_solar_view = false
+	_smooth_surface_r = 0.0
+	_ground_ready = false
+	_ground_res = INF
+	_ground_res_prev = -1.0
+	_look_res = INF
+	_solve_pose()
+
+
+## The site the pose stands over, in the BODY's own frame: the slice box's, or the opening framing's.
+func _pose_site_dir() -> Vector3:
+	if _pose and _pose_site.length() > 0.001:
+		return _pose_site
+	if _geosync and _geosync_local_dir.length() > 0.001:
+		return _geosync_local_dir.normalized()
+	var radial: Vector3 = _radial_from_azel()
+	if _geosync_body == null or not is_instance_valid(_geosync_body):
+		return radial
+	return (_geosync_body.global_transform.basis.inverse() * radial).normalized()
+
+
+func _pose_world_radial() -> Vector3:
+	if _geosync_body == null or not is_instance_valid(_geosync_body):
+		return _pose_site
+	return (_geosync_body.global_transform.basis * _pose_site).normalized()
+
+
+## Re-solved every frame: the ground arrives under a standing eye, and the pose's altitude is measured
+## from that ground, not from the ceiling the eye waits over while the body has not said where it is.
+func _solve_pose() -> void:
+	var radial: Vector3 = _pose_world_radial()
+	var ceiling: float = _ceiling_radius()
+	if is_nan(ceiling):
+		_ground_ready = false
+		return
+	var site_r: float = _surface_radius_at(radial)
+	var known: bool = not is_nan(site_r)
+	var base_r: float = _eased_surface_radius(site_r if known else ceiling)
+	var site: Vector3 = _orbit_center + radial * base_r
+	var eye: Vector3 = _orbit_center + radial * (base_r + _pose_alt_m)
+	var axis: Vector3 = -_orbit_back if _orbit_back.length() > 0.001 else Vector3.UP
+	var heading: Vector3 = axis - radial * axis.dot(radial)
+	if heading.length() < 0.001:
+		heading = Vector3.RIGHT - radial * Vector3.RIGHT.dot(radial)
+	heading = heading.normalized().rotated(radial, _pose_yaw)
+	_fly_pos = eye
+	_fly_look = (heading * cos(_pose_pitch) + radial * sin(_pose_pitch)).normalized()
+	var look_pt: Vector3 = _pose_look_point(eye, _fly_look, base_r)
+	var right: Vector3 = _fly_look.cross(radial)
+	right = right.normalized() if right.length() > 0.001 else heading
+	_ground_res_prev = _ground_res
+	_look_res = _ground_resolution_at(look_pt)
+	_ground_res = maxf(_frame_ground_res(look_pt, eye, right), _ground_resolution_at(site))
+	_ground_ready = known and is_finite(_look_res)
+	_aim_distance = eye.distance_to(look_pt)
+	_update_fly_transform()
+
+
+## The ground the pose composes around: where the view ray meets the body, or the horizon along the
+## heading when it meets nothing. Both land ON the surface, which is what the streamer is asked about.
+func _pose_look_point(eye: Vector3, dir: Vector3, r: float) -> Vector3:
+	var o: Vector3 = eye - _orbit_center
+	var b: float = o.dot(dir)
+	var disc: float = b * b - (o.dot(o) - r * r)
+	var t: float = sqrt(maxf(o.dot(o) - r * r, 0.0))
+	if disc > 0.0 and -b - sqrt(disc) > 0.0:
+		t = -b - sqrt(disc)
+	var p: Vector3 = (eye + dir * t) - _orbit_center
+	return _orbit_center + (p.normalized() if p.length() > 0.001 else o.normalized()) * r
 
 
 ## Local radial "up" at the drone's position (away from the planet core).
@@ -556,8 +646,14 @@ func _update_fly_transform() -> void:
 	var up: Vector3 = _fly_radial_up()
 	if absf(_fly_look.dot(up)) > 0.999:
 		up = Vector3.UP if absf(_fly_look.dot(Vector3.UP)) < 0.98 else Vector3.RIGHT
-	look_at(_fly_pos + _fly_look, up)
-	_apply_depth_range(maxf(_fly_pos.distance_to(_orbit_center) - _surface_radius_at(_fly_radial_up()), 1.0))
+	# AIM ALONG THE DIRECTION, NEVER AT A NEARBY POINT. Standing 6371 km from the origin, a target one
+	# metre ahead rounds back onto the eye in fp32 and look_at() refuses, leaving the last orientation.
+	global_basis = Basis.looking_at(_fly_look, up)
+	# The depth range is the eye's height over the body. Where the terrain cannot say where its surface
+	# is, the DECLARED radius stands in: a NAN here puts the far plane at NAN and the frame draws nothing.
+	var ground_r: float = _surface_radius_at(up)
+	_apply_depth_range(maxf(_fly_pos.distance_to(_orbit_center)
+		- (_orbit_radius if is_nan(ground_r) else ground_r), 1.0))
 
 
 ## Hold-drag mouse-look: yaw about the local radial up, pitch about the camera right, clamped off the poles.
@@ -592,6 +688,11 @@ func _fly_step(delta: float) -> void:
 		move += up
 	if Input.is_key_pressed(KEY_CTRL) or Input.is_key_pressed(KEY_Q):
 		move -= up
+	if _pose:
+		if move.length() < 0.001:
+			_solve_pose()
+			return
+		_pose = false                     # a hand on the stick ends the scripted framing
 	if move.length() > 0.001:
 		var alt: float = maxf(0.0, _fly_pos.distance_to(_orbit_center) - _orbit_radius)
 		var span: float = _reach_m if _reach_m > 0.0 else _orbit_radius
@@ -789,8 +890,13 @@ func ground_ready() -> bool:
 ## The gaze is drawn as finely as the eye stands above it, and the coarsest ground across the frame has
 ## stopped changing: the streamer has finished with this view.
 func ground_resolved() -> bool:
-	return _ground_ready and _look_res <= maxf(_rts_altitude(), MIN_EYE_CLEARANCE) \
+	return _ground_ready and _look_res <= maxf(_eye_altitude(), MIN_EYE_CLEARANCE) \
 		and is_finite(_ground_res) and is_equal_approx(_ground_res, _ground_res_prev)
+
+
+## How high the eye stands over the ground it was placed above, whichever pose put it there.
+func _eye_altitude() -> float:
+	return _pose_alt_m if _pose else _rts_altitude()
 
 
 ## How far down the view axis the pose put its look point: the ground the frame was composed around.

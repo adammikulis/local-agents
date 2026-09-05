@@ -623,6 +623,13 @@ marker = "^check_meteor_offer: OK"
 mutation = "python3 -c \"p='addons/local_agents/game/ui/WorldOffers.gd'; s=open(p).read(); open(p,'w').write(s.replace('return impacts_missing().is_empty()','return true'))\""
 
 [[gate]]
+name = "check_shot_protocol"
+script = "scripts/check_shot_protocol.sh"
+kind = "gpu"
+marker = "^check_shot_protocol: OK"
+mutation = "python3 -c \"p='addons/local_agents/runtime/DemoHarness.gd'; s=open(p).read(); open(p,'w').write(s.replace('_poses[_pose_index].x, _poses[_pose_index].y,\\n\\t\\t\\t_poses[_pose_index].z', '_poses[0].x, _poses[0].y, _poses[0].z'))\""
+
+[[gate]]
 name = "check_lakc"
 script = "scripts/check_lakc.sh"
 kind = "text"
