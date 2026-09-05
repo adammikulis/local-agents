@@ -145,6 +145,9 @@ func _run() -> void:
 	# The solve's own verdict rides with the state it produced: a cell that gave up is not a fixed point
 	# of anything, and a comparison blind to which cells those are compares two failures.
 	_mirror_of["unconverged"] = true
+	# And the stiffness the pressure was read against: p comes off a difference of two nearly-equal
+	# volumes over a compressibility, so what float32 can resolve of it is 2^-23 times this.
+	_mirror_of["k_cond"] = true
 	_bufs["nbr"] = _i32(grid.neighbours)
 	_bufs["slot_off"] = _i32(grid.slot_off)
 	_bufs["face_partner"] = _i32(grid.partners)

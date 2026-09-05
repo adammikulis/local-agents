@@ -194,9 +194,10 @@ def compare(arm, a_path, b_path):
 # A CELL THAT GAVE UP PUBLISHES AN ITERATE, NOT A STATE, so the fixed point is asserted over a solve
 # that finished.
 cells, names, body = mirrors(os.path.join(work, "once.lafs"))
-if "unconverged" not in names:
-	print("check_derive_fixed_point: the mirrors carry no `unconverged`, so a cell that gave up would "
-		"be compared as though it had solved.", file=sys.stderr)
+if "unconverged" not in names or "k_cond" not in names:
+	print("check_derive_fixed_point: the mirrors carry no `unconverged` or no `k_cond`, so a cell that "
+		"gave up, or one whose pressure float32 cannot resolve, would be compared as though it had "
+		"solved exactly.", file=sys.stderr)
 	sys.exit(2)
 gave_up = struct.unpack_from("<%df" % cells, body, names.index("unconverged") * cells * 4)
 spent = sum(1 for v in gave_up if v != 0.0)
