@@ -3,4 +3,4 @@
 #
 # It falls when a kernel is legitimately deleted, and the integrator writes it. A lane that has to edit a
 # gate in order to delete a kernel will eventually edit the gate instead of deleting the kernel.
-8
+9

@@ -1,39 +1,31 @@
 #!/usr/bin/env bash
-# THE PER-STEP DRIVER IS NATIVE, AND IT MOVES THE SAME MATTER THE GDSCRIPT ONE DID.
+# THE PER-STEP DRIVER IS NATIVE, AND IT IS REPRODUCIBLE.
 # Arm 1  no compute list is recorded from GDScript under sim/material.
-# Arm 2  the two-level seam box against a recorded expected state, keyed to its kernels (--record).
+# Arm 2  two runs of THIS build over the two-level seam box end in the same per-cell state. Racing
+#        substep bookkeeping closes the totals check_active_rows.sh reads and moves the cells.
 # Arm 3  the seeded world publishes a step, so arms 1-2 are not judging a rig nobody boots.
-# EXIT 0 clean · 1 a GDScript dispatch remains or the state differs · 2 could not run.
+# EXIT 0 clean · 1 a GDScript dispatch remains or the two runs disagree · 2 could not run.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh"
 . "$ROOT/scripts/lib_capture.sh"
 la_examined "$(basename "$0")" || exit $?
 require_tool rg
-require_tool md5
 GODOT="${GODOT:-godot}"
 command -v "$GODOT" >/dev/null 2>&1 || { echo "ERROR: godot not on PATH — a gate that cannot run FAILS." >&2; exit 2; }
-
-RECORD=0
-[ "${1:-}" = "--record" ] && RECORD=1
-
-KERNELS="$ROOT/addons/local_agents/sim/material/kernels3d"
-FIXTURE="$ROOT/scripts/fixtures/driver_seam_state.txt"
 
 # --- arm one: the dispatch loop is not in GDScript ---------------------------------------------------
 SCAN="$ROOT/addons/local_agents/sim/material/sphere_passes $ROOT/addons/local_agents/sim/material/MaterialSphereGPU3D.gd"
 scanned=$(rg --count-matches -g '*.gd' '' $SCAN 2>/dev/null | wc -l | tr -d ' ')
 require_scanned "${scanned:-0}" 7 "driver files"
-if [ "$RECORD" = "0" ]; then
-  hits="$(rg -n 'compute_list_dispatch' $SCAN 2>/dev/null)"
-  if [ -n "$hits" ]; then
-    echo "check_driver_native: the per-step driver still records a compute list from GDScript." >&2
-    printf '%s\n' "$hits" >&2
-    exit 1
-  fi
+hits="$(rg -n 'compute_list_dispatch' $SCAN 2>/dev/null)"
+if [ -n "$hits" ]; then
+  echo "check_driver_native: the per-step driver still records a compute list from GDScript." >&2
+  printf '%s\n' "$hits" >&2
+  exit 1
 fi
 
-# --- arm two: the seam box, byte for byte ------------------------------------------------------------
+# --- arm two: the seam box, two runs of this build ---------------------------------------------------
 PROBE="$ROOT/addons/local_agents/tests/zz_driver_native_gate.gd"
 cat > "$PROBE" <<'GD'
 extends SceneTree
@@ -241,45 +233,32 @@ func _init() -> void:
 	quit(0)
 GD
 
-out="$(LA_DONE_RE='^DRIVER_SEAM=' "$ROOT/scripts/run_sim_offscreen.sh" \
-  --path "$ROOT" -s "res://addons/local_agents/tests/zz_driver_native_gate.gd" 2>&1)"
-rc=$?
+seam_run() {
+  out="$(LA_DONE_RE='^DRIVER_SEAM=' "$ROOT/scripts/run_sim_offscreen.sh" \
+    --path "$ROOT" -s "res://addons/local_agents/tests/zz_driver_native_gate.gd" 2>&1)"
+  rc=$?
+  line="$(printf '%s\n' "$out" | grep -m1 '^DRIVER_SEAM=')"
+  if [ -z "$line" ]; then
+    echo "ERROR: the probe produced no DRIVER_SEAM line — it examined nothing, so this refuses to pass." >&2
+    printf '%s\n' "$out" | tail -20 >&2
+    return 2
+  fi
+  [ "$rc" -eq 2 ] && { echo "The probe could not run. See above." >&2; return 2; }
+  printf '%s\n' "$line"
+}
+
+line_a="$(seam_run)" || { rm -f "$PROBE" "$PROBE.uid"; exit 2; }
+line_b="$(seam_run)" || { rm -f "$PROBE" "$PROBE.uid"; exit 2; }
 rm -f "$PROBE" "$PROBE.uid"
-line="$(printf '%s\n' "$out" | grep -m1 '^DRIVER_SEAM=')"
-if [ -z "$line" ]; then
-  echo "ERROR: the probe produced no DRIVER_SEAM line — it examined nothing, so this refuses to pass." >&2
-  printf '%s\n' "$out" | tail -20 >&2
-  exit 2
-fi
-[ "$rc" -eq 2 ] && { echo "The probe could not run. See above." >&2; exit 2; }
 
-kern="$(cat "$KERNELS"/flux.glsl "$KERNELS"/stack.glsli 2>/dev/null | md5 -q)"
-state="${line#DRIVER_SEAM=}"
-state="${state%% *}"
-
-if [ "$RECORD" = "1" ]; then
-  mkdir -p "$(dirname "$FIXTURE")"
-  printf 'kernels %s\nstate %s\n' "$kern" "$state" > "$FIXTURE"
-  echo "check_driver_native: recorded $FIXTURE"
-  echo "$line"
-  exit 0
-fi
-
-[ -f "$FIXTURE" ] || { echo "ERROR: no $FIXTURE. Record one with --record." >&2; exit 2; }
-want_kern="$(awk '$1=="kernels"{print $2}' "$FIXTURE")"
-want_state="$(awk '$1=="state"{print $2}' "$FIXTURE")"
-if [ "$kern" != "$want_kern" ]; then
-  echo "ERROR: flux.glsl/stack.glsli changed since the expected state was recorded." >&2
-  echo "       Re-record deliberately: scripts/check_driver_native.sh --record" >&2
-  exit 2
-fi
-if [ "$state" != "$want_state" ]; then
-  echo "check_driver_native: the seam box ended in a different state than the recorded one." >&2
-  echo "  expected $want_state" >&2
-  echo "  got      $state" >&2
+if [ "$line_a" != "$line_b" ]; then
+  echo "check_driver_native: two runs of this build left the seam box in different states, so the" >&2
+  echo "                     per-step driver is not reproducible." >&2
+  echo "  run one $line_a" >&2
+  echo "  run two $line_b" >&2
   exit 1
 fi
-echo "$line"
+echo "$line_a"
 
 # --- arm three: the seeded world runs this driver ----------------------------------------------------
 # A declared second arm: the shared capture is the full world, this arm boots the playable rung.

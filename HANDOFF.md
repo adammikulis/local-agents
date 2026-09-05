@@ -130,16 +130,17 @@ Maintainer's decision, standing: per-cell moles of elements are the state and sp
 (`docs/PHYSICS_TODO.md` B). Today the state is channel amounts (`Channels.gd`) and the ledger
 reconstructs element totals (`mol_per_unit`).
 
-## 16. GATES THAT DETECT CHANGE, NOT WRONGNESS
-
-`scripts/check_driver_native.sh` arm two compares the seam rig's state byte for byte against
-`scripts/fixtures/driver_seam_state.txt`, so a correct kernel change reads as red until re-recorded.
-Audit every `scripts/check_*.sh` for the same shape and replace each with an invariant on its rig.
-
-## 17. THE GPU ARM OF LINT RUNS ON THIS MACHINE ONLY
+## 16. THE GPU ARM OF LINT RUNS ON THIS MACHINE ONLY
 
 `.github/workflows/gpu-lint.yml` targets a self-hosted macOS runner labelled `gpu`; none is registered
 (maintainer's hardware).
+
+## 17. THE DETERMINISM GATE CANNOT RUN IN THE WORLD THE DEMO DECLARES
+
+`scripts/check_determinism.sh` exits 2: the event arm drew no more from the `planet` stream than the
+quiet arm, so the gate refuses to call the run determinism.
+Reading: `offered` in `MeteorImpacts.gd` answers from `LAWorldOffers.has_impacts`, which names the
+gravity pass, the heat channel and the rock channel; `docs/PLAYABLE_RUNG` names the rung the run gets.
 
 ---
 
