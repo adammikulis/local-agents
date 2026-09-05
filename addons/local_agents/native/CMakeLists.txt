@@ -36,15 +36,28 @@ add_executable(lakc
 target_include_directories(lakc PRIVATE include ${LA_GLSLANG_INCLUDES} ${LA_SPIRV_CROSS_INCLUDES})
 target_link_libraries(lakc PRIVATE la_device ${LA_NATIVE_DEP_LIBS})
 
+# The kernels are read where they live; the move out of the Godot tree is a later phase.
+set(LA_KERNEL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../sim/material/kernels3d")
+
 add_executable(lasim
     src/cli/main.cpp
     src/cli/SelftestDevice.cpp
-    src/cli/SelftestKernels.cpp)
-target_include_directories(lasim PRIVATE include)
+    src/cli/SelftestKernels.cpp
+    src/cli/PropertyTests.cpp
+    src/tests/Lattice.cpp
+    src/tests/Rig.cpp
+    src/tests/PropReduce.cpp
+    src/tests/PropDerive.cpp
+    src/tests/PropFlux.cpp
+    src/tests/PropGravity.cpp
+    src/tests/PropPressure.cpp
+    src/tests/PropReactions.cpp
+    src/tests/PropProbes.cpp
+    src/tests/PropSparse.cpp)
+# bindings.glsli and generated.glsli are #include'd as C++ by the property tests: one table, both sides.
+target_include_directories(lasim PRIVATE include src "${LA_KERNEL_DIR}")
 target_link_libraries(lasim PRIVATE la_device)
 
-# The kernels are read where they live; the move out of the Godot tree is a later phase.
-set(LA_KERNEL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../sim/material/kernels3d")
 file(GLOB LA_KERNEL_SOURCES "${LA_KERNEL_DIR}/*.glsl" "${LA_KERNEL_DIR}/*.glsli")
 add_custom_command(
     OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/bin/kernels.blob"

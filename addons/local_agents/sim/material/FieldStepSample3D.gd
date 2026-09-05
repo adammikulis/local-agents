@@ -63,6 +63,17 @@ static func field_step(field) -> int:
 	return int(field._gpu._step_index)
 
 
+## The field's own ReducePass, or null. Every between-pass sample reads its rows.
+static func reduce_of(field):
+	if field == null or field._gpu == null:
+		return null
+	var names: PackedStringArray = field._gpu._pass_names
+	for i in names.size():
+		if names[i] == "ReducePass":
+			return field._gpu._passes[i]
+	return null
+
+
 ## Short leg label: "WaterSlumpLavaPass" -> "water_slump_lava".
 static func leg_key(pass_name: String) -> String:
 	var s: String = pass_name
