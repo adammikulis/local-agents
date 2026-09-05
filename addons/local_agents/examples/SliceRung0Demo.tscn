@@ -7,3 +7,6 @@ process_rung = 0
 slice_box = "0,surface,0,3,24,3,5120,10"
 start_local_hour = 12.0
 field_vectors = "off"
+presentation = "on"
+life = "planet_only"
+game_mode = "sandbox"

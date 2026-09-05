@@ -31,31 +31,31 @@ func setup(world: Node) -> void:
 		_queries = _material.get("_queries")   # the read-accessor object, not the hub
 	_build_registry()
 	LASimReport.register(Callable(self, "report"))
-	_log_dormant_detectors()
+	print("EVENT_TRACKER={armed:%s}" % str(_detectors.map(func(d): return d.phenomenon())))
 
 
 ## The ordered registry — all field phenomena are CONFIGURED records of the one generic threshold detector
 ## (config over `if type == X`). A new phenomenon appends one entry here; a bespoke phenomenon that needs
 ## richer logic would subclass LAEventDetector and drop its instance in the same list.
 func _build_registry() -> void:
-	_detectors = [
-		# Eruption: molten-rock (lava) total in moles ramps up from ~0 as a vent supplies it, and stays up.
-		_threshold("eruption", "melt_total", "cross_up",
+	# A DETECTOR EXISTS ONLY WHERE ITS PROCESS DOES: a world without melt cannot erupt, without
+	# combustion cannot burn, without momentum has no storm, without charge no lightning.
+	_detectors = []
+	if LAProcessSet.has_record("reaction", "PhaseRecords.gd") and LAProcessSet.has_record("pass", "FluxPass.gd"):
+		_detectors.append(_threshold("eruption", "melt_total", "cross_up",
 			0.5 * LASubstances.full_mol_m3("silicate"), 0.1 * LASubstances.full_mol_m3("silicate"),
 			12.0, 0.02 / LASubstances.full_mol_m3("silicate"),
-			"a volcano is erupting — molten lava is pouring out"),
-		# Wildfire: the ecology fire count rising off zero (fire ignited and is spreading).
-		_threshold("wildfire", "fires", "cross_up", 0.5, 0.5, 7.0, 1.5,
-			"a wildfire has broken out and is spreading"),
-		# NO FLOOD DETECTOR. `water_total` is a GLOBAL sum, and a flood is local: one valley filling while
-		# another dries sums to zero. What a global rise in liquid water actually means is planet-wide net
-		# Storm: the fastest air in the box at Beaufort force 10, re-arming below gale, force 8.
-		_threshold("storm", "wind_max", "cross_up", 24.5, 17.2, 10.0, 0.5,
-			"a storm is whipping up — the wind is howling"),
-		# Lightning: each bolt is one strike, off the bolt_cells reduce row.
-		_threshold_increment("lightning", "bolts", 1.0, 1.5, 12.0,
-			"lightning just struck"),
-	]
+			"a volcano is erupting — molten lava is pouring out"))
+	if LAProcessSet.has_record("reaction", "CombustionRecords.gd"):
+		_detectors.append(_threshold("wildfire", "fires", "cross_up", 0.5, 0.5, 7.0, 1.5,
+			"a wildfire has broken out and is spreading"))
+	# NO FLOOD DETECTOR: `water_total` is a global sum and a flood is local.
+	if LAProcessSet.has_record("transport", "mom_flux"):
+		_detectors.append(_threshold("storm", "wind_max", "cross_up", 24.5, 17.2, 10.0, 0.5,
+			"a storm is whipping up — the wind is howling"))
+	if LAProcessSet.has_record("transport", "charge_separate"):
+		_detectors.append(_threshold_increment("lightning", "bolts", 1.0, 1.5, 12.0,
+			"lightning just struck"))
 
 
 func _threshold(type_name: String, key: String, mode: String, threshold: float, rearm: float, intensity_base: float, intensity_scale: float, text: String) -> LAThresholdDetector:
@@ -158,14 +158,3 @@ func report() -> Dictionary:
 	}
 
 
-## Startup diagnostic: LOG (never silently skip) which detectors watch a signal nothing has written.
-func _log_dormant_detectors() -> void:
-	var probe: Dictionary = _snapshot()
-	var dormant: Array = []
-	var live: Array = []
-	for d in _detectors:
-		if d.has_method("signal_live") and not d.signal_live(probe):
-			dormant.append(d.phenomenon())
-		else:
-			live.append(d.phenomenon())
-	print("EVENT_TRACKER={live:%s, dormant:%s}" % [str(live), str(dormant)])

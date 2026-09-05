@@ -24,14 +24,6 @@ func phenomenon() -> String:
 	return type_name
 
 
-## False when this detector's signal has never moved, so a detector watching a channel nothing writes is
-## reported rather than silently watched.
-func signal_live(cur: Dictionary) -> bool:
-	if mode == "increment":
-		return float(cur.get(key, 0.0)) > 0.0 or _last_fired_value > 0.0
-	return cur.has(key)
-
-
 func detect(prev: Dictionary, cur: Dictionary, dt: float) -> Array:
 	_time_since_emit += dt
 	var v: float = float(cur.get(key, 0.0))
