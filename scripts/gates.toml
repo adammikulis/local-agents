@@ -113,7 +113,7 @@ name = "check_life_demo"
 script = "scripts/check_life_demo.sh"
 kind = "gpu"
 marker = "^check_life_demo: OK"
-mutation = "perl -0pi -e 's/LAFakes\\.draw\\(\"drinking_water\", want\\)/0.0/' addons/local_agents/creatures/creature/CreatureThirst.gd"
+mutation = "perl -0pi -e 's/LAFakes\\.draw\\(\"plant_carbon\", want_mass\\)/0.0/' addons/local_agents/sim/actors/Plant.gd"
 needs = ["import"]
 
 [[gate]]

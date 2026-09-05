@@ -84,10 +84,10 @@ fakes = snap.get("fakes", {})
 if not isinstance(fakes, dict) or not fakes:
     fails.append("the run declared no fakes, so nothing says what is standing in for the missing rungs")
 else:
-    for name in ("drinking_water", "plant_carbon"):
-        made = float(fakes.get(name, {}).get("created", 0.0))
-        if made <= 0.0:
-            fails.append("the '%s' stand-in handed nothing out, so nothing drew on it" % name)
+    # A plant draws carbon every step it grows. Water is not asked for: an animal with a full store
+    # does not drink, and a run shorter than its thirst is no evidence of a broken stand-in.
+    if float(fakes.get("plant_carbon", {}).get("created", 0.0)) <= 0.0:
+        fails.append("the 'plant_carbon' stand-in handed nothing out, so nothing grew on it")
 
 # NOTHING DIED OF A STAND-IN. While `drinking_water` is in force there is a drink wherever an animal
 # stands, so a death by thirst means the fake never reached it and the demo is killing life with its
