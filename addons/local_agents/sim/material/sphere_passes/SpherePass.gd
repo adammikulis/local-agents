@@ -166,11 +166,6 @@ func _ctx_num(ctx: Dictionary, key: String) -> float:
 	return float(ctx[key])
 
 
-## Cell edge, model units.
-func _ctx_cell_size(ctx: Dictionary) -> float:
-	return _ctx_num(ctx, "cell_size")
-
-
 func _label() -> String:
 	var scr: Script = get_script() as Script
 	if scr == null:

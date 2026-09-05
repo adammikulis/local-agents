@@ -356,7 +356,6 @@ func _drain_pending() -> void:
 	# the suspected field bottleneck; measuring it directly is how we know what gating it can win.
 	LASimReport.gauge("field_sync_ms", float(t_sync - t0) / 1000.0)
 	LASimReport.gauge("field_readback_ms", float(Time.get_ticks_usec() - t_sync) / 1000.0)
-	LASimReport.gauge("field_cells", float(_cc))
 	_drain_passes()
 
 
@@ -391,6 +390,19 @@ func _drain_passes() -> void:
 			_pass_results[name] = res[key]
 			if typeof(res[key]) == TYPE_FLOAT or typeof(res[key]) == TYPE_INT:
 				LASimReport.gauge(name, float(res[key]))
+
+
+## The last drained reduce rows, gauged again once the report's baseline reset has wiped them.
+func republish_latest() -> void:
+	if LASimReport.gauge_cur("reduce_step", -1.0) >= 0.0:
+		return
+	for p in _passes:
+		if not p.has_method("latest"):
+			continue
+		var rows: Dictionary = p.latest()
+		for key in rows:
+			if rows[key] is float or rows[key] is int:
+				LASimReport.gauge(String(key), float(rows[key]))
 
 
 ## The compacted cell indices an `emit_idx` list published, empty when it listed nothing. Non-clearing.

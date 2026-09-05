@@ -175,8 +175,15 @@ func step() -> void:
 	# Refresh the body rotation FIRST: everything below that converts a position or a direction reads it.
 	_f.sync_body_frame()
 	LASimReport.event("field_step")   # telemetry: field steps per run, moving or at rest
+	LASimReport.gauge("field_cells", float(_f._gpu._cc))
 	if _at_rest():
 		LASimReport.event("field_rest")
+		if _f._gpu._pending:              # the last moving step's readback and books, drained once
+			_f._gpu.begin_frame(_f._e, _f._h2o)
+			_apply_readback(_f._gpu.end_frame())
+			if _f._report_mod != null:
+				_f._report_mod.sample_ledgers()
+		_f._gpu.republish_latest()
 		return
 	var t0: int = Time.get_ticks_usec()
 	var t_begin: int = t0
