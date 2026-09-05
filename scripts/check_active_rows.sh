@@ -24,6 +24,7 @@ extends SceneTree
 const QuietWindow: GDScript = preload("res://addons/local_agents/runtime/QuietWindow.gd")
 
 const PASS_PATH: String = "res://addons/local_agents/sim/material/sphere_passes/FluxPass.gd"
+const DERIVE_PATH: String = "res://addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd"
 const CELL: float = 4000.0
 const DT: float = 1.0
 const NX: int = 16
@@ -104,12 +105,17 @@ func _step(p: RefCounted, ctx: Dictionary, cc: int) -> void:
 	_rd.sync()
 
 
-## Every buffer the pass declares, plus the temporal-level field StateDerivePass declares and this pass
-## reads: without it every row refuses to move and the arms below measure a box nothing stepped.
+## Every buffer the pass declares and every buffer the derive declares beside it: flux.glsl reads what
+## the derive writes, so a hand-written list drifts and the box then reads memory nobody wrote. A key
+## this box already holds keeps the value written into it.
 func _declared(p: RefCounted, cc: int, bufs: Dictionary, owned: Array[RID]) -> void:
+	var sd: RefCounted = (load(DERIVE_PATH) as GDScript).new()
+	sd.ghost_count = int(p.ghost_count)
 	var want: Dictionary = p._buffers(cc)
-	want.merge(LATemporalLevels.buffers(cc + int(p.ghost_count), int(p.group_count())))
+	want.merge(sd._buffers(cc))
 	for key in want:
+		if bufs.has(String(key)):
+			continue
 		var spec: Variant = want[key]
 		var n: int = int(spec["n"]) if spec is Dictionary else int(spec)
 		var indirect: bool = spec is Dictionary and bool(spec.get("indirect", false))
@@ -144,11 +150,10 @@ func _build(owned: Array[RID]) -> Dictionary:
 		bufs[String(name)] = _f32(_filled(cc, 0.0), owned)
 	for name in LAChannels.derived_buffers():
 		bufs[String(name)] = _f32(_filled(cc, 0.0), owned)
-	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "k_cond", "speed", "rad_w_m3",
-			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi", "grav_ref", "gas_r", "gas_gamma", "ground_d"]:
+	# The field owner's, not a pass's, plus the three this box writes a value into below.
+	for name in ["ground_d", "k_cond", "gas_r", "gas_gamma"]:
 		bufs[name] = _f32(_filled(cc, 0.0), owned)
 	bufs["gravity"] = _f32(_filled(cc * 3, 0.0), owned)
-	bufs["g_rest"] = _f32(_filled(cc * 3, 0.0), owned)
 	_geometry(grid, bufs, owned)
 	_write(bufs, "rho_bulk", _filled(cc, RHO_BULK))
 	_write(bufs, "gas_r", _filled(cc, LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK))
@@ -190,11 +195,9 @@ func _seam() -> void:
 		bufs[String(name)] = _f32(_filled(cc, 0.0), owned)
 	for name in LAChannels.derived_buffers():
 		bufs[String(name)] = _f32(_filled(cc, 0.0), owned)
-	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "k_cond", "speed", "rad_w_m3",
-			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi", "grav_ref", "gas_r", "gas_gamma", "ground_d"]:
-		bufs[name] = _f32(_filled(cc, 0.0), owned)
+	# The field owner's, not a pass's; the derive's own declaration arrives with `_declared` below.
+	bufs["ground_d"] = _f32(_filled(cc, 0.0), owned)
 	bufs["gravity"] = _f32(_filled(cc * 3, 0.0), owned)
-	bufs["g_rest"] = _f32(_filled(cc * 3, 0.0), owned)
 	_geometry(grid, bufs, owned)
 
 	var p: RefCounted = (load(PASS_PATH) as GDScript).new()
