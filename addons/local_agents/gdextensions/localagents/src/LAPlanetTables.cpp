@@ -387,6 +387,8 @@ constexpr double kPi = 3.14159265358979323846;
 struct RadialProfile {
 	int n = 0;
 	int i_core = 0;
+	// Base of the lithosphere, metres below the surface. INF where the lid never meets the adiabat.
+	double lid_m = NAN;
 	double dr = 0.0;
 	std::vector<double> p_at;
 	std::vector<double> t_at;
@@ -401,7 +403,8 @@ struct RadialProfile {
 // with alpha falling under pressure as alpha * K_T stays constant (Anderson 1995, Equations of State of
 // Solids for Geophysics), K_T = K0 + K0' P off the same Birch-Murnaghan the densities use.
 static void geotherm_on_profile(double p_radius_m, double p_t_c, int p_n, int p_i_core, double p_dr,
-		const std::vector<double> &p_m_in, const std::vector<double> &p_p_at, std::vector<double> &r_t_at) {
+		const std::vector<double> &p_m_in, const std::vector<double> &p_p_at, std::vector<double> &r_t_at,
+		double &r_lid_m) {
 	const Dictionary table = LASubstances::table();
 	const Dictionary rock = table.get("silicate", Dictionary());
 	const Dictionary metal = table.get("metal", Dictionary());
@@ -416,16 +419,25 @@ static void geotherm_on_profile(double p_radius_m, double p_t_c, int p_n, int p_
 	const double kp_m = double(rock.get("bulk_modulus_deriv", 4.0));
 	const double kp_c = double(metal.get("bulk_modulus_deriv", 4.0));
 	const double p_std = la_physical("STANDARD_PRESSURE_PA");
-	const double a_w_m3 = LARadiogenicDecay::heat_w_kg_of(rock.get("traces", Dictionary()),
-			-la_physical("PLANET_EPOCH_YEARS_BEFORE_PRESENT")) * rho_m;
+	const double h_w_kg = LARadiogenicDecay::heat_w_kg_of(rock.get("traces", Dictionary()),
+			-la_physical("PLANET_EPOCH_YEARS_BEFORE_PRESENT"));
+	const double a_w_m3 = h_w_kg * rho_m;
 	const double g_const = la_physical("GRAVITATIONAL_CONSTANT");
 	const double t_surface_k = p_t_c + la_physical("KELVIN_OFFSET");
-	const double q_surf = la_physical("SURFACE_HEAT_FLOW_W_M2");
+	// WHAT LEAVES IS WHAT THE BODY MAKES: the radiogenic production of the rock above the core, over the
+	// surface it crosses. The body's own decay, not a continental mean measured on a planet with crust.
+	const double m_rock = p_m_in[p_n - 1] - (p_i_core > 0 ? p_m_in[p_i_core - 1] : 0.0);
+	const double q_surf = h_w_kg * MAX(m_rock, 0.0) / (4.0 * kPi * p_radius_m * p_radius_m);
 	auto alpha_at = [&](double a0, double k0, double kp, double p) {
 		const double k_t = k0 + kp * std::max(p - p_std, 0.0);
 		return (k0 > 0.0 && k_t > 0.0) ? a0 * k0 / k_t : a0;
 	};
 	double t_ad = la_physical("MANTLE_POTENTIAL_TEMP_K");
+	// THE LID'S BASE, metres: T(z) = Ts + q z / k - a z^2 / (2k) reaching the potential temperature.
+	// The shell grid is coarser than the lithosphere, so this is solved, not counted off it.
+	const double disc = q_surf * q_surf - 2.0 * a_w_m3 * k_m * (t_ad - t_surface_k);
+	r_lid_m = (a_w_m3 > 0.0 && disc >= 0.0) ? (q_surf - std::sqrt(disc)) / a_w_m3
+			: std::numeric_limits<double>::infinity();
 	// THE LID ENDS WHERE ITS CONDUCTIVE GEOTHERM MEETS THE ADIABAT, and below that the adiabat holds:
 	// the conductive parabola is the lithosphere's alone and turns over past it.
 	bool lid = true;
@@ -438,7 +450,9 @@ static void geotherm_on_profile(double p_radius_m, double p_t_c, int p_n, int p_
 		const double g = g_const * p_m_in[i] / std::max(r * r, 1.0);
 		t_ad *= 1.0 + alpha_at(alpha_m0, k0_m, kp_m, p_p_at[i]) * g * p_dr / std::max(cp_m, 1.0);
 	}
-	double t_core = la_physical("CORE_MANTLE_BOUNDARY_TEMP_K");
+	// THE ADIABAT CONTINUES THROUGH THE BOUNDARY, on the core's own expansivity and heat capacity: the
+	// temperature at the top of the core is the one the mantle above it reached.
+	double t_core = t_ad;
 	for (int i = p_i_core - 1; i >= 0; --i) {
 		const double r = (double(i) + 0.5) * p_dr;
 		r_t_at[i] = t_core;
@@ -519,7 +533,8 @@ static RadialProfile with_geotherm(RadialProfile p_prof, double p_t_c) {
 	const double kelvin = la_physical("KELVIN_OFFSET");
 	const double r_body = double(p_prof.n) * p_prof.dr;
 	std::vector<double> t_k(p_prof.n, p_t_c + kelvin);
-	geotherm_on_profile(r_body, p_t_c, p_prof.n, p_prof.i_core, p_prof.dr, p_prof.m_in, p_prof.p_at, t_k);
+	geotherm_on_profile(r_body, p_t_c, p_prof.n, p_prof.i_core, p_prof.dr, p_prof.m_in, p_prof.p_at, t_k,
+			p_prof.lid_m);
 	for (int i = 0; i < p_prof.n; ++i) {
 		p_prof.t_at[i] = t_k[i] - kelvin;
 	}
@@ -652,6 +667,14 @@ Dictionary LAPlanetComposition::upload_body_field(RenderingDevice *p_rd, const D
 double LAPlanetComposition::core_radius_m(double p_radius_m, double p_t_c) {
 	const RadialProfile prof = radial_profile(p_radius_m, p_t_c);
 	return prof.n > 0 ? double(prof.i_core) * prof.dr : 0.0;
+}
+
+// THE LITHOSPHERE'S THICKNESS, metres: the depth at which the lid's conductive geotherm meets the
+// mantle adiabat. Below it the rock convects, and a grid cannot resolve the boundary layer's interior
+// any more than it resolves the mantle. NAN when the profile does not solve.
+double LAPlanetComposition::lid_thickness_m(double p_radius_m, double p_t_c) {
+	const RadialProfile prof = radial_profile(p_radius_m, p_t_c);
+	return prof.n > 0 ? prof.lid_m : NAN;
 }
 
 // THE RADIUS IS AN OUTPUT. A body is given a mass and a composition; how big it is follows from how far
@@ -1125,15 +1148,14 @@ PackedFloat32Array LAPlanetComposition::surface_depth(Object *p_grid, Object *p_
 	return out;
 }
 
-// 1 where the rock's share of the cell reaches the lock-up crystal fraction: the same law the derive
-// locks a cell on.
+// 1 where more of the cell's VOLUME is inside the terrain than outside it. A cut cell's class is
+// geometry: which side of the surface the cell mostly lies on. Nothing here is a melt.
 PackedByteArray LAPlanetComposition::solid_of(const PackedFloat32Array &p_fraction) {
 	PackedByteArray out;
 	out.resize(p_fraction.size());
 	uint8_t *w = out.ptrw();
-	const float lock = float(la_physical("RHEOLOGICAL_LOCKUP_CRYSTAL_FRAC"));
 	for (int c = 0; c < p_fraction.size(); c++) {
-		w[c] = p_fraction[c] >= lock ? 1 : 0;
+		w[c] = p_fraction[c] * 2.0f >= 1.0f ? 1 : 0;
 	}
 	return out;
 }
@@ -1158,6 +1180,7 @@ void LAPlanetComposition::_bind_methods() {
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("core_radius_frac", "t_c", "p_pa"), &core_radius_frac);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("radius_for_mass", "mass_kg", "t_c"), &radius_for_mass);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("core_radius_m", "radius_m", "t_c"), &core_radius_m);
+	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("lid_thickness_m", "radius_m", "t_c"), &lid_thickness_m);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("body_field", "grid", "centre", "radius_m", "t_c"), &body_field);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("upload_body_field", "rd", "bufs", "grid", "centre", "radius_m", "t_c"), &upload_body_field);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("geotherm_k", "radius_m", "t_surface_c"), &geotherm_k);

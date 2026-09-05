@@ -394,21 +394,16 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c,
 	}
 	std::vector<Mirror> gases = channel_mirrors(p_field, "phase", "gas");
 	const Dictionary table = LASubstances::table();
-	const double x_n2 = la_physical("PREBIOTIC_MOLE_FRAC_N2");
+	const Dictionary x = seeded_air_mole_fractions();
 	const double n2_mol = n2_kg / la_physical("MOLAR_MASS_N2_KG_MOL");
+	const double x_n2 = double(x.get("n2", 0.0));
 	std::vector<double> moles(gases.size(), 0.0);
 	std::vector<double> molar(gases.size(), 0.0);
 	double mol_sum = 0.0, kg_sum = 0.0;
 	for (size_t i = 0; i < gases.size(); i++) {
 		const Mirror &m = gases[i];
 		molar[i] = double(Dictionary(table.get(m.substance, Dictionary())).get("molar_mass", 0.0));
-		static const char *const PREBIOTIC[] = { "n2", "co2", "h2", "co", "so2", "h2s", "ch4", nullptr };
-		for (int k = 0; PREBIOTIC[k]; k++) {
-			if (m.name == PREBIOTIC[k]) {
-				const CharString key = (String("PREBIOTIC_MOLE_FRAC_") + String(PREBIOTIC[k]).to_upper()).utf8();
-				moles[i] = n2_mol * la_physical(key.get_data()) / x_n2;
-			}
-		}
+		moles[i] = n2_mol * double(x.get(m.name, 0.0)) / MAX(x_n2, 1.0e-12);
 		mol_sum += moles[i];
 		kg_sum += moles[i] * molar[i];
 	}
@@ -559,7 +554,69 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c,
 	}
 }
 
+// THE SEEDED AIR'S COMPOSITION, mole fraction per gas channel. One declaration, read by the lattice
+// before there is a field and by shape_atmosphere once there is. A gas that is a photochemical STEADY
+// STATE rather than an inventory is absent here and starts at nothing.
+Dictionary LAFieldLithostaticSeed::seeded_air_mole_fractions() {
+	static const char *const SEEDED[] = { "n2", "co2", "h2", nullptr };
+	Dictionary out;
+	for (int k = 0; SEEDED[k]; k++) {
+		const CharString key = (String("PREBIOTIC_MOLE_FRAC_") + String(SEEDED[k]).to_upper()).utf8();
+		out[String(SEEDED[k])] = la_physical(key.get_data());
+	}
+	return out;
+}
+
+// R T / M of that mixture, m^2/s^2: the scale height times the gravity it was taken at.
+double LAFieldLithostaticSeed::seeded_air_rt_over_m(double p_temp_c) {
+	const Dictionary x = seeded_air_mole_fractions();
+	const Dictionary table = LASubstances::table();
+	const Array names = x.keys();
+	double mol = 0.0, kg = 0.0;
+	for (int i = 0; i < names.size(); i++) {
+		const double n = double(x[names[i]]);
+		mol += n;
+		kg += n * double(Dictionary(table.get(names[i], Dictionary())).get("molar_mass", 0.0));
+	}
+	if (!(mol > 0.0) || !(kg > 0.0)) {
+		return NAN;
+	}
+	return la_physical("GAS_CONSTANT_J_MOL_K") * (p_temp_c + la_physical("KELVIN_OFFSET")) / (kg / mol);
+}
+
+// THE TOP OF THE AIR, metres over the datum: where the barometric profile leaves so little gas that a
+// molecule crosses a cell of p_cell_edge_m uncollided. Past it there is no fluid, and nothing a grid
+// resolves. The same Knudsen cut shape_atmosphere applies cell by cell.
+double LAFieldLithostaticSeed::air_extent_m(const String &p_body_key, double p_radius_m,
+		double p_temp_c, double p_cell_edge_m) {
+	const Dictionary body = LABodySeeds::of(p_body_key);
+	const double n2_kg = double(body.get("atmosphere_n2_kg", 0.0));
+	const double body_kg = double(body.get("mass_kg", 0.0));
+	const double rt_m = seeded_air_rt_over_m(p_temp_c);
+	const double x_n2 = double(seeded_air_mole_fractions().get("n2", 0.0));
+	if (!(n2_kg > 0.0) || !(body_kg > 0.0) || !(p_radius_m > 0.0) || !(p_cell_edge_m > 0.0)
+			|| !(x_n2 > 0.0) || !std::isfinite(rt_m)) {
+		return NAN;
+	}
+	const double g = la_physical("GRAVITATIONAL_CONSTANT") * body_kg / (p_radius_m * p_radius_m);
+	const double h = rt_m / g;
+	const double mol = n2_kg / la_physical("MOLAR_MASS_N2_KG_MOL") / x_n2;
+	const double area = 4.0 * Math::PI * p_radius_m * p_radius_m;
+	const double n0 = mol * la_physical("AVOGADRO_PER_MOL") / (area * h);
+	const double d = la_physical("N2_KINETIC_DIAMETER_M");
+	const double sigma = std::sqrt(2.0) * Math::PI * d * d;
+	const double n_kn = 1.0 / (sigma * p_cell_edge_m * la_physical("KNUDSEN_CONTINUUM_LIMIT"));
+	return n0 > n_kn ? h * std::log(n0 / n_kn) : 0.0;
+}
+
 void LAFieldLithostaticSeed::_bind_methods() {
+	ClassDB::bind_static_method("LAFieldLithostaticSeed", D_METHOD("seeded_air_mole_fractions"),
+			&LAFieldLithostaticSeed::seeded_air_mole_fractions);
+	ClassDB::bind_static_method("LAFieldLithostaticSeed", D_METHOD("seeded_air_rt_over_m", "temp_c"),
+			&LAFieldLithostaticSeed::seeded_air_rt_over_m);
+	ClassDB::bind_static_method("LAFieldLithostaticSeed",
+			D_METHOD("air_extent_m", "body_key", "radius_m", "temp_c", "cell_edge_m"),
+			&LAFieldLithostaticSeed::air_extent_m);
 	ClassDB::bind_static_method("LAFieldLithostaticSeed", D_METHOD("vertical", "field", "gravity"),
 			&LAFieldLithostaticSeed::vertical);
 	ClassDB::bind_static_method("LAFieldLithostaticSeed", D_METHOD("compress", "field", "gravity", "t_rock"),

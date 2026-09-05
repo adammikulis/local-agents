@@ -121,7 +121,7 @@ func _apply_source() -> void:
 	if source == SOURCE_WIND:
 		_ref = WIND_REF_M_S
 	elif source == SOURCE_GRAVITY:
-		_ref = _surface_gravity()
+		_ref = _gravity_reference()
 	visible = _ref > 0.0
 	# The body measures its own gravity after the seal, so a gravity source keeps looking until it can.
 	set_process(_ref > 0.0 or source == SOURCE_GRAVITY)
@@ -134,14 +134,10 @@ func _apply_source() -> void:
 	_accum = REBUILD_PERIOD
 
 
-## The body's OWN surface gravity, off the matter that ended up in it. 0 before it has been measured.
-func _surface_gravity() -> float:
-	if _f == null or not _f.has_method("body_measure"):
-		return 0.0
-	var m = _f.body_measure()
-	if m == null or not m.measured():
-		return 0.0
-	return float(m.surface_gravity_m_s2())
+## The field's own mean |g|, m/s^2, reduced on the device. A body has no one surface gravity; the ramp
+## saturates at what the solve actually produced. 0 before it has solved.
+func _gravity_reference() -> float:
+	return float(_f._gravity.mean_g()) if _f != null and _f._gravity != null else 0.0
 
 
 func _process(delta: float) -> void:

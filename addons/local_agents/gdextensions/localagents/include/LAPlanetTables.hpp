@@ -60,6 +60,8 @@ public:
 			const PackedFloat64Array &p_area_below, const PackedFloat64Array &p_elevation_m);
 	static double radius_for_mass(double p_mass_kg, double p_t_c);
 	static double core_radius_m(double p_radius_m, double p_t_c);
+	// Depth of the conductive lid, metres: where its geotherm meets the mantle adiabat.
+	static double lid_thickness_m(double p_radius_m, double p_t_c);
 	static Dictionary body_field(Object *p_grid, const Vector3 &p_centre, double p_radius_m, double p_t_c);
 	static Dictionary upload_body_field(RenderingDevice *p_rd, const Dictionary &p_bufs, Object *p_grid,
 			const Vector3 &p_centre, double p_radius_m, double p_t_c);
