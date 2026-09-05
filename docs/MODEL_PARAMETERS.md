@@ -94,7 +94,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/game/render/VegetationRenderer.gd` | `_CHUNK` | 256 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/game/render/VegetationRenderer.gd` | `_INITIAL_CAP` | 512 | presentation or diagnostic buffer length, not physics | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/sim/SimWorld.gd` | `SLOW_BUILD_CELLS` | 250000 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/SimWorld.gd` | `MODELLED_ATMOSPHERE_HEIGHT_M` | 1.0e5 | modelling extent: how much air the box holds | a body that declares its own atmosphere mass |
 | `addons/local_agents/sim/material/FieldGridBudget3D.gd` | `CELLS_PER_SCALE_HEIGHT` | 2.0 | cells one atmospheric scale height is cut into at the target edge; a DISCRETISATION of the air column, held under `docs/CELL_BUDGET` | a grid that resolves the scale height everywhere, which the cell budget forbids at planet scale |
 | `addons/local_agents/sim/material/FieldGridBudget3D.gd` | `CELLS_PER_LEVEL_PAD` | 4.0 | cells of its own edge a refinement level carries around the terrain surface and around a box's focus axis; a DISCRETISATION of the octree grading, held under `docs/CELL_BUDGET` | a grid at the finest edge everywhere, which the cell budget forbids at planet scale |
 | `addons/local_agents/sim/material/kernels3d/flux.glsl` | `LA_COURANT_LIMIT` | 0.5 | the Courant number one substep may reach: the face solve, the momentum close and the record moves run as a sequence off the substep's opening state, and the column at rest grows past this bound; a DISCRETISATION of time, the scheme's own stability, not a property of matter | an implicit acoustic update, or a flux-form simultaneous one, which has no Courant bound |
@@ -106,7 +105,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/terrain/PlanetShape.gd` | `CAVE_THRESHOLD` | 0.09 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
 | `addons/local_agents/sim/terrain/PlanetShape.gd` | `CAVE_STRENGTH` | 40.0 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
 | `addons/local_agents/sim/terrain/PlanetShape.gd` | `CAVE_DEPTH_FADE_M` | 4.7e3 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
-| `addons/local_agents/sim/SimClock.gd` | `DAYS_PER_SEASON` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/SimReportSources.gd` | `METAB_FIT_MIN_N` | 3 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/streamer/StreamerDirector.gd` | `WINDOW_MAX` | 4 | presentation or diagnostic buffer length, not physics | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/streamer/StreamerDirector.gd` | `RESET_EVERY` | 12 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |

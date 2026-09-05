@@ -15,10 +15,6 @@ const PLANET_BODY_PATH: String = "res://addons/local_agents/sim/system/PlanetBod
 # Field cells past which a build is slow enough to be worth warning about in the inspector.
 const SLOW_BUILD_CELLS: int = 250000
 
-# Height of the air column above the mean surface the field box encloses, metres. Earth's homosphere ends
-# near the 100 km turbopause; above it the remaining mass is negligible against the crust in the same box.
-const MODELLED_ATMOSPHERE_HEIGHT_M: float = 1.0e5
-
 @export_group("World")
 @export var world_type: WorldType = WorldType.SPHERE: set = _set_world_type
 ## Build the world automatically in _ready(). Turn it off to choose the moment yourself by calling
@@ -150,7 +146,8 @@ func seed_radius() -> float:
 
 ## Edge of one field cell, metres: the box spans the body plus its air column, cut grid_res ways.
 func field_cell_size_m() -> float:
-	return 2.0 * (seed_radius() + MODELLED_ATMOSPHERE_HEIGHT_M) / float(maxi(grid_res, 1))
+	return 2.0 * (seed_radius() + LAFieldGridBudget.air_extent_m(
+		body_seed, seed_radius(), LAMaterialField3D.INITIAL_TEMP)) / float(maxi(grid_res, 1))
 
 
 func _build_sphere() -> bool:
@@ -192,14 +189,19 @@ func _build_sphere() -> bool:
 		if not _material.has_meta(LAFieldBoundary3D.META_FACES) \
 				and LAFieldBoundary3D.explicit_spec() == "":
 			_material.set_meta(LAFieldBoundary3D.META_FACES, "space,space,space,space,space,space")
-		var extent_m: float = seed_radius() + MODELLED_ATMOSPHERE_HEIGHT_M
+		var air_m: float = LAFieldGridBudget.air_extent_m(body_seed, seed_radius(), LAMaterialField3D.INITIAL_TEMP)
+		var rock_m: float = LAFieldGridBudget.rock_extent_m(seed_radius(), LAMaterialField3D.INITIAL_TEMP)
+		if not is_finite(air_m) or not is_finite(rock_m):
+			push_error("GRID_EXTENT_UNSOLVED: the seeded air has no Knudsen top (%s) or the geotherm no lid (%s), so the box has no extent to enclose." % [air_m, rock_m])
+			return false
+		var extent_m: float = seed_radius() + air_m
 		var cell_m: float = field_cell_size_m()
 		var dims: Vector3i = LAVoxelGrid.dims_for(extent_m, cell_m)
 		var half: float = 0.5 * float(dims.x) * cell_m
 		# RESOLUTION FOLLOWS POSITION: the shell that holds the air column and the regolith under it is
 		# refined; the vacuum corners and the deep interior stay coarsest.
 		_material.setup_box(_body.center() - Vector3(half, half, half), dims, cell_m, _terrain,
-			_body.center(), MODELLED_ATMOSPHERE_HEIGHT_M, MODELLED_ATMOSPHERE_HEIGHT_M,
+			_body.center(), rock_m, air_m,
 			LAFieldGridBudget.target_edge_m(body_seed, seed_radius(), LAMaterialField3D.INITIAL_TEMP), seed_radius())
 	if _material.has_method("sample_solidity"):
 		_material.sample_solidity()
