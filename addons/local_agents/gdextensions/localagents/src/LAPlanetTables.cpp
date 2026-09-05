@@ -1031,6 +1031,106 @@ double LAPlanetComposition::sea_level_m(double p_r_m, double p_ocean_m3, const P
 	return 0.5 * (lo + hi);
 }
 
+// Directions swept over the body, lands whose shores are examined, halvings onto a waterline, and
+// samples per side of a footprint reading.
+static const int kSweepSamples = 128;
+static const int kSiteCandidates = 8;
+static const int kCoastBisect = 24;
+static const int kFootprintSamples = 7;
+
+static double la_surface_radius(Object *p_surface, const Vector3 &p_dir) {
+	return double(p_surface->call("surface_radius", p_dir));
+}
+
+// A Fibonacci lattice direction: even coverage, no clustering at the poles.
+static Vector3 la_sweep_dir(int p_i, int p_n) {
+	const double golden = kPi * (3.0 - std::sqrt(5.0));
+	const double y = 1.0 - 2.0 * (double(p_i) + 0.5) / double(p_n);
+	const double s = std::sqrt(std::max(0.0, 1.0 - y * y));
+	return Vector3(std::cos(golden * p_i) * s, y, std::sin(golden * p_i) * s).normalized();
+}
+
+Dictionary LAPlanetComposition::footprint_ground(Object *p_surface, const Vector3 &p_dir, double p_body_r_m,
+		double p_sea_r_m, double p_footprint_m) {
+	Dictionary out;
+	if (!p_surface) {
+		return out;
+	}
+	const Vector3 d = p_dir.normalized();
+	const double span = p_footprint_m / std::max(p_body_r_m, 1.0);
+	const Vector3 ref = std::abs(d.y) < 0.95 ? Vector3(0, 1, 0) : Vector3(1, 0, 0);
+	const Vector3 u = ref.cross(d).normalized();
+	const Vector3 v = d.cross(u);
+	double land = -INFINITY, deep = -INFINITY;
+	int wet = 0;
+	for (int i = 0; i < kFootprintSamples; i++) {
+		const double a = span * (double(i) / double(kFootprintSamples - 1) - 0.5);
+		for (int j = 0; j < kFootprintSamples; j++) {
+			const double b = span * (double(j) / double(kFootprintSamples - 1) - 0.5);
+			const double h = la_surface_radius(p_surface, (d + u * a + v * b).normalized()) - p_sea_r_m;
+			land = std::max(land, h);
+			deep = std::max(deep, -h);
+			wet += h <= 0.0 ? 1 : 0;
+		}
+	}
+	out["foot_m"] = p_footprint_m;
+	out["land_m"] = land;
+	out["depth_m"] = deep;
+	out["sea_share"] = double(wet) / double(kFootprintSamples * kFootprintSamples);
+	return out;
+}
+
+// WHERE TO STAND A BOX SO IT HOLDS A SHORE: of the waterlines between the body's highest lands and its
+// deepest water, the one whose footprint holds the most of the smaller of its two reliefs.
+// LA_APPROX: site_from_settled_level
+Dictionary LAPlanetComposition::coast_site(Object *p_surface, double p_body_r_m, double p_sea_r_m,
+		double p_footprint_m) {
+	Dictionary out;
+	if (!p_surface || !(p_footprint_m > 0.0)) {
+		return out;
+	}
+	std::vector<std::pair<double, Vector3>> high;
+	Vector3 deep_dir;
+	double floor_r = INFINITY;
+	for (int i = 0; i < kSweepSamples; i++) {
+		const Vector3 d = la_sweep_dir(i, kSweepSamples);
+		const double r = la_surface_radius(p_surface, d);
+		if (r - p_sea_r_m > 0.0) {
+			high.push_back({ r, d });
+		} else if (r < floor_r) {
+			floor_r = r;
+			deep_dir = d;
+		}
+	}
+	if (high.empty() || deep_dir == Vector3()) {
+		return out;
+	}
+	std::sort(high.begin(), high.end(), [](const std::pair<double, Vector3> &x,
+					const std::pair<double, Vector3> &y) { return x.first > y.first; });
+	double score = -INFINITY;
+	for (int k = 0; k < std::min(kSiteCandidates, int(high.size())); k++) {
+		Vector3 a = high[k].second;
+		Vector3 b = deep_dir;
+		for (int i = 0; i < kCoastBisect; i++) {
+			const Vector3 m = (a + b).normalized();
+			if (la_surface_radius(p_surface, m) - p_sea_r_m > 0.0) {
+				a = m;
+			} else {
+				b = m;
+			}
+		}
+		const Vector3 site = (a + b).normalized();
+		const Dictionary g = footprint_ground(p_surface, site, p_body_r_m, p_sea_r_m, p_footprint_m);
+		const double s = std::min(double(g["land_m"]), double(g["depth_m"]));
+		if (s > score) {
+			score = s;
+			out = g;
+			out["dir"] = site;
+		}
+	}
+	return out;
+}
+
 // Saturated pore column standing ABOVE the sea under ground at elevation p_e_m, m of water per m^2, with
 // the table p_h_m over the sea: Athy porosity integrated from the table down to sea level.
 static double pore_above_sea(double p_e_m, double p_h_m, double p_phi0, double p_zc, double p_aquifer_m) {
@@ -1144,6 +1244,8 @@ void LAPlanetComposition::_bind_methods() {
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("solid_of", "fraction"), &solid_of);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("surface_depth", "grid", "terrain", "centre"), &surface_depth);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("sea_level_m", "r_m", "ocean_m3", "area_below", "elevation_m"), &sea_level_m);
+	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("footprint_ground", "surface", "dir", "body_r_m", "sea_r_m", "footprint_m"), &footprint_ground);
+	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("coast_site", "surface", "body_r_m", "sea_r_m", "footprint_m"), &coast_site);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("water_table_m", "r_m", "groundwater_m3", "sea_level_m", "area_below", "elevation_m"), &water_table_m);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("mg_number"), &mg_number);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("an_fraction"), &an_fraction);

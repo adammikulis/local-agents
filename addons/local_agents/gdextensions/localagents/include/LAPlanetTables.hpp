@@ -58,6 +58,13 @@ public:
 	// pore space it saturates over the sea holds p_groundwater_m3. Capped at the ground by its consumer.
 	static double water_table_m(double p_r_m, double p_groundwater_m3, double p_sea_level_m,
 			const PackedFloat64Array &p_area_below, const PackedFloat64Array &p_elevation_m);
+	// The crust under a square footprint at one direction: highest over the settled level, deepest under
+	// it, and the share of the reading under it. `p_surface` answers surface_radius(dir).
+	static Dictionary footprint_ground(Object *p_surface, const Vector3 &p_dir, double p_body_r_m,
+			double p_sea_r_m, double p_footprint_m);
+	// Where to stand a box so it holds a shore, as a direction plus that footprint reading.
+	static Dictionary coast_site(Object *p_surface, double p_body_r_m, double p_sea_r_m,
+			double p_footprint_m);
 	static double radius_for_mass(double p_mass_kg, double p_t_c);
 	static double core_radius_m(double p_radius_m, double p_t_c);
 	static Dictionary body_field(Object *p_grid, const Vector3 &p_centre, double p_radius_m, double p_t_c);

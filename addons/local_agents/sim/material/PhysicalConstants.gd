@@ -206,12 +206,10 @@ const AIR_MOLAR_DENSITY_MOL_M3: float = AIR_DENSITY_KG_M3 / MOLAR_MASS_DRY_AIR_K
 
 ## Litter, mol C per mol N (Batjes 1996).
 const LITTER_C_TO_N: float = 20.0
-const AIR_MASS_HORIZON: float = 38.0
 
 const LIGHTNING_FLASH_J: float = 1.0e9
 
 const LATENT_HEAT_FUSION_J_KG: float = 3.337e5
-const LATENT_HEAT_SUBLIMATION_J_KG: float = 2.834e6
 
 ## Basalt enthalpy of crystallisation, J/kg (Lange, Cashman & Navrotsky 1994, CMP 118:169).
 const BASALT_LATENT_HEAT_CRYSTALLISATION_J_KG: float = 4.0e5

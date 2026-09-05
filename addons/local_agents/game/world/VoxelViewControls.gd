@@ -14,10 +14,6 @@ var _geo_btn: Button = null
 var _fly_btn: Button = null
 var _spin_btn: Button = null
 var _alt_label: Label = null      # live "alt N m" readout (camera height above the ground under it)
-var _alt_accum: float = 0.0
-# The altitude readout raycasts the ground under the camera; it doesn't need per-frame precision, so sample it
-# a few times a second (cheap, and steadier to read than a per-frame flicker).
-const ALT_UPDATE_INTERVAL: float = 0.2
 var _geo_hotkey: String = ""      # cached registry key labels folded into the gated tooltips
 var _solar_hotkey: String = ""
 
@@ -121,14 +117,12 @@ func bind_view(camera: Camera3D, body: Node3D) -> void:
 	_body = body
 
 
-## Live altitude readout: a few samples a second, the camera's height above the ground directly under it.
-func _process(delta: float) -> void:
+## THE READOUT IS THE EYE'S, THIS FRAME: the camera's height over the ground directly under where it
+## stands now. Sampled any less often than the frame it is drawn on, the bar reports a pose the camera
+## has already left.
+func _process(_delta: float) -> void:
 	if _alt_label == null or _camera == null or _body == null:
 		return
-	_alt_accum += delta
-	if _alt_accum < ALT_UPDATE_INTERVAL:
-		return
-	_alt_accum = 0.0
 	var alt: float = NAN
 	if _body.has_method("altitude_at"):
 		alt = _body.altitude_at(_camera.global_position)

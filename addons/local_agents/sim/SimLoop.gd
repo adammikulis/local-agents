@@ -22,11 +22,6 @@ static func active() -> LASimLoop:
 	return _active
 
 
-## Steps taken since the world was sealed, or 0 when no world is running.
-static func step_count() -> int:
-	return _active._step if _active != null else 0
-
-
 func _ready() -> void:
 	_active = self
 
@@ -57,10 +52,6 @@ func hold() -> void:
 
 func release() -> void:
 	_holds = maxi(0, _holds - 1)
-
-
-func is_seeding() -> bool:
-	return _holds > 0
 
 
 ## Steps run per engine tick. A user-facing fast-forward: it buys steps, never a larger timestep.

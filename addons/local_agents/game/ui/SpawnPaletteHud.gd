@@ -8,6 +8,9 @@ signal music_auto_adapt_changed(on: bool)
 
 const EMOJI_FONT_PATH: String = "res://addons/local_agents/assets/fonts/emoji.ttf"
 
+## The groups this world's living things join; the status row counts them.
+const LIVING_GROUPS: Array[String] = ["creature", "fish", "plant", "tree"]
+
 # Off-screen isometric render size for a spawn button's model thumbnail, in pixels.
 const THUMB_PX: int = 64
 
@@ -106,18 +109,22 @@ func _ready() -> void:
 
 func _process(_delta: float) -> void:
 	var fps: int = int(round(Engine.get_frames_per_second()))
-	var entity_count: int = 0
+	# THE ROW IS THE WORLD'S POPULATION, and a world holding no living thing has no row. What lives cannot
+	# be counted off what can be clicked, which counts the moon.
+	var alive: int = 0
 	var tree: SceneTree = get_tree()
 	if tree != null:
-		entity_count = tree.get_nodes_in_group("selectable").size()
+		for grp in LIVING_GROUPS:
+			alive += tree.get_nodes_in_group(grp).size()
+	var ents: String = "   |   %d alive" % alive if alive > 0 else ""
 	if _perf_detail:
 		var frame_ms: float = Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
 		var phys_ms: float = Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
 		var field_ms: float = LASimReport.gauge_cur("field_ms")
 		var draws: int = int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME))
-		_readout_label.text = "%d FPS  %.1fms   |   field %.1f  phys %.1f  draws %d   |   %d ents" % [fps, frame_ms, field_ms, phys_ms, draws, entity_count]
+		_readout_label.text = "%d FPS  %.1fms   |   field %.1f  phys %.1f  draws %d%s" % [fps, frame_ms, field_ms, phys_ms, draws, ents]
 	else:
-		_readout_label.text = "%d FPS   |   %d entities" % [fps, entity_count]
+		_readout_label.text = "%d FPS%s" % [fps, ents]
 
 
 ## DEBUG-panel toggle: show the detailed perf breakdown (frame/field/physics ms + draw calls) in the readout.

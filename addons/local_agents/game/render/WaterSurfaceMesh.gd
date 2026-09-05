@@ -1,15 +1,13 @@
 class_name LAWaterSurfaceMesh
 extends RefCounted
 
-## The free water surface as geometry: one quad on the top face of every surfaced cell near the camera.
-
-const SEA_BIAS: float = 0.4   # draw the near-cap sea this far outside the ocean sphere so it occludes it
+## THE FREE SURFACE OF THE FIELD'S LIQUID: one quad per cell holding water with air over it.
 
 
 ## Build the water surface. Returns {"verts": PackedVector3Array, "normals": PackedVector3Array,
 ## "colors": PackedColorArray, "indices": PackedInt32Array, "count": int}. `count`==0 → nothing to draw.
 func build(field, inv_xform: Transform3D, cam_radial: Vector3, cap_cos: float,
-		render_min: float, max_mass: float, sea_radius: float, sea_wave_eps: float) -> Dictionary:
+		render_min: float, max_mass: float) -> Dictionary:
 	var verts: PackedVector3Array = PackedVector3Array()
 	var normals: PackedVector3Array = PackedVector3Array()
 	var colors: PackedColorArray = PackedColorArray()
@@ -41,11 +39,6 @@ func build(field, inv_xform: Transform3D, cam_radial: Vector3, cap_cos: float,
 		# Sub-cell height, so a half-full cell reads as a shoreline rather than a step.
 		var fill: float = clampf(water[c] / max_mass, 0.0, 1.0)
 		var top: Vector3 = pos + up * (fill - 0.5) * grid.cell_size
-		# Salt where the surface stands at the sea shell, fresh where it stands above it.
-		var salinity: float = 0.0
-		if absf(r - sea_radius) <= sea_wave_eps:
-			salinity = 1.0
-			top = centre + radial / r * (sea_radius + SEA_BIAS)
 		var a: Vector3 = up.cross(cam_radial)
 		if a.length_squared() < 1.0e-8:
 			a = up.cross(Vector3.RIGHT)
@@ -55,7 +48,7 @@ func build(field, inv_xform: Transform3D, cam_radial: Vector3, cap_cos: float,
 		for corner in [-a - b, a - b, a + b, -a + b]:
 			verts.push_back(inv_xform * (top + corner))
 			normals.push_back(Vector3.UP)              # placeholder; VoxelWater.gdshader recomputes NORMAL
-			colors.push_back(Color(0.5, 0.5, 0.0, salinity))
+			colors.push_back(Color(0.5, 0.5, 0.0, 0.0))
 		indices.push_back(base); indices.push_back(base + 1); indices.push_back(base + 2)
 		indices.push_back(base); indices.push_back(base + 2); indices.push_back(base + 3)
 

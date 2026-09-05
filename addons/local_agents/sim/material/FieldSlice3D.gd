@@ -16,6 +16,10 @@ const REPLAY_ENV: String = "LA_SLICE_REPLAY"
 ## A torus needs only two cells across it, or a cell faces itself on both sides.
 const MIN_REPLAY_CELLS: int = 2 * LAFieldBoundary3D.RIM_CELLS
 const MIN_WRAP_CELLS: int = 2
+## `site=<kind>` in an offset field names where on the body the box stands, in place of `surface`.
+const SITE_PREFIX: String = "site="
+const SITE_POLE: String = "pole"
+const SITE_COAST: String = "coast"
 
 var error: String = ""
 var offset: Vector3 = Vector3.ZERO
@@ -25,6 +29,9 @@ var cell_size: float = 0.0
 var fine_size: float = 0.0
 ## Offset axis given as `surface`, resolved against the body in apply(); -1 when the spec was all numbers.
 var surface_axis: int = -1
+## Site kind the offset axis was spelt with: SITE_POLE (or a bare `surface`) or SITE_COAST.
+var site: String = SITE_POLE
+var _terrain = null                   # set by apply(), the only caller that has one
 ## Face slot -> Array of per-sample states, fed through replay(); empty outside replay mode.
 var replay_series: Dictionary = {}
 ## Field steps one replay sample spans.
@@ -48,7 +55,9 @@ static func parse(spec: String) -> LAFieldSlice3D:
 
 
 func _parse(spec: String) -> bool:
-	var p: Dictionary = LAGridGeometry.parse_slice_spec(spec)
+	var p: Dictionary = LAGridGeometry.parse_slice_spec(_strip_site(spec))
+	if error != "":
+		return false
 	if p.has("error"):
 		return _fail(String(p["error"]))
 	offset = p["offset"]
@@ -59,8 +68,24 @@ func _parse(spec: String) -> bool:
 	return true
 
 
-## The box-centre offset with `surface` filled in from the body's own radius. ONE declaration: apply() and
-## the capture path both read the offset through here, or one of them places the box somewhere else.
+## Read a `site=<kind>` offset field off the spec and hand the numeric grammar `surface` in its place.
+func _strip_site(spec: String) -> String:
+	var f: PackedStringArray = spec.split(",")
+	for i in mini(f.size(), 3):
+		var t: String = f[i].strip_edges().to_lower()
+		if not t.begins_with(SITE_PREFIX):
+			continue
+		site = t.substr(SITE_PREFIX.length())
+		if site != SITE_POLE and site != SITE_COAST:
+			_fail("site \"%s\" names no place on the body; it is \"%s\" or \"%s\""
+				% [site, SITE_POLE, SITE_COAST])
+		f[i] = "surface"
+		return ",".join(f)
+	return spec
+
+
+## The box-centre offset with `surface` filled in from the body's radius. ONE declaration: apply() and the
+## capture path both read it through here, or one of them places the box somewhere else.
 func resolved_offset(body) -> Vector3:
 	return offset if _resolve_offset(body) else Vector3.ZERO
 
@@ -71,8 +96,44 @@ func _resolve_offset(body) -> bool:
 	var r: float = float(body.radius()) if body != null and body.has_method("radius") else NAN
 	if not is_finite(r) or r <= 0.0:
 		return _fail("the box asks for the body's surface and no body has measured a radius for it")
-	offset[surface_axis] = 1.0
-	offset = offset.normalized() * r      # a body-frame direction, not a world displacement
+	if site == SITE_COAST and not _resolve_coast(r):
+		return false
+	if surface_axis >= 0:
+		offset[surface_axis] = 1.0
+		offset = offset.normalized() * r  # a body-frame direction, not a world displacement
+		surface_axis = -1
+	var d: Vector3 = offset.normalized()
+	print("SLICE_SITE=%s" % JSON.stringify({"kind": site, "dir": [d.x, d.y, d.z],
+		"dims": [dims.x, dims.y, dims.z], "foot_m": footprint_m(), "fine_m": fine_size}))
+	# What the ground under the box IS, wherever it ended up: the site rule is read off this reading,
+	# never off the name the site was asked for by.
+	if _terrain != null and _terrain.has_method("footprint_ground"):
+		var g: Dictionary = _terrain.footprint_ground(d, footprint_m())
+		g["fine_m"] = fine_size
+		print("SITE_GROUND=%s" % JSON.stringify(g))
+	return true
+
+
+## The smallest span across the box: the footprint a surface site stands in.
+func footprint_m() -> float:
+	return float(mini(dims.x, mini(dims.y, dims.z))) * cell_size
+
+
+## A coast the terrain chooses. The box's long axis is its local vertical, so the cell count on the spec's
+## `surface` axis moves to the body axis the site turns out nearest.
+func _resolve_coast(r: float) -> bool:
+	if _terrain == null or not _terrain.has_method("coast_site_dir"):
+		return _fail("a coast site is read off the terrain, and none was supplied to this box")
+	var d: Vector3 = _terrain.coast_site_dir(footprint_m())
+	if d == Vector3.ZERO:
+		return _fail("this body's surface holds no shore inside a %g m footprint" % footprint_m())
+	var up_axis: int = 0
+	for i in 3:
+		up_axis = i if absf(d[i]) > absf(d[up_axis]) else up_axis
+	var n: int = dims[surface_axis]
+	dims[surface_axis] = dims[up_axis]
+	dims[up_axis] = n
+	offset = d.normalized() * r
 	surface_axis = -1
 	return true
 
@@ -85,6 +146,7 @@ func apply(field, body, terrain) -> bool:
 		return _fail("a slice needs a declared body: its centre and radius locate the box and the monopole gravity")
 	if terrain == null or not terrain.has_method("is_solid"):
 		return _fail("a slice seeds from the real terrain, and none was supplied")
+	_terrain = terrain
 	if not _resolve_offset(body):
 		return false
 	field._slice = self

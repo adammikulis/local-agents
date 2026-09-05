@@ -76,20 +76,6 @@ static func ground(field, c: int, limit: int) -> int:
 	return at
 
 
-## Solid cells between `c` and open air, marching up; -1 when the march leaves the box still in rock.
-static func burial_steps(field, c: int, limit: int) -> int:
-	var solid: PackedByteArray = field._solid
-	var at: int = c
-	for k in limit:
-		var hi: int = above(field, at)
-		if hi < 0:
-			return -1
-		if solid[hi] == 0:
-			return k
-		at = hi
-	return -1
-
-
 ## The body centre: the declared pivot when the box is a slice standing off it, else the box's own centre.
 static func centre(field) -> Vector3:
 	if field != null and field._pivot != null:

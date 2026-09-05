@@ -93,8 +93,8 @@ for f in "$KERNELS/reactions_sphere3d.glsl" "$KERNELS/flux.glsl"; do
   grep -q '#include "generated.glsli"' "$f" || {
     echo "MISSING INCLUDE ${f#"$ROOT"/} does not include generated.glsli" >&2; fail=1; }
 done
-for f in "$SHADERS/VoxelWater.gdshader" "$SHADERS/VoxelWaterSphere.gdshader" \
-         "$SHADERS/VoxelTerrainTriplanar.gdshader" "$SHADERS/WaterParticles.gdshader"; do
+for f in "$SHADERS/VoxelWater.gdshader" "$SHADERS/VoxelTerrainTriplanar.gdshader" \
+         "$SHADERS/WaterParticles.gdshader"; do
   [ -f "$f" ] || { echo "check_generated_constants: MISSING ${f#"$ROOT"/}" >&2; exit 2; }
   grep -q 'generated.gdshaderinc' "$f" || {
     echo "MISSING INCLUDE ${f#"$ROOT"/} does not include generated.gdshaderinc" >&2; fail=1; }

@@ -67,11 +67,6 @@ static func _ensure(tree: SceneTree) -> void:
 		publish(tree)
 
 
-static func reference_body(tree: SceneTree) -> Object:
-	_ensure(tree)
-	return _frame_of(_nodes)
-
-
 static func acceleration_at(tree: SceneTree, pos: Vector3, exclude: Object = null) -> Vector3:
 	_ensure(tree)
 	return LABallistics.acceleration_at(pos, _nodes.find(exclude) if exclude != null else -1)

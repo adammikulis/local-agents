@@ -274,14 +274,6 @@ func open_cells() -> int:
 
 # --- MINERAL: airborne opacity + the molten state. Totals live in LAMaterialFieldLedger3D. -------------
 
-## Volume fraction of the cell that is wind-borne mineral: the amount times its derived airborne share.
-func airborne_at(c: int) -> float:
-	if c < 0 or _f._silicate.size() != _f._cell_count \
-			or _f._silicate_susp_air.size() != _f._cell_count:
-		return 0.0
-	return maxf(_f._silicate[c], 0.0) * clampf(_f._silicate_susp_air[c], 0.0, 1.0)
-
-
 ## Volume fraction of the cell that is molten mineral.
 func melt_at(c: int) -> float:
 	if c < 0 or _f._silicate.size() != _f._cell_count \

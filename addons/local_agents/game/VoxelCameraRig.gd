@@ -275,10 +275,20 @@ func frame_slice(planet_centre: Vector3, planet_radius: float, box: AABB, site_d
 	_orbit_elevation = clampf(asin(clampf(radial.y, -1.0, 1.0)), -ORBIT_ELEVATION_LIMIT, ORBIT_ELEVATION_LIMIT)
 	_orbit_azimuth = atan2(radial.x, radial.z)
 	_sunnyside_pending = false
-	# The horizontal axes are the box edges with the radial projected out; the longest is the view axis.
+	# THE BOX'S LOCAL VERTICAL IS ITS EDGE MOST ALIGNED WITH THE RADIAL, whatever the site. Off the body
+	# axes that edge still leans into the horizontal, and taken as a candidate it makes the tall column
+	# the view axis and the standoff the column's height.
+	var up_axis: int = 0
+	for i in 3:
+		if absf(radial[i]) > absf(radial[up_axis]):
+			up_axis = i
+	# The horizontal axes are the remaining box edges with the radial projected out; the longest is the
+	# view axis.
 	var foot: float = 0.0
 	var along: Vector3 = Vector3.ZERO
 	for i in 3:
+		if i == up_axis:
+			continue
 		var axis: Vector3 = Vector3.ZERO
 		axis[i] = 1.0
 		var tangent: Vector3 = axis - radial * axis.dot(radial)
@@ -836,11 +846,7 @@ func _surface_radius_at(radial: Vector3) -> float:
 	if not _body_answers("surface_radius"):
 		return NAN
 	var r: float = _geosync_body.surface_radius(radial)
-	if is_nan(r) or r <= 0.0:
-		return NAN
-	if _geosync_body.has_method("sea_radius"):
-		r = maxf(r, _geosync_body.sea_radius())
-	return r
+	return NAN if is_nan(r) or r <= 0.0 else r
 
 
 func _body_answers(method: String) -> bool:

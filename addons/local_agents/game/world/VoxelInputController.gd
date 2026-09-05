@@ -388,10 +388,11 @@ func _apply_fly_view() -> void:
 		return
 	set_fly(true)
 	var center: Vector3 = _body.center()
-	# LAND, NOT THE +Y POLE. The sea shell sits at the mean radius, so most directions are open ocean and
-	# a fixed pole framed the demo over water.
-	var sunward: Vector3 = (_star.global_position - center).normalized() if _star != null else Vector3.ZERO
-	var toward: Vector3 = _terrain.land_direction(sunward) if _terrain.has_method("land_direction") else Vector3.UP
+	# THE COAST, NOT THE +Y POLE. The sea shell sits at the mean radius, so most directions are open ocean
+	# and a fixed pole framed the demo over water.
+	var toward: Vector3 = _terrain.coast_site_dir(0.0) if _terrain.has_method("coast_site_dir") else Vector3.UP
+	if toward == Vector3.ZERO:
+		toward = Vector3.UP
 	var sp: Vector3 = _terrain.surface_point(toward) if _terrain.has_method("surface_point") else (center + toward * 200.0)
 	if is_nan(sp.x):
 		return

@@ -89,10 +89,6 @@ func current_speed() -> float:
 	return 0.0 if _paused else float(SPEEDS[_idx])
 
 
-func speed_index() -> int:
-	return _idx
-
-
 func _apply() -> void:
 	get_tree().paused = _paused
 	var loop: LASimLoop = LASimLoop.active()

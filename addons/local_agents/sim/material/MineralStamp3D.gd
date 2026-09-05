@@ -49,7 +49,7 @@ func maybe_scan() -> void:
 # cache and emit a GROW/SHRINK SDF edit for each, up to STAMP_BUDGET. Gated to the active window + cadence.
 func _scan() -> void:
 	var terrain = _f._terrain
-	if terrain == null or not terrain.has_method("fill_rock") or not terrain.has_method("carve_sphere"):
+	if terrain == null or not terrain.has_method("fill_sphere") or not terrain.has_method("carve_sphere"):
 		return
 	var n: int = _f._cell_count
 	var sil: PackedFloat32Array = _f._silicate
@@ -61,7 +61,7 @@ func _scan() -> void:
 	var full_sil: float = LASubstances.full_mol_m3("silicate")
 	if full_sil <= 0.0:
 		return
-	var size: float = _f._cell_size * 0.7          # SDF edit extent ~ one cell (fill_rock scales by this)
+	var size: float = _f._cell_size * 0.7          # SDF edit extent ~ one cell
 	var budget: int = STAMP_BUDGET
 	var found: int = 0
 	# H₂O the solidity change has to account for (see _settle_h2o). Gathered here, queued once at the end.
@@ -78,7 +78,7 @@ func _scan() -> void:
 		if not was_solid and rf >= GROW_THRESHOLD:
 			var wp: Vector3 = _f.cell_world_pos_linear(c)
 			last_grow_before_solid = terrain.is_solid(wp)
-			terrain.fill_rock(wp, size, LAFieldGeometry.up(_f, c))
+			terrain.fill_sphere(wp, size)
 			last_grow_after_solid = terrain.is_solid(wp)
 			last_grow_pos = wp
 			solid[c] = 1

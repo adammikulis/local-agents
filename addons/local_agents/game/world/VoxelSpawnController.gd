@@ -15,13 +15,11 @@ const INITIAL_COUNTS: Dictionary = {
 # Vegetation kinds (density-scaled by the graphics foliage knob, like the base plant) — flowers + shrub + the
 # toxic plants all ride it too (they are ordinary config vegetation; only their `toxic` data value differs).
 const VEG_KINDS: Array = ["plant", "shrub", "flower_daisy", "flower_clover", "nightshade", "deathcap"]
-const ROCK_COUNT: int = 60
 const FOREST_CLUSTERS: int = 16
 
 const CAMPAIGN_INITIAL_COUNTS: Dictionary = {
 	"rabbit": 12,
 }
-const CAMPAIGN_ROCK_COUNT: int = 10
 const CAMPAIGN_FOREST_CLUSTERS: int = 0
 
 var _world: Node = null
@@ -91,14 +89,14 @@ func try_spawn(_overview: bool, _farview: bool, _auto_meteor: bool, _auto_select
 	if _is_campaign():
 		if not no_fauna:
 			_ecology.spawn_initial(CAMPAIGN_INITIAL_COUNTS)
-		_ecology.populate_environment(CAMPAIGN_ROCK_COUNT, 0 if no_flora else CAMPAIGN_FOREST_CLUSTERS)
+		_ecology.populate_environment(0 if no_flora else CAMPAIGN_FOREST_CLUSTERS)
 	else:
 		if not no_fauna:
 			_ecology.spawn_initial(_scaled_counts())
 		# Forest seed clusters scale by BOTH the actor budget and the graphics vegetation-density knob
 		# (la_vegetation_scale), so a low-foliage setting thins the groves and a high one densifies them.
 		var clusters: int = 0 if no_flora else maxi(1, int(round(float(FOREST_CLUSTERS) * _spawn_scale * _vegetation_scale())))
-		_ecology.populate_environment(ROCK_COUNT, clusters)
+		_ecology.populate_environment(clusters)
 		if not no_fauna and _ecology.has_method("stock_initial_aquatic"):
 			_ecology.stock_initial_aquatic()
 	# NOTHING RE-FRAMES THE VIEW HERE: the render layer framed the camera off the body or off the slice
