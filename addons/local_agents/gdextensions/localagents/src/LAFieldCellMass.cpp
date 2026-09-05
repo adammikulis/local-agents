@@ -2,6 +2,7 @@
 #include "LAGridGeometry.hpp"
 #include "LAFieldCellMass.hpp"
 
+#include "LAFieldMirrors.hpp"
 #include "LAScriptCall.hpp"
 #include "LASubstances.hpp"
 #include "LAMixtureEnthalpy.hpp"
@@ -41,11 +42,7 @@ Array walk(Object *p_field, const String &p_key, const String &p_value, bool p_n
 		if (String(row.get(p_key, "")) != p_value) {
 			continue;
 		}
-		const Variant v = p_field->get("_" + name);
-		if (v.get_type() != Variant::PACKED_FLOAT32_ARRAY) {
-			continue;
-		}
-		const PackedFloat32Array arr = v;
+		const PackedFloat32Array arr = LAFieldMirrors::of(p_field, name);
 		if (arr.size() != cc) {
 			continue;
 		}
@@ -102,12 +99,12 @@ void LAFieldCellMass3D::upload_regolith(RenderingDevice *p_rd, const Dictionary 
 	}
 	PackedByteArray b = f.to_byte_array();
 	p_rd->buffer_update(RID(p_bufs["regolith"]), 0, b.size(), b);
-	const PackedFloat32Array g = p_field->get("_grain");
+	const PackedFloat32Array g = LAFieldMirrors::of(p_field, "grain");
 	if (g.size() == cc && p_bufs.has("grain")) {
 		const PackedByteArray gb = g.to_byte_array();
 		p_rd->buffer_update(RID(p_bufs["grain"]), 0, gb.size(), gb);
 	}
-	const PackedFloat32Array por = p_field->get("_porosity");
+	const PackedFloat32Array por = LAFieldMirrors::of(p_field, "porosity");
 	if (any && por.size() == cc && p_bufs.has("porosity")) {
 		const PackedByteArray pb = por.to_byte_array();
 		p_rd->buffer_update(RID(p_bufs["porosity"]), 0, pb.size(), pb);
@@ -200,13 +197,17 @@ void LAFieldCellMass3D::regolith(Object *p_field) {
 				+ ", shallowest rock top " + String::num(z_min) + " m.");
 	}
 	p_field->set("_regolith", mask);
-	p_field->set("_grain", grain);
-	p_field->set("_porosity", por);
+	LAFieldMirrors::store(p_field, "grain", grain);
+	LAFieldMirrors::store(p_field, "porosity", por);
 }
 
 Dictionary LAFieldCellMass3D::masses_at(Object *p_field, int p_c, double p_cell_m3) {
 	Dictionary out;
 	if (!p_field || p_c < 0) {
+		return out;
+	}
+	LAFieldMirrors *m = LAFieldMirrors::mirrors_of(p_field);
+	if (m == nullptr) {
 		return out;
 	}
 	const Dictionary rows = la_call_gd(CHANNELS_GD, "rows", Array());
@@ -220,16 +221,12 @@ Dictionary LAFieldCellMass3D::masses_at(Object *p_field, int p_c, double p_cell_
 		if (sub.is_empty() || String(row.get("unit", "")) != "mol_m3") {
 			continue;
 		}
-		const Variant v = p_field->get("_" + name);
-		if (v.get_type() != Variant::PACKED_FLOAT32_ARRAY) {
-			continue;
-		}
-		const PackedFloat32Array arr = v;
-		if (p_c >= arr.size() || !(arr[p_c] > 0.0f)) {
+		const double a = m->at(name, p_c);
+		if (!(a > 0.0)) {
 			continue;
 		}
 		const Dictionary srow = table.get(sub, Dictionary());
-		const double kg = double(arr[p_c]) * double(srow.get("molar_mass", 0.0)) * p_cell_m3;
+		const double kg = a * double(srow.get("molar_mass", 0.0)) * p_cell_m3;
 		out[sub] = double(out.get(sub, 0.0)) + kg;
 		total_kg += kg;
 	}
@@ -244,6 +241,10 @@ double LAFieldCellMass3D::gas_moles_at(Object *p_field, int p_c, double p_cell_m
 	if (!p_field || p_c < 0) {
 		return 0.0;
 	}
+	LAFieldMirrors *m = LAFieldMirrors::mirrors_of(p_field);
+	if (m == nullptr) {
+		return 0.0;
+	}
 	const Dictionary rows = la_call_gd(CHANNELS_GD, "rows", Array());
 	const Array names = rows.keys();
 	double n = 0.0;
@@ -253,13 +254,9 @@ double LAFieldCellMass3D::gas_moles_at(Object *p_field, int p_c, double p_cell_m
 		if (String(row.get("phase", "")) != "gas" || String(row.get("substance", "")).is_empty()) {
 			continue;
 		}
-		const Variant v = p_field->get("_" + name);
-		if (v.get_type() != Variant::PACKED_FLOAT32_ARRAY) {
-			continue;
-		}
-		const PackedFloat32Array arr = v;
-		if (p_c < arr.size() && arr[p_c] > 0.0f) {
-			n += double(arr[p_c]) * p_cell_m3;
+		const double a = m->at(name, p_c);
+		if (a > 0.0) {
+			n += a * p_cell_m3;
 		}
 	}
 	return n;
@@ -325,12 +322,8 @@ Dictionary LAFieldCellMass3D::seed_enthalpy(Object *p_field, Object *p_grid,
 		if (sub.is_empty() || String(row.get("unit", "")) != "mol_m3") {
 			continue;
 		}
-		const Variant v = p_field->get("_" + name);
-		if (v.get_type() != Variant::PACKED_FLOAT32_ARRAY) {
-			continue;
-		}
 		Chan ch;
-		ch.arr = v;
+		ch.arr = LAFieldMirrors::of(p_field, name);
 		if (ch.arr.size() != cc) {
 			continue;
 		}
@@ -449,10 +442,6 @@ PackedStringArray LAFieldCellMass3D::mirror_names(Object *p_field) {
 	return out;
 }
 
-Array LAFieldCellMass3D::gas_mirrors(Object *p_field) {
-	return walk(p_field, "phase", "gas", false, nullptr);
-}
-
 double LAFieldCellMass3D::kg_m3_at(const Array &p_mirrors, int p_c) {
 	double m = 0.0;
 	for (int i = 0; i < p_mirrors.size(); i++) {
@@ -483,8 +472,6 @@ void LAFieldCellMass3D::_bind_methods() {
 			&LAFieldCellMass3D::mirrors);
 	ClassDB::bind_static_method("LAFieldCellMass3D", D_METHOD("mirror_names", "field"),
 			&LAFieldCellMass3D::mirror_names);
-	ClassDB::bind_static_method("LAFieldCellMass3D", D_METHOD("gas_mirrors", "field"),
-			&LAFieldCellMass3D::gas_mirrors);
 	ClassDB::bind_static_method("LAFieldCellMass3D", D_METHOD("kg_m3_at", "mirrors", "c"),
 			&LAFieldCellMass3D::kg_m3_at);
 }
