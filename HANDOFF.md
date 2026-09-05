@@ -80,12 +80,7 @@ in one step on correctly configured cells.
 unevenly past the bound, and the lit plate settles below the grey Eddington skin temperature by the
 ratio of its band absorptivity to its emissivity.
 
-## 10. TWO REDUCE ROWS ARE NAMED BY A RUNG AND DECLARED BY NOBODY
-
-`rg -n -e wind_x_sum -e wind_z_sum` finds both in `LAProcessSet.cpp`'s `ACOUSTIC_REDUCE` and in no
-`reduce/*.gd` row. Removing them rebuilds the extension.
-
-## 11. NOT EXAMINED UNTIL THE RUNG-2 DEMO IS APPROVED — rung 3
+## 10. NOT EXAMINED UNTIL THE RUNG-2 DEMO IS APPROVED — rung 3
 
 - `scripts/sim_run.sh --rung 3 --frames 8` on the planet ends with `timeout waiting for fence`.
 - `LA_REST_CELL_M=68000 LA_REST_CELLS=8 scripts/check_atmosphere_at_rest.sh` reads a rest departure
@@ -100,7 +95,7 @@ ratio of its band absorptivity to its emissivity.
   from the advective CFL, and `SIM_SECONDS_PER_STEP` is deleted. Declared in `docs/APPROXIMATIONS.md`
   when built.
 
-## 12. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the books above it
+## 11. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the books above it
 
 - The open-boundary books at run level: `scripts/sim_run.sh --frames 20 --slice-capture C` then
   `LA_RUN_TIMEOUT=900 scripts/sim_run.sh --slice --slice-state C --frames 650` fires
@@ -111,12 +106,7 @@ ratio of its band absorptivity to its emissivity.
   addons/local_agents/game/VoxelWorld.tscn -- --sandbox --ui --run-frames=20` prints no report and
   logs no error; the same arm with `--planet-only --no-fauna` reports.
 
-## 13. Reduce the rest on the device
-
-`FieldPassAttribution3D._sums` walks the channels it downloads at a checkpoint, and
-`MaterialFieldMineralProfile3D` walks the grid by elevation band; a reduce dispatch replaces each.
-
-## 14. THE PHYSICS RUNS INSIDE GODOT'S PROCESS
+## 12. THE PHYSICS RUNS INSIDE GODOT'S PROCESS
 
 Maintainer's decision, standing: the sim is a standalone native process with its own compute device,
 clock and CLI; gates run it with no Godot launch; Godot attaches as a viewer. Today every pass is a
@@ -124,13 +114,13 @@ GDScript record on a Godot RenderingDevice (`LAFieldDriver`, `MaterialSphereGPU3
 `scripts/run_sim_offscreen.sh` launches Godot for every gate. The migration is phased so each
 phase keeps lint green.
 
-## 15. THE LEDGER RECONSTRUCTS ELEMENTS FROM CHANNEL AMOUNTS
+## 13. THE LEDGER RECONSTRUCTS ELEMENTS FROM CHANNEL AMOUNTS
 
 Maintainer's decision, standing: per-cell moles of elements are the state and species are derived
 (`docs/PHYSICS_TODO.md` B). Today the state is channel amounts (`Channels.gd`) and the ledger
 reconstructs element totals (`mol_per_unit`).
 
-## 16. THE GPU ARM OF LINT RUNS ON THIS MACHINE ONLY
+## 14. THE GPU ARM OF LINT RUNS ON THIS MACHINE ONLY
 
 `.github/workflows/gpu-lint.yml` targets a self-hosted macOS runner labelled `gpu`; none is registered
 (maintainer's hardware).

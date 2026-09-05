@@ -71,8 +71,7 @@ const char *const ACOUSTIC_TRANSPORT[] = { "h2o_liquid_advect", "h2o_vapour_eddy
 // FluxPass's grain prologue is what splits silicate into bed, suspended and melt, so the rows that read
 // those fractions are this rung's: below it nothing has written them.
 const char *const ACOUSTIC_REDUCE[] = { "open_mom_*", "momentum_*", "mach_max", "rho_max_open",
-	"wind_speed_max", "wind_x_sum", "wind_z_sum",
-	"mineral_band_*", "mineral_loose_*", nullptr };
+	"wind_speed_max", "mineral_band_*", "mineral_loose_*", nullptr };
 
 const char *const CONDUCTION_GATES[] = { "check_rung_conduction.sh", "check_bench_heat_slab.sh",
 	nullptr };
