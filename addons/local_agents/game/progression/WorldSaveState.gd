@@ -3,14 +3,12 @@ extends RefCounted
 
 
 const DNAScript: GDScript = preload("res://addons/local_agents/creatures/cognition/DNA.gd")
-const FieldSnapshotScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSnapshot3D.gd")
 
 
-## Gather the whole world into a save dict. `field` may be a not-yet-ready field (its block comes back empty
-## and restore simply keeps the booted field). Cheap-ish: a few group scans + one GPU field readback.
+## Gather the world's actors, kinship, progression and clock. The field is not an actor: the controller
+## attaches its block, which is a native snapshot.
 static func capture(world, progression_node: LAGameProgression = null) -> Dictionary:
 	var ecology = world._ecology
-	var field = world._material
 	var tree: SceneTree = world.get_tree()
 
 	var creatures: Array = []
@@ -38,7 +36,6 @@ static func capture(world, progression_node: LAGameProgression = null) -> Dictio
 
 	var clock: LASimClock = LASimClock.active()
 	return {
-		"field": FieldSnapshotScript.capture(field),
 		"creatures": creatures,
 		"fish": fish,
 		"vegetation": vegetation,

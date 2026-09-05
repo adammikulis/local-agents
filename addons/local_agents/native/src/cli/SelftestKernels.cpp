@@ -16,8 +16,6 @@ constexpr float kSentinel = -12345.0f;
 
 // stack_selftest: floats per case, and the residual it writes back into the first of them.
 constexpr uint32_t kStackCase = 8;
-// A float32 sum of six face integrals carries this much of the cell's own weight and no more.
-constexpr float kStackBar = 1.0e-5f;
 constexpr float kPMeanPa = 101325.0f;
 constexpr float kGMS2 = 9.80665f;
 constexpr float kAirKgM3 = 1.225f;
@@ -108,7 +106,7 @@ int stack_arm(la::Device &dev) {
 		std::printf("STACK_BALANCE={\"a\":%.1f,\"m_cond\":%.0f,\"dir\":[%.3f,%.3f,%.3f],"
 					"\"residual\":%.3e}\n",
 				cases[i].a, cases[i].m_cond, cases[i].dir[0], cases[i].dir[1], cases[i].dir[2], res);
-		if (!std::isfinite(res) || res == kSentinel || res > kStackBar) {
+		if (!std::isfinite(res) || res == kSentinel || res > kStackResidualBar) {
 			fail("a cube at rest does not get its own weight back from its own faces");
 			code = 1;
 		}

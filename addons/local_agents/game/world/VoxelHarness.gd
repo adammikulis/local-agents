@@ -11,16 +11,22 @@ static func _count_meshes(n: Node) -> int:
 	return c
 
 
+## What the seeded streams have drawn, per domain and per caller. The streams exist whatever life the
+## world holds, so this is not the population's line.
+static func emit_rng_trace(frame: int) -> void:
+	if not LASimRng.trace_enabled:
+		return
+	var rep: Dictionary = LASimRng.shared().trace_report()
+	print("RNG_TRACE={\"frame\":%d,\"draws\":%d,\"domains\":%s,\"tags\":%s}" % [
+		frame, int(rep["draws"]), JSON.stringify(LASimRng.domain_trace()), JSON.stringify(rep["tags"])])
+
+
 # Compact population + mortality trajectory sample, printed periodically through a long run-frames run so the
 # population arc (and WHY it moves — which death causes dominate) is visible over time, not just at the end.
 # One line the balance harness scrapes: POP_TRACE={frame, per-species counts, plants/trees, temp, deaths-so-far}.
 static func emit_population_trace(w, frame: int) -> void:
 	if LAAblate.fauna_off():
 		return
-	if LASimRng.trace_enabled:
-		var rep: Dictionary = LASimRng.shared().trace_report()
-		print("RNG_TRACE={\"frame\":%d,\"draws\":%d,\"domains\":%s,\"tags\":%s}" % [
-			frame, int(rep["draws"]), JSON.stringify(LASimRng.domain_trace()), JSON.stringify(rep["tags"])])
 	var tree: SceneTree = w.get_tree()
 	var counts: Dictionary = {}
 	for sp in ["rabbit", "fox", "bird", "villager", "vulture", "fish"]:
@@ -90,7 +96,7 @@ static func emit_population_trace(w, frame: int) -> void:
 				var rp: Vector3 = (rb as Node3D).global_position
 				var upv: Vector3 = rb.terrain.up_at(rp) if (rb.terrain != null and rb.terrain.has_method("up_at")) else Vector3.UP
 				var feet: Vector3 = rp + upv * maxf(float(rb.size), 0.8)
-				rab_b += float(mat.biomass_at(feet))
+				rab_b += float(mat.biomass_at(feet.x, feet.y, feet.z))
 				rab_n += 1
 	if rab_n > 0:
 		rab_e /= float(rab_n)

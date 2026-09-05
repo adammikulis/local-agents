@@ -1,6 +1,6 @@
 # Demos
 
-The demo ladder is 13 scenes ordered simplest first. To open them, double-click
+The demo ladder is 14 scenes ordered simplest first. To open them, double-click
 `addons/local_agents/examples/DemoLauncher.tscn` in the FileSystem dock, then click Run Current
 Scene in the top-right toolbar. The launcher builds its rows from the catalogue this page comes
 from: one `LocalAgentDemoEntry` resource per demo in `addons/local_agents/examples/demos/`. Drop a
@@ -28,7 +28,7 @@ text. Change the `.tres` for content, or the generator for wording.
 
 `scripts/run_demo.sh <name>` runs an example scene with no window in about a second and prints a
 `RUN_DEMO={...}` line carrying the exit code. It only accepts a scene that builds a
-`LocalAgentDemoHarness`, and 5 of the 13 entries have one. An example scene without that harness
+`LocalAgentDemoHarness`, and 5 of the 14 entries have one. An example scene without that harness
 ignores `--run-frames` and never exits, so it gets `--quit-after` instead. Each demo below carries
 the command that applies to it.
 
@@ -155,3 +155,11 @@ One box of the planet, laid on the real terrain and stepped by the bottom rung a
 - Scene: `res://addons/local_agents/examples/SliceRung0Demo.tscn`
 - Requires: the godot_voxel GDExtension (addons/zylann.voxel/)
 - Run headless: `godot --headless --path . addons/local_agents/examples/SliceRung0Demo.tscn --quit-after 120`, since it builds no harness.
+
+## 14. Life on the planet, backdrop faked
+
+The same coastal box the rung-0 demo lays down, run at the highest rung the ladder has passed, with plants, trees, herds, birds, insects and fish living in it. Everything the ladder has not yet reached is a declared stand-in, listed in docs/FAKES.md and printed by the run: drinking water, breathable oxygen and the carbon a plant grows on. Nothing here moves water, weather or fire; those arrive as their rungs land, and each landing deletes its fake.
+
+- Scene: `res://addons/local_agents/examples/LifeDemo.tscn`
+- Requires: the godot_voxel GDExtension (addons/zylann.voxel/)
+- Run headless: `godot --headless --path . addons/local_agents/examples/LifeDemo.tscn --quit-after 120`, since it builds no harness.

@@ -129,7 +129,7 @@ func _load_seeded(k: String) -> bool:
 	if k == "" or _f._gpu == null or not SnapshotScript.is_ready(_f):
 		return false
 	var data: Dictionary = LAFieldStateCache.load_state(k, _f._cell_count)
-	if data.is_empty() or not SnapshotScript.restore(_f, data):
+	if data.is_empty() or not SnapshotScript.from_bytes(_f, data.get("snapshot", PackedByteArray())):
 		return false
 	# The soil injector is the one CPU reader left of a seeded mirror; porosity and grain are read only
 	# by the uploads this path skips, and they come back with the channels.
@@ -147,8 +147,8 @@ func _load_seeded(k: String) -> bool:
 func _store_seeded(k: String) -> void:
 	if k == "" or not SnapshotScript.is_ready(_f):
 		return
-	var data: Dictionary = SnapshotScript.capture(_f)
-	if data.is_empty():
+	var data: Dictionary = {"cell_count": _f._cell_count, "snapshot": SnapshotScript.to_bytes(_f)}
+	if (data["snapshot"] as PackedByteArray).is_empty():
 		return
 	data["regolith"] = _f._regolith
 	data["created"] = _f._seal.report().get("world_created", {}) if _f._seal != null else {}

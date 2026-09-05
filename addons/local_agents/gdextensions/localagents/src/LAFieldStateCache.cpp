@@ -89,8 +89,8 @@ Dictionary LAFieldStateCache::load_state(const String &p_key, int p_cell_count) 
 	if (int(data.get("cell_count", -1)) != p_cell_count) {
 		return empty;
 	}
-	const Dictionary channels = data.get("channels", Dictionary());
-	return channels.is_empty() ? empty : data;
+	const PackedByteArray snapshot = data.get("snapshot", PackedByteArray());
+	return snapshot.is_empty() ? empty : data;
 }
 
 Dictionary LAFieldStateCache::load_blob(const String &p_key) {
