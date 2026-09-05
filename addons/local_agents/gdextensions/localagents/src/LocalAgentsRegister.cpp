@@ -15,6 +15,7 @@
 #include "LAGridGeometry.hpp"
 #include "LAGravitySolve.hpp"
 #include "LAFieldDriver.hpp"
+#include "LAFieldLedger.hpp"
 #include "LAFieldMirrors.hpp"
 #include "LAFieldSnapshot.hpp"
 #include "LAFieldStateCache.hpp"
@@ -79,6 +80,7 @@ void initialize_local_agents(ModuleInitializationLevel p_level) {
     ClassDB::register_class<LAGravitySolve>();
     ClassDB::register_class<LABallistics>();
     ClassDB::register_class<LAFieldDriver>();
+    ClassDB::register_class<LAFieldLedger>();
     ClassDB::register_class<LAFieldMirrors>();
     ClassDB::register_class<LAFieldSnapshot>();
     ClassDB::register_class<LAFieldStateCache>();

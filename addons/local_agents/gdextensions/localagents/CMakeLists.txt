@@ -43,6 +43,7 @@ set(SRC
     src/LAGridGeometry.cpp
     src/LAGravitySolve.cpp
     src/LAFieldDriver.cpp
+    src/LAFieldLedger.cpp
     src/LAFieldMirrors.cpp
     src/LAFieldSnapshot.cpp
     src/LAFieldStateCache.cpp
