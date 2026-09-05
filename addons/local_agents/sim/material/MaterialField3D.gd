@@ -499,10 +499,9 @@ func wind3_at(x: float, y: float, z: float) -> Vector3:
 func add_heat_energy(world_pos: Vector3, joules: float, radius: float = 0.0) -> float:
 	return _inject.add_heat_energy(world_pos, joules, radius) if _inject != null else 0.0
 
-## Launch ejected matter (mass + heat) from a world point.
-func eject(world_pos: Vector3, mass: float, energy: float, dir_bias: Vector3 = Vector3.ZERO) -> void:
-	if _ejecta != null:
-		_ejecta.eject(world_pos, mass, energy, dir_bias)
+## Throw mineral out of a world point at a launch speed; returns the kinetic energy actually launched, J.
+func eject(world_pos: Vector3, mass_kg: float, speed_m_s: float) -> float:
+	return _ejecta.eject(world_pos, mass_kg, speed_m_s) if _ejecta != null else 0.0
 
 ## Cells holding melt that has reached open ground.
 func lava_cell_count() -> int:
