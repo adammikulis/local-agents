@@ -1,5 +1,7 @@
 #include "LAGridGeometry.hpp"
 
+#include "LAFieldLithostaticSeed.hpp"
+
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 #include "LAPhysicalRead.hpp"
@@ -567,8 +569,12 @@ double LAGridGeometry::target_edge_m(double p_mass_kg, double p_radius_m, double
 		return 0.0;
 	}
 	const double g = la_physical("GRAVITATIONAL_CONSTANT") * p_mass_kg / (p_radius_m * p_radius_m);
-	const double h = la_physical("DRY_AIR_GAS_CONSTANT_J_KGK") * (p_t_c + la_physical("KELVIN_OFFSET")) / g;
-	return h / p_cells_per_h;
+	// The SEEDED air's own R T / M, not dry Earth air's: this body's atmosphere is not this planet's.
+	const double rt_m = LAFieldLithostaticSeed::seeded_air_rt_over_m(p_t_c);
+	if (!std::isfinite(rt_m) || !(g > 0.0)) {
+		return 0.0;
+	}
+	return (rt_m / g) / p_cells_per_h;
 }
 
 Dictionary LAGridGeometry::parse_slice_spec(const String &p_spec) {
