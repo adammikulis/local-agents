@@ -122,10 +122,7 @@ static func channel_live(field, name: String, legs: Dictionary, cc: int) -> bool
 ## Channels whose CPU mirror is not a measurement: one the readback never refreshes holds whatever the
 ## seed left in it, so only the probe can say it is live.
 static func gated(field, name: String) -> bool:
-	if not LAMaterialFieldSphereStep3D.MIRRORS.has(name):
-		return true
-	var gpu = field._gpu if field != null else null
-	if gpu == null:
+	if field == null or field._mirrors == null or not field._mirrors.has(name):
 		return true
 	return LAChannels.situational_channels().has(name)
 
