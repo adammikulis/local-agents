@@ -52,8 +52,8 @@ func _scan() -> void:
 	if terrain == null or not terrain.has_method("fill_rock") or not terrain.has_method("carve_sphere"):
 		return
 	var n: int = _f._cell_count
-	var sil: PackedFloat32Array = _f._silicate
-	var cem: PackedFloat32Array = _f._cement
+	var sil: PackedFloat32Array = _f._mirrors.array("silicate")
+	var cem: PackedFloat32Array = _f._mirrors.array("cement")
 	var solid: PackedByteArray = _f._solid
 	if sil.size() != n or cem.size() != n or solid.size() != n:
 		return
@@ -154,11 +154,12 @@ func _open_neighbour(c: int, solid: PackedByteArray) -> int:
 ## fires a GROW stamp. The gain is a sourceless add, booked as created. Not used in normal play.
 func debug_deposit(world_pos: Vector3, amount: float) -> void:
 	var c: int = _f.world_to_cell(world_pos)
-	if c < 0 or c >= _f._cell_count or _f._silicate.size() != _f._cell_count:
+	if c < 0 or c >= _f._cell_count or not _f._mirrors.has("silicate"):
 		return
 	var want: float = clampf(amount, 0.0, 1.0) * LASubstances.full_mol_m3("silicate")
-	var gain: float = want - _f._silicate[c]
-	_f._silicate[c] = maxf(_f._silicate[c], want)
+	var have: float = _f._mirrors.at("silicate", c)
+	var gain: float = want - have
+	_f._mirrors.set_at("silicate", c, maxf(have, want))
 	if gain > 0.0 and _f._inject != null:
 		_f._inject.queue.add("silicate", PackedInt32Array([c]), PackedFloat32Array([gain]), want)
 		_f._inject.queue.add("cement", PackedInt32Array([c]), PackedFloat32Array([1.0]), 1.0)

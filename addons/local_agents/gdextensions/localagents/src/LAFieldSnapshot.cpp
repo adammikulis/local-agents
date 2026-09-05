@@ -1,5 +1,7 @@
 #include "LAFieldSnapshot.hpp"
 
+#include "LAFieldMirrors.hpp"
+
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
@@ -51,18 +53,6 @@ bool take_string(const PackedByteArray &p_in, int &p_at, String &p_s) {
 	p_s = p_in.slice(p_at, p_at + int(len)).get_string_from_utf8();
 	p_at += int(len);
 	return true;
-}
-
-// The field's CPU copy of a channel: `_` and the channel's own name, the two energy channels under the
-// shorter names the field holds them by.
-String mirror_of(const String &p_name) {
-	if (p_name == "e_j_m3") {
-		return "_e";
-	}
-	if (p_name == "e_lith_j_m3") {
-		return "_e_lith";
-	}
-	return "_" + p_name;
 }
 
 } // namespace
@@ -176,21 +166,20 @@ int LAFieldSnapshot::apply_mirrors(int p_handle, Object *p_field) {
 	if (s == nullptr || p_field == nullptr) {
 		return 0;
 	}
+	LAFieldMirrors *m = LAFieldMirrors::mirrors_of(p_field);
+	if (m == nullptr || m->cells() != s->cc) {
+		return 0;
+	}
 	const int stride = s->cc * 4;
 	int applied = 0;
 	for (int i = 0; i < s->names.size(); i++) {
-		const StringName key = StringName(mirror_of(s->names[i]));
-		const Variant held = p_field->get(key);
-		if (held.get_type() != Variant::PACKED_FLOAT32_ARRAY) {
-			continue;
-		}
-		if (PackedFloat32Array(held).size() != s->cc) {
+		if (!m->has(s->names[i])) {
 			continue;
 		}
 		PackedFloat32Array out;
 		out.resize(s->cc);
 		memcpy((uint8_t *)out.ptrw(), s->data.ptr() + int64_t(stride) * int64_t(i), size_t(stride));
-		p_field->set(key, out);
+		m->set_array(s->names[i], out);
 		applied++;
 	}
 	return applied;

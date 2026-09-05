@@ -115,8 +115,8 @@ static func channel_live(field, name: String, legs: Dictionary, cc: int) -> bool
 		return true
 	if gated(field, name):
 		return false
-	var mirror = field.get("_" + name) if field != null else null
-	return mirror is PackedFloat32Array and mirror.size() >= cc
+	return field != null and field._mirrors != null and field._mirrors.cells() >= cc \
+		and field._mirrors.has(name)
 
 
 ## Channels whose CPU mirror is not a measurement.
