@@ -1,4 +1,5 @@
 #include "Selftest.hpp"
+#include "field/FieldRun.hpp"
 #include "la/Device.hpp"
 
 #include <chrono>
@@ -14,7 +15,9 @@ namespace {
 const char *kUsage =
 		"Usage: lasim [--backend metal|vulkan] [--device N] [--kernels FILE]\n"
 		"             [--selftest-device | --selftest-kernels]\n"
-		"             [--property-tests [--seed N] [--only NAME]]\n";
+		"             [--property-tests [--seed N] [--only NAME]]\n"
+		"             [--load SNAPSHOT --plan PLAN --passes derive,reduce [--steps N]\n"
+		"              [--mirrors FILE] [--report]]\n";
 
 // The blob sits beside the binary, which is where the build writes it.
 std::string blob_beside(const char *argv0) {
@@ -32,6 +35,7 @@ int main(int argc, char **argv) {
 	bool want_device = false;
 	bool want_kernels = false;
 	bool want_properties = false;
+	lasim::RunArgs run;
 	// The seed is printed with every failure, so a case replays; a run with none picks its own.
 	uint64_t seed = 0;
 	bool have_seed = false;
@@ -64,6 +68,18 @@ int main(int argc, char **argv) {
 			have_seed = true;
 		} else if (a == "--only" && i + 1 < argc) {
 			only = argv[++i];
+		} else if (a == "--load" && i + 1 < argc) {
+			run.snapshot = argv[++i];
+		} else if (a == "--plan" && i + 1 < argc) {
+			run.plan = argv[++i];
+		} else if (a == "--passes" && i + 1 < argc) {
+			run.passes = argv[++i];
+		} else if (a == "--mirrors" && i + 1 < argc) {
+			run.mirrors = argv[++i];
+		} else if (a == "--steps" && i + 1 < argc) {
+			run.steps = uint32_t(std::strtoul(argv[++i], nullptr, 10));
+		} else if (a == "--report") {
+			run.report = true;
 		} else if (a == "-h" || a == "--help") {
 			std::fputs(kUsage, stdout);
 			return 0;
@@ -72,11 +88,17 @@ int main(int argc, char **argv) {
 			return 2;
 		}
 	}
-	if (!want_device && !want_kernels && !want_properties) {
+	const bool want_field = !run.snapshot.empty() || !run.plan.empty() || !run.passes.empty();
+	if (!want_device && !want_kernels && !want_properties && !want_field) {
 		std::fputs(kUsage, stderr);
 		return 2;
 	}
+	if (want_field && (run.snapshot.empty() || run.plan.empty() || run.passes.empty())) {
+		std::fputs("lasim: a field run needs --load, --plan and --passes together.\n", stderr);
+		return 2;
+	}
 	if (blob.empty()) { blob = blob_beside(argv[0]); }
+	run.blob = blob;
 	if (!have_seed) {
 		seed = static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
 	}
@@ -93,6 +115,14 @@ int main(int argc, char **argv) {
 	if (want_device) { code = lasim::selftest_device(*dev, blob); }
 	if (code == 0 && want_kernels) { code = lasim::selftest_kernels(*dev, blob); }
 	if (code == 0 && want_properties) { code = lasim::property_tests(*dev, blob, seed, only); }
+	if (code == 0 && want_field) {
+		if (!dev->load_kernels(blob, err)) {
+			std::fprintf(stderr, "lasim: %s\n", err.c_str());
+			code = 2;
+		} else {
+			code = lasim::field_run(*dev, run);
+		}
+	}
 	std::printf("LA_RUN_COMPLETE={\"code\":%d}\n", code);
 	return code;
 }

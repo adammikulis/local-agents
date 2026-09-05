@@ -1,8 +1,8 @@
 extends SceneTree
 
 ## The bake store, from outside a run. `--clear` empties it so an arm is a guaranteed miss; `--corrupt`
-## scales one channel of the single file left there, which is the positive control every identity gate
-## needs: a comparison that cannot see a changed channel is not a comparison.
+## scales one channel of the seeded entry's LAFieldSnapshot, which is the positive control every identity
+## gate needs: a comparison that cannot see a changed channel is not a comparison.
 
 const STATE_DIR: String = "user://la_field_cache"
 
@@ -24,42 +24,63 @@ func _init() -> void:
 		printerr("seal_cache_probe: expected --clear or --corrupt <channel>.")
 		quit(2)
 		return
-	if files.size() != 1:
-		printerr("seal_cache_probe: %d bake file(s) in %s; the gate clears it first so exactly one stands."
-			% [files.size(), dir_path])
+	# The store also holds the grid's own blob, so the seeded field is the entry carrying a snapshot.
+	var path: String = ""
+	var data: Dictionary = {}
+	for name in files:
+		var candidate: String = "%s/%s" % [dir_path, name]
+		var g: FileAccess = FileAccess.open(candidate, FileAccess.READ)
+		if g == null:
+			continue
+		var held: Variant = g.get_var()
+		if held is Dictionary and (held as Dictionary).has("snapshot"):
+			if path != "":
+				printerr("seal_cache_probe: two seeded bakes in %s; the gate clears it first so one stands."
+					% dir_path)
+				quit(2)
+				return
+			path = candidate
+			data = held
+	if path == "":
+		printerr("seal_cache_probe: no seeded bake in %s (%d file(s))." % [dir_path, files.size()])
 		quit(2)
 		return
-	var path: String = "%s/%s" % [dir_path, files[0]]
-	var f: FileAccess = FileAccess.open(path, FileAccess.READ)
-	if f == null:
-		printerr("seal_cache_probe: cannot read %s" % path)
+	var snapshot: PackedByteArray = data.get("snapshot", PackedByteArray())
+	var at: int = _channel_at(snapshot, channel)
+	if at < 0:
+		printerr("seal_cache_probe: the bake's snapshot carries no '%s' channel." % channel)
 		quit(2)
 		return
-	var raw: Variant = f.get_var()
-	f = null
-	if not (raw is Dictionary):
-		printerr("seal_cache_probe: %s holds no dictionary." % path)
-		quit(2)
-		return
-	var data: Dictionary = raw
-	var channels: Dictionary = data.get("channels", {})
-	if not channels.has(channel):
-		printerr("seal_cache_probe: the bake carries no '%s' channel." % channel)
-		quit(2)
-		return
-	var arr: PackedFloat32Array = channels[channel]
-	for i in arr.size():
-		arr[i] = arr[i] * 1.5 + 1.0
-	channels[channel] = arr
-	data["channels"] = channels
+	var cells: int = snapshot.decode_u32(8)
+	for c in cells:
+		var off: int = at + c * 4
+		snapshot.encode_float(off, snapshot.decode_float(off) * 1.5 + 1.0)
+	data["snapshot"] = snapshot
 	var w: FileAccess = FileAccess.open(path, FileAccess.WRITE)
 	if w == null:
 		printerr("seal_cache_probe: cannot write %s" % path)
 		quit(2)
 		return
 	w.store_var(data)
-	print("SEAL_PROBE={\"corrupted\":\"%s\",\"cells\":%d}" % [channel, arr.size()])
+	print("SEAL_PROBE={\"corrupted\":\"%s\",\"cells\":%d}" % [channel, cells])
 	quit(0)
+
+
+## Byte offset of a channel's cells inside LAFieldSnapshot's save layout, or -1 where it carries none.
+func _channel_at(snapshot: PackedByteArray, channel: String) -> int:
+	if snapshot.size() < 16 or snapshot.decode_u32(0) != 0x5346414C or snapshot.decode_u32(4) != 1:
+		return -1
+	var cells: int = snapshot.decode_u32(8)
+	var count: int = snapshot.decode_u32(12)
+	var at: int = 16
+	at += 4 + snapshot.decode_u32(at)          # the world key
+	var names: PackedStringArray = PackedStringArray()
+	for i in count:
+		var n: int = snapshot.decode_u32(at)
+		names.append(snapshot.slice(at + 4, at + 4 + n).get_string_from_utf8())
+		at += 4 + n
+	var which: int = names.find(channel)
+	return -1 if which < 0 else at + which * cells * 4
 
 
 func _bins(dir_path: String) -> PackedStringArray:
