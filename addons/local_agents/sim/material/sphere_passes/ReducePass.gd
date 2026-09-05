@@ -1,12 +1,11 @@
 extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 
 ## The field reduces itself. One kernel, one dispatch per LAReduceRecords row, one partial per workgroup.
-## Last in the chain, so every row reads settled state.
+## Last in the chain, so every row reads settled state. The blocks and the fold table are the driver's.
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/reduce.glsl"
 const PARTIALS: String = "reduce_partials"
 const GROUP: int = 64
-const PC_BYTES: int = 44
 
 var _pipe: RID = RID()
 var _rows: Array = []                   # rows whose buffers exist, in dispatch order
@@ -17,8 +16,6 @@ var _step: int = -1                     # field step the last dispatch reduced
 var _latch_step: Dictionary = {}        # ref buffer -> field step that reference was taken at
 var _failed_announced: bool = false
 var _last: Dictionary = {}              # the last drain, for the query modules that read rows directly
-var _folds: PackedInt32Array = PackedInt32Array()   # per row: how its workgroup partials combine
-var _keys: PackedStringArray = PackedStringArray()  # per row: the key its reading publishes under
 
 
 ## One partial per workgroup per row, plus one reference buffer per `ref` the rows name.
@@ -74,11 +71,11 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 			"reduce_gate_aux": _single(bufs, gate_aux) if gate_aux != "" else solid,
 			"reduce_partials": _partials})))
 		_rows.append(row)
-		_folds.append(_fold_mode(int(row["op"])))
-		_keys.append(String(row["key"]))
+	_driver.plan_reduce({"pipe": _pipe, "sets": _sets, "rows": _rows, "cell_count": cc,
+		"groups": _groups})
 
 
-func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, _groups_in: int) -> void:
+func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, _cc: int, _groups_in: int) -> void:
 	if not _dispatchable() or _sets.is_empty():
 		if not _failed_announced:
 			_failed_announced = true
@@ -88,39 +85,31 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, _groups_in
 		return
 	_step = int(ctx.get("step_index", -1))
 	# A REFERENCE IS THE STATE THE WORLD WAS BUILT WITH, so a mid-seed derive takes none.
-	_run(rd, cl, ctx, cc, not bool(ctx.get("seeding", false)))
+	_run(rd, cl, not bool(ctx.get("seeding", false)))
 
 
-## Every row. `latch_ok` false leaves every reference where it is.
-func _run(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, latch_ok: bool) -> void:
-	var usets: Array = []
-	var pcs: Array = []
-	var wgs: PackedInt32Array = PackedInt32Array()
-	var args: Array = []
-	var offs: PackedInt32Array = PackedInt32Array()
+## Every row the latch policy admits this call. `latch_ok` false leaves every reference where it is.
+func _run(_rd: RenderingDevice, cl: int, latch_ok: bool) -> void:
+	var rows: PackedInt32Array = PackedInt32Array()
 	for r in _rows.size():
 		var row: Dictionary = _rows[r]
-		var ref: String = String(row.get("ref", ""))
-		var latch: bool = int(row["op"]) == LAReduceRecords.Op.LATCH
-		if latch and (_latch_step.has(ref) or not latch_ok):
-			continue      # a reference is the state the world was built with, taken once per row
-		usets.append(_sets[r])
-		pcs.append(_pc(cc, row, r * _groups))
-		wgs.append(_groups)
-		args.append(RID())
-		offs.append(0)
-		if latch:
+		if int(row["op"]) == LAReduceRecords.Op.LATCH:
+			var ref: String = String(row.get("ref", ""))
+			# A reference is the state the world was built with, taken once per row.
+			if _latch_step.has(ref) or not latch_ok:
+				continue
 			_latch_step[ref] = _step
-	_driver.run(cl, _pipe, usets, pcs, wgs, args, offs, true)
+		rows.append(r)
+	_driver.run_reduce(cl, rows)
 
 
 ## A reduce taken BETWEEN passes: this pass runs last, so a row cannot say WHICH pass moved a total.
 ## Leaves every reference and `latest()` alone — arming a probe may not move what an instrument reads.
-func checkpoint(rd: RenderingDevice, ctx: Dictionary, cc: int) -> Dictionary:
+func checkpoint(rd: RenderingDevice, _ctx: Dictionary, _cc: int) -> Dictionary:
 	if not _dispatchable() or _sets.is_empty():
 		return {}
 	var cl: int = rd.compute_list_begin()
-	_run(rd, cl, ctx, cc, false)
+	_run(rd, cl, false)
 	rd.compute_list_end()
 	rd.submit()
 	rd.sync()
@@ -142,48 +131,8 @@ func _drain(_rd: RenderingDevice) -> Dictionary:
 func _fold_rows() -> Dictionary:
 	if _rows.is_empty() or not _partials.is_valid() or _driver == null:
 		return {}
-	var out: Dictionary = _driver.fold_reduce(_partials, _folds, _keys, _groups)
+	var out: Dictionary = _driver.fold_reduce(_partials)
 	out["reduce_step"] = float(_step)
 	for key in _latch_step:
 		out[String(key) + "_step"] = float(_latch_step[key])
 	return out
-
-
-## reduce.glsl's la_identity, as the shape the driver folds it with.
-func _fold_mode(op: int) -> int:
-	if op == LAReduceRecords.Op.LATCH:
-		return LAFieldDriver.FOLD_SKIP
-	if op == LAReduceRecords.Op.MIN:
-		return LAFieldDriver.FOLD_MIN
-	if op == LAReduceRecords.Op.MAX or op == LAReduceRecords.Op.MAX_REL_DIFF:
-		return LAFieldDriver.FOLD_MAX
-	return LAFieldDriver.FOLD_SUM
-
-
-# Params { uint cell_count, op, mask, base; float threshold; uint weight, has_aux, has_gate;
-#          float gate_lo, gate_hi; uint nbr; } — 44 bytes.
-func _pc(cc: int, row: Dictionary, base: int) -> PackedByteArray:
-	var gate: String = String(row.get("gate", ""))
-	var has_aux: int = 0
-	if String(row.get("aux", "")) != "":
-		has_aux = 2 if String(row.get("aux2", "")) != "" else 1
-	var has_gate: int = 0
-	if gate != "":
-		has_gate = 2 if String(row.get("gate_aux", "")) != "" else 1
-		has_gate += 4 if bool(row.get("gate_strict_lo", false)) else 0
-		has_gate += 8 if bool(row.get("gate_both_ends", false)) else 0
-	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(PC_BYTES)
-	pc.encode_u32(0, cc)
-	pc.encode_u32(4, int(row["op"]))
-	pc.encode_u32(8, int(row.get("mask", LAReduceRecords.Mask.ALL)))
-	pc.encode_u32(12, base)
-	pc.encode_float(16, float(row.get("threshold", 0.0)))
-	# The kernel weighs each cell by ITS OWN volume; a graded grid has no one cell volume to bake in.
-	pc.encode_u32(20, 1 if bool(row.get("weight", false)) else 0)
-	pc.encode_u32(24, has_aux)
-	pc.encode_u32(28, has_gate)
-	pc.encode_float(32, float(row.get("gate_lo", -INF)))
-	pc.encode_float(36, float(row.get("gate_hi", INF)))
-	pc.encode_u32(40, int(row.get("nbr", LAReduceRecords.Nbr.NONE)))
-	return pc
