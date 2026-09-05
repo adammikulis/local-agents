@@ -199,6 +199,7 @@ func _on_sim_step(step: int) -> void:
 	_input.update_sim(_frame, _sim.is_spawned())
 	# Trajectory samples through a long run.
 	if _input.run_frames() > 0 and _frame % 180 == 0 and _frame < _input.run_frames():
+		LAVoxelHarness.emit_rng_trace(_frame)
 		LAVoxelHarness.emit_population_trace(self, _frame)
 
 
