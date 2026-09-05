@@ -3,10 +3,6 @@ extends Node
 
 
 const CAPTURE_EVERY_STEPS: int = 20   # simulated steps between snapshots (the rewind resolution)
-# Snapshots are actors-only by default (~100 KB each — the heavy GPU field is dropped, see WorldSaveController),
-# so a deep ring is cheap: 30 × ~2s ≈ 60s of rewind history for a few MB. With LA_SNAPSHOT_FIELD=1 each snapshot
-# balloons to several MB — lower this if you enable that.
-const RING_CAP: int = 30
 const REVERSE_STEP_MS: int = 220      # wall-milliseconds between restoring successive older snapshots while reversing
 
 signal timeline_changed(count: int, cursor: int, reversing: bool)
@@ -60,7 +56,7 @@ func _resolve_enabled() -> bool:
 	if OS.has_environment("LA_SNAPSHOTS"):
 		return OS.get_environment("LA_SNAPSHOTS") != "0"
 	for a in OS.get_cmdline_user_args():
-		if a.begins_with("--run-frames") or a == "--smoke" or a == "--timeline-selftest":
+		if a.begins_with("--run-frames") or a == "--smoke":
 			return false
 	return true
 
@@ -95,11 +91,18 @@ func _capture() -> void:
 	if snap.is_empty():
 		return                          # field not ready yet — try again next cadence
 	_ring.append(snap)
-	while _ring.size() > RING_CAP:
-		_ring.pop_front()
-	var pop: int = (snap.get("creatures", []) as Array).size()
-	print("TIMELINE_SNAP={count:%d, cap:%d, creatures:%d}" % [_ring.size(), RING_CAP, pop])
+	# The store bounds itself by what the memory budget affords; this array follows it, never leads it.
+	var cap: int = _save.snapshot_capacity()
+	while cap > 0 and _ring.size() > cap:
+		_drop(_ring.pop_front())
+	print("TIMELINE_SNAP={count:%d, cap:%d}" % [_ring.size(), cap])
 	timeline_changed.emit(_ring.size(), -1, false)
+
+
+## Release the cells a moment held. The save controller owns the store the handle indexes.
+func _drop(snap) -> void:
+	if snap is Dictionary and _save.has_method("drop_snapshot"):
+		_save.drop_snapshot(snap)
 
 
 ## Toggle scrubbing backward through history. Starting pauses the sim; stopping resumes FORWARD from the
@@ -132,6 +135,8 @@ func stop_reverse() -> void:
 		return
 	_reversing = false
 	if _cursor >= 0 and _cursor < _ring.size() - 1:
+		for i in range(_cursor + 1, _ring.size()):
+			_drop(_ring[i])
 		_ring.resize(_cursor + 1)      # FORK: drop the abandoned newer future
 	_cursor = -1
 	get_tree().paused = false

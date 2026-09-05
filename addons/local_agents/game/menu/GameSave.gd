@@ -105,18 +105,6 @@ static func read_world(slot: String) -> Dictionary:
 	return v if v is Dictionary else {}
 
 
-static func read_world_dir(dir: String) -> Dictionary:
-	var path: String = "%s/%s" % [dir, WORLD_FILE]
-	if not FileAccess.file_exists(path):
-		return {}
-	var f: FileAccess = FileAccess.open(path, FileAccess.READ)
-	if f == null:
-		return {}
-	var v: Variant = f.get_var(true)
-	f.close()
-	return v if v is Dictionary else {}
-
-
 ## READ a slot's persisted settings resource, or null if absent/unreadable.
 static func read_settings(slot: String) -> Resource:
 	var path: String = "%s/%s" % [slot_dir(slot), SETTINGS_FILE]
