@@ -17,8 +17,17 @@ SRC="$ROOT/addons/local_agents"
 rows="$(rg -N -o '^\| `([a-z0-9_]+)` \|' -r '$1' "$REG" 2>/dev/null | sort -u)"
 [ -n "$rows" ] || { echo "check_approximations: the registry has no rows, so this gate examines nothing." >&2; exit 2; }
 
-# Markers in code: LA_APPROX: <key>
-marks="$(rg -N --no-filename -o 'LA_APPROX:[[:space:]]*([a-z0-9_]+)' -r '$1' "$SRC" 2>/dev/null | sort -u)"
+# Markers in code: LA_APPROX: <key>. A scan that skipped a file it could not read would convict the code
+# of the scan's own failure, so rg's exit and its stderr both decide whether there is a verdict at all.
+ERR="$(mktemp "${TMPDIR:-/tmp}/approx_scan.XXXXXX")"
+trap 'rm -f "$ERR"' EXIT INT TERM
+marks="$(rg -N --no-filename -o 'LA_APPROX:[[:space:]]*([a-z0-9_]+)' -r '$1' "$SRC" 2>"$ERR" | sort -u)"
+scan=$?
+if [ "$scan" -ne 0 ] || [ -s "$ERR" ]; then
+	echo "check_approximations: the scan over $SRC did not complete (rg exit $scan)." >&2
+	cat "$ERR" >&2
+	exit 2
+fi
 
 fail=0
 for k in $rows; do

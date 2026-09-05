@@ -91,6 +91,8 @@ func _solve(grid, fill: PackedFloat32Array) -> PackedFloat32Array:
 	bufs["gravity"] = _f32(cc * 3)
 	bufs["grav_phi"] = _f32(cc)
 	bufs["grav_ref"] = _f32(cc)
+	bufs["vert_up"] = _f32(cc)
+	bufs["vert_down"] = _f32(cc)
 	for name in LAMatterChannels.CHANNELS:
 		bufs[String(name)] = _f32(cc)
 	var src_bytes: PackedByteArray = fill.to_byte_array()
