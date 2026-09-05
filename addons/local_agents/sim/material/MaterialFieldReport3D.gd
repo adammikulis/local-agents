@@ -178,7 +178,6 @@ func report() -> Dictionary:
 	r.merge(temps)
 	# DECOMPOSER extent + intensity (fungus_peak/_cells, detritus_peak/_cells). One grid pass for all four.
 	r.merge(_f.decomposer_stats())
-	# sea_ice_cells / sea_ice_temp / open_sea_cells / open_sea_temp — one walk, medians.
 	r.merge(q.sea_surface_stats())
 	r.merge(q.rock_radial_profile())
 	r.merge(q.geotherm_stats())

@@ -7,6 +7,8 @@ const Rec: GDScript = preload("res://addons/local_agents/sim/material/ReduceReco
 static func rows() -> Array:
 	var wet_min: float = 0.01 * LAMaterialField3D.MAX_MASS  # below this a cell is not holding water, mol/m^3
 	var wet: Dictionary = {"gate": "h2o", "gate_aux": "h2o_liquid", "gate_lo": wet_min}
+	var open_surf: Dictionary = {"source": "temp", "gate": "surface_class", "gate_lo": 0.5, "gate_hi": 1.5}
+	var ice_surf: Dictionary = {"source": "temp", "gate": "surface_class", "gate_lo": 1.5, "gate_hi": 2.5}
 	return [
 		{"key": "water_liquid_total", "source": "h2o", "aux": "h2o_liquid", "op": Rec.Op.SUM,
 			"mask": Rec.Mask.ALL, "weight": true},
@@ -35,4 +37,10 @@ static func rows() -> Array:
 			"gate_lo": LAMaterialField3D.MIN_MASS},
 		{"key": "clim_water_coldest", "source": "temp", "op": Rec.Op.MIN, "mask": Rec.Mask.OPEN,
 			"gate": "h2o", "gate_aux": "h2o_liquid", "gate_lo": LAMaterialField3D.MIN_MASS},
+		# THE FREE WATER SURFACE, split by whether it carries ice: state_derive.glsl classes it 1 open
+		# and 2 frozen. Sum and count, so the reading published beside them is a mean over its own half.
+		open_surf.merged({"key": "open_sea_cells", "op": Rec.Op.COUNT}, true),
+		open_surf.merged({"key": "open_sea_temp_sum", "op": Rec.Op.SUM}, true),
+		ice_surf.merged({"key": "sea_ice_cells", "op": Rec.Op.COUNT}, true),
+		ice_surf.merged({"key": "sea_ice_temp_sum", "op": Rec.Op.SUM}, true),
 	]

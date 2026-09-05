@@ -102,7 +102,7 @@ static func emit_population_trace(w, frame: int) -> void:
 	var ice_c: int = int(_num(snap, "ice_cells"))
 	var sea_ice: int = int(_num(snap, "sea_ice_cells"))
 	var cloud_cover: float = _num(snap, "cloud_cover")
-	var open_sea_t: float = _num(snap, "open_sea_temp")
+	var open_sea_t: float = _num(snap, "open_sea_temp_mean")
 	print("POP_TRACE={\"frame\":%d,\"counts\":%s,\"temp_mean\":%.1f,\"surf_mean\":%.1f,\"surf_max\":%.1f,\"t_eq\":%.1f,\"t_pole\":%.1f,\"rab_e\":%.2f,\"rab_gut\":%.2f,\"rab_bio\":%.4f,\"t_min\":%.1f,\"t_max\":%.1f,\"snow\":%d,\"ice\":%d,\"sea_ice\":%d,\"cloud_cover\":%.3f,\"sea_t\":%.1f,\"charge_peak\":%.2f,\"bolts\":%d,\"moisture\":%.0f,\"cloud_cells\":%d,\"deaths\":%s}" % [frame, JSON.stringify(counts), temp_mean, surf_mean, surf_max, t_eq, t_pole, rab_e, rab_g, rab_b, t_min, t_max, snow_c, ice_c, sea_ice, cloud_cover, open_sea_t, charge_peak, bolts, rain, clouds, JSON.stringify(deaths)])
 
 

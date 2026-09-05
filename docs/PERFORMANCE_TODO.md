@@ -47,18 +47,17 @@ already have this shape.
 
 `LASimReport.snapshot()` calls every provider, and `LAGameProgression._process` calls it twice per
 `CHECK_INTERVAL` (0.5 s), plus the HUD and `LAVoxelHarness`. Only `_heavy_block()` is behind the 64-frame
-cache. `sea_surface_stats`, `rock_radial_profile` (two passes) and `lava_shell_diag` are NOT —
-whole-grid GDScript sweeps twice a second on the main thread.
+cache. `MaterialFieldMineralProfile3D.post_step` is NOT — a whole-grid GDScript sweep on the main thread.
 
-Moving them inside the cache is a CADENCE change and forbidden as a speed measure on its own. Make them
+Moving it inside the cache is a CADENCE change and forbidden as a speed measure on its own. Make it
 cheap instead.
 
 
-## 1c. One surface-cell list would empty six full-grid walks
+## 1c. One surface-cell list would empty the remaining full-grid walks
 
-`WaterSurfaceMesh.build`, `sea_surface_stats` and `rock_radial_profile` each walk every cell to find the
-same thing: the skin. It is a stream compaction, so no reduce `Op` expresses it — it is the active-cell
-list again. Build it once per step and all of them become O(surface cells), about N^(2/3).
+`WaterSurfaceMesh.build` walks every cell to find the skin `state_derive.glsl` already classes in
+`surface_class`. It is a stream compaction, so no reduce `Op` expresses it — it is the active-cell list
+again. Build it once per step and it becomes O(surface cells), about N^(2/3).
 
 
 ## 2b. The dispatch budget, and where it is spent
