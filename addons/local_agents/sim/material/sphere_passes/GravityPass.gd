@@ -1,20 +1,21 @@
 extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 
-## GRAVITY SOLVED FROM THE MASS THAT IS THERE, on the device. Poisson relaxed by Jacobi sweeps over the
-## cell's own faces, then g = -grad(phi). First in the chain: everything below it asks where down is.
+## GRAVITY SOLVED FROM THE MASS THAT IS THERE, on the device. Poisson by V-cycles over the octree levels,
+## then g = -grad(phi). First in the chain: everything below it asks where down is.
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/gravity_poisson.glsl"
+const MG_KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/gravity_multigrid.glsl"
 
 ## Field steps between solves. The solve warm-starts from the previous potential.
 const SOLVE_EVERY: int = 2
-## Residual, as a fraction of its own source, every solve converges to, and the iterations it may take.
+## Residual, as a fraction of its own source, every solve converges to, and the V-cycles it may take.
 const RESIDUAL_TOLERANCE: float = 1.0e-4
-const MAX_ITERATIONS: int = 20000
+const MAX_CYCLES: int = 64
 
 ## Floats each workgroup writes into the partials buffer — gravity_poisson.glsl PART_STRIDE.
-const PART_STRIDE: int = 10
-## gravity_poisson.glsl `moments`: 0 mass · 1..3 centre of mass · 4 mean |g| · 6 Gauss ratio.
-const MOMENT_SLOTS: int = 7
+const PART_STRIDE: int = 11
+## `moments`: 0 mass · 1..3 centre of mass · 4 mean |g| · 5 residual over its source · 6 Gauss ratio.
+const MOMENT_SLOTS: int = 8
 const GROUP: int = 64
 const PC_BYTES: int = 40
 
@@ -62,7 +63,13 @@ var _failed_announced: bool = false
 var _slab: bool = false
 var _r_datum: float = 0.0                # m: where the reference potential is zero                  # a slab carries the declared body's field, uploaded once
 var _phi_rid: RID = RID()
-var _iterations: int = 0
+var _cycles: int = 0
+var _factor: float = 1.0                # the residual's geometric mean fall per V-cycle
+var _mg_pipe: RID = RID()
+var _mg_set: RID = RID()
+var _hier: Dictionary = {}
+var _coarse_edge: float = 0.0
+var _bufs: Dictionary = {}
 var _density_rid: RID = RID()
 var _flags_rid: RID = RID()
 var _base_edge: float = 0.0
@@ -71,18 +78,22 @@ var _origin: Vector3 = Vector3.ZERO
 
 func _buffers(cc: int) -> Dictionary:
 	var g: int = maxi(int(ceil(float(cc) / float(GROUP))), 1)
-	# PHI and the two vertical tables are StateDerivePass's declarations: it reads them below this rung.
+	# PHI is StateDerivePass's declaration: it carries a ghost tail this pass never writes.
 	return {
 		DENSITY: maxi(cc, 1),
 		FLAGS: maxi(cc, 1),
+		VERT_UP: maxi(cc, 1),
+		VERT_DOWN: maxi(cc, 1),
 		MOMENTS: MOMENT_SLOTS,
 		PARTIALS: g * PART_STRIDE}
 
 
 func _setup(bufs: Dictionary, cc: int) -> void:
 	_pipe = _kernel(KERNEL_PATH)
-	if not _pipe.is_valid():
+	_mg_pipe = _kernel(MG_KERNEL_PATH)
+	if not _pipe.is_valid() or not _mg_pipe.is_valid():
 		return
+	_bufs = bufs
 	_groups = maxi(int(ceil(float(cc) / float(GROUP))), 1)
 	_base_edge = grid_cell_size
 	_origin = grid_origin
@@ -106,6 +117,30 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	_down_rid = _single(bufs, VERT_DOWN)
 
 	_set = _uset(_pipe, LABindings.set_for("gravity_poisson.glsl", bufs, {"grav_props": props_ssbo}))
+
+
+## THE HIERARCHY, once per grid: the octree levels the V-cycle descends, and the three fields it carries
+## over them. Every level past 0 lives in this pass's own buffers.
+func _hierarchy(grid) -> bool:
+	if _mg_set.is_valid():
+		return true
+	_hier = LAGravityMultigrid.build(grid)
+	if _hier.is_empty():
+		push_error("GravityPass: LAGravityMultigrid built no hierarchy for this grid, so Poisson has no "
+			+ "coarse levels to converge on.")
+		return false
+	var total: int = int(_hier["total"])
+	_coarse_edge = float(_hier["coarse_edge"])
+	var own: Dictionary = {}
+	for key: String in ["slot_off", "nbr", "flags", "parent", "child_off", "child_idx"]:
+		var a: PackedInt32Array = _hier[key]
+		if a.is_empty():
+			a.resize(1)
+		own["mg_" + key] = _storage_buffer(a.to_byte_array())
+	for key: String in ["mg_phi", "mg_rhs", "mg_res"]:
+		own[key] = _scratch(maxi(total, 1))
+	_mg_set = _uset(_mg_pipe, LABindings.set_for("gravity_multigrid.glsl", _bufs, own))
+	return _mg_set.is_valid()
 
 
 func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:
@@ -138,10 +173,12 @@ func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: i
 
 
 ## THE SOLVE, CONVERGED: density, moments and the Dirichlet ring on the device; the potential by
-## conjugate gradient in the extension over the same operator; gradient, verticals and residual on the
-## device again. Returns the residual the device measured, or INF when nothing could be solved.
+## V-cycles over the octree levels, driven from the extension; gradient, verticals and the field's own
+## readings on the device again. Returns the residual the device measured, INF when nothing was solved.
 func solve_converged(rd: RenderingDevice, grid, cc: int, groups: int) -> float:
 	if not _dispatchable() or not _set.is_valid() or _slab or grid == null:
+		return INF
+	if not _hierarchy(grid):
 		return INF
 	var ctx: Dictionary = {"gravity_solve": "pre"}
 	var cl: int = rd.compute_list_begin()
@@ -149,11 +186,12 @@ func solve_converged(rd: RenderingDevice, grid, cc: int, groups: int) -> float:
 	rd.compute_list_end()
 	rd.submit()
 	rd.sync()
-	var r: Dictionary = LAGravitySolve.solve_device(rd, grid, _density_rid, _phi_rid, _flags_rid,
-		_moments, LAPhysical.GRAVITATIONAL_CONSTANT, RESIDUAL_TOLERANCE, MAX_ITERATIONS)
+	var r: Dictionary = LAGravityMultigrid.cycle(rd, _mg_pipe, _mg_set, _moments, _hier, _coarse_edge,
+		LAPhysical.GRAVITATIONAL_CONSTANT, RESIDUAL_TOLERANCE, MAX_CYCLES)
 	if r.is_empty():
 		return INF
-	_iterations = int(r["iterations"])
+	_cycles = int(r["cycles"])
+	_factor = float(r["factor"])
 	ctx["gravity_solve"] = "post"
 	cl = rd.compute_list_begin()
 	dispatch(rd, cl, ctx, cc, groups)
@@ -161,10 +199,6 @@ func solve_converged(rd: RenderingDevice, grid, cc: int, groups: int) -> float:
 	rd.submit()
 	rd.sync()
 	_drain(rd)
-	# The solve's own residual, in double over the full potential: the device holds only the deviation.
-	_residual_rel = float(r["residual_rel"])
-	_last["gravity_residual_rel"] = _residual_rel
-	_last["gravity_cg_iterations"] = float(_iterations)
 	return _residual_rel
 
 
@@ -229,6 +263,8 @@ func _drain(rd: RenderingDevice) -> Dictionary:
 	if m.size() < MOMENT_SLOTS:
 		return {}
 	_mean_g = m[4]
+	if not _slab:
+		_residual_rel = m[5]
 	_mirror = rd.buffer_get_data(_gravity).to_float32_array()
 	_up = rd.buffer_get_data(_up_rid).to_int32_array()
 	_down = rd.buffer_get_data(_down_rid).to_int32_array()
@@ -236,7 +272,8 @@ func _drain(rd: RenderingDevice) -> Dictionary:
 		"gravity_total_mass_kg": m[0],
 		"gravity_mean_g": m[4],
 		"gravity_residual_rel": _residual_rel,
-		"gravity_cg_iterations": float(_iterations),
+		"gravity_vcycles": float(_cycles),
+		"gravity_vcycle_factor": _factor,
 		"gravity_gauss_rel": m[6],
 		"gravity_solves": float(_solves)}
 	return _last

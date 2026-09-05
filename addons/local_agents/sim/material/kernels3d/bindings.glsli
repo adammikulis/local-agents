@@ -173,6 +173,15 @@
 #define LA_BIND_INJECT_APPLIED      170
 #define LA_BIND_INJECT_SRC          171
 #define LA_BIND_INJECT_DST          172
+#define LA_BIND_MG_SLOT_OFF         173
+#define LA_BIND_MG_NBR              174
+#define LA_BIND_MG_FLAGS            175
+#define LA_BIND_MG_PARENT           176
+#define LA_BIND_MG_CHILD_OFF        177
+#define LA_BIND_MG_CHILD_IDX        178
+#define LA_BIND_MG_PHI              179
+#define LA_BIND_MG_RHS              180
+#define LA_BIND_MG_RES              181
 #define LA_BIND_REACTION_DEFS       160
 #define LA_BIND_STACK_PROBE         161
 #define LA_BIND_ENTHALPY_PROBE      162

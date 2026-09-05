@@ -1,0 +1,15 @@
+// The reference potential the solve states phi against.
+#ifndef LA_GRAVITY_REF_GLSLI
+#define LA_GRAVITY_REF_GLSLI
+
+// Potential of the uniform sphere of mass `total` and radius `r_eq` at radius `r`, J/kg: the interior
+// solution inside it, the monopole outside. Poisson's exact solution for that sphere, so what the solve
+// carries is the departure from it. `r_eq` is the body's own second moment: sqrt(5 I / 3 M).
+float la_gref(float g_si, float total, float r_eq, float r) {
+	if (total <= 0.0) { return 0.0; }
+	float rr = max(r_eq, 1.0e-30);
+	return r >= rr ? -g_si * total / max(r, 1.0e-30)
+			: -g_si * total * (3.0 * rr * rr - r * r) / (2.0 * rr * rr * rr);
+}
+
+#endif

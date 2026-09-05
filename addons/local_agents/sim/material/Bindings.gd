@@ -50,6 +50,9 @@ const SLOT: Dictionary = {
 	"reduce_gate_aux": 158, "reduce_partials": 159,
 	# the sparse edit: the batch, and the two channels one dispatch names
 	"inject_idx": 168, "inject_val": 169, "inject_applied": 170, "inject_src": 171, "inject_dst": 172,
+	# the gravity solve's multigrid hierarchy, past level 0
+	"mg_slot_off": 173, "mg_nbr": 174, "mg_flags": 175, "mg_parent": 176, "mg_child_off": 177,
+	"mg_child_idx": 178, "mg_phi": 179, "mg_rhs": 180, "mg_res": 181,
 	# the reaction table
 	"reaction_defs": 160,
 	# the selftest probes
@@ -79,6 +82,9 @@ const IN_KERNEL: Dictionary = {
 		"org_h", "org_o", "fert", "metal", "olivine", "pyroxene", "plagioclase", "halite", "apatite", "h2", "co",
 		"so2", "h2s", "ch4", "h2o_pore", "gravity", "grav_phi", "grav_ref", "grav_density", "grav_cellflag",
 		"grav_moments", "grav_partials", "grav_props"],
+	"gravity_multigrid.glsl": ["nbr", "pos", "slot_off", "face_partner", "grav_phi", "grav_density",
+		"grav_moments", "grav_partials", "mg_slot_off", "mg_nbr", "mg_flags", "mg_parent", "mg_child_off",
+		"mg_child_idx", "mg_phi", "mg_rhs", "mg_res"],
 	"pressure.glsl": ["vert_up", "cell_edge", "solid", "pressure", "rho_bulk", "g_rest"],
 	"reactions_sphere3d.glsl": ["vert_up", "vert_down", "cell_edge", "h2o", "silicate", "carbonate", "silica",
 		"o2", "co2", "n2", "biomass", "fungus", "detritus", "fuel", "org_h", "org_o", "fert", "e_j_m3",

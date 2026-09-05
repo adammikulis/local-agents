@@ -7,6 +7,7 @@
 // One dispatch per colour: a colour's cells are never neighbours, so each reads only the other.
 
 #include "cellvol.glsli"
+#include "gravity_ref.glsli"
 #include "neighbours.glsli"
 #include "matter_channels.glsli"
 
@@ -23,7 +24,8 @@ layout(set = 0, binding = LA_BIND_GRAV_REF, std430) restrict buffer GravRef { fl
 layout(set = 0, binding = LA_BIND_GRAV_PHI, std430) restrict buffer Phi { float phi[]; };          // J/kg
 layout(set = 0, binding = LA_BIND_GRAV_DENSITY, std430) restrict buffer Density { float density[]; };  // kg/m^3
 layout(set = 0, binding = LA_BIND_GRAVITY, std430) restrict buffer Grav { float g_field[]; };     // flat cell*3, m/s^2
-// 0 total mass kg · 1..3 centre of mass · 4 mean |g| · 5 residual over its source · 6 Gauss ratio
+// 0 mass kg · 1..3 centre of mass · 4 mean |g| · 5 gravity_multigrid.glsl's residual · 6 Gauss ratio
+// · 7 the radius of the uniform sphere with that mass and the body's own second moment, m
 layout(set = 0, binding = LA_BIND_GRAV_MOMENTS, std430) restrict buffer Moments { float moments[]; };
 layout(set = 0, binding = LA_BIND_GRAV_PARTIALS, std430) restrict buffer Partials { float partials[]; };
 // The one vertical relation. vert_down is the scattered inverse of vert_up; an unset entry means no cell below.
@@ -47,7 +49,7 @@ const uint VERT_KEY_STEPS = 1024u;
 const uint FLAG_BOUNDARY = 1u;
 const uint FLAG_COLOUR_SHIFT = 1u;
 
-const uint PART_STRIDE = 10u;    // GravityPass.PART_STRIDE
+const uint PART_STRIDE = 11u;    // GravityPass.PART_STRIDE
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
@@ -82,46 +84,13 @@ float wg_sum(float v) {
 	return r;
 }
 
-float wg_max(float v) {
-	uint t = gl_LocalInvocationID.x;
-	s_red[t] = v;
-	barrier();
-	for (uint s = 32u; s > 0u; s >>= 1) {
-		if (t < s) { s_red[t] = max(s_red[t], s_red[t + s]); }
-		barrier();
-	}
-	float r = s_red[0];
-	barrier();
-	return r;
-}
-
-// 4 pi G times the mass in the cell: the source term of the finite-volume Poisson equation.
-float source_of(uint c) {
-	return 4.0 * acos(-1.0) * params.g_si * density[c] * cell_volume(c);
-}
-
-// The finite-volume Laplacian at any refinement: face conductance summed, and summed against each
-// neighbour's potential. On a uniform grid it is the seven-point stencil.
-void la_stencil(uint c, out float w_sum, out float w_phi) {
-	w_sum = 0.0;
-	w_phi = 0.0;
-	for (uint f = la_face_lo(c); f < la_face_hi(c); ++f) {
-		int nb = nbr[f];
-		if (nb < 0) { continue; }
-		float w = la_face_area(c, nb) / la_face_dist(c, nb);
-		w_sum += w;
-		w_phi += w * phi[uint(nb)];
-	}
-}
-
-// ref(nb) - ref(c) of the monopole reference in product form: float32 never holds the full potential.
+// ref(nb) - ref(c) of the reference sphere: what the solve does not have to carry in float32.
 float ref_drop(uint c, uint nb) {
-	float total = moments[0];
-	if (total <= 0.0) { return 0.0; }
 	vec3 com = vec3(moments[1], moments[2], moments[3]);
-	float rc = max(length(pos_at(c) - com), cell_edge[c]);
-	float rn = max(length(pos_at(nb) - com), cell_edge[nb]);
-	return -params.g_si * total * (rc - rn) / (rc * rn);
+	float g = params.g_si;
+	float m = moments[0];
+	float req = moments[7];
+	return la_gref(g, m, req, length(pos_at(nb) - com)) - la_gref(g, m, req, length(pos_at(c) - com));
 }
 
 // Area-weighted potential DROP from c across one slot and the centre distance to it; false at the box face.
@@ -186,52 +155,61 @@ void mode_density(uint gidx, bool live) {
 	float acc_x = wg_sum(m * p.x);
 	float acc_y = wg_sum(m * p.y);
 	float acc_z = wg_sum(m * p.z);
+	// IN CELL EDGES, not metres: m r^2 at a planet's radius overflows float32 before the sum ends.
+	float e2 = params.base_edge * params.base_edge;
+	float acc_r2 = wg_sum(m * dot(p, p) / e2);
 	if (gl_LocalInvocationID.x == 0u) {
 		uint b = gl_WorkGroupID.x * PART_STRIDE;
 		partials[b] = acc_m;
 		partials[b + 1u] = acc_x;
 		partials[b + 2u] = acc_y;
 		partials[b + 3u] = acc_z;
+		partials[b + 10u] = acc_r2;
 	}
 }
 
-// One workgroup: the per-workgroup mass moments into a total and a centre of mass.
+// One workgroup: the per-workgroup mass moments into a total, a centre of mass, and the radius of the
+// uniform sphere holding that mass at that second moment — sum m r^2 = (3/5) M R^2 about the centre.
 void mode_moments() {
 	uint t = gl_LocalInvocationID.x;
 	float m = 0.0;
+	float mr2 = 0.0;
 	vec3 mp = vec3(0.0);
 	for (uint g = t; g < params.groups; g += 64u) {
 		uint b = g * PART_STRIDE;
 		m += partials[b];
 		mp += vec3(partials[b + 1u], partials[b + 2u], partials[b + 3u]);
+		mr2 += partials[b + 10u];
 	}
 	float total = wg_sum(m);
 	float cx = wg_sum(mp.x);
 	float cy = wg_sum(mp.y);
 	float cz = wg_sum(mp.z);
+	float sum_r2 = wg_sum(mr2);
 	if (t == 0u) {
 		moments[0] = total;
 		float inv = total > 0.0 ? 1.0 / total : 0.0;
-		moments[1] = cx * inv;
-		moments[2] = cy * inv;
-		moments[3] = cz * inv;
+		vec3 com = vec3(cx, cy, cz) * inv;
+		moments[1] = com.x;
+		moments[2] = com.y;
+		moments[3] = com.z;
+		float e2 = params.base_edge * params.base_edge;
+		float inertia = sum_r2 - total * dot(com, com) / e2;
+		moments[7] = total > 0.0
+			? params.base_edge * sqrt(max(5.0 * inertia / (3.0 * total), 0.0)) : 0.0;
 	}
 }
 
-// THE REFERENCE, every cell: the monopole potential of the mass the box encloses. `phi` holds the
-// deviation from it, so float32 carries the second differences the Laplacian is made of; the Dirichlet
-// ring is exactly the reference, so its deviation is zero.
+// THE REFERENCE, every cell: the uniform sphere the box's own mass and second moment name. `phi` holds
+// the deviation from it, so float32 carries the second differences the Laplacian is made of; the
+// Dirichlet ring is exactly the reference, so its deviation is zero.
 void mode_seed(uint c) {
-	float total = moments[0];
-	if (total <= 0.0) {
-		grav_ref[c] = 0.0;
-		if ((cellflag[c] & FLAG_BOUNDARY) != 0u) { phi[c] = 0.0; }
-		return;
-	}
 	vec3 com = vec3(moments[1], moments[2], moments[3]);
+	float m = moments[0];
+	float req = moments[7];
 	float r = length(pos_at(c) - com);
 	// STATED AGAINST THE DATUM, so float32 holds a potential of tens of kJ/kg, not tens of MJ/kg.
-	grav_ref[c] = -params.g_si * total * (1.0 / max(r, cell_edge[c]) - 1.0 / max(params.r_datum, cell_edge[c]));
+	grav_ref[c] = la_gref(params.g_si, m, req, r) - la_gref(params.g_si, m, req, params.r_datum);
 	if ((cellflag[c] & FLAG_BOUNDARY) != 0u) { phi[c] = 0.0; }
 }
 
@@ -280,23 +258,17 @@ void mode_field_stats() {
 	uint t = gl_LocalInvocationID.x;
 	float acc = 0.0;
 	float hits = 0.0;
-	float worst = 0.0;
-	float src = 0.0;
 	float flux = 0.0;
 	float m_in = 0.0;
 	for (uint g = t; g < params.groups; g += 64u) {
 		uint b = g * PART_STRIDE;
 		acc += partials[b + 4u];
 		hits += partials[b + 5u];
-		worst = max(worst, partials[b + 6u]);
-		src = max(src, partials[b + 7u]);
 		flux += partials[b + 8u];
 		m_in += partials[b + 9u];
 	}
 	float sum_g = wg_sum(acc);
 	float n = wg_sum(hits);
-	float max_r = wg_max(worst);
-	float max_src = wg_max(src);
 	float sum_flux = wg_sum(flux);
 	float mass_in = wg_sum(m_in);
 	if (t == 0u) {

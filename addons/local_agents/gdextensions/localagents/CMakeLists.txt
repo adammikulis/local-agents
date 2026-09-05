@@ -41,7 +41,8 @@ set(SRC
     src/LABodySystem.cpp
     src/LAFieldCellMass.cpp
     src/LAGridGeometry.cpp
-    src/LAGravitySolve.cpp
+    src/LAGravityPotential.cpp
+    src/LAGravityMultigrid.cpp
     src/LAFieldDriver.cpp
     src/LAFieldStateCache.cpp
     src/LAFieldHydrosphereSeed.cpp

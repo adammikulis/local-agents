@@ -11,6 +11,10 @@
 # TERM is checked with the solve: the kernel weighs the same kg per unit fill as every other pass, off
 # LASubstances, and no density is written here.
 
+# THE V-CYCLE'S OWN ARM: a multigrid cycle that does not at least halve the discrete residual is not
+# transporting the error to the coarse levels at all — it is smoothing, which stalls on the long
+# wavelengths a whole-body solve is made of. Skip the prolongation and this is the reading that goes.
+
 # ARM TWO IS THE SIM'S OWN FIELD, since everything above builds its own sphere and says nothing about
 # the world the sim seeds. It reads Gauss's law off the real world: the flux of g out of the box is
 # -4 pi G times the mass inside, so `gravity_gauss_rel` is +1 when gravity points at the planet.
@@ -48,7 +52,8 @@ const N: int = 32
 const CELL: float = 0.5
 # Offset by half a cell, so a cell centre sits exactly at the origin for the centre sample.
 const ORIGIN: Vector3 = Vector3(-0.5 * N * CELL - 0.5 * CELL, -0.5 * N * CELL - 0.5 * CELL, -0.5 * N * CELL - 0.5 * CELL)
-const SWEEP_BUDGET: int = 400
+## The residual must fall by at least this factor per V-cycle, geometric mean over the solve.
+const VCYCLE_FACTOR: float = 0.5
 const PASS_PATH: String = "res://addons/local_agents/sim/material/sphere_passes/GravityPass.gd"
 const SOURCE_CHANNEL: String = "silicate"
 
@@ -203,6 +208,10 @@ func _init() -> void:
 	# The mass the kernel weighed, against the mass the fill carries.
 	var mass_rel: float = absf(float(readings.get("gravity_total_mass_kg", 0.0)) - mass) / mass
 
+	# THE V-CYCLE ITSELF. A cold start, so the cycles are real ones and the factor is measured over them.
+	var cycles: int = int(readings.get("gravity_vcycles", 0))
+	var factor: float = float(readings.get("gravity_vcycle_factor", 1.0))
+
 	# No symmetry at all: two separated blobs must attract each other.
 	var h = LAVoxelGrid.new()
 	h.build(N, N, N, CELL, ORIGIN)
@@ -226,9 +235,11 @@ func _init() -> void:
 	if centre_ratio > 0.02: fail += 1
 	if mass_rel > 0.01: fail += 1
 	if not attract: fail += 1
-	print('GRAVITY_SOLVE={"inside_rel":%.4f,"outside_rel":%.4f,"radial_err":%.4f,"centre_ratio":%.4f,"source_mass_rel":%.4f,"two_body_attracts":%s,"sweeps":%d,"residual":%s,"failures":%d}'
+	if cycles < 1: fail += 1
+	if factor > VCYCLE_FACTOR: fail += 1
+	print('GRAVITY_SOLVE={"inside_rel":%.4f,"outside_rel":%.4f,"radial_err":%.4f,"centre_ratio":%.4f,"source_mass_rel":%.4f,"two_body_attracts":%s,"vcycles":%d,"vcycle_factor":%.4f,"residual":%s,"failures":%d}'
 		% [worst_in, worst_out, worst_radial, centre_ratio, mass_rel, str(attract).to_lower(),
-			SWEEP_BUDGET, str(readings.get("gravity_residual_rel", "absent")), fail])
+			cycles, factor, str(readings.get("gravity_residual_rel", "absent")), fail])
 	for r2 in _owned:
 		if r2.is_valid():
 			_rd.free_rid(r2)
@@ -256,7 +267,10 @@ if [ "$rc" -ne 0 ]; then
   echo "The solved field does not match the closed form for a uniform sphere. inside_rel/outside_rel are"
   echo "the magnitude errors; centre_ratio must vanish (only a real solve gives that, a GM/r^2 shortcut"
   echo "diverges there); source_mass_rel is the kernel's own weighing of the fill against the closed-form"
-  echo "mass; two_body_attracts must hold for a distribution with no spherical symmetry."
+  echo "mass; two_body_attracts must hold for a distribution with no spherical symmetry. vcycles counts the"
+  echo "V-cycles the cold solve took, and vcycle_factor is what the residual was multiplied by per cycle:"
+  echo "a solve that took no cycle measured nothing, and one whose factor does not reach 0.5 is smoothing"
+  echo "rather than carrying the error down the octree levels."
   exit 1
 fi
 
