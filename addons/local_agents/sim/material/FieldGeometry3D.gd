@@ -138,9 +138,7 @@ static func _axis_deriv(field, c: int, lo_slot: int, hi_slot: int) -> Vector3:
 
 ## Air velocity at a cell, m/s, in the grid's own axes.
 static func velocity(field, c: int) -> Vector3:
-	if field._vel_x.size() != field._cell_count:
-		return Vector3.ZERO
-	return Vector3(field._vel_x[c], field._vel_y[c], field._vel_z[c])
+	return field._mirrors.vec3("vel_x", "vel_y", "vel_z", c)
 
 
 ## The body's spin axis in the field frame.

@@ -852,39 +852,6 @@ Dictionary LAFieldDriver::fold_reduce(const RID &p_partials) {
 	return out;
 }
 
-Dictionary LAFieldDriver::gather_read(const RID &p_staging, const Array &p_sources,
-		const PackedStringArray &p_names, int p_elements) {
-	Dictionary out;
-	if (_rd == nullptr || !p_staging.is_valid() || p_elements <= 0) {
-		return out;
-	}
-	const int count = p_sources.size() < p_names.size() ? p_sources.size() : p_names.size();
-	if (count <= 0) {
-		return out;
-	}
-	const uint32_t span = (uint32_t)p_elements * 4u;
-	for (int i = 0; i < count; ++i) {
-		const RID src = rid_at(p_sources, i);
-		if (!src.is_valid()) {
-			return out;
-		}
-		_rd->buffer_copy(src, p_staging, 0, (uint32_t)i * span, span);
-	}
-	// ONE ROUND TRIP. The device copies into one buffer and the CPU reads that buffer once; a readback
-	// per channel pays the same wait over again for every one of them.
-	const PackedByteArray raw = _rd->buffer_get_data(p_staging, 0, (uint32_t)count * span);
-	if (raw.size() < (int64_t)count * (int64_t)span) {
-		return out;
-	}
-	for (int i = 0; i < count; ++i) {
-		PackedFloat32Array vals;
-		vals.resize(p_elements);
-		std::memcpy(vals.ptrw(), raw.ptr() + (int64_t)i * (int64_t)span, (size_t)span);
-		out[p_names[i]] = vals;
-	}
-	return out;
-}
-
 void LAFieldDriver::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_device", "rd"), &LAFieldDriver::set_device);
 	ClassDB::bind_method(D_METHOD("clear_buffers", "buffers", "bytes"), &LAFieldDriver::clear_buffers);
@@ -908,6 +875,4 @@ void LAFieldDriver::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("plan_reduce", "plan"), &LAFieldDriver::plan_reduce);
 	ClassDB::bind_method(D_METHOD("run_reduce", "compute_list", "rows"), &LAFieldDriver::run_reduce);
 	ClassDB::bind_method(D_METHOD("fold_reduce", "partials"), &LAFieldDriver::fold_reduce);
-	ClassDB::bind_method(D_METHOD("gather_read", "staging", "sources", "names", "elements"),
-			&LAFieldDriver::gather_read);
 }

@@ -48,9 +48,6 @@ public:
 	void run_reduce(int64_t p_cl, const PackedInt32Array &p_rows);
 	Dictionary fold_reduce(const RID &p_partials);
 
-	Dictionary gather_read(const RID &p_staging, const Array &p_sources,
-			const PackedStringArray &p_names, int p_elements);
-
 protected:
 	static void _bind_methods();
 
