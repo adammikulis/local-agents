@@ -1,5 +1,7 @@
 #include "LAFieldLithostaticSeed.hpp"
 
+#include "LAFieldMirrors.hpp"
+
 #include "LABodySystem.hpp"
 #include "LAFieldCellMass.hpp"
 #include "LAPhysicalRead.hpp"
@@ -62,11 +64,7 @@ std::vector<Mirror> channel_mirrors(Object *p_field, const String &p_key, const 
 		if (!wanted) {
 			continue;
 		}
-		const Variant v = p_field->get("_" + name);
-		if (v.get_type() != Variant::PACKED_FLOAT32_ARRAY) {
-			continue;
-		}
-		const PackedFloat32Array arr = v;
+		const PackedFloat32Array arr = LAFieldMirrors::of(p_field, name);
 		if (arr.size() != cc) {
 			continue;
 		}
@@ -554,7 +552,7 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c,
 					w[c] = 0.0f;
 				}
 			}
-			p_field->set("_" + m.name, m.arr);
+			LAFieldMirrors::store(p_field, m.name, m.arr);
 		}
 	}
 }
