@@ -9,7 +9,7 @@ enum Phase { SEEDING = 0, SEALED = 1 }
 ## Every channel a conservation baseline reads.
 static func required_channels() -> PackedStringArray:
 	var out: PackedStringArray = PackedStringArray()
-	for name in ["e_j_m3", "e_lith_j_m3", "porosity", "co2", "o2", "fert", "n2"]:
+	for name in ["e_j_m3", "e_lith_j_m3", "porosity", "co2", "o2", "n2"]:
 		if not out.has(name):
 			out.append(name)
 	return out
@@ -119,12 +119,10 @@ static func channel_live(field, name: String, legs: Dictionary, cc: int) -> bool
 		and field._mirrors.has(name)
 
 
-## Channels whose CPU mirror is not a measurement.
+## Channels whose CPU mirror is not a measurement: one the readback never refreshes holds whatever the
+## seed left in it, so only the probe can say it is live.
 static func gated(field, name: String) -> bool:
-	if name == "carbonate" or name == "silica" or name == "n2":
-		return true
-	var gpu = field._gpu if field != null else null
-	if gpu == null:
+	if field == null or field._mirrors == null or not field._mirrors.has(name):
 		return true
 	return LAChannels.situational_channels().has(name)
 

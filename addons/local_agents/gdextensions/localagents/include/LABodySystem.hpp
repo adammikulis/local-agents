@@ -72,7 +72,7 @@ protected:
 };
 
 // THE BODY'S BULK PROPERTIES, MEASURED in one walk of the field: mass is the matter present, radius is
-// where it ends, inertia is how it is distributed, gas constant is R over the molar mass of the air.
+// where it ends, and inertia is how it is distributed.
 // Negative is UNMEASURED, and a reader refuses what it was sizing rather than assuming a planet.
 class LABodyMeasure : public RefCounted {
 	GDCLASS(LABodyMeasure, RefCounted);
@@ -80,14 +80,12 @@ class LABodyMeasure : public RefCounted {
 	double mass_kg = -1.0;
 	double surface_r_m = -1.0;
 	double inertia_kg_m2 = -1.0;
-	double gas_constant_j_kgk = -1.0;
 	Dictionary mass_by_channel;
 
 public:
 	double get_mass_kg() const { return mass_kg; }
 	double get_surface_r_m() const { return surface_r_m; }
 	double get_inertia_kg_m2() const { return inertia_kg_m2; }
-	double get_gas_constant_j_kgk() const { return gas_constant_j_kgk; }
 	// Channel -> kilograms it holds. WHAT THE BODY IS MADE OF: a total nobody can decompose cannot say
 	// which channel is wrong when it disagrees with the seed.
 	Dictionary get_mass_by_channel() const { return mass_by_channel; }
@@ -97,7 +95,6 @@ public:
 	// the axis the body actually turns on.
 	// LA_APPROX: seal_time_inertia
 	void measure(Object *p_field, const Vector3 &p_spin_axis);
-	double surface_gravity_m_s2() const;
 	double angular_velocity_rad_s(double p_spin_l_kg_m2_s) const;
 
 protected:
