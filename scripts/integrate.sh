@@ -117,6 +117,17 @@ if [ -n "$(git -C "$LANE_WT" status --porcelain)" ]; then
 	fi
 fi
 
+# A LANE LINTS AGAINST ITS OWN BIN. After a merge that changed native sources that bin is stale and
+# la_godot refuses every launch, so the lint examines nothing: rebuild it here, before a gate runs.
+. "$SCRIPT_DIR/lib_godot.sh"
+LANE_BIN_REL="addons/local_agents/gdextensions/localagents/bin"
+if [ "$(cat "$LANE_WT/$LANE_BIN_REL/SOURCE_HASH" 2>/dev/null || echo "")" != "$(la_extension_hash "$LANE_WT")" ]; then
+	echo "integrate: the lane's bin does not match its sources; building before the gates." >&2
+	"$LANE_WT/addons/local_agents/gdextensions/localagents/scripts/build_extension.sh" --platform macos >/dev/null 2>&1 \
+		|| { echo "integrate: build_extension.sh FAILED in the lane. $DEV is untouched." >&2; exit 1; }
+	"$LANE_WT/scripts/godot_import.sh" "$LANE_WT" || true
+fi
+
 echo "integrate: gates, on the tree that will land" >&2
 # THE LANE'S OWN harness: $SCRIPT_DIR/agent_harness.sh computes its repo root from its own location, so it
 # would lint the PRIMARY no matter what the cwd is. cd is not enough; the path has to be the lane's.
