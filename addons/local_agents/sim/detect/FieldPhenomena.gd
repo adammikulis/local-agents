@@ -22,8 +22,9 @@ func observe() -> Dictionary:
 		return _obs
 	_step = step
 	var vel_ok: bool = _f != null and _f._vel_x.size() == _f._cell_count
-	var melt_ok: bool = _live("silicate")
-	var low_ok: bool = _live("pressure") and vel_ok and _f._temp.size() == _f._cell_count
+	var melt_ok: bool = _live("silicate") and LAProcessSet.has_record("pass", "FluxPass.gd")
+	var low_ok: bool = _live("pressure") and vel_ok and _f._temp.size() == _f._cell_count \
+		and LAProcessSet.has_record("transport", "mom_flux")
 	_obs = {
 		"eruptions": _eruptions() if melt_ok else [],
 		"eruptions_live": melt_ok,

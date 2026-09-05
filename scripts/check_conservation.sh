@@ -33,7 +33,7 @@ trap 'rm -f "$OUT"' EXIT
 # SOAK: 600+ frames to audit the books at all; run by hand, no lane blocks on it
 
 # SOAK: the books cannot be audited under 600 frames; run by hand, no lane blocks on it
-LA_RUN_TIMEOUT="${LA_RUN_TIMEOUT:-1800}" LA_NO_STREAMER=1 \
+LA_RUN_TIMEOUT="${LA_RUN_TIMEOUT:-1800}" \
   "$REPO_ROOT/scripts/run_sim_offscreen.sh" --path "$REPO_ROOT" \
   addons/local_agents/game/VoxelWorld.tscn --fixed-fps 60 \
   -- --sandbox --planet-only --no-fauna "--run-frames=${FRAMES}" "--seed=${SEED}" \

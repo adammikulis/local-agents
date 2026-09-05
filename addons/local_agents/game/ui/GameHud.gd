@@ -145,12 +145,11 @@ func _refresh_summary() -> void:
 		_rung_readout = LAProcessRungReadout.new()
 		_summary_col.add_child(_rung_readout)
 	_rung_readout.refresh()
-	var snap: Dictionary = LASimReport.snapshot()
+	var snap: Dictionary = LASimReport.snapshot(true)
 	var creatures: int = int(snap.get("creatures", 0))
-	var biomass: float = float(snap.get("biomass_total", 0.0))
 	var top_gen: int = int(snap.get("max_generation", 0))
 	_summary_pop.text = "%d" % creatures
-	_summary_biomass.text = _fmt_num(biomass)
+	_summary_biomass.text = _fmt_num(float(snap["biomass_total"])) if snap.has("biomass_total") else "—"
 	# generation index is 0-based (founders = gen 0); show it as a human "Gen N" count.
 	_summary_gen.text = "Gen %d" % (top_gen + 1)
 

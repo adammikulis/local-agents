@@ -5,6 +5,7 @@ extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/reactions_sphere3d.glsl"
+const MOVES_STATE: bool = true   # reactions transform matter and energy
 
 var _pipe: RID = RID()
 var _n_records: int = 0

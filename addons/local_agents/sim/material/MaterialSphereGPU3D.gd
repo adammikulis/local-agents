@@ -44,8 +44,7 @@ var _bufs: Dictionary = {}          # channel/buffer name → its one RID
 var _passes: Array = []
 var _pass_names: PackedStringArray = []   # parallel to _passes — short label per pass, for GPU per-pass timing
 var _ctx: Dictionary = {}
-var _gpu_pass_ms: Dictionary = {}   # pass name -> this step's GPU execution time (ms)
-var _gpu_dispatch_ms: float = 0.0   # sum of all passes — the real GPU counterpart to field_dispatch_ms
+var _moving: bool = false           # a pass in this world writes matter or energy
 var _buf_owner: Dictionary = {}     # _bufs key -> what claimed it, so a collision can name both claimants
 var _pass_results: Dictionary = {}  # merged _drain() readings of the last drained step
 var _pending: bool = false          # a step() submit is in flight, not yet synced/read
@@ -162,6 +161,8 @@ func setup(field) -> void:
 	# read back. Every declaration lands before any _setup, so a pass may bind another pass's buffer.
 	for i in _passes.size():
 		_allocate_declared(_passes[i], _pass_names[i])
+		_moving = _moving or _passes[i].get("MOVES_STATE") == true
+	_moving = _moving or LAProcessSet.has_record("derive", "lithify")
 	for p2 in _passes:
 		p2.setup(_rd, _bufs, _cc)
 	# The boundary books are per-step rates: cleared before every step, summed by their reduce rows after.
@@ -252,6 +253,11 @@ func set_sea_radius(m: float) -> void:
 	_ctx["sea_radius"] = m
 
 
+## Whether anything can write matter or energy this step: a writer pass, or a CPU mirror marked dirty.
+func state_moves() -> bool:
+	return _moving or _h_dirty or _water_dirty or _solid_dirty
+
+
 ## Mark the CPU enthalpy mirror dirty so the next begin_frame re-uploads it.
 func mark_h_dirty() -> void:
 	_h_dirty = true
@@ -263,7 +269,6 @@ func step() -> void:
 	if _pending:
 		_rd.sync()
 		_pending = false
-		_read_gpu_pass_timings()
 	_ctx["step_index"] = _step_index
 	_ctx["dt_s"] = LAMaterialFieldSphereStep3D.real_seconds_per_step()
 	_pre_step()
@@ -351,8 +356,6 @@ func _drain_pending() -> void:
 	# the suspected field bottleneck; measuring it directly is how we know what gating it can win.
 	LASimReport.gauge("field_sync_ms", float(t_sync - t0) / 1000.0)
 	LASimReport.gauge("field_readback_ms", float(Time.get_ticks_usec() - t_sync) / 1000.0)
-	_read_gpu_pass_timings()   # real GPU execution time for the step just sync()'d — see field vars above
-	LASimReport.gauge("field_cells", float(_cc))
 	_drain_passes()
 
 
@@ -389,6 +392,19 @@ func _drain_passes() -> void:
 				LASimReport.gauge(name, float(res[key]))
 
 
+## The last drained reduce rows, gauged again once the report's baseline reset has wiped them.
+func republish_latest() -> void:
+	if LASimReport.gauge_cur("reduce_step", -1.0) >= 0.0:
+		return
+	for p in _passes:
+		if not p.has_method("latest"):
+			continue
+		var rows: Dictionary = p.latest()
+		for key in rows:
+			if rows[key] is float or rows[key] is int:
+				LASimReport.gauge(String(key), float(rows[key]))
+
+
 ## The compacted cell indices an `emit_idx` list published, empty when it listed nothing. Non-clearing.
 func list_indices(label: String) -> PackedInt32Array:
 	var v: Variant = _pass_results.get(label + "_list_idx", null)
@@ -400,33 +416,6 @@ func take_pass_results() -> Dictionary:
 	var out: Dictionary = _pass_results
 	_pass_results = {}
 	return out
-
-
-func _read_gpu_pass_timings() -> void:
-	var n: int = _rd.get_captured_timestamps_count()
-	if n < 2:
-		return   # timestamp queries unsupported/unavailable on this backend — leave gauges at their last value
-	_gpu_pass_ms.clear()
-	var total_ns: int = 0
-	var t_prev: int = _rd.get_captured_timestamp_gpu_time(0)
-	for i in range(1, n):
-		var t_cur: int = _rd.get_captured_timestamp_gpu_time(i)
-		var dt_ns: int = t_cur - t_prev
-		var pass_ms: float = float(dt_ns) / 1_000_000.0
-		_gpu_pass_ms[_rd.get_captured_timestamp_name(i)] = pass_ms
-		LASimReport.gauge("gpu_" + _gpu_gauge_key(i - 1) + "_ms", pass_ms)
-		total_ns += dt_ns
-		t_prev = t_cur
-	_gpu_dispatch_ms = float(total_ns) / 1_000_000.0
-	LASimReport.gauge("gpu_dispatch_ms", _gpu_dispatch_ms)
-
-
-## "FluxPass" -> "transport"; a short, gauge-key-safe name (strip "Pass", snake_case the rest).
-func _gpu_gauge_key(pass_index: int) -> String:
-	var n: String = _pass_names[pass_index]
-	if n.ends_with("Pass"):
-		n = n.substr(0, n.length() - 4)
-	return n.to_snake_case()
 
 
 ## THE DRAIN'S ONE ROUND TRIP: the device copies every named channel's interior cells into one buffer

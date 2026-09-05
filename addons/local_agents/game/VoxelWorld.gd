@@ -4,6 +4,7 @@ class_name LAVoxelWorld
 
 const InputControllerScript: GDScript = preload("res://addons/local_agents/game/world/VoxelInputController.gd")
 const SimulationScene: PackedScene = preload("res://addons/local_agents/game/Simulation.tscn")
+const AblationSweepScript: GDScript = preload("res://addons/local_agents/runtime/AblationSweep.gd")
 const RenderLayerScene: PackedScene = preload("res://addons/local_agents/game/RenderLayer.tscn")
 const UiLayerScene: PackedScene = preload("res://addons/local_agents/game/UiLayer.tscn")
 const StreamerHostScript: GDScript = preload("res://addons/local_agents/streamer/StreamerHost.gd")
@@ -130,6 +131,8 @@ func _ready() -> void:
 	# Wire the input controller's auto-demo hooks now that every scene ref exists.
 	_input.bind(_sim.terrain(), _camera, _body, _sim.star(), _material, _sim.meteor_impacts(), _interaction, _ecology)
 	_begin_trailer_shot()
+	if _input.ablate_sweep() > 0:
+		add_child(AblationSweepScript.new(_sim, _input.ablate_sweep()))
 	_move_offscreen.call_deferred()
 
 
@@ -357,11 +360,11 @@ func toggle_streamer() -> void:
 		_streamer_host.toggle_streamer()
 
 
-# Returns false when the streamer is switched off for this run (LA_NO_STREAMER, --smoke, --planet-only).
+# Off unless --streamer asked for it; a world with no life, a --smoke boot and a trailer shot refuse it.
 func _ensure_streamer_host() -> bool:
 	if _streamer_host != null:
 		return true
-	if not _input.streamer_enabled() or OS.has_environment("LA_NO_STREAMER"):
+	if not _input.streamer_enabled():
 		return false
 	_streamer_host = StreamerHostScript.new()
 	_streamer_host.name = "StreamerHost"

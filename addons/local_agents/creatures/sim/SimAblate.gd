@@ -4,14 +4,44 @@ extends RefCounted
 
 static var _set: Dictionary = {}
 static var _parsed: bool = false
+static var _nodes: Dictionary = {}        # name -> the node that IS that system
 
+## `--ablate=a,b` on the command line, or LA_ABLATE in the environment.
 static func off(system: String) -> bool:
 	if not _parsed:
 		_parsed = true
-		if OS.has_environment("LA_ABLATE"):
-			for n in OS.get_environment("LA_ABLATE").split(",", false):
-				_set[n.strip_edges()] = true
+		var csv: String = OS.get_environment("LA_ABLATE")
+		for arg in OS.get_cmdline_user_args():
+			if arg.begins_with("--ablate="):
+				csv += "," + arg.substr("--ablate=".length())
+		for n in csv.split(",", false):
+			_set[n.strip_edges()] = true
 	return _set.has(system)
+
+
+## Every per-frame module answers to ONE name here. Off = no processing, no timers, not drawn.
+static func adopt(name: String, node: Node) -> void:
+	if node == null:
+		return
+	_nodes[name] = node
+	if off(name):
+		set_on(name, false)
+		print("ABLATED={name:%s}" % name)
+
+
+static func set_on(name: String, on: bool) -> void:
+	var node: Node = _nodes.get(name, null)
+	if node == null or not is_instance_valid(node):
+		return
+	node.process_mode = Node.PROCESS_MODE_INHERIT if on else Node.PROCESS_MODE_DISABLED
+	if "visible" in node and not (node is Camera3D):
+		node.set("visible", on)
+
+
+static func names() -> PackedStringArray:
+	var out: PackedStringArray = PackedStringArray(_nodes.keys())
+	out.sort()
+	return out
 
 
 const LIFE_FULL: String = "full"

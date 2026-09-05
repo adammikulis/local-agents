@@ -30,7 +30,7 @@ func setup(world: Node) -> void:
 	if _material != null:
 		_queries = _material.get("_queries")   # the read-accessor object, not the hub
 	_build_registry()
-	LASimReport.register(Callable(self, "report"))
+	LASimReport.register(Callable(self, "report"), true)
 	print("EVENT_TRACKER={armed:%s}" % str(_detectors.map(func(d): return d.phenomenon())))
 
 

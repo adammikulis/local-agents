@@ -37,8 +37,7 @@ LOG_DIR="${LOG_DIR:-${TMPDIR:-/tmp}}"
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/fixture_check_$(date +%s).log"
 
-LA_NO_STREAMER=1 LA_NO_EVENT_TRACKER=1 \
-  "$SCRIPT_DIR/run_sim_offscreen.sh" --path . "$SCENE" -- --smoke --load-fixture="$FIXTURE_DIR" --run-frames="$FRAMES" \
+  "$SCRIPT_DIR/run_sim_offscreen.sh" --path . "$SCENE" -- --smoke --ablate=events --load-fixture="$FIXTURE_DIR" --run-frames="$FRAMES" \
   > "$LOG_FILE" 2>&1
 
 if grep -qiE 'SCRIPT ERROR|Parse Error|Failed loading resource|dependency error' "$LOG_FILE"; then

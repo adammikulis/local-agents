@@ -254,6 +254,13 @@ func save_to_slot(slot: String) -> int:
 	return err
 
 
+## Full field steps since the seal, or -1 with no field: what a snapshot is keyed on.
+func field_version() -> int:
+	if _world == null or _world._material == null:
+		return -1
+	return _world._material.step_driver().full_steps()
+
+
 func capture_snapshot() -> Dictionary:
 	if _world == null or _world._material == null:
 		return {}

@@ -59,8 +59,6 @@ const FISH_EVERY_STEPS: int = 25
 const TREE_EVERY_STEPS: int = 14         # forest succession: groves densify on biomass-rich ground
 var _aquatic_kinds_cache: Array = []     # aquatic species ids (config aquatic:true), indexed once
 var _aquatic_indexed: bool = false
-var _land_kinds_cache: Array = []        # land creature species ids (has diet, not aquatic), indexed once
-var _land_indexed: bool = false
 var _kinship: LAKinshipGraph = LAKinshipGraph.new()
 
 
@@ -105,18 +103,6 @@ func _aquatic_kinds() -> Array:
 		if bool(cfg.get("aquatic", false)):
 			_aquatic_kinds_cache.append(String(kind))
 	return _aquatic_kinds_cache
-
-
-func _land_kinds() -> Array:
-	if _land_indexed:
-		return _land_kinds_cache
-	_land_indexed = true
-	_land_kinds_cache = []
-	for kind in LASpeciesLibrary.known_kinds():
-		var cfg: Dictionary = LASpeciesLibrary.load_config(String(kind))
-		if not bool(cfg.get("aquatic", false)) and cfg.has("diet"):
-			_land_kinds_cache.append(String(kind))
-	return _land_kinds_cache
 
 
 func _plant_config() -> Dictionary:
@@ -425,8 +411,6 @@ func broadcast_scare(world_pos: Vector3, radius: float, base_intensity: float = 
 
 ## ONE simulated step. LASimLoop drives it; nothing here reads a frame delta.
 func on_sim_step(step: int) -> void:
-	if LAAblate.off("ecology"):
-		return
 	if terrain == null or actors_root == null:
 		return
 	_process_pending()

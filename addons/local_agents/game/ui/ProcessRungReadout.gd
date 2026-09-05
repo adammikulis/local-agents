@@ -31,7 +31,7 @@ func refresh() -> void:
 	var custom: PackedStringArray = LAProcessSet.custom()
 	(_values["Rung"] as Label).text = ("custom (%d)" % custom.size()) if not custom.is_empty() \
 		else LAProcessSet.name_of(LAProcessSet.active())
-	var snap: Dictionary = LASimReport.snapshot()
+	var snap: Dictionary = LASimReport.snapshot(true)
 	var gauges: Dictionary = snap.get("gauges", {})
 	(_values["Step"] as Label).text = _gauge(gauges, "field_ms", "%.1f ms")
 	(_values["Levels"] as Label).text = _gauge(gauges, "transport_levels", "%.0f")

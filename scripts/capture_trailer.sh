@@ -14,7 +14,6 @@ DIR="$(cd "$(dirname "$0")/.." && pwd)"
 mkdir -p "$DIR/trailers"
 OUT="${2:-$DIR/trailers/${SHOT}.avi}"
 export LA_MUSIC_SEED="${LA_MUSIC_SEED:-1234}"
-export LA_NO_STREAMER=1
 export LA_MOVIE_RES="${LA_MOVIE_RES:-1280x720}"
 SCENE="addons/local_agents/game/VoxelWorld.tscn"
 echo "[trailer] shot=$SHOT out=$OUT res=$LA_MOVIE_RES"

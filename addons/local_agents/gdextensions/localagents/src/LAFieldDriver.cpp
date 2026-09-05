@@ -120,8 +120,6 @@ void LAFieldDriver::step(const Array &p_passes, const PackedStringArray &p_names
 	const bool probed = p_probe.is_valid();
 	if (probed) {
 		p_probe.call(-1, String("start"));
-	} else {
-		_rd->capture_timestamp("field_start");
 	}
 	for (int i = 0; i < p_passes.size(); ++i) {
 		Object *p = p_passes[i];
@@ -133,9 +131,6 @@ void LAFieldDriver::step(const Array &p_passes, const PackedStringArray &p_names
 		_rd->compute_list_end();
 		// ONE PASS IS THE MOST A SUBMIT MAY HOLD: the device's fence wait is finite and a whole step in
 		// one submit outran it. A submit per pass also orders each pass after the one before it.
-		if (!probed) {
-			_rd->capture_timestamp(i < p_names.size() ? p_names[i] : String());
-		}
 		_rd->submit();
 		_rd->sync();
 		if (probed) {

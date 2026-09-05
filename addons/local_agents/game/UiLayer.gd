@@ -64,6 +64,11 @@ func build(world: Node, sim: LASimulation, render: LARenderLayer, input: LAVoxel
 	_debug.set_interaction(_interaction)
 	_thought_panel.setup(_interaction)
 	_tutorial.setup(_interaction, _hud, _game_hud, _input, _progression)
+	for pair in [["progression", _progression], ["hud", _hud], ["game_hud", _game_hud], ["time_control", _time_control],
+			["audio", _audio], ["debug", _debug], ["brush", _brush], ["interaction", _interaction],
+			["companion", _companion], ["thought_panel", _thought_panel], ["tutorial", _tutorial],
+			["vector_legend", _vector_legend]]:
+		LAAblate.adopt(pair[0], pair[1])
 
 	# The input controller parses the command line in every run; its Esc menu and view-controls bar are
 	# Controls, and they hang here so no presentation node lives on the simulation side.
