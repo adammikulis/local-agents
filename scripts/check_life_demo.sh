@@ -27,15 +27,16 @@ import json, re, sys
 log, rc, min_fps = sys.argv[1], int(sys.argv[2]), float(sys.argv[3])
 text = open(log, errors="replace").read()
 
+def every(prefix):
+    return [l[len(prefix):] for l in text.splitlines() if l.startswith(prefix)]
+
 def last(prefix):
-    hit = None
-    for line in text.splitlines():
-        if line.startswith(prefix):
-            hit = line[len(prefix):]
-    return hit
+    got = every(prefix)
+    return got[-1] if got else None
 
 report = last("SIM_REPORT=")
-pop = last("POP_TRACE=")
+pops = every("POP_TRACE=")
+pop = pops[-1] if pops else None
 if report is None or pop is None:
     print("check_life_demo: the run published no %s (exit %d)."
           % ("SIM_REPORT" if report is None else "POP_TRACE", rc), file=sys.stderr)
@@ -64,11 +65,18 @@ if errs:
 if "WORLD_SEALED=" not in text:
     fails.append("the world never sealed, so nothing it did was under conservation")
 
-# EVERY SEEDED KIND IS STILL THERE.
+# EVERY SEEDED KIND IS STILL THERE. What the world seeded is what its first trace counted, so a kind
+# this site has no room for (fish, where the box holds no open sea) is not demanded of it, and a kind it
+# did seed may not go to zero.
 counts = trace.get("counts", {})
-for kind in ("creatures", "plants", "trees", "fish"):
+first = load(pops[0], "POP_TRACE").get("counts", {})
+seeded = [k for k, n in first.items() if int(n) > 0]
+for kind in seeded:
     if int(counts.get(kind, 0)) <= 0:
-        fails.append("no %s are left alive at the end of the run" % kind)
+        fails.append("the run seeded %s and none are left alive at the end" % kind)
+for kind in ("creatures", "plants", "trees"):
+    if int(first.get(kind, 0)) <= 0:
+        fails.append("the world seeded no %s at all, so there is no demo to look at" % kind)
 
 # WHAT FEEDS LIFE IS A DECLARED STAND-IN, AND IT ACTUALLY FED SOMETHING. `created` is what the fake made;
 # zero means either the real path is carrying it (then the record must go) or life is running on nothing.

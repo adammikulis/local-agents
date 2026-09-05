@@ -454,6 +454,7 @@ func _physics_process(delta: float) -> void:
 	if gut_microbiome != null:
 		gut_microbiome.tick(self, delta)
 	# Thirst + ageing — see LACreatureMetabolism. Death stops us.
+	LACreatureThirst.sip(self, global_position, delta)
 	if LACreatureMetabolism.tick(self, delta):
 		return
 	if terrain == null:

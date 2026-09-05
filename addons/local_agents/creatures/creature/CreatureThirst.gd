@@ -6,6 +6,17 @@ const DRINK_OVER_TURNOVER: float = 60.0
 const THIRSTY_FRACTION: float = 0.5        # below this, seeking water interrupts other drives
 
 
+## An animal standing in water drinks, whatever else it is doing: only SEEKING water competes with
+## fleeing or foraging, and this runs on the body's clock, not on the stride its decisions run at.
+static func sip(c, pos: Vector3, delta: float) -> void:
+	if c._material == null or not c._material.has_method("is_water_at"):
+		return
+	if c.hydration >= c.max_hydration * THIRSTY_FRACTION:
+		return
+	if LAFakes.stands_in("drinking_water") or c._material.is_water_at(pos):
+		drink(c, pos, delta)
+
+
 static func handle_thirst(c, pos: Vector3, delta: float) -> String:
 	if c._material == null or not c._material.has_method("is_water_at"):
 		return ""
@@ -34,8 +45,8 @@ static func drink(c, pos: Vector3, delta: float) -> float:
 	if c._material == null or not c._material.has_method("drink_water"):
 		return 0.0
 	var got: float = c._material.drink_water(pos, want)
-	if got <= 0.0:
-		got = LAFakes.draw("drinking_water", want)
+	if got < want:
+		got += LAFakes.draw("drinking_water", want - got)
 	c.hydration = minf(c.max_hydration, c.hydration + got)
 	return got
 

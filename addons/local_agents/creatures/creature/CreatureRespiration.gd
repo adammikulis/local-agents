@@ -105,8 +105,8 @@ static func tick(c, pos: Vector3, delta: float) -> bool:
 	var extent: float = want
 	if c._material != null:
 		extent = c._material.respire_at(pos, want)
-		if extent <= 0.0:
-			extent = LAFakes.draw("breathable_o2", want)
+		if extent < want:
+			extent += LAFakes.draw("breathable_o2", want - extent)
 	c.energy -= extent
 	c._resp_rate = extent / maxf(delta * evo, 1e-6)
 	c._resp_capacity = capacity / maxf(delta * evo, 1e-6)
