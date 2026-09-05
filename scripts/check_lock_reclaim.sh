@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # THE MACHINE-WIDE LOCKS CANNOT BE LEFT OWNERLESS, AND THEY ARE HANDED OUT IN ARRIVAL ORDER. la_dir_lock
 # takes a lock in one atomic create that carries the owner's pid, reclaims one whose owner is dead (of
-# either shape), waits on a live one, and gives it to the OLDEST waiter -- not to whoever polls first.
-# EXIT 0 all five hold · 1 one does not · 2 could not run.
+# either shape), waits on a live one, gives it to the OLDEST waiter -- not to whoever polls first --
+# serves LA_LOCK_PRIORITY=1 ahead of every plain waiter, and refuses a take that would invert the order
+# (the extension lock FIRST, the GPU lock LAST).
+# EXIT 0 all seven hold · 1 one does not · 2 could not run.
 set -u
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_godot_lock.sh" || exit 2
@@ -44,6 +46,51 @@ GOT="$(tr '\n' ' ' < "$ORDER" | sed 's/ *$//')"
 if [ "$GOT" != "slow fast" ]; then
   echo "the lock was handed out in the order \"$GOT\", not in arrival order \"slow fast\"" >&2
   fail=1
+fi
+
+# --- TIERS: a priority waiter queued LAST is served FIRST ---------------------------------------------
+: > "$ORDER"
+ln -s "$$" "$T/f"
+# The priority waiter queues LAST and polls SLOWEST, so nothing but the tier can put it first.
+tiered() {  # tiered <name> <LA_LOCK_PRIORITY> <poll seconds>
+  LA_LOCK_PRIORITY="$2" bash -c '
+    . "'"$ROOT"'/scripts/lib_godot_lock.sh"
+    la_dir_lock "'"$T"'/f" 60 "$2" || exit 1
+    echo "$1" >> "'"$ORDER"'"
+    rm -rf "'"$T"'/f"
+    la_dir_unqueue "'"$T"'/f"
+  ' _ "$1" "$3" &
+}
+tiered plain1 0 1
+sleep 1
+tiered plain2 0 1
+sleep 1
+tiered urgent 1 3
+sleep 1
+rm -rf "$T/f"
+la_dir_unqueue "$T/f"
+wait
+GOT="$(tr '\n' ' ' < "$ORDER" | sed 's/ *$//')"
+if [ "$GOT" != "urgent plain1 plain2" ]; then
+  echo "the lock was handed out \"$GOT\", not priority-first then arrival order \"urgent plain1 plain2\"" >&2
+  fail=1
+fi
+
+# --- ORDER: the GPU lock is taken LAST, so the extension lock may not be taken while it is held --------
+# Locks under $T carrying the machine locks' NAMES: la_lock_rank reads the basename, and a gate may not
+# reach for a lock another lane is holding.
+EXT="$T/$(basename "$GODOT_LOCK_DIR")"
+GPU="$T/$(basename "$LA_GPU_LOCK_DIR")"
+if LA_LOCKS_HELD="$(basename "$LA_GPU_LOCK_DIR")" la_dir_lock "$EXT" 2 1 2>/dev/null; then
+  echo "the extension lock was taken by a caller already holding the GPU lock" >&2
+  rm -rf "$EXT"
+  fail=1
+fi
+if ! LA_LOCKS_HELD="$(basename "$GODOT_LOCK_DIR")" la_dir_lock "$GPU" 2 1 2>/dev/null; then
+  echo "the GPU lock was refused to a caller holding only the extension lock, which is the right order" >&2
+  fail=1
+else
+  rm -rf "$GPU"
 fi
 
 [ "$fail" -eq 0 ] && echo "check_lock_reclaim: OK"

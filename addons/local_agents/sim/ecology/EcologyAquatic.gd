@@ -17,7 +17,7 @@ func setup(eco: LAEcologyService) -> void:
 func stock_initial_aquatic() -> void:
 	for kind in _eco._aquatic_kinds():
 		var cfg: Dictionary = _eco._species_config(String(kind))
-		var initial: int = int(round(float(cfg.get("initial", 0)) * LAEcologyService.AQUATIC_STOCK_MULT))
+		var initial: int = int(cfg.get("initial", 0))
 		for i in range(initial):
 			var wet: Vector3 = _random_aquatic_point(cfg)
 			if not is_nan(wet.x):
@@ -30,7 +30,7 @@ func _random_aquatic_point(cfg: Dictionary) -> Vector3:
 	var pc: Vector3 = _eco.terrain.planet_center()
 	var sea_r: float = _eco.terrain.sea_radius()
 	for i in range(AQUATIC_SAMPLE_TRIES):
-		var dir: Vector3 = LAEcologySpawner._random_sphere_dir()
+		var dir: Vector3 = _eco.random_field_dir()
 		var ground_r: float = _eco._surface_radius(dir)
 		if is_nan(ground_r) or ground_r >= sea_r:
 			continue                                  # dry land poking above sea level

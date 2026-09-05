@@ -14,43 +14,11 @@ func disturb_ground(world_pos: Vector3, radius: float, strength: float) -> void:
 		_material.disturb_terrain(world_pos, radius, strength)
 
 
-static func blast_falloff(d: float, radius: float) -> float:
-	if radius <= 0.0:
-		return 0.0
-	var f: float = clampf(1.0 - d / radius, 0.0, 1.0)
-	return f * f
-
-
-func damage_sphere(world_pos: Vector3, radius: float, base_damage: float = 1000.0) -> void:
-	var r2: float = radius * radius
-	for actor in get_tree().get_nodes_in_group("selectable"):
-		if not is_instance_valid(actor) or not (actor is Node3D):
-			continue
-		var a: Node3D = actor as Node3D
-		var d2: float = a.global_position.distance_squared_to(world_pos)
-		if d2 > r2:
-			continue
-		if a.has_method("take_damage"):
-			var falloff: float = blast_falloff(sqrt(d2), radius)
-			if falloff <= 0.0:
-				continue
-			# Fling scales with proximity too, so the killing blow throws the corpse outward.
-			var away: Vector3 = a.global_position - world_pos
-			away.y = absf(away.y) + 2.0
-			var impulse: Vector3 = away.normalized() * (14.0 + 34.0 * falloff)
-			a.take_damage(base_damage * falloff, "blast", impulse)
-		elif a.has_method("topple"):
-			# Trees don't vanish — the blast knocks them over, falling away from impact.
-			var dir: Vector3 = a.global_position - world_pos
-			dir.y = 0.0
-			a.topple(dir)
-		elif a.has_method("die"):
-			var away2: Vector3 = a.global_position - world_pos
-			away2.y = absf(away2.y) + 2.0
-			var force: float = 1.0 - a.global_position.distance_to(world_pos) / maxf(1.0, radius)
-			a.die("meteor", away2.normalized() * (14.0 + 34.0 * force))
-		elif not a.is_in_group("corpse"):
-			a.queue_free()
+## What a blast does to a body is set by the peak overpressure that reaches it, which follows from the
+## impactor's energy and the air it drives. Nothing in this world computes one, so nothing here invents a
+## damage number, a falloff or an impulse: the impact-energy lane fills this seam in.
+func damage_sphere(world_pos: Vector3, radius: float) -> void:
+	push_error("LAEcologyStimulus.damage_sphere at %s r=%.1f: no overpressure relation is in this world." % [world_pos, radius])
 
 
 # Broadcast a felt/heard terror event (meteor impact, etc). Every creature within `radius` panics and

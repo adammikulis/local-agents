@@ -1,3 +1,3 @@
 # Queries typed bool or int that answer from a literal when the substrate they measure is absent.
 # A ratchet: it may fall and never rise. There is no empty bool, so each of these is a reading nobody took.
-11
+9

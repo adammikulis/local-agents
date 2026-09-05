@@ -44,7 +44,7 @@ name = "check_lock_reclaim"
 script = "scripts/check_lock_reclaim.sh"
 kind = "text"
 marker = "^check_lock_reclaim: OK"
-mutation = "python3 -c \"p='scripts/lib_godot_lock.sh'; s=open(p).read(); open(p,'w').write(s.replace('if [ \\\"$head\\\" = \\\"$n\\\" ] && [ ! -d \\\"$lock\\\" ]', 'if [ ! -d \\\"$lock\\\" ]'))\""
+mutation = "perl -0pi -e 's/\\[ -z \"\\$ahead\" \\] && //' scripts/lib_godot_lock.sh"
 
 [[gate]]
 name = "check_gate_shapes"
@@ -129,6 +129,21 @@ name = "check_demo_catalog"
 script = "scripts/check_demo_catalog.sh"
 kind = "text"
 marker = "^check_demo_catalog: OK"
+
+[[gate]]
+name = "check_fakes"
+script = "scripts/check_fakes.sh"
+kind = "text"
+marker = "^check_fakes: OK"
+mutation = "perl -0pi -e 's/LAFakes\\.stands_in\\(\"recruitment_rate\"\\)/LAFakes.stands_in(\"undeclared_stand_in\")/' addons/local_agents/sim/ecology/EcologyBreeding.gd"
+
+[[gate]]
+name = "check_life_demo"
+script = "scripts/check_life_demo.sh"
+kind = "gpu"
+marker = "^check_life_demo: OK"
+mutation = "perl -0pi -e 's/LAFakes\\.draw\\(\"plant_carbon\", want_mass\\)/0.0/' addons/local_agents/sim/actors/Plant.gd"
+needs = ["import"]
 
 [[gate]]
 name = "check_public_surface"
