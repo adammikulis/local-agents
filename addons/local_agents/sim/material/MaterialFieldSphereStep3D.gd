@@ -205,9 +205,6 @@ func step() -> void:
 	if _f._gpu.has_method("set_sea_radius"):
 		_f._gpu.set_sea_radius(_f.sea_radius())
 	if _f._inject != null and not _f._inject.queue.is_empty():
-		if _armed("LA_INJECT_AUDIT"):
-			# Diagnostic.
-			_f._inject.queue.audit_rewind(_f._gpu, "h2o", _f._h2o)
 		_f._inject.queue.flush(_f._gpu)
 	# Boundary face-state record/replay: samples at the drain, feeds REPLAY tails before the dispatch.
 	if _f._capture != null:
