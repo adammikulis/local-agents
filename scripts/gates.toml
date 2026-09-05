@@ -658,6 +658,13 @@ kind = "gpu"
 marker = "^check_native_device: OK"
 
 [[gate]]
+name = "check_kernel_properties"
+script = "scripts/check_kernel_properties.sh"
+kind = "gpu"
+marker = "^check_kernel_properties: OK"
+mutation = "sed -i '' 's|acc += la_load(uint(a));|acc -= la_load(uint(a));|' addons/local_agents/sim/material/kernels3d/pressure.glsl"
+
+[[gate]]
 name = "check_shaders_compile"
 script = "scripts/check_shaders_compile.sh"
 kind = "headless"

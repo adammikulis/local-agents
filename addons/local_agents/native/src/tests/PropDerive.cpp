@@ -1,0 +1,365 @@
+#include "Channels.hpp"
+#include "Lattice.hpp"
+#include "Property.hpp"
+#include "Rig.hpp"
+#include "Rng.hpp"
+
+#include <cmath>
+#include <cstdio>
+#include <string>
+#include <vector>
+
+namespace lasim {
+namespace {
+
+constexpr uint32_t kN = 4;
+constexpr float kEdgeM = 500.0f;
+constexpr uint32_t kWords = 8192;
+constexpr uint32_t kDraws = 4;
+
+// state_derive.glsl's per-channel substance table: PROP_STRIDE words per channel, then the detection
+// thresholds. scripts/check_kernel_properties.sh holds these to the kernel's own declarations.
+constexpr uint32_t kPropStride = 12;
+constexpr uint32_t kPropM = 0;
+constexpr uint32_t kPropC = 1;
+constexpr uint32_t kPropMolPerKg = 2;
+constexpr uint32_t kPropEntry = 3;
+constexpr uint32_t kPropLambda = 4;
+constexpr uint32_t kPropFull = 5;
+constexpr uint32_t kPropAlpha = 6;
+constexpr uint32_t kPropBulk = 7;
+constexpr uint32_t kPropTref = 8;
+constexpr uint32_t kPropLithic = 9;
+constexpr uint32_t kPropRadGroup = 10;
+constexpr uint32_t kPropCondensed = 11;
+constexpr uint32_t kDetSlots = 5;
+
+// What check_derive_fixed_point.sh declares a second pass may move: float32 on the pressure, and the
+// ladder's own last bit on the temperature.
+constexpr double kTolK = 1.0e-3;
+constexpr double kTolPRel = 1.0e-5;
+// The ladder settles the room and the pressure to LA_STATE_TOL, and every enthalpy on the way is
+// float32; the round trip carries both.
+constexpr double kTolEnthalpyRel = 1.0e-4;
+
+struct Push {
+	uint32_t cell_count;
+	float dt_s;
+	float omega_x;
+	float omega_y;
+	float omega_z;
+	float centre_x;
+	float centre_y;
+	float centre_z;
+	float fresh_grain_m;
+	float lith_rate_per_pa;
+	float lith_pressure_pa;
+	float fresh_h_per_c;
+	float fresh_o_per_c;
+	float rad_w_kg_1;
+	float rad_w_kg_2;
+	float rad_w_kg_3;
+	float rad_w_kg_4;
+	float sea_radius_m;
+	float grav_self;
+	uint32_t lithify;
+	uint32_t detect;
+	uint32_t restate;
+	uint32_t args_slot;
+	uint32_t act_base;
+};
+
+// Everything the derive states about a cell, from its matter and its energy.
+const uint32_t kDerived[] = { LA_BIND_TEMP, LA_BIND_TEMP_LITH, LA_BIND_PRESSURE, LA_BIND_P_FLUID,
+	LA_BIND_RHO_BULK, LA_BIND_CONDUCTIVITY, LA_BIND_CONDUCTIVITY_LITH, LA_BIND_CAP_SENSIBLE,
+	LA_BIND_CAP_LITH, LA_BIND_LATTICE_FRAC, LA_BIND_H_H2O, LA_BIND_H_H2O_VAP, LA_BIND_H_SILICATE,
+	LA_BIND_H_SENSIBLE, LA_BIND_KE_J_M3, LA_BIND_PE_J_M3, LA_BIND_K_COND, LA_BIND_GAS_R,
+	LA_BIND_GAS_GAMMA, LA_BIND_LITHIC_FRAC, LA_BIND_LITHIC_KG, LA_BIND_H2O_SOLID, LA_BIND_H2O_LIQUID,
+	LA_BIND_H2O_VAPOUR, LA_BIND_SILICATE_MELT, LA_BIND_LIQUID, LA_BIND_VEL_X, LA_BIND_VEL_Y,
+	LA_BIND_VEL_Z, LA_BIND_SPEED, LA_BIND_E_J_M3, LA_BIND_E_LITH_J_M3, LA_BIND_RAD_W_M3,
+	LA_BIND_G_REST, LA_BIND_BODYF_X, LA_BIND_BODYF_Y, LA_BIND_BODYF_Z, LA_BIND_LAT, LA_BIND_ALT,
+	LA_BIND_ORG_HC, LA_BIND_ORG_OC, LA_BIND_ORG_FRESH };
+
+struct World {
+	Lattice lat = Lattice::box(kN, kN, kN, kEdgeM, 0.0f, 0.0f, 0.0f);
+	std::vector<float> props;
+	std::vector<float> energy;
+	std::vector<float> pressure;
+	float sea_radius = 0.0f;
+};
+
+// A substance table shaped like a real one — a molar mass, a heat capacity, a mixture entry, a fullness
+// — with every row's numbers drawn rather than quoted: the properties below hold for any of them.
+std::vector<float> draw_props(Rng &rng) {
+	std::vector<float> p(kChannelSlots * kPropStride + kDetSlots, 0.0f);
+	for (uint32_t i = 0; i < kChannelSlots; ++i) {
+		const uint32_t b = i * kPropStride;
+		const float m = rng.range(0.002f, 0.3f);
+		const bool condensed = rng.chance(0.5f);
+		// Fullness is the substance's own density over its molar mass, so a mole takes the volume its
+		// density says it does: a table drawn any other way describes no matter.
+		const float rho = condensed ? rng.range(500.0f, 8.0e3f) : rng.range(0.05f, 5.0f);
+		p[b + kPropM] = m;
+		p[b + kPropC] = rng.range(400.0f, 4200.0f);
+		p[b + kPropMolPerKg] = condensed ? 0.0f : 1.0f / m;
+		// One water entry and one silicate entry, the phase ladders the tree carries; the rest is
+		// linear in temperature, which is how the real table is shaped.
+		p[b + kPropEntry] = i == 0 ? 0.0f : (i == 1 ? 1.0f : 2.0f);
+		p[b + kPropLambda] = rng.decades(0.02f, 5.0f);
+		p[b + kPropFull] = rho / m;
+		p[b + kPropAlpha] = rng.decades(1.0e-5f, 3.0e-4f);
+		p[b + kPropBulk] = rng.chance(0.3f) ? 0.0f : rng.decades(1.0e9f, 2.0e11f);
+		p[b + kPropTref] = rng.range(0.0f, 25.0f);
+		p[b + kPropLithic] = (condensed && rng.chance(0.5f)) ? 1.0f : 0.0f;
+		p[b + kPropRadGroup] = float(rng.below(5));
+		p[b + kPropCondensed] = condensed ? 1.0f : 0.0f;
+	}
+	for (uint32_t k = 0; k < kDetSlots; ++k) {
+		p[kChannelSlots * kPropStride + k] = rng.decades(1.0e-3f, 1.0e3f);
+	}
+	return p;
+}
+
+World load(Rig &rig, Rng &rng) {
+	World w;
+	const uint32_t n = w.lat.cells();
+	rig.put(LA_BIND_NBR, w.lat.nbr);
+	rig.put(LA_BIND_FACE_PARTNER, w.lat.partner);
+	rig.put(LA_BIND_SLOT_OFF, w.lat.slot_off);
+	rig.put(LA_BIND_CELL_EDGE, w.lat.cell_edge);
+	rig.put(LA_BIND_POS, w.lat.pos);
+	rig.put(LA_BIND_VERT_UP, w.lat.vert_up);
+	rig.put(LA_BIND_VERT_DOWN, w.lat.vert_down);
+
+	w.props = draw_props(rng);
+	rig.put(LA_BIND_DERIVE_PROPS, w.props);
+
+	std::vector<float> v(n, 0.0f);
+	auto put = [&](uint32_t binding, float lo, float hi) {
+		for (uint32_t i = 0; i < n; ++i) { v[i] = rng.decades(lo, hi); }
+		rig.put(binding, v);
+		return v;
+	};
+	// Every channel holds something, so no cell is empty and the dead pool has a composition. A CELL IS
+	// NOT MORE THAN FULL: the amounts are scaled so the volume fractions they stand for sum under one,
+	// which is the only state the world has.
+	std::vector<std::vector<float>> amount(kChannelSlots, std::vector<float>(n, 0.0f));
+	for (uint32_t i = 0; i < kChannelSlots; ++i) {
+		for (uint32_t g = 0; g < n; ++g) { amount[i][g] = rng.decades(1.0e-2f, 1.0e2f); }
+	}
+	for (uint32_t g = 0; g < n; ++g) {
+		float vf = 0.0f;
+		for (uint32_t i = 0; i < kChannelSlots; ++i) {
+			vf += amount[i][g] / w.props[i * kPropStride + kPropFull];
+		}
+		const float fill = rng.range(0.05f, 0.95f);
+		if (vf > 0.0f) {
+			for (uint32_t i = 0; i < kChannelSlots; ++i) { amount[i][g] *= fill / vf; }
+		}
+	}
+	for (uint32_t i = 0; i < kChannelSlots; ++i) { rig.put(kChannelBinding[i], amount[i]); }
+	// THE STATE IS DRAWN AS A STATE: a temperature the planet has, and the energy that mixture holds at
+	// it, never an energy picked apart from the matter that carries it.
+	w.energy.assign(n, 0.0f);
+	const float vol = kEdgeM * kEdgeM * kEdgeM;
+	for (uint32_t g = 0; g < n; ++g) {
+		float mc = 0.0f;
+		for (uint32_t i = 0; i < kChannelSlots; ++i) {
+			mc += amount[i][g] * w.props[i * kPropStride + kPropM] * vol
+					* w.props[i * kPropStride + kPropC];
+		}
+		w.energy[g] = mc * (rng.range(-100.0f, 3000.0f) + 273.15f) / vol;
+	}
+	rig.put(LA_BIND_E_J_M3, w.energy);
+	w.pressure = put(LA_BIND_PRESSURE, 1.0e2f, 1.0e9f);
+	rig.put(LA_BIND_P_FLUID, w.pressure);
+	put(LA_BIND_TEMP, 200.0f, 400.0f);
+	put(LA_BIND_TEMP_LITH, 200.0f, 400.0f);
+	put(LA_BIND_GRAIN, 1.0e-5f, 1.0e-2f);
+	put(LA_BIND_MOM_X, 0.1f, 10.0f);
+	put(LA_BIND_MOM_Y, 0.1f, 10.0f);
+	put(LA_BIND_MOM_Z, 0.1f, 10.0f);
+	put(LA_BIND_GRAV_REF, 1.0e4f, 1.0e6f);
+	rig.zero(LA_BIND_GRAV_PHI);
+	// NO LATTICE: the cell's matter is all fluid, so the reservoir the round trip reads is the whole cell.
+	rig.zero(LA_BIND_CEMENT);
+	rig.zero(LA_BIND_SOLID);
+	rig.zero(LA_BIND_REGOLITH);
+	rig.zero(LA_BIND_E_LITH_J_M3);
+	rig.zero(LA_BIND_LEVEL_IDX);
+	rig.zero(LA_BIND_LEVEL_ARGS);
+
+	// A body that spins and carries a sea shell, so latitude and altitude are geometry and not absences.
+	std::vector<float> grav(size_t(n) * 3u, 0.0f);
+	for (uint32_t i = 0; i < n; ++i) { grav[i * 3u + 1u] = -9.80665f; }
+	rig.put(LA_BIND_GRAVITY, grav);
+	w.sea_radius = 0.4f * float(kN) * kEdgeM;
+	return w;
+}
+
+Push push_for(const World &w) {
+	Push p{};
+	p.cell_count = w.lat.cells();
+	p.dt_s = 1.0f;
+	p.omega_y = 7.2921159e-5f; // one sidereal rotation, rad/s
+	const float half = 0.5f * float(kN) * kEdgeM;
+	p.centre_x = half;
+	p.centre_y = half;
+	p.centre_z = half;
+	p.fresh_grain_m = 1.0e-4f;
+	p.fresh_h_per_c = 1.5f;
+	p.fresh_o_per_c = 0.7f;
+	p.rad_w_kg_1 = 1.0e-11f;
+	p.rad_w_kg_2 = 2.0e-11f;
+	p.rad_w_kg_3 = 3.0e-11f;
+	p.rad_w_kg_4 = 4.0e-11f;
+	p.sea_radius_m = w.sea_radius;
+	p.grav_self = 1.0f;
+	return p;
+}
+
+// ONE STATE PER CELL: the derive solves a temperature at a pressure and states a pressure from that
+// temperature, so a second pass over the state it wrote must return the same pair.
+bool prop_derive_is_a_fixed_point(Case &c) {
+	std::string err;
+	Rig rig(c.dev, "state_derive", kWords, err);
+	if (!rig.ok()) {
+		c.why = err;
+		return false;
+	}
+	Rng rng(c.seed);
+	rng.stream(71);
+	for (uint32_t d = 0; d < kDraws; ++d) {
+		const World w = load(rig, rng);
+		const Push p = push_for(w);
+		rig.run(&p, sizeof(p), w.lat.cells());
+		const std::vector<float> t1 = rig.get(LA_BIND_TEMP, w.lat.cells());
+		const std::vector<float> p1 = rig.get(LA_BIND_PRESSURE, w.lat.cells());
+		const std::vector<float> unconv = rig.get(LA_BIND_UNCONVERGED, w.lat.cells());
+		rig.run(&p, sizeof(p), w.lat.cells());
+		const std::vector<float> t2 = rig.get(LA_BIND_TEMP, w.lat.cells());
+		const std::vector<float> p2 = rig.get(LA_BIND_PRESSURE, w.lat.cells());
+		for (uint32_t g = 0; g < w.lat.cells(); ++g) {
+			// A cell whose solve did not converge has no state to return to.
+			if (unconv[g] != 0.0f || !(p1[g] > 0.0f)) { continue; }
+			c.examined += 1;
+			char buf[224];
+			if (std::fabs(double(shifted(t2[g], c.mutate)) - double(t1[g])) > kTolK) {
+				std::snprintf(buf, sizeof(buf),
+						"draw %u cell %u: the derive did not return the temperature it wrote "
+						"(%.9g then %.9g degC at %.9g Pa)",
+						d, g, double(t1[g]), double(t2[g]), double(p1[g]));
+				c.why = buf;
+				return false;
+			}
+			if (std::fabs(double(shifted(p2[g], c.mutate)) - double(p1[g]))
+					> kTolPRel * std::fabs(double(p1[g]))) {
+				std::snprintf(buf, sizeof(buf),
+						"draw %u cell %u: the derive did not return the pressure it wrote "
+						"(%.9g then %.9g Pa at %.9g degC)",
+						d, g, double(p1[g]), double(p2[g]), double(t1[g]));
+				c.why = buf;
+				return false;
+			}
+		}
+	}
+	return c.examined > 0;
+}
+
+// FINITE STATE FROM FINITE MATTER, every reading the step downstream reads, and the kernel's own
+// non-finite counter agreeing that there is nothing to count.
+bool prop_derive_writes_finite_state(Case &c) {
+	std::string err;
+	Rig rig(c.dev, "state_derive", kWords, err);
+	if (!rig.ok()) {
+		c.why = err;
+		return false;
+	}
+	Rng rng(c.seed);
+	rng.stream(72);
+	for (uint32_t d = 0; d < kDraws; ++d) {
+		const World w = load(rig, rng);
+		const Push p = push_for(w);
+		rig.run(&p, sizeof(p), w.lat.cells());
+		const std::vector<float> nf = rig.get(LA_BIND_NONFINITE, w.lat.cells());
+		for (uint32_t g = 0; g < w.lat.cells(); ++g) {
+			c.examined += 1;
+			if (double(shifted(nf[g], c.mutate)) != 0.0) {
+				c.why = "the derive counted a non-finite reading over finite matter";
+				return false;
+			}
+		}
+		for (uint32_t b : kDerived) {
+			const std::vector<float> got = rig.get(b, size_t(w.lat.cells()) * 3u);
+			for (uint32_t i = 0; i < w.lat.cells(); ++i) {
+				c.examined += 1;
+				if (!std::isfinite(c.mutate ? std::nanf("") : got[i])) {
+					char buf[160];
+					std::snprintf(buf, sizeof(buf),
+							"binding %u came back non-finite over finite matter", b);
+					c.why = buf;
+					return false;
+				}
+			}
+		}
+	}
+	return c.examined > 0;
+}
+
+// THE LADDER INVERTS ITSELF: the temperature solved from the cell's enthalpy restates that enthalpy,
+// entry by entry. With no lattice the whole cell is one reservoir, so the four entry enthalpies sum to
+// the internal energy handed in plus the flow work over the room the fluid stands in.
+bool prop_derive_enthalpy_round_trip(Case &c) {
+	std::string err;
+	Rig rig(c.dev, "state_derive", kWords, err);
+	if (!rig.ok()) {
+		c.why = err;
+		return false;
+	}
+	Rng rng(c.seed);
+	rng.stream(73);
+	for (uint32_t d = 0; d < kDraws; ++d) {
+		const World w = load(rig, rng);
+		const Push p = push_for(w);
+		rig.run(&p, sizeof(p), w.lat.cells());
+		const std::vector<float> unconv = rig.get(LA_BIND_UNCONVERGED, w.lat.cells());
+		const std::vector<float> rho = rig.get(LA_BIND_RHO_BULK, w.lat.cells());
+		const std::vector<float> p_fluid = rig.get(LA_BIND_P_FLUID, w.lat.cells());
+		const std::vector<float> lithic = rig.get(LA_BIND_LITHIC_FRAC, w.lat.cells());
+		const std::vector<float> h_h2o = rig.get(LA_BIND_H_H2O, w.lat.cells());
+		const std::vector<float> h_vap = rig.get(LA_BIND_H_H2O_VAP, w.lat.cells());
+		const std::vector<float> h_sil = rig.get(LA_BIND_H_SILICATE, w.lat.cells());
+		const std::vector<float> h_sen = rig.get(LA_BIND_H_SENSIBLE, w.lat.cells());
+		for (uint32_t g = 0; g < w.lat.cells(); ++g) {
+			if (unconv[g] != 0.0f || !(rho[g] > 0.0f)) { continue; }
+			const double room_f = 1.0 - double(lithic[g]);
+			const double handed = double(w.energy[g]) + double(p_fluid[g]) * room_f;
+			const double back = double(h_h2o[g]) + double(h_vap[g]) + double(h_sil[g])
+					+ double(h_sen[g]);
+			const double scale = std::fabs(double(w.energy[g]))
+					+ std::fabs(double(p_fluid[g]) * room_f) + std::fabs(double(h_h2o[g]))
+					+ std::fabs(double(h_vap[g])) + std::fabs(double(h_sil[g]))
+					+ std::fabs(double(h_sen[g]));
+			c.examined += 1;
+			if (std::fabs(double(shifted(float(back), c.mutate)) - handed)
+					> kTolEnthalpyRel * scale) {
+				c.why = "the enthalpy the mixture states at the solved temperature is not the "
+						"enthalpy the solve was handed";
+				return false;
+			}
+		}
+	}
+	return c.examined > 0;
+}
+
+} // namespace
+
+void add_derive_properties(std::vector<Property> &out) {
+	out.push_back({ "state_derive.glsl", "derive_is_a_fixed_point", prop_derive_is_a_fixed_point });
+	out.push_back({ "state_derive.glsl", "derive_writes_finite_state",
+			prop_derive_writes_finite_state });
+	out.push_back({ "state_derive.glsl", "derive_enthalpy_round_trip",
+			prop_derive_enthalpy_round_trip });
+}
+
+} // namespace lasim
