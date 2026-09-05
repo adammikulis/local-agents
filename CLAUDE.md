@@ -264,7 +264,7 @@ a stepped process. Success is special-case code deleted.
   of a substance.
 - A gate that passes with the feature disabled is not a gate. Build the disabled arm. A gate that cannot
   run fails (exit 2), never passes (`scripts/lib_require.sh`).
-- Six criteria in `PHYSICS_RUBRIC.md`; `scripts/physics_score.sh` computes what it can.
+- Ten criteria in `PHYSICS_RUBRIC.md`; `scripts/physics_score.sh` computes what it can.
 
 ## Repository policy
 
