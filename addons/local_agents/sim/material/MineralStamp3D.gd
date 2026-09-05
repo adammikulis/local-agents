@@ -151,7 +151,7 @@ func _open_neighbour(c: int, solid: PackedByteArray) -> int:
 
 
 ## TEST HOOK (--stamp-test): raise a void cell's mineral to `amount` as consolidated rock, so the next scan
-## fires a GROW stamp. The gain is a sourceless add and is booked as mineral_minted. Not used in normal play.
+## fires a GROW stamp. The gain is a sourceless add, booked as created. Not used in normal play.
 func debug_deposit(world_pos: Vector3, amount: float) -> void:
 	var c: int = _f.world_to_cell(world_pos)
 	if c < 0 or c >= _f._cell_count or _f._silicate.size() != _f._cell_count:
@@ -161,6 +161,5 @@ func debug_deposit(world_pos: Vector3, amount: float) -> void:
 	_f._silicate[c] = maxf(_f._silicate[c], want)
 	if gain > 0.0 and _f._inject != null:
 		_f._inject.queue.add("silicate", PackedInt32Array([c]), PackedFloat32Array([gain]), want)
-		if _f._gpu != null:
-			_f._gpu.add_field_sparse("cement", PackedInt32Array([c]), PackedFloat32Array([1.0]), 1.0)
+		_f._inject.queue.add("cement", PackedInt32Array([c]), PackedFloat32Array([1.0]), 1.0)
 	arm()

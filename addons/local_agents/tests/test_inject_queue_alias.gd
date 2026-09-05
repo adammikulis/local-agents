@@ -26,7 +26,7 @@ func run_test(_tree: SceneTree) -> bool:
 
 	ok = _assert(amounts.size() == 7, "the merged op must carry both edits' amounts, got %d" % amounts.size()) and ok
 	ok = _assert(src_cells.size() == amounts.size(),
-		"src_cells (%d) must match amounts (%d) or move_field_sparse silently drops the whole transfer; got %s"
+		"src_cells (%d) must match amounts (%d) or the transfer is dropped whole; got %s"
 			% [src_cells.size(), amounts.size(), str(src_cells)]) and ok
 	ok = _assert(dst_cells.size() == amounts.size(),
 		"dst_cells (%d) must match amounts (%d); an in-place transfer must not alias its own source"

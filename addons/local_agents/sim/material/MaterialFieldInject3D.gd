@@ -3,11 +3,11 @@ extends RefCounted
 
 ## LAMaterialFieldInject3D: the WRITE-side injection + FX API of the dense 3D MaterialField3D, factored
 
-const QueueScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldHeatQueue3D.gd")
+const QueueScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldInjectQueue3D.gd")
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
 
-var queue: LAMaterialFieldHeatQueue3D = QueueScript.new()
+var queue: LAMaterialFieldInjectQueue3D = QueueScript.new()
 
 # CRATER TELEMETRY: cells the most recent excavation opened, re-read live at report time.
 const CRATER_WATCH_MAX: int = 256
@@ -36,7 +36,7 @@ func setup(field) -> void:
 ## GPU driver). The box/CPU field has no such driver and nothing flushes the queue there, so its injectors must
 ## not park ops that would accumulate forever.
 func _device_ready() -> bool:
-	return _f != null and _f._gpu != null and _f._gpu.has_method("move_field_sparse")
+	return _f != null and _f._gpu != null and _f._gpu.has_method("queue_sparse")
 
 
 # --- Local field injection (add_heat_energy) -----------------------------------------
@@ -93,7 +93,7 @@ func take_biomass(world_pos: Vector3, want: float) -> float:
 	if avail <= 0.0:
 		return 0.0
 	var take: float = minf(want, avail)
-	queue.carbon_transfer("biomass", PackedInt32Array([c]), PackedFloat32Array([take]),
+	queue.transfer("biomass", PackedInt32Array([c]), PackedFloat32Array([take]),
 		"biomass", PackedInt32Array([-1]))
 	return take
 
@@ -127,12 +127,9 @@ func deposit_sediment(world_pos: Vector3, amount: float) -> void:
 ## Drain the consolidated share of these cells to zero. `cement` is a fraction, not matter, so this moves
 ## nothing and mints nothing — it records that the rock fabric is gone.
 func _uncement(cells: PackedInt32Array) -> void:
-	if _f._gpu == null or cells.size() == 0:
+	if cells.size() == 0:
 		return
-	var drain: PackedFloat32Array = PackedFloat32Array()
-	drain.resize(cells.size())
-	drain.fill(LAMaterialSphereGPU3D.DRAIN_ALL)
-	_f._gpu.add_field_sparse("cement", cells, drain)
+	queue.discard("cement", cells)
 
 
 ## Hand mass an actor was holding back to the field as DEAD ORGANIC MATTER at `world_pos` — an uprooted plant,
@@ -144,7 +141,7 @@ func return_detritus(world_pos: Vector3, amount: float) -> void:
 	var c: int = _f.world_to_cell(world_pos)
 	if c < 0 or c >= _f._cell_count:
 		return
-	queue.carbon_return("detritus", PackedInt32Array([c]), PackedFloat32Array([amount]))
+	queue.add("detritus", PackedInt32Array([c]), PackedFloat32Array([amount]))
 
 
 ## Packed arrays are copy-on-write VALUE types in GDScript — an in-place helper would scale a copy and leave
@@ -205,10 +202,9 @@ func add_water_pooled(center: Vector3, amount: float, radius: float) -> void:
 			fill_cells.append(c)
 	if fill_cells.size() == 0:
 		return
-	queue.note_demand(amount * float(fill_cells.size()))
 	# The moisture to condense is gathered from the WHOLE bubble, not only the cells being filled — a raincloud
 	# is wider than the puddle it makes — and spread over the fill cells in proportion to what each source
-	# held. `move_field_sparse` clamps every take to the live value, so a stale mirror can only under-deliver.
+	# held. The device clamps every take to the live value, so a stale mirror can only under-deliver.
 	var src_cells: PackedInt32Array = PackedInt32Array()
 	var takes: PackedFloat32Array = PackedFloat32Array()
 	var dsts: PackedInt32Array = PackedInt32Array()

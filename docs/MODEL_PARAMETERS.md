@@ -223,7 +223,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MineralStamp3D.gd` | `STAMP_BUDGET` | 96 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialSphereGPU3D.gd` | `CHANNEL_HOLD_DRAINS` | 20 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialSphereGPU3D.gd` | `SLOW_READBACK_EVERY` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialSphereGPU3D.gd` | `DRAIN_ALL` | -1.0e30 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldMineralProfile3D.gd` | `SAMPLE_EVERY` | 100 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `VAPOUR_TRANSFER_COEFF` | 1.2e-3 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `SOIL_SURFACE_RESISTANCE_S_M` | 1000.0 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -269,7 +268,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/reactions/BioRecords.gd` | `SOIL_MICROBIAL_C_KG_PER_M2` | 0.128 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/CombustionRecords.gd` | `PYROLYSIS_REF_TEMP_K` | 600.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionBalance.gd` | `TOL` | 1.0e-6 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialFieldInjectQueue3D.gd` | `DRAIN_ALL` | 1.0e30 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldAtmos3D.gd` | `CLOUD_WATER_CRIT_KG_KG` | 0.5e-3 | Kessler (1969) q_crit | deleted when condensation is a reaction record and the detector reads the record |
 | `addons/local_agents/sim/material/MaterialFieldRegolith3D.gd` | `REGOLITH_CELLS` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `ALOFT_CELLS` | 2.0 | inherited, unreviewed | Stage 2 substrate rewrite |
