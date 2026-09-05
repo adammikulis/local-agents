@@ -44,6 +44,7 @@ set(SRC
     src/LAGravityPotential.cpp
     src/LAGravityMultigrid.cpp
     src/LAFieldDriver.cpp
+    src/LAFieldMirrors.cpp
     src/LAFieldSnapshot.cpp
     src/LAFieldStateCache.cpp
     src/LAFieldHydrosphereSeed.cpp

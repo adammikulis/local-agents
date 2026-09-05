@@ -49,7 +49,7 @@ var _moving: bool = false           # a pass in this world writes matter or ener
 var _buf_owner: Dictionary = {}     # _bufs key -> what claimed it, so a collision can name both claimants
 var _pass_results: Dictionary = {}  # merged _drain() readings of the last drained step
 var _pending: bool = false          # a step() submit is in flight, not yet synced/read
-var _cached: Dictionary = {}        # channels read back from the last drained step (what end_frame returns)
+var _mirrors: LAFieldMirrors = null  # the field's own native mirrors — the drain lands its channels there
 var _slow_gate: int = 0             # cadence counter for the slow (ledger/baker) channel readback set
 
 const CHANNEL_HOLD_DRAINS: int = 20     # stay hot ~20 drains past the last request so intermittent queries don't thrash
@@ -62,9 +62,9 @@ var _solid_dirty: bool = true
 var _water_dirty: bool = true
 var _h_dirty: bool = true
 
-# Slow channels are read back only every Nth drain (their CPU consumers are coarse-cadence ledgers/bakers, not
-# every-frame world queries) — a direct cut of ~6 of 21 blocking readbacks on the other frames. Between reads the
-# CPU array keeps its prior value (the _apply_readback scatter is res.has()-guarded), which the consumers tolerate.
+# Slow channels are read back only every Nth drain: their CPU consumers are coarse-cadence ledgers and
+# bakers, not every-frame world queries. Between reads the mirror keeps its prior value, and `live()`
+# says which of the two it is.
 const SLOW_READBACK_EVERY: int = 4
 
 # BETWEEN-PASS PROBE, armed per step by LAFieldPassAttribution3D and left invalid otherwise. When valid,
@@ -85,6 +85,8 @@ func setup(field) -> void:
 		return
 	_driver = LAFieldDriver.new()
 	_driver.set_device(_rd)
+	_mirrors = field._mirrors
+	_mirrors.set_device(_rd)
 	_groups = int(ceil(float(_cc) / 64.0))
 	var tc: int = _cc + _ng
 
@@ -121,16 +123,16 @@ func setup(field) -> void:
 	gd.resize(tc)
 	_bufs["ground_d"] = _rd.storage_buffer_create(gd.to_byte_array().size(), gd.to_byte_array())
 
-	_seed("e_j_m3", field._e)
-	_seed("e_lith_j_m3", field._e_lith)
-	seed_field("o2", field._o2, field._seal)
-	seed_field("co2", field._co2, field._seal)   # the atmosphere's carbon — finite, at Earth's mole fraction
-	seed_field("n2", field._n2, field._seal)     # the atmosphere's nitrogen — finite, at Earth's mole fraction
+	_upload_mirror("e_j_m3")
+	_upload_mirror("e_lith_j_m3")
+	seed_field("o2", field._seal)
+	seed_field("co2", field._seal)   # the atmosphere's carbon — finite, at Earth's mole fraction
+	seed_field("n2", field._seal)    # the atmosphere's nitrogen — finite, at Earth's mole fraction
 	# The Hadean minor gases: volcanic H2/CO/SO2/H2S, abiotic CH4, at their cited mole fractions.
 	for gas in ["h2", "co", "so2", "h2s", "ch4"]:
-		seed_field(String(gas), field.get("_" + String(gas)), field._seal)
-	_seed("h2o", field._h2o)            # the ocean basin
-	_seed("h2o_pore", field._h2o_pore)  # the primed water table
+		seed_field(String(gas), field._seal)
+	_upload_mirror("h2o")            # the ocean basin
+	_upload_mirror("h2o_pore")       # the primed water table
 	LAFieldCellMass3D.upload_solid(_rd, _bufs, _field)
 	_seed_silicate()
 	_seed_regolith()                    # aquifer permeability mask + grain-size field (static)
@@ -205,22 +207,22 @@ func _allocate_declared(p: RefCounted, label: String) -> void:
 		_buf_owner[name] = label
 
 
-func begin_frame(h: PackedFloat32Array, water: PackedFloat32Array) -> void:
+func begin_frame() -> void:
 	if _rd == null:
 		return
 	# Drain the previous frame's in-flight step FIRST: sync it (usually already done — the GPU ran it during the
-	# inter-frame CPU work) and read its channels into `_cached`. Must happen before the temp/water uploads below,
+	# inter-frame CPU work) and land its channels in the mirrors. Must happen before the uploads below,
 	# which write the same live buffers the step wrote. This is the CPU↔GPU overlap that hides the field step cost.
 	_drain_pending()
 	# The only CPU writer of _h is injection (meteors / lava / geotherm), which marks it dirty.
 	if _h_dirty:
-		_upload_f(_bufs["e_j_m3"], h)
+		_upload_mirror("e_j_m3")
 		_h_dirty = false
 	# water is only CPU-modified by injection (add_water / lakes seed), never per-step; after the readback the CPU
 	# copy already equals the GPU's evolved water, so re-uploading it every step is redundant. Gate it on a dirty
 	# flag the injectors set.
 	if _water_dirty:
-		_upload_f(_bufs["h2o"], water)
+		_upload_mirror("h2o")
 		_water_dirty = false
 	# solid + static masks change only on an SDF edit (volcano stamp, terrain edit) — NOT per step. The solid upload
 	# rebuilt + uploaded BOTH full-grid buffers every frame; gate it so it only fires when the CPU mask changed.
@@ -310,13 +312,8 @@ func read_raw_bytes(name: String) -> PackedByteArray:
 	return _rd.buffer_get_data(_bufs[name])
 
 
-## A channel this drain did not read is ABSENT from the result, never an empty stand-in.
-func end_frame() -> Dictionary:
-	return {} if _rd == null else _cached
-
-
 ## Sync an in-flight step submit WITHOUT reading channels — for save/load/dispose paths that touch buffers
-## outside the normal begin/step/end loop. Leaves `_cached` untouched (those paths don't feed the CPU query arrays).
+## outside the normal begin/step/end loop. Leaves the mirrors untouched.
 func _flush_pending() -> void:
 	if not _pending:
 		return
@@ -337,26 +334,28 @@ func _drain_pending() -> void:
 	if read_slow:
 		_slow_gate = 0
 	var want: PackedStringArray = _channel_names(read_slow)
-	var asked: PackedStringArray = want.duplicate()
+	# A probe leg the drain is already reading is taken from that same copy; one it is not gets its own
+	# staging slot. Either way it lands in its own dictionary, never in a mirror the simulation reads.
+	var probe_names: PackedStringArray = PackedStringArray()
 	for pname in _probe_want:
-		if _bufs.has(pname) and not asked.has(pname):
-			asked.append(pname)
-	var got: Dictionary = _gather(asked)
-	_cached = {}
-	for k in want:
-		if got.has(k):
-			_cached[k] = got[k]
-	# Read-only instrument sample, taken HERE because the device was just synced (see request_probe). It is
-	# written to its own dictionary, never to `_cached`, so no simulation consumer's view changes.
-	# A sample belongs to the drain that produced it: wiped here every drain, never by a reader.
-	_probe = {}
-	for pname in _probe_want:
-		if got.has(pname):
-			_probe[pname] = got[pname]
+		if _bufs.has(pname) and not probe_names.has(pname):
+			probe_names.append(pname)
+	var srcs: Array = []
+	for name in want:
+		srcs.append(_bufs[String(name)])
+	var probe_srcs: Array = []
+	for name in probe_names:
+		probe_srcs.append(_bufs[String(name)])
+	if want.size() + probe_names.size() > _staging_slots:
+		push_error("LAMaterialSphereGPU3D: %d buffers asked for and room for %d, so this drain read "
+			% [want.size() + probe_names.size(), _staging_slots] + "nothing. Every reading it would "
+			+ "have carried is ABSENT.")
+		return
+	# A sample belongs to the drain that produced it: replaced here every drain, never by a reader.
+	_probe = _mirrors.drain(_staging, srcs, want, probe_srcs, probe_names)
 	_probe_want = PackedStringArray()
-	# Direct sub-timings (noise-immune, unlike fps): how long the GPU sync stall vs the channel copy/convert
-	# actually cost this drain. The readback (buffer_get_data + to_float32_array over ~17 full-grid channels) is
-	# the suspected field bottleneck; measuring it directly is how we know what gating it can win.
+	_field._atmos_dirty = true      # new h2o/temp -> invalidate the cached condensate aggregates
+	# Direct sub-timings: how long the GPU sync stall vs the channel copy actually cost this drain.
 	LASimReport.gauge("field_sync_ms", float(t_sync - t0) / 1000.0)
 	LASimReport.gauge("field_readback_ms", float(Time.get_ticks_usec() - t_sync) / 1000.0)
 	_drain_passes()
@@ -421,23 +420,7 @@ func take_pass_results() -> Dictionary:
 	return out
 
 
-## THE DRAIN'S ONE ROUND TRIP: the device copies every named channel's interior cells into one buffer
-## and the CPU reads that buffer once. A readback per channel pays the same device wait over again for
-## every one of them, and that wait, not the bytes, is what a drain costs.
-func _gather(names: PackedStringArray) -> Dictionary:
-	if names.is_empty():
-		return {}
-	if names.size() > _staging_slots:
-		push_error("LAMaterialSphereGPU3D: %d channels asked for and room for %d, so this drain read "
-			% [names.size(), _staging_slots] + "nothing. Every reading it would have carried is ABSENT.")
-		return {}
-	var srcs: Array = []
-	for name in names:
-		srcs.append(_bufs[String(name)])
-	return _driver.gather_read(_staging, srcs, names, _cc)
-
-
-## The channels THIS drain reads. A name absent from it is absent from `end_frame`, never zero.
+## The channels THIS drain reads. A name absent from it keeps its older value, and `live()` says so.
 func _channel_names(read_slow: bool) -> PackedStringArray:
 	var out: PackedStringArray = PackedStringArray(["e_j_m3", "h2o", "o2"])
 	# Derived: recomputed by StateDerivePass this step rather than carried.
@@ -491,8 +474,8 @@ func mark_solid_dirty() -> void:
 
 ## SEEDING ONLY: hands the device a whole channel while the world is being built. The amount is declared to
 ## LAMaterialFieldSeal3D, which refuses it once the world is SEALED.
-func seed_field(name: String, arr, seal) -> void:
-	if _rd == null or not _bufs.has(name):
+func seed_field(name: String, seal) -> void:
+	if _rd == null or not _bufs.has(name) or not _mirrors.has(name):
 		return
 	if _step_index > 0:
 		push_error(("seed_field('%s') after %d steps: a whole-mirror upload past step 0 rewinds live GPU state " +
@@ -502,17 +485,14 @@ func seed_field(name: String, arr, seal) -> void:
 		push_error(("seed_field('%s'): no seal to declare to. Handing the device a whole channel CREATES what " +
 			"it holds, and an undeclared creation is a violation — pass LAMaterialField3D._seal.") % name)
 		return
-	var total: float = 0.0
-	if arr is PackedFloat32Array:
-		for v in arr:
-			total += float(v)
+	var total: float = _mirrors.sum(name)
 	# A re-upload REPLACES the buffer, so the manifest takes the difference.
 	if not seal.note_creation("seed_" + name, total - float(_seed_totals.get(name, 0.0))):
 		return
 	_seed_totals[name] = total
 	if name == "e_j_m3":
 		_h_dirty = true         # keep the gated begin_frame upload in step with a whole-mirror seed
-	_upload_f(_bufs[name], arr)
+	_upload_mirror(name)
 
 
 # --- SPARSE IN-PLACE EDITS (the only legal step-time write) -----------------------------------------------
@@ -532,33 +512,6 @@ func queue_sparse(ops: Array) -> void:
 ## Cumulative amount injection has added to `channel` with no source in the field, as the device applied it.
 func inject_created(channel: String) -> float:
 	return _inject.created_total(channel) if _inject != null else 0.0
-
-
-func snapshot_channels() -> Dictionary:
-	var out: Dictionary = {}
-	if _rd == null:
-		return out
-	_flush_pending()        # a step submit may be in flight (async pipeline) — sync before reading the buffers
-	for name in channels() + SEED_PRODUCTS:
-		out[name] = _rd.buffer_get_data(_bufs[name], 0, _cc * 4).to_float32_array()
-	return out
-
-
-func restore_channels(data: Dictionary) -> void:
-	if _rd == null:
-		return
-	_flush_pending()        # a step submit may be in flight — sync before overwriting the buffers
-	for name in data.keys():
-		var key: String = String(name)
-		if not _bufs.has(key):
-			continue
-		var arr: PackedFloat32Array = data[key]
-		if arr.size() != _cc:
-			push_error("restore_channels: %s holds %d cells against %d; the bake is another world's." % [key, arr.size(), _cc])
-			continue
-		var bytes: PackedByteArray = arr.to_byte_array()
-		_rd.buffer_update(_bufs[key], 0, bytes.size(), bytes)
-		_wake_field()
 
 
 func dispose() -> void:
@@ -589,13 +542,13 @@ func _new_f(n: int) -> RID:
 	var z: PackedByteArray = _zeros(n)
 	return _rd.storage_buffer_create(z.size(), z)
 
-## Seed a channel from its CPU mirror.
+## Seed a channel from a walk's own result, which lands in the mirror it belongs to first.
 func _seed(name: String, arr: PackedFloat32Array) -> void:
-	if not _bufs.has(name) or arr.size() == 0 or arr.size() % _cc != 0:
+	if not _bufs.has(name) or arr.size() != _cc:
 		push_error("LAMaterialSphereGPU3D._seed: %s has no buffer or %d values over %d cells; nothing uploaded." % [name, arr.size(), _cc])
 		return
-	var bytes: PackedByteArray = arr.to_byte_array()
-	_rd.buffer_update(_bufs[name], 0, bytes.size(), bytes)
+	_mirrors.set_array(name, arr)
+	_upload_mirror(name)
 
 func _seed_regolith() -> void:
 	LAFieldCellMass3D.upload_regolith(_rd, _bufs, _field)
@@ -603,17 +556,18 @@ func _seed_regolith() -> void:
 
 ## Seeded rock is bedrock, so it is both present and fully consolidated. Declared where it lands.
 func _seed_silicate() -> void:
-	seed_field("silicate", _field._silicate, _field._seal)
-	seed_field("cement", _field._cement, _field._seal)
+	seed_field("silicate", _field._seal)
+	seed_field("cement", _field._seal)
 	for name in LAPlanetComposition.shell_channels():
 		if String(name) != "silicate":
-			seed_field(String(name), _field.get("_" + String(name)), _field._seal)
-	seed_field("metal", _field._metal, _field._seal)
+			seed_field(String(name), _field._seal)
+	seed_field("metal", _field._seal)
 
-func _upload_f(buf: RID, arr: PackedFloat32Array) -> void:
-	if arr.size() == _cc:
-		var b: PackedByteArray = arr.to_byte_array()
-		_rd.buffer_update(buf, 0, b.size(), b)
+## One channel's mirror to its device buffer, straight out of native storage.
+func _upload_mirror(name: String) -> void:
+	var b: PackedByteArray = _mirrors.bytes(name, 0, _cc)
+	if b.size() == _cc * 4:
+		_rd.buffer_update(_bufs[name], 0, b.size(), b)
 		_wake_field()
 
 
