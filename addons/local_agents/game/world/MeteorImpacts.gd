@@ -7,10 +7,54 @@ extends Node
 
 const MeteorScript: GDScript = preload("res://addons/local_agents/sim/actors/Meteor.gd")
 
+# Named once per run, by whichever path asked first.
+static var _refused: bool = false
+# Rocks this run let in, by every path.
+static var _arrived: int = 0
+
 var _terrain = null
 var _ecology = null
 var _actors_root: Node3D = null
 var _camera: Camera3D = null
+
+
+## Whether a rock may arrive at all. A world without the gravity that brings it down, the conduction that
+## carries its impact heat away or the transport that moves the rock it throws cannot receive one, and
+## says which is absent rather than dropping it anyway.
+static func offered() -> bool:
+	if LAWorldOffers.has_impacts():
+		return true
+	if not _refused:
+		_refused = true
+		print("METEOR_REFUSED={rung:\"%s\", missing:%s}" % [
+			LAProcessSet.name_of(LAProcessSet.active()),
+			JSON.stringify(LAWorldOffers.impacts_missing())])
+	return false
+
+
+## THE ONE PLACE A ROCK ENTERS A WORLD, whichever path aimed it. False when the world refused it.
+static func arrive(actors_root: Node3D, terrain, ecology, target: Vector3, from_pos: Vector3,
+		size_scale: float) -> bool:
+	if not offered():
+		return false
+	if actors_root == null:
+		push_error("MeteorImpacts: no actors root for a rock to arrive in.")
+		return false
+	var m: MeteorScript = MeteorScript.new()
+	actors_root.add_child(m)
+	m.setup(terrain, ecology)
+	m.launch(target, from_pos, size_scale)
+	_arrived += 1
+	return true
+
+
+func _ready() -> void:
+	LASimReport.register(Callable(self, "report"))
+
+
+## What this world let in from outside.
+func report() -> Dictionary:
+	return {"meteors": _arrived}
 
 
 func setup(terrain, ecology, actors_root: Node3D, camera: Camera3D) -> void:
@@ -28,6 +72,8 @@ func set_presentation(camera: Camera3D) -> void:
 ## One arrival from outside. Its approach direction is drawn from the seeded planet stream and the impact
 ## point is that direction's own surface, so the run needs no camera and one seed lands one rock in one place.
 func fire_ambient_meteor(size_scale: float = 1.0) -> void:
+	if not offered():
+		return
 	var target: Vector3 = _arrival_point()
 	if is_nan(target.x):
 		return
@@ -36,6 +82,8 @@ func fire_ambient_meteor(size_scale: float = 1.0) -> void:
 
 ## A volley: independent arrivals, each drawn from the same stream, not a spread around one aimed point.
 func fire_barrage(count: int = 18, size_scale: float = 5.5) -> void:
+	if not offered():
+		return
 	for i in count:
 		var target: Vector3 = _arrival_point()
 		if is_nan(target.x):
@@ -44,18 +92,13 @@ func fire_barrage(count: int = 18, size_scale: float = 5.5) -> void:
 
 
 ## Fling one toward `target` FROM an explicit world position. It then coasts under real N-body gravity.
-func fire_meteor_at(target: Vector3, from_pos: Vector3) -> void:
-	var m: MeteorScript = MeteorScript.new()
-	_actors_root.add_child(m)
-	m.setup(_terrain, _ecology)
-	m.launch(target, from_pos)
+func fire_meteor_at(target: Vector3, from_pos: Vector3, size_scale: float = 1.0) -> void:
+	arrive(_actors_root, _terrain, _ecology, target, from_pos, size_scale)
 
 
+## An arrival with no launch point: it falls in along the direction it came from.
 func _drop(target: Vector3, size_scale: float) -> void:
-	var m: MeteorScript = MeteorScript.new()
-	_actors_root.add_child(m)
-	m.setup(_terrain, _ecology)
-	m.launch(target, Vector3(INF, INF, INF), size_scale)
+	arrive(_actors_root, _terrain, _ecology, target, Vector3(INF, INF, INF), size_scale)
 
 
 func _arrival_point() -> Vector3:

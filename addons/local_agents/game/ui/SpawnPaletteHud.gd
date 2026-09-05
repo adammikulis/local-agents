@@ -200,6 +200,8 @@ func arm_kind(kind: String) -> void:
 		if String(btn.get_meta("kind", "")) == kind:
 			btn.button_pressed = true               # -> _on_palette_toggled emits the kind
 			return
+	# No button: this world holds nothing that kind is made of, so the hotkey says so rather than nothing.
+	set_status("There are no %s in this world." % String(KIND_LABELS.get(kind, kind)).to_lower())
 
 
 ## Wire the audio menu to the live audio director.
@@ -239,13 +241,18 @@ func _build_palette_buttons() -> void:
 		var alive: bool = LAWorldOffers.has_flora() if FLORA_KINDS.has(kind) else LAWorldOffers.has_life()
 		if alive:
 			_life_cluster.add_child(_make_kind_button(_palette_group, kind))
-	for kind in IMPACT_KINDS:
-		_disaster_cluster.add_child(_make_kind_button(_palette_group, kind))
+	# A rock from space needs a world that can answer for its fall, its heat and its crater.
+	_disaster_cluster.visible = LAWorldOffers.has_impacts()
+	if _disaster_cluster.visible:
+		for kind in IMPACT_KINDS:
+			_disaster_cluster.add_child(_make_kind_button(_palette_group, kind))
+	# Nothing to place: the panel goes, not just its contents.
+	_palette_panel.visible = _life_cluster.visible or _disaster_cluster.visible
 
-	# Diagnostic: confirm a palette button carries its registry-keyed name+hotkey tooltip (one-time log).
-	var sample: Button = _kind_buttons.get("rabbit", null)
-	if sample != null:
-		print("PALETTE_TOOLTIP={kind:\"rabbit\", tooltip:\"%s\"}" % sample.tooltip_text.replace("\n", " / "))
+	# What this world let the palette offer, for scripts/check_meteor_offer.sh.
+	print('SPAWN_PALETTE={"panel":%s,"life":%s,"impact":%s,"kinds":%s}' % [
+		str(_palette_panel.visible).to_lower(), str(_life_cluster.visible).to_lower(),
+		str(_disaster_cluster.visible).to_lower(), JSON.stringify(_kind_buttons.keys())])
 
 	# Swap the life/prop buttons' emoji glyphs for isometric renders of their actual models
 	# (async: renders into an off-screen SubViewport over the next few frames).

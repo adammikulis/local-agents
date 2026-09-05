@@ -6,6 +6,8 @@ extends RefCounted
 
 const GRAVITY_PASS: String = "GravityPass.gd"
 const MOMENTUM_TRANSPORT: String = "mom_flux"
+const HEAT_CHANNEL: String = "e_j_m3"
+const ROCK_CHANNEL: String = "silicate"
 
 
 ## Living things: creatures, their behaviours, their populations, and anything that only they make.
@@ -19,8 +21,13 @@ static func has_flora() -> bool:
 
 
 ## A field channel this world MOVES: a channel nothing transports holds its seeded value everywhere.
+## Asked of THIS world's own transport rows, never of the ladder's whole table.
 static func moves(channel: String) -> bool:
-	return LAProcessSet.channel_rung(channel) != LAProcessSet.UNSET
+	for row: Dictionary in LAProcessSet.transport_rows():
+		var legs: Array = row["books"] if row.has("books") else [row.get("channel", "")]
+		if legs.has(channel):
+			return true
+	return false
 
 
 ## The wind: a velocity exists only where momentum is transported.
@@ -36,3 +43,21 @@ static func has_gravity() -> bool:
 ## More than one body to look at: the solar view frames the system this world orbits in.
 static func has_system() -> bool:
 	return has_gravity()
+
+
+## An arrival from outside: the rock falls under the solved gravity, the heat of its impact leaves the
+## crater by conduction, and the rock it excavates is thrown. Without all three there is nothing to hit.
+static func has_impacts() -> bool:
+	return impacts_missing().is_empty()
+
+
+## The impact processes this world lacks, in the order they act.
+static func impacts_missing() -> PackedStringArray:
+	var out: PackedStringArray = PackedStringArray()
+	if not has_gravity():
+		out.append(GRAVITY_PASS)
+	if not moves(HEAT_CHANNEL):
+		out.append(HEAT_CHANNEL)
+	if not moves(ROCK_CHANNEL):
+		out.append(ROCK_CHANNEL)
+	return out
