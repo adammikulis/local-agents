@@ -98,10 +98,7 @@ if [ "$red" -gt "$CEIL" ]; then
 	printf '%s\n' "$out" | grep '"held":false' >&2
 	exit 1
 fi
-if [ "$red" -lt "$CEIL" ]; then
-	ceiling_slack "KERNEL_PROPERTY_CEILING" "$red" "$CEIL" 2>/dev/null \
-		|| echo "NOTE  $((CEIL - red)) below the ceiling — the integrator banks it."
-fi
+ceiling_slack "KERNEL_PROPERTY_CEILING" "$red" "$CEIL" 0 "$ROOT" || exit 1
 
 # --- arm 2: a defect planted in the kernel itself must be caught -------------------------------------
 SCRATCH="$(mktemp -d)"

@@ -72,8 +72,5 @@ if [ "$n" -gt "$CEIL" ]; then
 	echo "Say what the code does and stop. If the claim matters, make it a GATE." >&2
 	exit 1
 fi
-if [ "$n" -lt "$CEIL" ]; then
-	ceiling_slack "COMMENT_BLOCK_CEILING" "$n" "$CEIL" 2>/dev/null \
-		|| echo "NOTE  $((CEIL - n)) below the ceiling — the integrator banks it."
-fi
+ceiling_slack "COMMENT_BLOCK_CEILING" "$n" "$CEIL" 0 "$ROOT" || exit 1
 echo "check_comment_block: OK ($n against a ceiling of $CEIL)"

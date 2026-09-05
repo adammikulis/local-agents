@@ -27,6 +27,7 @@ la_gpu_lock() {
 
 la_gpu_unlock() {
 	rm -rf "$LA_GPU_LOCK_DIR"
+	la_dir_unqueue "$LA_GPU_LOCK_DIR"
 	unset LA_GPU_LOCK_HELD
 }
 
@@ -35,21 +36,82 @@ la_gpu_unlock() {
 # `$$` NAMES THE SHELL, NOT THE SUBSHELL: it is the pid that outlives every subshell the lock may be
 # taken in, and a recorded owner must be alive for as long as the lock is held or a waiter reclaims it
 # out from under the holder.
-la_dir_lock() {
-	local lock="$1" timeout="$2" poll="${3:-1}"
-	local waited=0 owner
-	while :; do
-		# A directory here is a lock of the old shape; it is never taken, only reclaimed or waited on.
-		if [ ! -d "$lock" ] && ln -s "$$" "$lock" 2>/dev/null; then
-			return 0
-		fi
-		owner="$(readlink "$lock" 2>/dev/null || cat "$lock/pid" 2>/dev/null || echo "")"
+#
+# A FIRST-COME QUEUE, NOT A RACE. Every waiter takes a numbered ticket -- the lowest free number, claimed
+# by the same atomic symlink -- and only the oldest live ticket may take the lock. A retry loop over a
+# free lock is decided by who happens to poll first, so under contention a lane can wait out a whole
+# timeout while later arrivals keep winning. The ticket is held until unlock, or the holder's release
+# would let a newcomer claim the freed number and overtake everyone already queued.
+la_dir_queue_dir() { printf '%s' "$1.q"; }
+
+# Our own ticket in <lock>'s queue, dropped. Called on release and on timeout: a ticket nobody is waiting
+# behind blocks every later arrival until its pid dies.
+la_dir_unqueue() {
+	local q f
+	q="$(la_dir_queue_dir "$1")"
+	for f in "$q"/*; do
+		[ -L "$f" ] || continue
+		[ "$(readlink "$f" 2>/dev/null || echo "")" = "$$" ] && rm -f "$f"
+	done
+	rmdir "$q" 2>/dev/null
+	return 0
+}
+
+# The lowest-numbered live ticket in <queue>, or "" when the queue is empty. Reclaims dead ones.
+la_dir_head() {
+	local q="$1" f n owner best=""
+	for f in "$q"/*; do
+		[ -L "$f" ] || continue
+		n="${f##*/}"
+		case "$n" in "" | *[!0-9]*) continue ;; esac
+		owner="$(readlink "$f" 2>/dev/null || echo "")"
 		if [ -z "$owner" ] || ! kill -0 "$owner" 2>/dev/null; then
-			echo "$(basename "$lock"): clearing stale lock from dead pid ${owner:-none}" >&2
-			rm -rf "$lock"
+			rm -f "$f"
 			continue
 		fi
+		if [ -z "$best" ] || [ "$n" -lt "$best" ]; then best="$n"; fi
+	done
+	printf '%s' "$best"
+}
+
+la_dir_lock() {
+	local lock="$1" timeout="$2" poll="${3:-1}"
+	local waited=0 owner q ticket n head
+	q="$(la_dir_queue_dir "$lock")"
+	mkdir -p "$q" 2>/dev/null
+	# TAKE A TICKET: the lowest free number, atomically, carrying our pid. A number whose owner is dead is
+	# reclaimed on the way past, so a crashed waiter does not push the queue forward for ever.
+	n=0
+	ticket=""
+	while [ -z "$ticket" ]; do
+		if ln -s "$$" "$q/$n" 2>/dev/null; then
+			ticket="$q/$n"
+			break
+		fi
+		owner="$(readlink "$q/$n" 2>/dev/null || echo "")"
+		if [ -z "$owner" ] || ! kill -0 "$owner" 2>/dev/null; then
+			rm -f "$q/$n"
+			continue
+		fi
+		n=$((n + 1))
+	done
+	while :; do
+		head="$(la_dir_head "$q")"
+		# A directory here is a lock of the old shape; it is never taken, only reclaimed or waited on.
+		if [ "$head" = "$n" ] && [ ! -d "$lock" ] && ln -s "$$" "$lock" 2>/dev/null; then
+			return 0
+		fi
+		if [ -e "$lock" ] || [ -L "$lock" ]; then
+			owner="$(readlink "$lock" 2>/dev/null || cat "$lock/pid" 2>/dev/null || echo "")"
+			if [ -z "$owner" ] || ! kill -0 "$owner" 2>/dev/null; then
+				echo "$(basename "$lock"): clearing stale lock from dead pid ${owner:-none}" >&2
+				rm -rf "$lock"
+				continue
+			fi
+		fi
 		if [ "$waited" -ge "$timeout" ]; then
+			rm -f "$ticket"
+			rmdir "$q" 2>/dev/null
 			return 1
 		fi
 		sleep "$poll"
@@ -67,4 +129,5 @@ godot_lock() {
 
 godot_unlock() {
 	rm -rf "$GODOT_LOCK_DIR"
+	la_dir_unqueue "$GODOT_LOCK_DIR"
 }

@@ -26,7 +26,7 @@ func species_below_cap(kind: String) -> bool:
 	if cached != null and int((cached as Array)[0]) == frame:
 		return bool((cached as Array)[1])
 	var cfg: Dictionary = _eco._species_config(kind)
-	var cap: int = int(round(float(cfg.get("pop_cap", 20)) * LAAblate.spawn_scale()))
+	var cap: int = int(cfg.get("pop_cap", 20))
 	var members: Array = _eco.get_tree().get_nodes_in_group("species_%s" % kind)
 	var below: bool = members.size() < cap
 	_cap_frame[kind] = [frame, below]
@@ -100,7 +100,7 @@ func _breed_genome(pa, pb):
 func _tick_aquatic() -> void:
 	for kind in _eco._aquatic_kinds():
 		var cfg: Dictionary = _eco._species_config(String(kind))
-		var cap: int = int(round(float(cfg.get("pop_cap", 12)) * LAEcologyService.AQUATIC_STOCK_MULT * LAAblate.spawn_scale()))
+		var cap: int = int(round(float(cfg.get("pop_cap", 12)) * LAEcologyService.AQUATIC_STOCK_MULT))
 		var members: Array = _eco.get_tree().get_nodes_in_group("species_%s" % String(kind))
 		var deficit: int = cap - members.size()
 		if members.size() < 2 or deficit <= 0:

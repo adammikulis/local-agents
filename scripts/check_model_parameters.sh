@@ -1,41 +1,22 @@
 #!/usr/bin/env bash
-# =====================================================================================================
-# MODEL-PARAMETERS GATE — every number is derived, bound, or written down. There is no fourth option.
-#
-# WHY THIS EXISTS. check_physical_constants.sh answers "does this copy equal the authority". It cannot answer the prior
-# question: SHOULD this be a number at all, and if so, who decided? A value that is not a property of
-# matter is a MODELLING CHOICE, and a modelling choice that nobody wrote down is indistinguishable from a
-# value someone fitted until the output looked right. That is the defect this repo keeps producing.
-#
-# THE RULE. A numeric constant passes if any of:
-#   1. It is BOUND — a trailing comment names LAPhysical.<NAME> or LASubstances.<NAME>. Whether the value
-#      is correct is check_physical_constants.sh's job, not this one.
-#   2. It is DERIVED — the right-hand side is an expression over other constants rather than a literal.
-#      A relation is structural; a literal is an assertion.
-#   3. It is DECLARED — file and name appear in docs/MODEL_PARAMETERS.md with a reason and, crucially,
-#      the condition under which it gets DELETED.
-# Anything else fails the build.
-#
-# THE REGISTRY IS A DELETION QUEUE, NOT A HOME. Every entry names what would have to exist for the number
-# to stop being needed. An entry that has sat there without that field is a value nobody intends to fix.
-#
-# SCOPE. GLSL kernels AND the GDScript simulation layer. The .gd half is not optional: AtmospherePass.gd
-# declared AIR_DENSITY_KG_M3 = 1.225 while PhysicalConstants.gd said 1.18, a 4% split between two files
-# describing the same air, and the GLSL-only gate could not see it.
-#
-# EXIT CODES. 0 pass · 1 violations · 2 the gate could not run (missing input), never a silent pass.
-# =====================================================================================================
+# MODEL-PARAMETERS GATE: every number is derived, bound, or written down. A numeric constant passes if it
+# is BOUND (a trailing comment names LAPhysical.<NAME> or LASubstances.<NAME>), DERIVED (the right-hand
+# side is an expression over other constants) or DECLARED in docs/MODEL_PARAMETERS.md with the condition
+# that deletes it. The registry is a deletion queue, capped by its own MAX_DECLARED.
+# SCOPE: the GLSL kernels, the GDScript simulation layer and the GDExtension's C++ sources.
+# EXIT 0 pass · 1 violations · 2 the gate could not run (missing input), never a silent pass.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 KERNEL_DIR="$REPO_ROOT/addons/local_agents/sim/material/kernels3d"
 SIM_DIR="$REPO_ROOT/addons/local_agents/sim"
+EXT_DIR="$REPO_ROOT/addons/local_agents/gdextensions/localagents/src"
 REGISTRY="$REPO_ROOT/docs/MODEL_PARAMETERS.md"
 
 # The authorities describe matter, and BodySeeds the BODIES this system was given: everything else is
 # measured against them, so check_cited_authority.sh holds them instead of this gate. LASubstances is
 # native and outside the scan roots already; it is named so a registry row against it is not a ghost.
-AUTHORITY_FILES="PhysicalConstants.gd LASubstances.cpp LASubstances.hpp BodySeeds.gd"
+AUTHORITY_FILES="PhysicalConstants.gd LASubstances.cpp LASubstances.hpp BodySeeds.gd LABodySystem.cpp LAPlanetTables.cpp LAWaterCurves.cpp"
 
 EMIT=0
 [[ "${1:-}" == "--emit" ]] && EMIT=1
@@ -46,6 +27,10 @@ if [[ ! -d "$KERNEL_DIR" ]]; then
 fi
 if [[ ! -d "$SIM_DIR" ]]; then
   echo "ERROR: sim directory not found: $SIM_DIR" >&2
+  exit 2
+fi
+if [[ ! -d "$EXT_DIR" ]]; then
+  echo "ERROR: extension source directory not found: $EXT_DIR" >&2
   exit 2
 fi
 if [[ $EMIT -eq 0 && ! -f "$REGISTRY" ]]; then
@@ -64,7 +49,7 @@ while IFS= read -r f; do
   skip=0
   for a in $AUTHORITY_FILES; do [[ "$base" == "$a" ]] && skip=1; done
   [[ $skip -eq 0 ]] && scanned+=("$f")
-done < <(find "$KERNEL_DIR" -type f \( -name '*.glsl' -o -name '*.glsli' \) -print; find "$SIM_DIR" -type f -name '*.gd' -print)
+done < <(find "$KERNEL_DIR" -type f \( -name '*.glsl' -o -name '*.glsli' \) -print; find "$SIM_DIR" -type f -name '*.gd' -print; find "$EXT_DIR" -type f \( -name '*.cpp' -o -name '*.hpp' \) -print)
 
 if [[ ${#scanned[@]} -eq 0 ]]; then
   echo "ERROR: zero files to scan — refusing to report a pass on an empty comparison." >&2
@@ -104,13 +89,13 @@ awk -v REG="$REG_INPUT" -v ROOT="$REPO_ROOT/" -v EMIT="$EMIT" '
     decl = (ci ? substr(line, 1, ci - 1) : line)
     cmt  = (ci ? substr(line, ci)        : "")
 
-    if (decl !~ /(^|[ \t])const[ \t]/) next
+    if (decl !~ /(^|[ \t])const(expr)?[ \t]/) next
 
     # A MODEL PARAMETER IS A MEASURED QUANTITY, so only float and vec are in scope. An int in a kernel
     # is a buffer stride, an array offset or an enum ordinal -- layout, which the generated header owns
     # and scripts/check_generated_constants.sh gates.
     # GLSL:  const float NAME = value;      GDScript:  const NAME: float = value
-    if (match(decl, /const[ \t]+(float|vec[234])[ \t]+[A-Za-z_][A-Za-z0-9_]*/)) {
+    if (match(decl, /const(expr)?[ \t]+(float|double|vec[234])[ \t]+[A-Za-z_][A-Za-z0-9_]*/)) {
       seg = substr(decl, RSTART, RLENGTH); nf = split(seg, p, /[ \t]+/); name = p[nf]
     } else if (match(decl, /const[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*:[ \t]*float/)) {
       seg = substr(decl, RSTART, RLENGTH); sub(/^.*const[ \t]+/, "", seg); sub(/[ \t]*:.*$/, "", seg); name = seg
@@ -188,7 +173,7 @@ while IFS=$'\t' read -r gfile gname; do
   if [[ ! -f "$REPO_ROOT/$gfile" ]]; then
     echo "FAIL  ${REGISTRY#"$REPO_ROOT"/}: \`$gname\` is declared against $gfile, which does not exist."
     ghosts=$((ghosts + 1))
-  elif ! grep -Eq "(^|[[:space:]])const[[:space:]]+([A-Za-z0-9_]+[[:space:]]+)?${gname}([[:space:]]*[:=]|[[:space:]])" "$REPO_ROOT/$gfile"; then
+  elif ! grep -Eq "(^|[[:space:]])const(expr)?[[:space:]]+([A-Za-z0-9_]+[[:space:]]+)?${gname}([[:space:]]*[:=]|[[:space:]])" "$REPO_ROOT/$gfile"; then
     echo "FAIL  ${REGISTRY#"$REPO_ROOT"/}: \`$gname\` is declared but no longer exists in $gfile."
     ghosts=$((ghosts + 1))
   fi
@@ -200,9 +185,10 @@ if [[ $ghosts -gt 0 ]]; then
   exit 1
 fi
 
-if [[ "$rows" -lt "$cap" ]]; then
-  echo "NOTE  registry is $((cap - rows)) below its ceiling — lower MAX_DECLARED to $rows to bank the progress."
-fi
+# THE SLACK HALF OF THE RATCHET. It was a NOTE, which is not a ratchet: the registry sat below its own
+# ceiling and nothing ever asked anybody to write the smaller number.
+. "$REPO_ROOT/scripts/lib_ceiling.sh" 2>/dev/null || true
+ceiling_slack "MODEL_PARAMETERS.md's MAX_DECLARED" "$rows" "$cap" 0 "$REPO_ROOT" || exit 1
 
 if [[ $rc -ne 0 ]]; then
   echo

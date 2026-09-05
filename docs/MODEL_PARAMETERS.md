@@ -15,7 +15,7 @@ question, which nothing could previously ask: should this be a number at all, an
 Every row names what would have to exist for the number to stop being needed. A row that never acquires
 that field is a value nobody intends to fix.
 
-**MAX_DECLARED: 253**
+**MAX_DECLARED: 240**
 
 The gate fails if the table grows past that ceiling. To add a number, derive it, bind it, or raise the
 ceiling in the same commit and argue for it in the message. When the count drops, lower the ceiling to bank
@@ -315,3 +315,9 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/kernels3d/cellvol.glsli` | `LA_FLOAT_EPS` | 1.1920929e-7 | float32's own epsilon: a band whose volume is below this share of its cube has a top no float32 depth can tell from its ground, so it is no band; a fact about the machine word, not about matter | a wider float, or a band solved in the cube's own integer depth |
 | `addons/local_agents/sim/material/kernels3d/band.glsli` | `LA_BAND_EPS` | 1.0e-4 | the share of the vertical below which a cube axis counts as parallel to the free surface and the band integral drops that dimension; a DISCRETISATION guard on a formula that divides by that share, not a property of matter | an integral written in the form that is finite at zero, which needs no branch |
 | `addons/local_agents/sim/material/sphere_passes/ActiveCells.gd` | `QUIET_SUBSTEPS` | 2 | substeps a crossing is remembered: the one it landed on and the next, because the counter ages before the rows run; structural, not a dial | a wake that carries the arrival itself rather than a counter, at which point there is no window to size |
+| `addons/local_agents/gdextensions/localagents/src/NetworkGraph.cpp` | `kEpsilon` | 1e-8f | numerical guard on a zero-length edge weight in the agent graph | a graph that refuses a zero-length edge instead of dividing by one |
+| `addons/local_agents/gdextensions/localagents/src/LAFieldLithostaticSeed.cpp` | `dr` | 100.0 | radial step of the lithostatic integration, m; a DISCRETISATION of the column, not a property of rock | a step that follows the column's own scale height |
+| `addons/local_agents/gdextensions/localagents/src/LAMixtureEnthalpy.cpp` | `kBracketSpanC` | 100.0 | half-width in C of the bracket the temperature root solve opens; a solver setting, chosen not derived | a bracket taken from the mixture's own enthalpy bounds |
+| `addons/local_agents/gdextensions/localagents/src/LAAbsorptionBands.cpp` | `kPi` | 3.14159265358979323846 | pi, declared a second time in the extension | this site reading `Math::PI`, which LAPlanetTables already does |
+| `addons/local_agents/gdextensions/localagents/src/LABallistics.cpp` | `SPHERE_CD` | 1.0 | drag coefficient of a sphere, chosen not derived and applied at every Reynolds number | a drag law that follows from the Reynolds number the parcel is actually at |
+| `addons/local_agents/gdextensions/localagents/src/LABallistics.cpp` | `PI_D` | 3.14159265358979323846 | pi, declared a third time in the extension | this site reading `Math::PI` |

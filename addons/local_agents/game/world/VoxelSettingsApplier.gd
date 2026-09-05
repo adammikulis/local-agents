@@ -2,15 +2,6 @@ class_name LAVoxelSettingsApplier
 extends Node
 
 
-const GRID_RES_DIVISOR: float = 3.0
-const GRID_EDGE_MIN: int = 8
-const GRID_EDGE_MAX: int = 64
-
-## actor_budget that maps to spawn_scale == 1.0 (the Medium preset). Low (48) → 0.4, High (240) → 2.0.
-const BASELINE_ACTOR_BUDGET: float = 120.0
-const SPAWN_SCALE_MIN: float = 0.15
-const SPAWN_SCALE_MAX: float = 4.0
-
 var _settings: LAGameSettings = null
 
 # Live-binding refs (set in bind(), after the terrain/particle systems exist).
@@ -65,16 +56,6 @@ func settings() -> LAGameSettings:
 	return _settings
 
 
-## Field cells along one edge of the box, from the quality grid_resolution budget.
-func grid_cells_per_edge() -> int:
-	return clampi(int(round(float(settings().grid_resolution) / GRID_RES_DIVISOR)), GRID_EDGE_MIN, GRID_EDGE_MAX)
-
-
-## Multiplier the initial-spawn controller applies to its base actor counts.
-func spawn_scale() -> float:
-	return clampf(float(settings().actor_budget) / BASELINE_ACTOR_BUDGET, SPAWN_SCALE_MIN, SPAWN_SCALE_MAX)
-
-
 ## Particle-density scale (0..1) from the effects level — Low runs far fewer atmosphere particles.
 func particle_scale() -> float:
 	match settings().effects_level:
@@ -97,11 +78,6 @@ func render_opts() -> Dictionary:
 	}
 
 
-## Plant / foliage density scale (Graphics).
-func vegetation_scale() -> float:
-	return clampf(settings().vegetation_density, 0.1, 2.0)
-
-
 ## Camera far-plane budget in metres (Graphics).
 func draw_distance() -> float:
 	return maxf(1000.0, settings().draw_distance)
@@ -119,7 +95,6 @@ func llm_cadence() -> float:
 
 ## Publish the graphics + simulation knobs that are consumed by systems this module does not own.
 func publish_globals() -> void:
-	Engine.set_meta("la_vegetation_scale", vegetation_scale())
 	Engine.set_meta("la_draw_distance", draw_distance())
 	Engine.set_meta("la_ai_tick_frames", ai_tick_frames())
 	Engine.set_meta("la_llm_cadence", llm_cadence())
@@ -142,11 +117,10 @@ func bind(world: Node, terrain, water: Node) -> void:
 			gm.settings_applied.connect(cb)
 	_bound = true
 	var ro: Dictionary = render_opts()
-	print("SETTINGS_APPLIED={grid_res:%d, grid_edge:%d, effects:%d, actor_budget:%d, spawn_scale:%.2f, particle:%.2f, ssao:%s, glow:%s, shadows:%s, ocean_transparent:%s, fog:%s, veg:%.2f, draw:%.0f, ai_tick:%d, llm_cadence:%.1f}" % [
-		settings().grid_resolution, grid_cells_per_edge(), int(settings().effects_level),
-		settings().actor_budget, spawn_scale(), particle_scale(),
+	print("SETTINGS_APPLIED={effects:%d, particle:%.2f, ssao:%s, glow:%s, shadows:%s, ocean_transparent:%s, fog:%s, draw:%.0f, ai_tick:%d, llm_cadence:%.1f}" % [
+		int(settings().effects_level), particle_scale(),
 		str(ro["ssao"]), str(ro["glow"]), str(ro["sun_shadows"]), str(ro["ocean_transparent"]), str(ro["fog"]),
-		vegetation_scale(), draw_distance(), ai_tick_frames(), llm_cadence()])
+		draw_distance(), ai_tick_frames(), llm_cadence()])
 
 
 func _on_settings_applied(new_settings: LAGameSettings) -> void:

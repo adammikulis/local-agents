@@ -128,9 +128,17 @@ func _init() -> void:
 		_bufs[String(name)] = _f32(_filled(_cc, 0.0), owned)
 	for name in LAChannels.derived_buffers():
 		_bufs[String(name)] = _f32(_filled(_cc, 0.0), owned)
-	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "k_cond", "speed", "rad_w_m3",
-			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi", "grav_ref", "gas_r", "gas_gamma", "ground_d"]:
-		_bufs[String(name)] = _f32(_filled(_cc, 0.0), owned)
+	# EVERY DERIVED BUFFER FROM THE ONE DECLARATION -- StateDerivePass names them and gives their shapes.
+	# A list copied into a rig is a second declaration that goes stale: none of the copies carried
+	# "h_h2o_vap", which FieldBoundary3D writes on every constant face.
+	var sd: RefCounted = (load("res://addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd") as GDScript).new()
+	sd.ghost_count = 0
+	var derived: Dictionary = sd._buffers(_cc)
+	for key in derived:
+		var spec: Variant = derived[key]
+		var dn: int = int(spec["n"]) if spec is Dictionary else int(spec)
+		_bufs[String(key)] = _f32(_filled(dn, 0.0), owned)
+	_bufs["ground_d"] = _f32(_filled(_cc, 0.0), owned)   # flux.glsl binding 99: the driver's own
 	_upload("cap_sensible", _filled(_cc, 1.0))
 	var grav: PackedFloat32Array = PackedFloat32Array()
 	grav.resize(_cc * 3)

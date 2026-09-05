@@ -32,3 +32,26 @@ gdscript_code_lines() {
 		| xargs -0 rg -c -H -N -e '^[[:space:]]*[^[:space:]#]' 2>/dev/null \
 		| awk -F: '{s+=$NF} END {print s+0}'
 }
+
+# ceiling_slack <ceiling file basename> <have> <ceiling> [slack] [root]. The SLACK half of the ratchet.
+# 0 the count is at its ceiling, within the slack, or this is a lane · 1 the integrator must bank it.
+# Lanes do not edit ceiling files, so a lane is told and passes; on the dev branch it FAILS, and
+# scripts/write_ceilings.sh writes the tighter number.
+ceiling_slack() {
+	local name="$1" have="$2" ceil="$3" slack="${4:-0}" root="${5:-$PWD}" v
+	for v in "$have" "$ceil" "$slack"; do
+		case "$v" in "" | *[!0-9]*)
+			echo "ceiling_slack: $name given a non-numeric count (have=$have ceiling=$ceil slack=$slack)." >&2
+			return 1 ;;
+		esac
+	done
+	[ $((ceil - have)) -gt "$slack" ] || return 0
+	if [ "$(ceiling_strict "$root")" != "1" ]; then
+		echo "NOTE  $have against docs/$name's $ceil — the integrator banks it."
+		return 0
+	fi
+	echo "ceiling_slack: $have against docs/$name's $ceil, $((ceil - have)) below it, slack $slack." >&2
+	echo "               A ratchet that is not tightened is not a ratchet. Write $have into docs/$name;" >&2
+	echo "               scripts/write_ceilings.sh banks the counts it can measure without a device." >&2
+	return 1
+}

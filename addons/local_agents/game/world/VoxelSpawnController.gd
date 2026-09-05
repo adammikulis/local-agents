@@ -12,9 +12,6 @@ const INITIAL_COUNTS: Dictionary = {
 	"rabbit": 50, "mouse": 12, "fox": 10, "bird": 55, "swallow": 10, "villager": 12, "vulture": 12,
 	"beetle": 10, "ant": 12, "grasshopper": 10, "butterfly": 10, "fly": 12, "bee": 14,
 }
-# Vegetation kinds (density-scaled by the graphics foliage knob, like the base plant) — flowers + shrub + the
-# toxic plants all ride it too (they are ordinary config vegetation; only their `toxic` data value differs).
-const VEG_KINDS: Array = ["plant", "shrub", "flower_daisy", "flower_clover", "nightshade", "deathcap"]
 const ROCK_COUNT: int = 60
 const FOREST_CLUSTERS: int = 16
 
@@ -34,9 +31,6 @@ var _hud: CanvasLayer = null
 
 var _spawned_initial: bool = false
 var _ready_wait_ticks: int = 0
-# Multiplier on the base counts below, set from the quality actor_budget (VoxelSettingsApplier.spawn_scale).
-# 1.0 == the Medium preset; Low shrinks the world, High grows it. Weak GPUs run fewer actors.
-var _spawn_scale: float = 1.0
 
 
 func setup(world: Node, body: Node3D, terrain, ecology: Node, camera: Camera3D, material: Node, hud: CanvasLayer) -> void:
@@ -67,12 +61,6 @@ func suppress_initial_spawn() -> void:
 	_spawned_initial = true
 
 
-## Scale factor applied to the base spawn counts (from the quality actor_budget). Set before the surface
-## meshes so the first (and only) spawn uses it.
-func set_spawn_scale(scale: float) -> void:
-	_spawn_scale = maxf(0.05, scale)
-
-
 func try_spawn(_overview: bool, _farview: bool, _auto_meteor: bool, _auto_select: bool) -> void:
 	if _spawned_initial or _body == null:
 		return
@@ -94,11 +82,8 @@ func try_spawn(_overview: bool, _farview: bool, _auto_meteor: bool, _auto_select
 		_ecology.populate_environment(CAMPAIGN_ROCK_COUNT, 0 if no_flora else CAMPAIGN_FOREST_CLUSTERS)
 	else:
 		if not no_fauna:
-			_ecology.spawn_initial(_scaled_counts())
-		# Forest seed clusters scale by BOTH the actor budget and the graphics vegetation-density knob
-		# (la_vegetation_scale), so a low-foliage setting thins the groves and a high one densifies them.
-		var clusters: int = 0 if no_flora else maxi(1, int(round(float(FOREST_CLUSTERS) * _spawn_scale * _vegetation_scale())))
-		_ecology.populate_environment(ROCK_COUNT, clusters)
+			_ecology.spawn_initial(INITIAL_COUNTS)
+		_ecology.populate_environment(ROCK_COUNT, 0 if no_flora else FOREST_CLUSTERS)
 		if not no_fauna and _ecology.has_method("stock_initial_aquatic"):
 			_ecology.stock_initial_aquatic()
 	# NOTHING RE-FRAMES THE VIEW HERE: the render layer framed the camera off the body or off the slice
@@ -161,24 +146,3 @@ func _campaign_herd_dir() -> Vector3:
 	return sum.normalized()
 
 
-func _vegetation_scale() -> float:
-	var v: float = float(Engine.get_meta("la_vegetation_scale", 1.0)) if Engine.has_meta("la_vegetation_scale") else 1.0
-	return clampf(v, 0.1, 2.0)
-
-
-## The base counts scaled by the quality actor_budget factor (at least one of each). The "plant" count also
-## carries the graphics vegetation-density knob, so foliage thins/densifies independently of the actor budget.
-func _scaled_counts() -> Dictionary:
-	var veg: float = _vegetation_scale()
-	var bench: float = LAAblate.spawn_scale()   # LA_SPAWN_SCALE benchmark knob (1.0 unless set)
-	if is_equal_approx(_spawn_scale * bench, 1.0) and is_equal_approx(veg, 1.0):
-		return INITIAL_COUNTS
-	var counts: Dictionary = {}
-	var total: int = 0
-	for kind in INITIAL_COUNTS:
-		var factor: float = _spawn_scale * bench * (veg if VEG_KINDS.has(kind) else 1.0)
-		var n: int = maxi(1, int(round(float(INITIAL_COUNTS[kind]) * factor)))
-		counts[kind] = n
-		total += n
-	print("SPAWN_SCALE={factor:%.2f, veg:%.2f, total:%d}" % [_spawn_scale, veg, total])
-	return counts

@@ -1,3 +1,9 @@
 # Rows of docs/MODEL_PARAMETERS.md recorded as chosen, fitted, a clamp, a floor or a per-step rate.
 # Counted by scripts/check_model_parameters_ceiling.sh. May fall. May not rise. The goal is 0.
-16
+#
+# RE-BASED because the scan roots widened, not because the tree got worse: check_model_parameters.sh had
+# never read addons/local_agents/gdextensions/localagents/src, so no number in the extension could be
+# registered. Two that were already there are now written down -- a sphere drag coefficient held at 1.0 at
+# every Reynolds number, and a root-solve bracket half-width. Registering a defect is what puts it in the
+# queue; it may only fall from here.
+18

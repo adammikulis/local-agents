@@ -28,7 +28,25 @@ nothing above the last APPROVED rung is examined.
 reads `pressure_rest_rel` above its bar with every cell converged, now that the ground cells are
 graded finer; the slice column (`scripts/sim_run.sh --rung 2 --frames 6`) reads zero.
 
-## 2. THE BODY RECORD OMITS THE PORE WATER BELOW THE SEA FLOOR, AND ONE POROSITY LAW SERVES EVERY ROCK
+## 2. THE BOUNDARY GATES CANNOT RECORD THEIR OWN CAPTURE
+
+`scripts/check_boundary_books.sh` with no `LA_LINT_CAPTURE` exits 2: its capture run,
+`scripts/sim_run.sh --body --frames 20 --rung 3 --slice-capture C`, ends `RUN FAILED, exit 122` with
+`PRESSURE_BROKEN: pressure fell going down.`
+
+## 3. A GHOST CELL'S REST GRAVITY IS READ PAST THE END OF ITS BUFFER
+
+`rg -n 'g_rest.*cc \* 3' addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd`
+Reading: `_allocate_declared` in `MaterialSphereGPU3D.gd` adds `_ng` once to a declared length, so a
+per-cell three-vector declared `{"n": cc * 3, "ghosts": true}` is `cc * 3 + ng` long where a ghost cell's
+last component sits at `3 * (cc + ng) - 1`.
+
+## 4. PRESENTATION LIVES ON THE SIM SIDE OF THE EJECTA MODULE
+
+`rg -n 'MultiMeshInstance3D|la_effects_scale' addons/local_agents/sim/material/MaterialEjecta3D.gd`
+finds a draw cap read off the graphics effects preset and a MultiMesh built under `sim/`.
+
+## 5. THE BODY RECORD OMITS THE PORE WATER BELOW THE SEA FLOOR, AND ONE POROSITY LAW SERVES EVERY ROCK
 
 `scripts/check_hydrosphere_mass.sh --body` is red: the water table saturates rock below sea level, and
 the declared `hydrosphere_kg`/`groundwater_kg` in `LABodySystem.cpp` (Gleick 1996) count the surface
@@ -36,13 +54,13 @@ ocean and continental groundwater only. `REGOLITH_SURFACE_POROSITY` and `COMPACT
 1930, shales) are applied to basalt and basement. Cite the oceanic-crust and sediment pore-water
 reservoir and a porosity law per lithology from the substance table.
 
-## 3. A SLICE OFF THE BODY AXES CANNOT BE FRAMED
+## 6. A SLICE OFF THE BODY AXES CANNOT BE FRAMED
 
 `LA_SLICE_BOX="-0.6129,surface,0,3,24,3,5120,10" scripts/check_ground_drawn.sh` reads `cam_in_slice=false`
 with the eye 12 km up: the box's column is a body axis, so at a site off the axes the local vertical
 is not a box axis, and the pose is framed against the box's Y.
 
-## 4. THE GROUND UNDER THE EYE IS NOT BUILT ON THE WHOLE BODY
+## 7. THE GROUND UNDER THE EYE IS NOT BUILT ON THE WHOLE BODY
 
 `scripts/agent_harness.sh ground` exits 2: its shot reads `ground_meshed=false`, and the view axis
 first meets built ground far past where the pose framed it. The same gate over a box,
@@ -50,42 +68,42 @@ first meets built ground far past where the pose framed it. The same gate over a
 Reading: `is_area_meshed` in the terrain service answers whether a block is loaded at a level, not
 whether the mesher shows it, so `ground_resolved()` can go true while half the frame is still coarse.
 
-## 5. THE RUNG-1 AND RUNG-2 DEMOS ARE NOT CUT
+## 8. THE RUNG-1 AND RUNG-2 DEMOS ARE NOT CUT
 
 `scripts/check_demo_catalog.sh` lists `slice_rung0.tres` and nothing above it. Each is a scene
 declaring its rung and the slice box, and an entry; cut in order, each approved before the next rung
 is built.
 
-## 6. THE ACOUSTIC FACE SOLVE LOSES ORDER AT A STRONG JUMP
+## 9. THE ACOUSTIC FACE SOLVE LOSES ORDER AT A STRONG JUMP
 
 `scripts/check_bench_shock_tube.sh` (rung 3): at a 10:1 Sod jump the rarefaction head stands past its
 exact position outside the bound and the overshoot grows as the grid halves; at a 1% jump every
 claim passes.
 
-## 7. CONDUCTION IN ROCK BREAKS THE MAXIMUM PRINCIPLE
+## 10. CONDUCTION IN ROCK BREAKS THE MAXIMUM PRINCIPLE
 
 `scripts/check_bench_heat_slab.sh` (rung 4): a slab held between 20 and 520 °C reaches temperatures
 outside that range.
 Reading: `la_row_need` in `flux.glsl` gates the conduction row's timestep need on `cap_sensible[c] > 0`,
 and a rock cell's heat sits in the silicate entry.
 
-## 8. GROUNDWATER MOVES NOTHING
+## 11. GROUNDWATER MOVES NOTHING
 
 `scripts/check_bench_darcy.sh` (rung 5): six regolith columns under a head difference transfer zero
 in one step on correctly configured cells.
 
-## 9. RADIATION BETWEEN IDENTICAL NEIGHBOURS IS NOT BALANCED
+## 12. RADIATION BETWEEN IDENTICAL NEIGHBOURS IS NOT BALANCED
 
 `scripts/check_bench_grey_atmosphere.sh` (rung 7): identical neighbours at one temperature exchange
 unevenly past the bound, and the lit plate settles below the grey Eddington skin temperature by the
 ratio of its band absorptivity to its emissivity.
 
-## 10. TWO REDUCE ROWS ARE NAMED BY A RUNG AND DECLARED BY NOBODY
+## 13. TWO REDUCE ROWS ARE NAMED BY A RUNG AND DECLARED BY NOBODY
 
 `rg -n -e wind_x_sum -e wind_z_sum` finds both in `LAProcessSet.cpp`'s `ACOUSTIC_REDUCE` and in no
 `reduce/*.gd` row. Removing them rebuilds the extension.
 
-## 11. NOT EXAMINED UNTIL THE RUNG-2 DEMO IS APPROVED — rung 3
+## 14. NOT EXAMINED UNTIL THE RUNG-2 DEMO IS APPROVED — rung 3
 
 - `scripts/sim_run.sh --rung 3 --frames 8` on the planet ends with `timeout waiting for fence`.
 - `LA_REST_CELL_M=68000 LA_REST_CELLS=8 scripts/check_atmosphere_at_rest.sh` reads a rest departure
@@ -100,7 +118,7 @@ ratio of its band absorptivity to its emissivity.
   from the advective CFL, and `SIM_SECONDS_PER_STEP` is deleted. Declared in `docs/APPROXIMATIONS.md`
   when built.
 
-## 12. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the books above it
+## 15. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the books above it
 
 - The open-boundary books at run level: `scripts/sim_run.sh --frames 20 --slice-capture C` then
   `LA_RUN_TIMEOUT=900 scripts/sim_run.sh --slice --slice-state C --frames 650` fires
@@ -111,12 +129,12 @@ ratio of its band absorptivity to its emissivity.
   addons/local_agents/game/VoxelWorld.tscn -- --sandbox --ui --run-frames=20` prints no report and
   logs no error; the same arm with `--planet-only --no-fauna` reports.
 
-## 13. Reduce the rest on the device
+## 16. Reduce the rest on the device
 
 `FieldPassAttribution3D._sums` walks the channels it downloads at a checkpoint, and
 `MaterialFieldMineralProfile3D` walks the grid by elevation band; a reduce dispatch replaces each.
 
-## 14. THE PHYSICS RUNS INSIDE GODOT'S PROCESS
+## 17. THE PHYSICS RUNS INSIDE GODOT'S PROCESS
 
 Maintainer's decision, standing: the sim is a standalone native process with its own compute device,
 clock and CLI; gates run it with no Godot launch; Godot attaches as a viewer. Today every pass is a
@@ -124,23 +142,16 @@ GDScript record on a Godot RenderingDevice (`LAFieldDriver`, `MaterialSphereGPU3
 `scripts/run_sim_offscreen.sh` launches Godot for every gate. The migration is phased so each
 phase keeps lint green.
 
-## 15. THE LEDGER RECONSTRUCTS ELEMENTS FROM CHANNEL AMOUNTS
+## 18. THE LEDGER RECONSTRUCTS ELEMENTS FROM CHANNEL AMOUNTS
 
 Maintainer's decision, standing: per-cell moles of elements are the state and species are derived
 (`docs/PHYSICS_TODO.md` B). Today the state is channel amounts (`Channels.gd`) and the ledger
 reconstructs element totals (`mol_per_unit`).
 
-## 16. THE GPU ARM OF LINT RUNS ON THIS MACHINE ONLY
+## 19. THE GPU ARM OF LINT RUNS ON THIS MACHINE ONLY
 
 `.github/workflows/gpu-lint.yml` targets a self-hosted macOS runner labelled `gpu`; none is registered
 (maintainer's hardware).
-
-## 17. THE DETERMINISM GATE CANNOT RUN IN THE WORLD THE DEMO DECLARES
-
-`scripts/check_determinism.sh` exits 2: the event arm drew no more from the `planet` stream than the
-quiet arm, so the gate refuses to call the run determinism.
-Reading: `offered` in `MeteorImpacts.gd` answers from `LAWorldOffers.has_impacts`, which names the
-gravity pass, the heat channel and the rock channel; `docs/PLAYABLE_RUNG` names the rung the run gets.
 
 ---
 
