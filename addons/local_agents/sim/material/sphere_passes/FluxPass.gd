@@ -127,7 +127,8 @@ func _step(ctx: Dictionary) -> Dictionary:
 		# No sun in the ctx is no star, which is no XUV — never an assumed one.
 		"xuv_w_m2": float(ctx.get("xuv_w_m2", 0.0)),
 		"phi_datum": float(ctx.get("phi_datum", 0.0)),
-		"gravity_self": float(ctx.get("gravity_self", 1.0)),
+		# GravityPass publishes the share; no solver is no potential, never a slab's share guessed.
+		"gravity_self": float(ctx.get("gravity_self", 0.0)),
 		# StateDerivePass owns the restate's kernel, bindings and block; this pass owns when it runs.
 		"restate": ctx.get("restate", {})}
 
