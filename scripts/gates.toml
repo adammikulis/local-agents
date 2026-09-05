@@ -541,6 +541,14 @@ marker = "^check_gravity_solve: OK"
 mutation = "printf '0\\n' > docs/GRAVITY_GAUSS_CEILING"
 
 [[gate]]
+name = "check_sparse_edit"
+script = "scripts/check_sparse_edit.sh"
+kind = "gpu"
+marker = "^check_sparse_edit: OK"
+needs = "import"
+mutation = "python3 -c \"p='addons/local_agents/sim/material/kernels3d/sparse_edit.glsl'; s=open(p).read(); open(p,'w').write(s.replace('int s = inj_idx[e * 3u];', 'int s = inj_idx[e * 3u] + 1;'))\""
+
+[[gate]]
 name = "check_finite_channels"
 script = "scripts/check_finite_channels.sh"
 kind = "gpu"

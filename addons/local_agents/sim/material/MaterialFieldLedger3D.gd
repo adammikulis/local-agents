@@ -116,8 +116,8 @@ func _publish_mineral(out: Dictionary, f: Dictionary, step: int) -> void:
 		out["lith_element_" + String(el)] = snappedf(float(lith[el]), 0.01)
 	# erupt_source injects mantle lava with no debit in the field, so the queue books it.
 	var src: float = 0.0
-	if _f._inject != null and _f._inject.queue != null:
-		src = float(_f._inject.queue.mineral_minted)
+	if _f._gpu != null and _f._gpu.has_method("inject_created"):
+		src = _f._gpu.inject_created("silicate")
 	out["mineral_src_total"] = snappedf(src, 0.01)
 	_run_pair(out, "mineral", "mineral", "mineral", total, step,
 		_bnd.of(LAFieldLedgerRecords.MINERAL, "Si"))
