@@ -4,6 +4,7 @@
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
+#include <godot_cpp/variant/string.hpp>
 
 namespace godot {
 
@@ -25,6 +26,12 @@ public:
 	// solved potential, anchored at sea level, in the room the rock and the sea leave.
 	static void shape_atmosphere(Object *p_field, double p_temp_c,
 			const PackedFloat32Array &p_gravity, const PackedFloat64Array &p_phi);
+	// The seeded atmosphere's mole fraction per gas channel, its R T / M, and the height at which its
+	// barometric profile stops being a fluid at all.
+	static Dictionary seeded_air_mole_fractions();
+	static double seeded_air_rt_over_m(double p_temp_c);
+	static double air_extent_m(const String &p_body_key, double p_radius_m, double p_temp_c,
+			double p_cell_edge_m);
 
 protected:
 	static void _bind_methods();

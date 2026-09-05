@@ -442,10 +442,6 @@ PackedStringArray LAFieldCellMass3D::mirror_names(Object *p_field) {
 	return out;
 }
 
-Array LAFieldCellMass3D::gas_mirrors(Object *p_field) {
-	return walk(p_field, "phase", "gas", false, nullptr);
-}
-
 double LAFieldCellMass3D::kg_m3_at(const Array &p_mirrors, int p_c) {
 	double m = 0.0;
 	for (int i = 0; i < p_mirrors.size(); i++) {
@@ -476,8 +472,6 @@ void LAFieldCellMass3D::_bind_methods() {
 			&LAFieldCellMass3D::mirrors);
 	ClassDB::bind_static_method("LAFieldCellMass3D", D_METHOD("mirror_names", "field"),
 			&LAFieldCellMass3D::mirror_names);
-	ClassDB::bind_static_method("LAFieldCellMass3D", D_METHOD("gas_mirrors", "field"),
-			&LAFieldCellMass3D::gas_mirrors);
 	ClassDB::bind_static_method("LAFieldCellMass3D", D_METHOD("kg_m3_at", "mirrors", "c"),
 			&LAFieldCellMass3D::kg_m3_at);
 }

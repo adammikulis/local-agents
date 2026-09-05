@@ -660,6 +660,14 @@ marker = "^check_meteor_offer: OK"
 mutation = "python3 -c \"p='addons/local_agents/game/ui/WorldOffers.gd'; s=open(p).read(); open(p,'w').write(s.replace('return impacts_missing().is_empty()','return true'))\""
 
 [[gate]]
+name = "check_impact_books"
+script = "scripts/check_impact_books.sh"
+kind = "headless"
+needs = ["import"]
+marker = "^check_impact_books: OK"
+mutation = "python3 -c \"p='addons/local_agents/sim/material/MaterialEjecta3D.gd'; s=open(p).read(); open(p,'w').write(s.replace('0.5 * kg * speed * speed','0.5 * kg * (_mass_unit_kg(_f.world_to_cell(pos)) / unit_kg) * speed * speed'))\""
+
+[[gate]]
 name = "check_shot_protocol"
 script = "scripts/check_shot_protocol.sh"
 kind = "gpu"

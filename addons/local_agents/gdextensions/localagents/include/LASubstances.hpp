@@ -29,8 +29,9 @@ public:
 	static Dictionary table();
 
 	static double fresh_litter_per_carbon(const String &p_element);
+	static Dictionary reaction_terms(const Dictionary &p_rec, const Dictionary &p_slot_substance,
+			const Dictionary &p_derived_slots);
 	static double organic_energy_j_mol(const String &p_element);
-	static Vector3 organic_oxidation_parts();
 
 	static double latent_sublimation_j_kg(const String &p_id);
 	static bool has_eos(const String &p_id);
@@ -44,7 +45,6 @@ public:
 	static double boil_c_at(const String &p_id, double p_p_pa);
 	static double melt_c_at(const String &p_id, double p_p_pa, double p_molality_mol_kg);
 	static double liquidus_c_at(const String &p_id, double p_p_pa, double p_molality_mol_kg);
-	static double fusion_pa_per_k(const String &p_id);
 	static double saturation_p_at(const String &p_id, double p_t_c);
 	static double sublimation_p_at(const String &p_id, double p_t_c);
 	static double sublimation_c_at(const String &p_id, double p_p_pa);

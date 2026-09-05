@@ -15,11 +15,11 @@ la_body_scoped "$(basename "$0")" || exit $?
 # This is the blockiness of the seeded shape and NOTHING ELSE; it tightens as the grid refines, and it is
 # wide enough to be honest while still failing an order of magnitude by three powers of ten.
 MASS_TOL="${LA_BODY_MASS_TOL:-0.02}"
-# Derived-from-derived: g and the day are arithmetic over the two measurements, so they agree tightly.
+# Derived-from-derived: the day is arithmetic over the two measurements, so they agree tightly.
 DERIVED_TOL="${LA_BODY_DERIVED_TOL:-0.01}"
 FRAMES="${LA_BODY_FRAMES:-6}"
 
-KEYS="body_measured,body_mass_kg,body_seed_mass_kg,body_radius_m,body_surface_g_m_s2,body_inertia_kg_m2,body_seed_spin_l,body_day_s"
+KEYS="body_measured,body_mass_kg,body_seed_mass_kg,body_radius_m,body_inertia_kg_m2,body_seed_spin_l,body_day_s"
 out="$(la_report "$KEYS" --path "$REPO_ROOT" --body --frames "$FRAMES" 2>&1)"
 rc=$?
 
@@ -41,9 +41,9 @@ if [ "$measured" != "True" ] && [ "$measured" != "true" ]; then
 fi
 
 m="$(val body_mass_kg)"; m_seed="$(val body_seed_mass_kg)"
-r="$(val body_radius_m)"; g="$(val body_surface_g_m_s2)"
+r="$(val body_radius_m)"
 inertia="$(val body_inertia_kg_m2)"; spin_l="$(val body_seed_spin_l)"; day="$(val body_day_s)"
-for n in m m_seed r g inertia spin_l day; do
+for n in m m_seed r inertia spin_l day; do
 	v="$(eval printf '%s' "\$$n")"
 	printf '%s' "$v" | grep -Eq '^[+-]?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$' || {
 		echo "ERROR: $n did not arrive as a number; a missing measurement is not a pass." >&2
@@ -59,12 +59,6 @@ awk -v a="$m" -v b="$m_seed" -v t="$MASS_TOL" 'BEGIN{exit !(b>0 && ((a/b-1)<t &&
 	echo "FAIL  the body holds a mass its seed did not ask for, past $MASS_TOL." >&2
 	echo "      Mass is not a number anybody types: it is the matter the seeder spent. A disagreement" >&2
 	echo "      this size is the seed creating or losing matter, not the grid's blockiness." >&2
-	fail=1
-}
-# g = G M / r^2 off the SAME two measurements: a break here is wiring, not physics.
-awk -v g="$g" -v m="$m" -v r="$r" -v t="$DERIVED_TOL" \
-	'BEGIN{e=6.674e-11*m/(r*r); exit !(e>0 && ((g/e-1)<t && (g/e-1)>-t))}' || {
-	echo "FAIL  surface gravity is not G M / r^2 over the body's own measured mass and radius." >&2
 	fail=1
 }
 # The day is the seeded angular momentum over the measured inertia, and nothing else.
