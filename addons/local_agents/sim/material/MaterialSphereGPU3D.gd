@@ -514,33 +514,6 @@ func inject_created(channel: String) -> float:
 	return _inject.created_total(channel) if _inject != null else 0.0
 
 
-func snapshot_channels() -> Dictionary:
-	var out: Dictionary = {}
-	if _rd == null:
-		return out
-	_flush_pending()        # a step submit may be in flight (async pipeline) — sync before reading the buffers
-	for name in channels() + SEED_PRODUCTS:
-		out[name] = _rd.buffer_get_data(_bufs[name], 0, _cc * 4).to_float32_array()
-	return out
-
-
-func restore_channels(data: Dictionary) -> void:
-	if _rd == null:
-		return
-	_flush_pending()        # a step submit may be in flight — sync before overwriting the buffers
-	for name in data.keys():
-		var key: String = String(name)
-		if not _bufs.has(key):
-			continue
-		var arr: PackedFloat32Array = data[key]
-		if arr.size() != _cc:
-			push_error("restore_channels: %s holds %d cells against %d; the bake is another world's." % [key, arr.size(), _cc])
-			continue
-		var bytes: PackedByteArray = arr.to_byte_array()
-		_rd.buffer_update(_bufs[key], 0, bytes.size(), bytes)
-		_wake_field()
-
-
 func dispose() -> void:
 	if _rd == null:
 		return
