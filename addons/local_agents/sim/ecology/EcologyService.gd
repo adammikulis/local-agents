@@ -13,7 +13,6 @@ const KINDS: Array = ["plant", "rabbit", "fox", "bird", "villager", "fish", "roc
 
 const COGNITION_GROUP: StringName = &"la_creatures"
 
-const AQUATIC_STOCK_MULT: float = 2.6
 
 var terrain = null                       # LAVoxelTerrainService
 var actors_root: Node3D = null
@@ -34,8 +33,8 @@ var _sun_centre: Vector3 = Vector3.ZERO   # the body the local `up` is measured 
 
 
 ## Publish the real sun geometry (the world calls this each frame). `dir` is the unit vector from the planet
-## centre toward the star, `centre` is that planet centre. A flat or sunless world simply never calls it and
-## every query below answers "day" — the right default for a world with no terminator.
+## centre toward the star, `centre` is that planet centre. A world that never calls it has no sun, and
+## has_sun() below says so instead of anything answering "day".
 func set_sun(dir: Vector3, centre: Vector3) -> void:
 	_sun_dir = dir
 	_sun_centre = centre
@@ -44,12 +43,19 @@ func set_sun(dir: Vector3, centre: Vector3) -> void:
 ## Is `pos` on the dark side? Local up is the outward radial from the planet centre, so this is exactly "is
 ## the sun below my horizon". Dusk and dawn need no thresholds — the dot product crosses zero by itself.
 func is_night_at(pos: Vector3) -> bool:
-	if _sun_dir.length_squared() < 0.0001:
+	if not has_sun():
+		push_error("LAEcologyService.is_night_at: no sun is declared, so this world has no day and no night to report.")
 		return false
 	var up: Vector3 = pos - _sun_centre
 	if up.length_squared() < 0.000001:
+		push_error("LAEcologyService.is_night_at: asked at the body's own centre, which has no horizon.")
 		return false
 	return up.normalized().dot(_sun_dir) < 0.0
+
+
+## Does this world have a sun at all? Ask before asking about night; there is no default answer.
+func has_sun() -> bool:
+	return _sun_dir.length_squared() >= 0.0001
 
 # pending spawns whose surface wasn't ready yet: [{kind, pos, tries}]
 var _pending: Array = []
@@ -68,6 +74,7 @@ func kinship() -> LAKinshipGraph:
 
 
 func reset_world() -> void:
+	LAFakes.reset()
 	if actors_root == null:
 		return
 	var tree: SceneTree = actors_root.get_tree()
@@ -85,9 +92,11 @@ func reset_world() -> void:
 	_pending.clear()
 
 
+## An authored per-species trait row. Traits belong on the genome's loci with the environment sorting them,
+## so while the tables stand in for that this reads them, and otherwise there is no such row to read.
 func _species_config(kind: String) -> Dictionary:
-	# Species stats live in per-type DATA files under data/species/<class>/<kind>.json, kept OUT of
-	# this business logic so a creature can be retuned by editing one small file (see LASpeciesLibrary).
+	if not LAFakes.stands_in("species_tables"):
+		return {}
 	return LASpeciesLibrary.load_config(kind)
 
 
@@ -154,6 +163,7 @@ func setup(_terrain, _actors_root: Node3D) -> void:
 	_aquatic = LAEcologyAquatic.new()
 	_aquatic.setup(self)
 	LASimReport.register(Callable(self, "vegetation_report"))
+	LASimReport.register(Callable(self, "fakes_report"))
 	_tracks = TrackSystemScript.new()
 	_tracks.name = "TrackSystem"
 	add_child(_tracks)
@@ -219,8 +229,16 @@ func vegetation_report() -> Dictionary:
 	}
 
 
-const GROW_MIN_TEMP: float = 7.5          # °C below which the ground is too cold for a seed to germinate
-const GROW_SNOW_MAX: float = 0.02         # snowpack depth above which the ground is snow-covered (no germination)
+## Every stand-in this world is running on and what each has made, so a reader of the report never
+## mistakes a faked leg for a simulated one.
+func fakes_report() -> Dictionary:
+	return {"fakes": LAFakes.report()}
+
+
+## °C. Growing-degree-day base: below it a temperate plant accumulates no degree-days and makes no growth.
+const GDD_BASE_C: float = 5.0
+## °C. The warmest-month isotherm the treeline follows.
+const TREELINE_ISOTHERM_C: float = 10.0
 
 
 const SURFACE_PROBE_UP: float = 6.0     # a little over one 5-unit field cell, into the open surface layer
@@ -232,14 +250,16 @@ func _air_point(pos: Vector3) -> Vector3:
 	return pos + Vector3.UP * SURFACE_PROBE_UP
 
 
-func _can_grow_here(placed: Vector3) -> bool:
-	if _material == null:
-		return true
+## Degree-days accumulate here at a positive rate, and the ground is bare enough for a seed to reach it.
+## No field means no measurement, so nothing is planted on it.
+func _can_grow_here(placed: Vector3, woody: bool = false) -> bool:
+	if _material == null or not _material.has_method("temp_at"):
+		return false
 	var air: Vector3 = _air_point(placed)
-	if _material.has_method("temp_at") and _material.temp_at(air) < GROW_MIN_TEMP:
-		return false   # too cold — above the emergent treeline
-	if _material.has_method("snow_depth_at") and _material.snow_depth_at(air) > GROW_SNOW_MAX:
-		return false   # snow-covered ground
+	if _material.temp_at(air) - (TREELINE_ISOTHERM_C if woody else GDD_BASE_C) <= 0.0:
+		return false
+	if _material.has_method("snow_depth_at") and _material.snow_depth_at(air) > 0.0:
+		return false   # lying snow: a seed never reaches the soil
 	return true
 
 
@@ -388,9 +408,19 @@ func _instance_actor(kind: String, placed: Vector3, genome = null, family_id: in
 	return node
 
 
+## Which tree grows here. Conifer or broadleaf is a genome under a climate, not a coin; the coin stands in
+## for that until the loci do.
 func _tree_config() -> Dictionary:
-	var pine: bool = LASimRng.for_domain("life").randf() < 0.4
-	return {"species": "pine" if pine else "oak"}
+	if not LAFakes.stands_in("species_tables"):
+		return {}
+	# A stand that came with the world is a forest already standing; one that germinates after the seal
+	# starts from a seed and takes a tree's life to reach height.
+	return {"species": "pine" if LASimRng.for_domain("life").randf() < 0.4 else "oak", "grown": not _sealed()}
+
+
+## Is the world past its seeding phase? Everything placed before it was created with the planet.
+func _sealed() -> bool:
+	return _material != null and _material._seal != null and _material._seal.sealed()
 
 
 # Forest scatter lives in LAEcologySpawner; thin forwarder for the world spawn controller.
@@ -399,8 +429,8 @@ func populate_environment(forest_clusters: int) -> void:
 
 
 # Point-blast + area terror/wind stimuli live in LAEcologyStimulus; thin forwarders for the impact actor.
-func damage_sphere(world_pos: Vector3, radius: float, base_damage: float = 1000.0) -> void:
-	_stimulus.damage_sphere(world_pos, radius, base_damage)
+func damage_sphere(world_pos: Vector3, radius: float) -> void:
+	_stimulus.damage_sphere(world_pos, radius)
 
 
 func broadcast_scare(world_pos: Vector3, radius: float, base_intensity: float = 1.0) -> void:
@@ -497,3 +527,8 @@ func stock_initial_aquatic() -> void:
 
 func _random_aquatic_point(cfg: Dictionary) -> Vector3:
 	return _aquatic._random_aquatic_point(cfg)
+
+
+## A direction into the part of the body this run's field steps.
+func random_field_dir() -> Vector3:
+	return _spawner.random_field_dir()

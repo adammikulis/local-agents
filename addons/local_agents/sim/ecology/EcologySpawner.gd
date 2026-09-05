@@ -111,11 +111,11 @@ func _random_spawn_point() -> Vector3:
 	var above: float = _eco.terrain.planet_radius() + 1.0
 	var sea_r: float = _eco.terrain.sea_radius() if _eco.terrain.has_method("sea_radius") else 0.0
 	if sea_r <= 0.0 or not _eco.terrain.has_method("surface_radius"):
-		return center + _random_sphere_dir() * above
+		return center + random_field_dir() * above
 	# Drawn up front: the draw count must not depend on what the terrain answers.
 	var dirs: Array[Vector3] = []
 	for i in range(LAND_TRIES):
-		dirs.append(_random_sphere_dir())
+		dirs.append(random_field_dir())
 	var best_dir: Vector3 = Vector3.ZERO
 	var best_r: float = -INF
 	for d in dirs:
@@ -149,6 +149,22 @@ static func _random_sphere_dir() -> Vector3:
 	while v.length() < 0.05:
 		v = LASimRng.for_domain("life").rand_dir()
 	return v.normalized()
+
+
+## A direction into the region the field actually steps: the whole sphere when the field spans the body,
+## the box's own footprint when it does not. Nothing lives where no matter is being simulated.
+func random_field_dir() -> Vector3:
+	var m = _eco._material
+	var g = m._grid if m != null else null
+	if g == null or g.cell_size <= 0.0 or g.nx <= 0:
+		return _random_sphere_dir()
+	var span: Vector3 = Vector3(g.nx, g.ny, g.nz) * g.cell_size
+	if span.x >= 2.0 * _eco.terrain.planet_radius():
+		return _random_sphere_dir()
+	var rng = LASimRng.for_domain("life")
+	var p: Vector3 = g.origin + Vector3(rng.randf() * span.x, rng.randf() * span.y, rng.randf() * span.z)
+	var d: Vector3 = p - _eco.terrain.planet_center()
+	return d.normalized() if d.length() > 0.001 else _random_sphere_dir()
 
 
 func _tangent_offset_point(anchor: Vector3, u: float, v: float) -> Vector3:
@@ -201,7 +217,7 @@ func _best_forest_center(tries: int) -> Vector3:
 	var best_score: float = -INF
 	for i in range(tries):
 		var placed = _place_on_surface(_random_spawn_point())
-		if placed == null or not _eco._can_grow_here(placed):
+		if placed == null or not _eco._can_grow_here(placed, true):
 			continue
 		var score: float = _forest_suitability(placed)
 		if score > best_score:
@@ -214,7 +230,7 @@ func _best_forest_center(tries: int) -> Vector3:
 func _forest_suitability(pos: Vector3) -> float:
 	var warmth: float = 0.0
 	if _eco._material != null and _eco._material.has_method("temp_at"):
-		warmth = _eco._material.temp_at(pos) - LAEcologyService.GROW_MIN_TEMP
+		warmth = _eco._material.temp_at(pos) - LAEcologyService.TREELINE_ISOTHERM_C
 	return _eco._biomass_at(pos) * FOREST_BIOMASS_WEIGHT + warmth
 
 

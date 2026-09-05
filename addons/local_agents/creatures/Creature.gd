@@ -158,6 +158,7 @@ var _panic_source: Vector3 = Vector3.ZERO
 var _eff_speed: float = 0.0                 # decided speed, carried between think-frames
 var _think_phase: int = -1                  # per-instance stagger offset (lazily set on first tick)
 var _force_think: bool = false              # acute event (scare/damage) → re-decide next frame
+var _think_dt: float = 0.0                  # seconds since this body last acted on a decision
 
 var _leader: Node3D = null
 var _is_leader: bool = true
@@ -434,7 +435,7 @@ func _physics_process(delta: float) -> void:
 	_throw_cd -= delta
 	# Night perception: nocturnal species gain range after dark, diurnal ones lose it.
 	_sense_mult = 1.0
-	if _ecology != null and _ecology.has_method("is_night_at") and _ecology.is_night_at(global_position):
+	if _ecology != null and _ecology.has_method("has_sun") and _ecology.has_sun() and _ecology.is_night_at(global_position):
 		_sense_mult = 1.4 if nocturnal else 0.7
 	LACreatureDigestion.ambient_graze(self, global_position, delta)
 	# Digestion: the gut converts buffered food into energy (+ pending feces) this frame — run BEFORE the
@@ -453,6 +454,7 @@ func _physics_process(delta: float) -> void:
 	if gut_microbiome != null:
 		gut_microbiome.tick(self, delta)
 	# Thirst + ageing — see LACreatureMetabolism. Death stops us.
+	LACreatureThirst.sip(self, global_position, delta)
 	if LACreatureMetabolism.tick(self, delta):
 		return
 	if terrain == null:
@@ -501,7 +503,10 @@ func _physics_process(delta: float) -> void:
 		_pt = Time.get_ticks_usec()
 	var stride: int = LACreatureLod.think_stride(self)
 	var do_think: bool = _force_think or ((int(Engine.get_physics_frames()) + _think_phase) % stride == 0)
+	_think_dt += delta
 	if do_think:
+		var think_dt: float = _think_dt
+		_think_dt = 0.0
 		LASimReport.event("decision")   # telemetry: discretionary decisions/run — proves the AI-tick stride knob bites
 		var desired: Vector3 = _heading
 		_wander_timer -= delta
@@ -556,7 +561,7 @@ func _physics_process(delta: float) -> void:
 			else:
 				# Thirst competes with hunger: once parched, seeking/drinking water interrupts
 				# normal behavior (but never overrides fleeing a predator, handled above).
-				var thirst_action: String = LACreatureThirst.handle_thirst(self, pos, delta)
+				var thirst_action: String = LACreatureThirst.handle_thirst(self, pos, think_dt)
 				if thirst_action == "drink":
 					eff_speed = 0.0                      # stand at the water's edge and drink
 					state = "drink"
@@ -654,7 +659,7 @@ func _physics_process(delta: float) -> void:
 
 
 func _rest_period() -> bool:
-	if _ecology == null or not _ecology.has_method("is_night_at"):
+	if _ecology == null or not _ecology.has_method("has_sun") or not _ecology.has_sun():
 		return false
 	return _ecology.is_night_at(global_position) != nocturnal
 

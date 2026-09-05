@@ -2,6 +2,15 @@ class_name LAReduceMineralRows
 extends RefCounted
 
 const Rec: GDScript = preload("res://addons/local_agents/sim/material/ReduceRecords.gd")
+const Heat: GDScript = preload("res://addons/local_agents/sim/material/reduce/HeatRows.gd")
+
+## Loose (uncemented) mineral: the bed load plus what water carries in suspension. flux.glsl's grain
+## prologue writes both fractions.
+const LOOSE: Dictionary = {"source": "silicate", "aux": "silicate_bed",
+	"aux2": "silicate_susp_water", "mask": Rec.Mask.OPEN}
+
+## The radial bands the loose pool is sampled over, on the geotherm profile's own grid.
+const BANDS: PackedStringArray = ["core", "mid", "surf"]
 
 ## Melt is mask-free: it lingers the instant a cell crosses to derived-solid, so an open-only sum would
 ## drop matter that physically exists. Melt confined by rock is magma; melt in the open is lava.
@@ -40,4 +49,25 @@ static func rows() -> Array:
 		rind.merged({"key": "lava_rind_sum", "op": Rec.Op.SUM}, true),
 		interior.merged({"key": "lava_interior", "op": Rec.Op.COUNT}, true),
 		interior.merged({"key": "lava_interior_sum", "op": Rec.Op.SUM}, true),
-	]
+	] + _band_rows()
+
+
+## WHERE the loose mineral is, by radius: moles per band and the open cells the band holds, over the same
+## `r_frac` grid LAReduceHeatRows samples the geotherm on.
+static func _band_rows() -> Array:
+	var out: Array = []
+	for tag in BANDS:
+		var b: int = int(Heat.PROFILE_SAMPLES[String(tag)])
+		var g: Dictionary = LOOSE.merged({"gate": "r_frac",
+			"gate_lo": float(b) * Heat.PROFILE_WIDTH}, true)
+		if float(b + 1) * Heat.PROFILE_WIDTH < 1.0:
+			g["gate_hi"] = float(b + 1) * Heat.PROFILE_WIDTH
+		out.append(g.merged({"key": "mineral_band_%s_sum" % tag, "op": Rec.Op.SUM,
+			"weight": true}, true))
+		out.append(g.merged({"key": "mineral_band_%s_n" % tag, "op": Rec.Op.COUNT}, true))
+	# The two pools a band is read against: loose in the open, where wind and water reach it, and loose
+	# inside rock, where nothing does.
+	out.append(LOOSE.merged({"key": "mineral_loose_open", "op": Rec.Op.SUM, "weight": true}, true))
+	out.append(LOOSE.merged({"key": "mineral_loose_buried", "op": Rec.Op.SUM, "weight": true,
+		"mask": Rec.Mask.SOLID}, true))
+	return out
