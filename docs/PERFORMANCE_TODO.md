@@ -47,10 +47,10 @@ already have this shape.
 
 `LASimReport.snapshot()` calls every provider, and `LAGameProgression._process` calls it twice per
 `CHECK_INTERVAL` (0.5 s), plus the HUD and `LAVoxelHarness`. Only `_heavy_block()` is behind the 64-frame
-cache. `MaterialFieldMineralProfile3D.post_step` is NOT — a whole-grid GDScript sweep on the main thread.
+cache.
 
-Moving it inside the cache is a CADENCE change and forbidden as a speed measure on its own. Make it
-cheap instead.
+Moving a provider inside the cache is a CADENCE change and forbidden as a speed measure on its own. Make
+it cheap instead: a provider reads rows the device already folded, it does not walk cells.
 
 
 ## 1c. One surface-cell list would empty the remaining full-grid walks
