@@ -21,7 +21,7 @@ const SnapshotScript: GDScript = preload("res://addons/local_agents/sim/material
 const GRAVITY_PASS: String = "GravityPass.gd"
 
 var _f = null                                          # back-reference to the owning LAMaterialField3D
-var _mineral_profile = null
+var _mineral_profile = null                            # holds the SIM_REPORT provider it registered
 # The driver's ONE between-pass probe.
 var _probe = null
 var _sealed_full_steps: int = 0
@@ -232,5 +232,3 @@ func step() -> void:
 	LASimReport.gauge("field_ms", float(Time.get_ticks_usec() - t0) / 1000.0)
 	if _f._seal != null and _f._seal.sealed():
 		_sealed_full_steps += 1
-	if _mineral_profile != null:
-		_mineral_profile.post_step()  # LA_MINERAL_PROFILE: print WHERE the loose mineral is, by elevation

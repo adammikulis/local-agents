@@ -568,8 +568,8 @@ func _physics_process(delta: float) -> void:
 	# Local "up": radial on a planet, +Y on the flat island. Used for every up-reference below.
 	var up: Vector3 = terrain.up_at(pos) if terrain != null else Vector3.UP
 
-	var body_r: float = pos.distance_to(terrain.planet_center())
-	var submerged: bool = (terrain.sea_radius() - (body_r + size)) > 0.0
+	# In water because the FIELD has water here, not because a sea-shell radius says so.
+	var submerged: bool = _material != null and _material.is_submerged_at(pos.x, pos.y, pos.z)
 	var in_medium: bool = submerged if breathes == "water" else not submerged
 	if in_medium:
 		_breath = minf(_breath + BREATH_REFILL * delta, breath_capacity)

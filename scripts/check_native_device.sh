@@ -6,6 +6,7 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh"
+. "$ROOT/scripts/lib_godot_lock.sh"
 require_tool cmake
 
 NATIVE="$ROOT/addons/local_agents/native"
@@ -23,6 +24,11 @@ rm -f /tmp/check_native_build.$$
 [ -x "$LASIM" ] || { echo "check_native_device: the build produced no $LASIM" >&2; exit 2; }
 [ -f "$BLOB" ] || { echo "check_native_device: the build produced no $BLOB" >&2; exit 2; }
 
+# ONE SIM AT A TIME: lasim makes a device on the same GPU every other arm on this machine wants.
+la_gpu_lock
+lock_rc=$?
+[ "$lock_rc" -eq 1 ] && { echo "check_native_device: the GPU lock did not come free." >&2; exit 2; }
+
 run_arm() {
 	local arm="$1" out rc
 	out="$("$LASIM" "$arm" 2>&1)"
@@ -39,7 +45,11 @@ run_arm --selftest-kernels
 
 # The mutation. One byte of the payload flipped must be refused, not read as a pipeline.
 SCRATCH="$(mktemp -d)"
-trap 'rm -rf "$SCRATCH"' EXIT
+cleanup() {
+	[ "$lock_rc" -eq 0 ] && la_gpu_unlock
+	rm -rf "$SCRATCH"
+}
+trap cleanup EXIT
 cp "$BLOB" "$SCRATCH/kernels.blob"
 size="$(wc -c < "$SCRATCH/kernels.blob" | tr -d '[:space:]')"
 printf '\xff' | dd of="$SCRATCH/kernels.blob" bs=1 seek="$(( size / 2 ))" count=1 conv=notrunc \

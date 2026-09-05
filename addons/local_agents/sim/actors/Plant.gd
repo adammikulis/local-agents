@@ -12,6 +12,9 @@ var config: Dictionary = {}
 const BIOMASS_GROWTH_GAIN: float = 4.0   # growth-speed multiplier per unit local field biomass
 const BIOMASS_GROWTH_MAX: float = 2.0    # cap on the biomass growth boost
 
+## Metres of shoot a seed puts up on germinating. The smallest a living plant is, here and in Tree.
+const SEEDLING_SHOOT_M: float = 0.05
+
 const BIOMASS_PER_FOOD: float = 1.8e-4
 const FOOD_CAPACITY: float = 46.0        # ceiling on the reserve a full-grown plant may hold (food-energy units)
 const FOOD_UPTAKE_RATE: float = 8.0      # food-energy/second the plant may draw from its cell's standing
@@ -67,6 +70,11 @@ var _render_settled: bool = false
 func setup(_terrain, _config: Dictionary) -> void:
 	terrain = _terrain
 	config = _config.duplicate(true)
+	var loop: LASimLoop = LASimLoop.active()
+	if loop == null:
+		push_error("LAPlant: no simulation loop, so nothing advances this one's growth.")
+	else:
+		loop.stepped.connect(_on_sim_step)
 	species = String(config.get("species", species))
 	color = config.get("color", color)
 	grow_time = maxf(float(config.get("grow_time", grow_time)), 0.1)
@@ -234,9 +242,12 @@ const PLANT_SETTLE_STRIDE: int = 24   # a settled plant runs its body ~every 24 
 var _settle_accum: float = 0.0
 var _settle_phase: int = -1
 
-func _physics_process(delta: float) -> void:
+## Growth, uptake and seeding run on the SIM clock: they are made of matter the field moves on that clock,
+## not on however many frames the renderer managed.
+func _on_sim_step(step: int) -> void:
 	if LAAblate.off("plants"):
 		return
+	var delta: float = LASimLoop.step_seconds()
 	var growing: bool = _grown_fraction() < 1.0
 	# A fully-grown plant has only slow LINEAR timers left (food regrow, seed timer, flower-pollen decay), so
 	# advance it on a coarse STAGGERED cadence with a catch-up delta rather than every frame — hundreds of settled
@@ -245,7 +256,7 @@ func _physics_process(delta: float) -> void:
 		if _settle_phase < 0:
 			_settle_phase = int(get_instance_id())
 		_settle_accum += delta
-		if not LALodStride.should_run(int(Engine.get_physics_frames()), _settle_phase, PLANT_SETTLE_STRIDE):
+		if not LALodStride.should_run(step, _settle_phase, PLANT_SETTLE_STRIDE):
 			return
 		delta = _settle_accum
 		_settle_accum = 0.0
@@ -291,9 +302,13 @@ func _physics_process(delta: float) -> void:
 func _uptake(want_food: float) -> void:
 	if want_food <= 0.0:
 		return
-	if _material == null or _material._inject == null or not _material._inject.has_method("take_biomass"):
+	if _material == null:
 		return
-	var got_mass: float = _material._inject.take_biomass(global_position, want_food * BIOMASS_PER_FOOD)
+	var want_mass: float = want_food * BIOMASS_PER_FOOD
+	# Nothing greens the ground until photosynthesis is in the world, so the reserve comes from the fake,
+	# which holds the loan open until the plant dies and hands it back. There is no second source: the
+	# field's take_biomass queues its transfer to no cell at all, which destroys the mass it moves.
+	var got_mass: float = LAFakes.draw("plant_carbon", want_mass)
 	if got_mass <= 0.0:
 		return
 	_food += got_mass / BIOMASS_PER_FOOD
@@ -310,9 +325,10 @@ func _biomass_boost() -> float:
 	return clampf(b * BIOMASS_GROWTH_GAIN, 0.0, BIOMASS_GROWTH_MAX)
 
 
+## Height reached, as a fraction of this plant's full stem: a germinating seed is one shoot tall.
 func _grown_fraction() -> float:
-	# Start visibly grown (0.4) so a freshly spawned plant reads immediately.
-	return clampf(age / grow_time, 0.4, 1.0)
+	var shoot: float = SEEDLING_SHOOT_M / maxf(_base_height, SEEDLING_SHOOT_M)
+	return clampf(maxf(age / grow_time, shoot), 0.0, 1.0)
 
 
 func _apply_growth() -> void:
@@ -343,9 +359,10 @@ func _exit_tree() -> void:
 		var mass: float = _food * BIOMASS_PER_FOOD
 		var led: LAVegLedger = _ledger()
 		led.food_held = maxf(0.0, led.food_held - mass)
-		if _material != null and _material._inject != null and _material._inject.has_method("return_detritus"):
-			_material._inject.return_detritus(global_position, mass)
-			led.food_returned += mass
+		# Mass the fake lent goes back to the fake. Crediting the field's detritus would mint matter the
+		# sealed planet never had.
+		LAFakes.give_back("plant_carbon", mass)
+		led.food_returned += mass
 		_food = 0.0
 
 
