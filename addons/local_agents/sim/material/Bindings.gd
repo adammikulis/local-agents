@@ -48,6 +48,8 @@ const SLOT: Dictionary = {
 	# the reduce row's slots
 	"reduce_src": 153, "reduce_aux": 154, "reduce_aux2": 155, "reduce_ref": 156, "reduce_gate": 157,
 	"reduce_gate_aux": 158, "reduce_partials": 159,
+	# the sparse edit: the batch, and the two channels one dispatch names
+	"inject_idx": 168, "inject_val": 169, "inject_applied": 170, "inject_src": 171, "inject_dst": 172,
 	# the reaction table
 	"reaction_defs": 160,
 	# the selftest probes
@@ -83,6 +85,8 @@ const IN_KERNEL: Dictionary = {
 		"regolith", "grain", "temp", "solid", "pressure", "h2o_solid", "h2o_liquid", "h2o_vapour", "vel_x",
 		"vel_y", "vel_z", "fire", "discharge", "col_e", "strike", "gravity", "act_wake", "act_wake_args",
 		"reaction_defs"],
+	"sparse_edit.glsl": ["cell_edge", "inject_idx", "inject_val", "inject_applied", "inject_src",
+		"inject_dst"],
 	"reduce.glsl": ["nbr", "vert_up", "vert_down", "slot_off", "face_partner", "cell_edge", "solid",
 		"reduce_src", "reduce_aux", "reduce_aux2", "reduce_ref", "reduce_gate", "reduce_gate_aux",
 		"reduce_partials"],
