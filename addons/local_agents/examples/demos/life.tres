@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="LocalAgentDemoEntry" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/examples/DemoEntry.gd" id="1_entry"]
+
+[resource]
+script = ExtResource("1_entry")
+order = 140
+title = "Life on the planet, backdrop faked"
+description = "The same coastal box the rung-0 demo lays down, run at the highest rung the ladder has passed, with plants, trees, herds, birds, insects and fish living in it. Everything the ladder has not yet reached is a declared stand-in, listed in docs/FAKES.md and printed by the run: drinking water, breathable oxygen and the carbon a plant grows on. Nothing here moves water, weather or fire; those arrive as their rungs land, and each landing deletes its fake."
+scene_path = "res://addons/local_agents/examples/LifeDemo.tscn"
+requires_model = false
+requires_voxel_backend = true

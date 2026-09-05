@@ -129,7 +129,9 @@ func post_step() -> void:
 ## amounts — the ledger's own `all_`/`open_` rows via ReducePass.checkpoint. Returns [all, open, parts_all].
 func _sample() -> Array:
 	var gpu = _f._gpu
-	var reduce = _find_reduce()
+	if _reduce == null:
+		_reduce = SampleScript.reduce_of(_f)
+	var reduce = _reduce
 	if reduce == null:
 		return [{}, {}, {}]
 	var rows: Dictionary = reduce.checkpoint(gpu._rd, gpu._ctx, gpu._cc)
@@ -146,19 +148,6 @@ func _sample() -> Array:
 		parts[ch2] = all_by_channel[ch2]
 	return [_only(RecordsScript.elements_of(all_by_channel)),
 		_only(RecordsScript.elements_of(open_by_channel)), parts]
-
-
-func _find_reduce():
-	if _reduce != null:
-		return _reduce
-	if _f == null or _f._gpu == null:
-		return null
-	var names: PackedStringArray = _f._gpu._pass_names
-	for i in names.size():
-		if names[i] == "ReducePass":
-			_reduce = _f._gpu._passes[i]
-			break
-	return _reduce
 
 
 ## Drop every element the run did not ask for, so a carbon probe does not print the whole periodic table.

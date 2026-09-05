@@ -102,6 +102,21 @@ kind = "text"
 marker = "^check_demo_catalog: OK"
 
 [[gate]]
+name = "check_fakes"
+script = "scripts/check_fakes.sh"
+kind = "text"
+marker = "^check_fakes: OK"
+mutation = "perl -0pi -e 's/LAFakes\\.stands_in\\(\"recruitment_rate\"\\)/LAFakes.stands_in(\"undeclared_stand_in\")/' addons/local_agents/sim/ecology/EcologyBreeding.gd"
+
+[[gate]]
+name = "check_life_demo"
+script = "scripts/check_life_demo.sh"
+kind = "gpu"
+marker = "^check_life_demo: OK"
+mutation = "perl -0pi -e 's/LAFakes\\.draw\\(\"plant_carbon\", want_mass\\)/0.0/' addons/local_agents/sim/actors/Plant.gd"
+needs = ["import"]
+
+[[gate]]
 name = "check_public_surface"
 script = "scripts/check_public_surface.sh"
 kind = "text"
@@ -638,6 +653,14 @@ marker = "^check_meteor_offer: OK"
 mutation = "python3 -c \"p='addons/local_agents/game/ui/WorldOffers.gd'; s=open(p).read(); open(p,'w').write(s.replace('return impacts_missing().is_empty()','return true'))\""
 
 [[gate]]
+name = "check_impact_books"
+script = "scripts/check_impact_books.sh"
+kind = "headless"
+needs = ["import"]
+marker = "^check_impact_books: OK"
+mutation = "python3 -c \"p='addons/local_agents/sim/material/MaterialEjecta3D.gd'; s=open(p).read(); open(p,'w').write(s.replace('0.5 * kg * speed * speed','0.5 * kg * (_mass_unit_kg(_f.world_to_cell(pos)) / unit_kg) * speed * speed'))\""
+
+[[gate]]
 name = "check_shot_protocol"
 script = "scripts/check_shot_protocol.sh"
 kind = "gpu"
@@ -663,6 +686,13 @@ script = "scripts/check_kernel_properties.sh"
 kind = "gpu"
 marker = "^check_kernel_properties: OK"
 mutation = "sed -i '' 's|acc += la_load(uint(a));|acc -= la_load(uint(a));|' addons/local_agents/sim/material/kernels3d/pressure.glsl"
+
+[[gate]]
+name = "check_lasim_parity"
+script = "scripts/check_lasim_parity.sh"
+kind = "gpu"
+marker = "^check_lasim_parity: OK"
+mutation = "sed -i '' 's|acc += x;|acc += x * 1.0000001;|' addons/local_agents/native/src/field/FieldRun.cpp"
 
 [[gate]]
 name = "check_shaders_compile"

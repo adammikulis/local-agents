@@ -13,9 +13,10 @@
 #      closed loop must sum to zero, or matter can be walked round it as a generator.
 #   2. REVERSIBILITY. If A becomes B and B becomes A, the enthalpies must be equal and opposite. A freeze
 #      releasing more than its melt absorbs is a perpetual-motion machine with a rate limit.
-#
-# It does not check magnitudes: check_physical_constants.sh owns values, and LAPhaseRecords already
-# derives every latent heat from LASubstances instead of writing it down.
+#   3. HESS ON EVERY RECORD. A record's heat must be the one its own formation enthalpies give, so no
+#      module may hand-write one beside the table or leave it at zero.
+#   4. INTERNAL ENERGY. The state is internal energy, not enthalpy, so every record carries the net moles
+#      of gas it makes and the kernel takes dn_gas R T back off the heat.
 #
 # EXIT CODES. 0 clean · 1 a violation · 2 the gate could not run (missing godot, missing runner, or a
 # table with no phase transfers in it) — never a silent pass.
@@ -62,10 +63,11 @@ if echo "$line" | grep -q '"edges":0'; then
   exit 2
 fi
 if echo "$line" | grep -q '"violations":0'; then
-  echo "reaction-energy check passed: phase loops close, reverse pairs cancel, one price for organic redox."
+  echo "reaction-energy check passed: phase loops close, reverse pairs cancel, every heat is the table's,"
+  echo "and the kernel converts each one to internal energy."
   exit 0
 fi
 echo
-echo "A phase-change loop that does not sum to zero is an energy source. Derive the enthalpy from"
-echo "LASubstances (sublimation is fusion + vaporisation, never its own number) rather than adjusting it."
+echo "A reaction heat that is not the table's is a second authority on one number, and a phase-change loop"
+echo "that does not sum to zero is an energy source. Derive it from LASubstances rather than adjusting it."
 exit 1

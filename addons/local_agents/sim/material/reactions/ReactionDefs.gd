@@ -149,7 +149,7 @@ static func serialize(recs: Array) -> PackedByteArray:
 		buf.encode_float(base + 128, float(rec.get("dg_h_j_mol", 0.0)))
 		buf.encode_float(base + 132, float(rec.get("dg_s_j_molk", 0.0)))
 		buf.encode_s32(base + 136, int(rec.get("q_slot", -1)))
-		buf.encode_float(base + 140, 0.0)
+		buf.encode_float(base + 140, float(rec.get("dn_gas", 0.0)))
 		for k in range(4):
 			var rs: int = int(reactants[k][0]) if k < reactants.size() else -1
 			var rc: float = float(reactants[k][1]) if k < reactants.size() else 0.0
@@ -168,6 +168,6 @@ static func serialize(recs: Array) -> PackedByteArray:
 			buf.encode_float(base + 192 + k * 4, pp.y)
 		buf.encode_float(base + 208, float(rec.get("enthalpy_h_j_mol", 0.0)))
 		buf.encode_float(base + 212, float(rec.get("enthalpy_o_j_mol", 0.0)))
-		buf.encode_s32(base + 216, 0)
-		buf.encode_s32(base + 220, 0)
+		buf.encode_float(base + 216, float(rec.get("dn_gas_h", 0.0)))
+		buf.encode_float(base + 220, float(rec.get("dn_gas_o", 0.0)))
 	return buf
