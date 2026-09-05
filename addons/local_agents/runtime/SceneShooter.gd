@@ -14,10 +14,10 @@ var _viewport: SubViewport = null
 
 func _ready() -> void:
 	for arg in OS.get_cmdline_user_args():
-		if arg.begins_with("--shoot="):
-			_shoot_path = arg.substr("--shoot=".length())
-		elif arg.begins_with("--shoot-frames="):
-			_shoot_frames = maxi(2, int(arg.substr("--shoot-frames=".length())))
+		if arg.begins_with(LocalAgentDemoHarness.ARG_SHOOT_FRAMES):
+			_shoot_frames = maxi(2, int(arg.substr(LocalAgentDemoHarness.ARG_SHOOT_FRAMES.length())))
+		elif arg.begins_with(LocalAgentDemoHarness.ARG_SHOOT):
+			_shoot_path = arg.substr(LocalAgentDemoHarness.ARG_SHOOT.length())
 	set_process(_shoot_path != "")
 	if _shoot_path == "":
 		return

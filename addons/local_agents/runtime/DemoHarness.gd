@@ -7,6 +7,7 @@ const ARG_RUN_FRAMES: String = "--run-frames="
 const ARG_SHOOT: String = "--shoot="
 const ARG_SHOOT_FRAMES: String = "--shoot-frames="
 const ARG_SHOOT_SIZE: String = "--shoot-size="
+const ARG_SHOTS: String = "--shots="
 const DEFAULT_SHOOT_SIZE: Vector2i = Vector2i(1280, 800)
 
 @export_group("Headless run")
@@ -46,6 +47,13 @@ var _render_frame: int = 0   # render frames only; drives shoot_frames
 var _ready_frames: int = 0   # consecutive frames the host has called the picture worth taking
 var _done: bool = false
 
+# --shots: camera poses photographed in turn, all in ONE launch. Empty = the single --shoot picture.
+var _shots_spec: String = ""
+var _poses: Array[Vector3] = []       # alt_m, pitch_deg, yaw_deg
+var _pose_index: int = 0
+var _pose_applied: int = -1
+var _pose_deadline_ms: int = 0
+
 # The image read out is the one drawn BEFORE this frame, so readiness must have held through that draw.
 const SHOT_SETTLE_FRAMES: int = 2
 # A host that can say whether the picture is worth taking is waited on in WALL TIME, up to the run's own
@@ -59,7 +67,23 @@ func _ready() -> void:
 		report_source = get_parent()
 	if report_source != null and report_source.has_method("demo_harness_configured"):
 		report_source.call("demo_harness_configured", run_frames, shoot_path)
+	_pose_deadline_ms = _shot_deadline_ms()
+	_check_shots()
 	_arm()
+
+
+## A --shots run this scene cannot honour is a failed run, never one silent picture from the old pose.
+func _check_shots() -> void:
+	if _shots_spec == "":
+		return
+	if _poses.is_empty():
+		_done = true
+		print("SHOT_SPEC_INVALID=%s" % _shots_spec)
+		_quit(2)
+	elif report_source == null or not report_source.has_method("demo_shot_pose"):
+		_done = true
+		print("SHOT_POSE_UNSUPPORTED=%s" % _shots_spec)
+		_quit(2)
 
 
 ## Nothing to count when neither mode is armed: stay off the per-frame paths entirely. Armed on every
@@ -90,13 +114,70 @@ func _process(_delta: float) -> void:
 	# Screenshot first: a scene given both flags is being photographed, not measured.
 	if _done or shoot_path == "" or _render_frame < shoot_frames:
 		return
-	if _has_shot_ready_hook():
-		_ready_frames = _ready_frames + 1 if bool(report_source.call("demo_shot_ready")) else 0
-		if _ready_frames < SHOT_SETTLE_FRAMES and Time.get_ticks_msec() < _shot_deadline_ms():
+	if _poses.is_empty():
+		if not _settled():
 			return
-	_done = true
-	_capture(shoot_path)
-	_quit(0)
+		_done = true
+		_capture(shoot_path)
+		_quit(0)
+		return
+	# ONE LAUNCH, MANY PICTURES: move to the pose, let the ground arrive under it, photograph, next.
+	if _pose_applied != _pose_index:
+		report_source.call("demo_shot_pose", _poses[_pose_index].x, _poses[_pose_index].y,
+			_poses[_pose_index].z)
+		_pose_applied = _pose_index
+		_ready_frames = 0
+		_pose_deadline_ms = _pose_budget_ms(_pose_index)
+		return
+	if not _settled():
+		return
+	var pose: Vector3 = _poses[_pose_index]
+	_capture(pose_path(shoot_path, _pose_index, pose),
+		" shot_index=%d shot_pose=%s" % [_pose_index, pose_tag(pose)])
+	_ready_frames = 0
+	_pose_index += 1
+	if _pose_index >= _poses.size():
+		_done = true
+		_quit(0)
+
+
+## Ready for SHOT_SETTLE_FRAMES running, or out of the time this pose was given.
+func _settled() -> bool:
+	if not _has_shot_ready_hook():
+		return true
+	_ready_frames = _ready_frames + 1 if bool(report_source.call("demo_shot_ready")) else 0
+	return _ready_frames >= SHOT_SETTLE_FRAMES or Time.get_ticks_msec() >= _pose_deadline_ms
+
+
+## An equal share of what is left of the run for each pose still to be taken.
+func _pose_budget_ms(index: int) -> int:
+	var now: int = Time.get_ticks_msec()
+	var left: int = maxi(_shot_deadline_ms() - now, 1)
+	return now + int(float(left) / float(maxi(_poses.size() - index, 1)))
+
+
+## `alt:pitch:yaw` as the pose was asked for, so a saved line can be read back against the request.
+static func pose_tag(pose: Vector3) -> String:
+	return "%d:%d:%d" % [roundi(pose.x), roundi(pose.y), roundi(pose.z)]
+
+
+static func pose_path(base: String, index: int, pose: Vector3) -> String:
+	var stem: String = base.get_basename()
+	return "%s_%d_%dm_%d_%d.%s" % [stem, index, roundi(pose.x), roundi(pose.y), roundi(pose.z),
+		base.get_extension()]
+
+
+## `alt_m:pitch_deg:yaw_deg` triples separated by `;`. Empty when any of them is malformed: a pose the
+## run cannot honour is not silently dropped from the protocol.
+static func parse_shots(spec: String) -> Array[Vector3]:
+	var out: Array[Vector3] = []
+	for chunk in spec.split(";", false):
+		var f: PackedStringArray = String(chunk).strip_edges().split(":")
+		if f.size() != 3 or not (f[0].is_valid_float() and f[1].is_valid_float() and f[2].is_valid_float()):
+			push_error("--shots: '%s' is not alt_m:pitch_deg:yaw_deg" % chunk)
+			return []
+		out.append(Vector3(float(f[0]), float(f[1]), float(f[2])))
+	return out
 
 
 ## A host that can say whether the picture is worth taking (e.g. the ground under its camera is drawn at
@@ -169,12 +250,12 @@ static func save_viewport_png(viewport: Viewport, path: String, extra: String = 
 	print("SHOT_SAVED=%s size=%dx%d%s" % [path, img.get_width(), img.get_height(), extra])
 
 
-func _capture(path: String) -> void:
-	var extra: String = ""
+func _capture(path: String, pose_tag_text: String = "") -> void:
+	var extra: String = pose_tag_text
 	if report_source != null and report_source.has_method("demo_shot_info"):
 		var info: String = String(report_source.call("demo_shot_info"))
 		if info != "":
-			extra = " " + info
+			extra += " " + info
 	save_viewport_png(shot_viewport(), path, extra)
 
 
@@ -235,5 +316,8 @@ func _parse_cli() -> void:
 		var arg: String = String(arg_v)
 		if arg.begins_with(ARG_SHOOT_FRAMES):
 			shoot_frames = maxi(1, int(arg.substr(ARG_SHOOT_FRAMES.length())))
+		elif arg.begins_with(ARG_SHOTS):
+			_shots_spec = arg.substr(ARG_SHOTS.length())
+			_poses = parse_shots(_shots_spec)
 		elif arg.begins_with(ARG_SHOOT):
 			shoot_path = arg.substr(ARG_SHOOT.length())
