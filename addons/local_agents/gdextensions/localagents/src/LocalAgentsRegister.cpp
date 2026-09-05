@@ -16,6 +16,7 @@
 #include "LAGravitySolve.hpp"
 #include "LAFieldDriver.hpp"
 #include "LAFieldLedger.hpp"
+#include "LAFieldSnapshot.hpp"
 #include "LAFieldStateCache.hpp"
 #include "LAFieldHydrosphereSeed.hpp"
 #include "LAFieldLithostaticSeed.hpp"
@@ -79,6 +80,7 @@ void initialize_local_agents(ModuleInitializationLevel p_level) {
     ClassDB::register_class<LABallistics>();
     ClassDB::register_class<LAFieldDriver>();
     ClassDB::register_class<LAFieldLedger>();
+    ClassDB::register_class<LAFieldSnapshot>();
     ClassDB::register_class<LAFieldStateCache>();
     ClassDB::register_class<LABodyMeasure>();
     ClassDB::register_class<LAFieldHydrosphereSeed>();

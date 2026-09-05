@@ -44,6 +44,7 @@ set(SRC
     src/LAGravitySolve.cpp
     src/LAFieldDriver.cpp
     src/LAFieldLedger.cpp
+    src/LAFieldSnapshot.cpp
     src/LAFieldStateCache.cpp
     src/LAFieldHydrosphereSeed.cpp
     src/LAFieldLithostaticSeed.cpp

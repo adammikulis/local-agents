@@ -5,12 +5,11 @@ extends StaticBody3D
 const GROUP_SELECTABLE: String = "selectable"
 const GROUP_TREE: String = "tree"
 
-const GROW_TIME: float = 20.0        # seconds sapling -> full size ON FULLY PRODUCTIVE GROUND (see _growth_rate)
-const START_FRACTION: float = 0.35   # freshly planted trees are visible immediately
+## Years from germination to full stem height for a temperate tree on ground that fixes its whole crop.
+const MATURE_YEARS: float = 60.0
+const MATURE_SECONDS: float = MATURE_YEARS * LAPhysical.SECONDS_PER_YEAR
 
 const TREE_BIOMASS_FULL: float = 0.0025
-const TREE_GROWTH_FLOOR: float = 0.05   # a trickle even on poor ground, so a sapling on thin soil creeps up
-                                        # rather than freezing forever at exactly START_FRACTION
 const TOPPLE_TIME: float = 1.5       # seconds to fall flat
 const TOPPLE_ANGLE: float = 1.483529 # ~85 degrees, avoids clipping through ground
 
@@ -27,14 +26,10 @@ func set_material_field(m) -> void:
 const SPECIES: Dictionary = {
 	"oak": {
 		"height": Vector2(3.0, 5.5),
-		"canopy_color": Color(0.18, 0.42, 0.16),
-		"canopy": "broadleaf",
 		"model": "tree_oak",
 	},
 	"pine": {
 		"height": Vector2(5.0, 7.0),
-		"canopy_color": Color(0.12, 0.32, 0.14),   # darker evergreen
-		"canopy": "conifer",
 		"model": "tree_pine",
 	},
 }
@@ -42,8 +37,6 @@ const DEFAULT_SPECIES: String = "oak"
 
 var species: String = "oak"
 var trunk_height: float = 4.5
-var canopy_color: Color = Color(0.18, 0.42, 0.16)
-var trunk_color: Color = Color(0.32, 0.22, 0.13)
 var max_scale: float = 1.0
 
 var age: float = 0.0
@@ -59,9 +52,8 @@ var _topple_axis: Vector3 = Vector3.RIGHT
 var _topple_t: float = 0.0
 var _topple_tween_active: bool = false
 
-# GPU-instanced rendering: the tree registers with the shared LAVegetationRenderer and pushes its transform
-# WHILE growing or toppling, then settles (zero per-frame render cost). Falls back to procedural trunk+canopy
-# meshes if no renderer is wired (headless tests). Its visual type ("tree_oak"/"tree_pine") is its species.
+# GPU-instanced rendering: the tree pushes its transform to the shared LAVegetationRenderer while growing
+# or toppling, then settles. Its visual type is its species.
 var _veg = null                      # LAVegetationRenderer (injected before setup)
 var _veg_slot: int = -1
 var _render_settled: bool = false
@@ -70,10 +62,17 @@ var _render_settled: bool = false
 func setup(_terrain, _config: Dictionary = {}) -> void:
 	terrain = _terrain
 	config = _config.duplicate(true)
+	var loop: LASimLoop = LASimLoop.active()
+	if loop == null:
+		push_error("LATree: no simulation loop, so nothing advances this one's growth.")
+	else:
+		loop.stepped.connect(_on_sim_step)
 
 	species = String(config.get("species", species)).to_lower()
 	if not SPECIES.has(species):
 		species = DEFAULT_SPECIES
+	if bool(config.get("grown", false)):
+		age = MATURE_SECONDS
 
 	# "actors": placement-gated, so this draw count is not reproducible.
 	var seed_val: int = int(config.get("seed", LASimRng.for_domain("actors").randi()))
@@ -90,13 +89,6 @@ func setup(_terrain, _config: Dictionary = {}) -> void:
 
 	max_scale = maxf(float(config.get("scale", max_scale)), 0.05)
 
-	# Species foliage default, then optional override, then small hue jitter.
-	canopy_color = def["canopy_color"]
-	if config.has("canopy_color"):
-		canopy_color = config["canopy_color"]
-	canopy_color = _jitter_hue(canopy_color)
-	trunk_color = _jitter_hue(Color(0.32, 0.22, 0.13), 0.03)
-
 	# Slight resting lean so a stand of trees doesn't look regimented.
 	_tilt = _rng.randf_range(-0.06, 0.06)
 
@@ -109,19 +101,14 @@ func setup(_terrain, _config: Dictionary = {}) -> void:
 	add_to_group(GROUP_SELECTABLE)
 	add_to_group(GROUP_TREE)
 
-	# Prefer the shared GPU-instanced renderer (one batched draw for every tree of this species). If wired,
-	# register a slot and skip the per-tree model — the MultiMesh draws it. Otherwise build a Kenney Nature
-	# Kit model (base-anchored), falling back to procedural trunk+canopy.
+	# The shared GPU-instanced renderer draws every tree of this species in one batch; without it this
+	# tree carries its own model.
 	var instanced: bool = false
 	if _veg != null:
 		_veg_slot = _veg.register(_render_type())
 		instanced = _veg_slot >= 0
 	if not instanced and not _build_model():
-		_build_trunk()
-		if String(_species_def()["canopy"]) == "conifer":
-			_build_pine_canopy()
-		else:
-			_build_broadleaf_canopy()
+		push_error("LATree: no vegetation renderer and no model for '%s', so this tree has no visual." % species)
 	_build_collision()
 
 	_apply_resting_tilt()
@@ -136,23 +123,6 @@ func _species_def() -> Dictionary:
 	return SPECIES.get(species, SPECIES[DEFAULT_SPECIES])
 
 
-func _jitter_hue(base: Color, amount: float = 0.05) -> Color:
-	var h: float = base.h + _rng.randf_range(-amount, amount)
-	var s: float = clampf(base.s + _rng.randf_range(-0.06, 0.06), 0.0, 1.0)
-	var v: float = clampf(base.v + _rng.randf_range(-0.08, 0.08), 0.0, 1.0)
-	return Color.from_hsv(fposmod(h, 1.0), s, v, base.a)
-
-
-func _make_material(col: Color) -> StandardMaterial3D:
-	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.albedo_color = col
-	mat.roughness = 0.95
-	mat.metallic = 0.0
-	return mat
-
-
-## Build the species model at trunk height. Returns true on success, false to trigger the
-## procedural fallback (unknown species model / load failure).
 func _build_model() -> bool:
 	var id: String = String(_species_def()["model"])
 	var def: Dictionary = LAActorModels.get_def(id)
@@ -165,71 +135,6 @@ func _build_model() -> bool:
 	model.name = "TreeModel"
 	add_child(model)
 	return true
-
-
-func _build_trunk() -> void:
-	var mesh: MeshInstance3D = MeshInstance3D.new()
-	mesh.name = "Trunk"
-	var trunk: CylinderMesh = CylinderMesh.new()
-	var bottom: float = lerpf(0.22, 0.42, clampf(trunk_height / 7.0, 0.0, 1.0))
-	trunk.bottom_radius = bottom
-	trunk.top_radius = bottom * 0.55       # taper: top narrower than bottom
-	trunk.height = trunk_height
-	trunk.radial_segments = 8
-	mesh.mesh = trunk
-	mesh.position = Vector3(0.0, trunk_height * 0.5, 0.0)
-	mesh.material_override = _make_material(trunk_color)
-	add_child(mesh)
-
-
-func _build_broadleaf_canopy() -> void:
-	# 2-4 overlapping spheres clustered at the crown for a rounded, natural look.
-	var blobs: int = _rng.randi_range(3, 4)
-	var crown: float = trunk_height
-	var base_r: float = maxf(trunk_height * 0.34, 0.9)
-	var mat: StandardMaterial3D = _make_material(canopy_color)
-	for i in range(blobs):
-		var blob: MeshInstance3D = MeshInstance3D.new()
-		blob.name = "Foliage%d" % i
-		var ball: SphereMesh = SphereMesh.new()
-		var r: float = base_r * _rng.randf_range(0.7, 1.05)
-		ball.radius = r
-		ball.height = r * 2.0
-		ball.radial_segments = 10
-		ball.rings = 6
-		blob.mesh = ball
-		# First blob centred on the crown; the rest offset around/above it.
-		var off: Vector3 = Vector3.ZERO
-		if i > 0:
-			off = Vector3(
-				_rng.randf_range(-base_r * 0.6, base_r * 0.6),
-				_rng.randf_range(-base_r * 0.1, base_r * 0.5),
-				_rng.randf_range(-base_r * 0.6, base_r * 0.6))
-		blob.position = Vector3(0.0, crown + base_r * 0.4, 0.0) + off
-		blob.material_override = mat
-		add_child(blob)
-
-
-func _build_pine_canopy() -> void:
-	# Stacked cones tapering upward for a conical evergreen silhouette.
-	var tiers: int = _rng.randi_range(3, 4)
-	var mat: StandardMaterial3D = _make_material(canopy_color)
-	var base_r: float = maxf(trunk_height * 0.3, 0.8)
-	var tier_h: float = trunk_height * 0.42
-	var start_y: float = trunk_height * 0.55
-	for i in range(tiers):
-		var frac: float = float(i) / float(tiers)
-		var cone: MeshInstance3D = MeshInstance3D.new()
-		cone.name = "Cone%d" % i
-		var mesh: CylinderMesh = CylinderMesh.new()
-		mesh.top_radius = 0.0
-		mesh.bottom_radius = base_r * (1.0 - frac * 0.7)
-		mesh.height = tier_h
-		mesh.radial_segments = 8
-		cone.mesh = mesh
-		cone.position = Vector3(0.0, start_y + frac * (trunk_height * 0.75) + tier_h * 0.5, 0.0)
-		cone.material_override = mat
-		add_child(cone)
 
 
 func _build_collision() -> void:
@@ -278,30 +183,33 @@ const TREE_SETTLE_STRIDE: int = 30   # a mature tree advances age ~every 30 fram
 var _settle_accum: float = 0.0
 var _settle_phase: int = -1
 
+# A falling trunk is a rigid body swinging on the frame clock. Growth is not: see _on_sim_step.
 func _physics_process(delta: float) -> void:
-	if LAAblate.off("trees"):
+	if LAAblate.off("trees") or not toppled:
 		return
-	if toppled:
-		# The Tween (if any) drives the fall; otherwise lerp it here.
-		if not _topple_tween_active:
-			_advance_topple(delta)
-		# Follow the fall in the instanced batch until it settles flat.
-		if not _render_settled:
-			_sync_render()
-			if _topple_t >= 1.0:
-				_render_settled = true
+	if not _topple_tween_active:
+		_advance_topple(delta)
+	if not _render_settled:
+		_sync_render()
+		if _topple_t >= 1.0:
+			_render_settled = true
+
+
+## Wood is laid down in SIMULATED seconds, on the same clock as the carbon it is made of.
+func _on_sim_step(step: int) -> void:
+	if LAAblate.off("trees") or toppled:
 		return
+	var delta: float = LASimLoop.step_seconds()
 	if _render_settled:
 		if _settle_phase < 0:
 			_settle_phase = int(get_instance_id())
 		_settle_accum += delta
-		if LALodStride.should_run(int(Engine.get_physics_frames()), _settle_phase, TREE_SETTLE_STRIDE):
+		if LALodStride.should_run(step, _settle_phase, TREE_SETTLE_STRIDE):
 			age += _settle_accum
 			_settle_accum = 0.0
 		return
 	age += delta * _growth_rate()
 	_apply_growth()
-	# Push the growing pose until mature; then settle (no per-frame render cost) until a topple wakes it.
 	_sync_render()
 	if _grown_fraction() >= 1.0:
 		_render_settled = true
@@ -312,11 +220,16 @@ func _growth_rate() -> float:
 		return 1.0
 	var pos: Vector3 = global_position
 	var b: float = _material.biomass_at(pos.x, pos.y, pos.z)
-	return clampf(b / TREE_BIOMASS_FULL, TREE_GROWTH_FLOOR, 1.0)
+	if b <= 0.0 and LAFakes.stands_in("plant_carbon"):
+		return 1.0     # nothing greens the ground yet, so the stand-in is the whole crop
+	return clampf(b / TREE_BIOMASS_FULL, 0.0, 1.0)
 
 
+## Height reached, as a fraction of this tree's full stem. A tree that germinated this second is a shoot,
+## not nothing, so the smallest it can read is one shoot standing in its own trunk height.
 func _grown_fraction() -> float:
-	return clampf(age / GROW_TIME, START_FRACTION, 1.0)
+	var shoot: float = LAPlant.SEEDLING_SHOOT_M / maxf(trunk_height, LAPlant.SEEDLING_SHOOT_M)
+	return clampf(maxf(age / MATURE_SECONDS, shoot), 0.0, 1.0)
 
 
 func _apply_growth() -> void:

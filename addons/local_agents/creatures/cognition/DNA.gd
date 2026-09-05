@@ -21,8 +21,6 @@ const LOCI: Array = [
 	["size", "gene", 2, 0.0, 8.0],
 	["sense_radius", "gene", 2, 0.0, 80.0],
 	["eye_fov", "gene", 2, 0.0, 360.0],
-	["_retired_max_energy", "reserved", 2, 0.0, 1.0],
-	["_retired_thirst_rate", "reserved", 2, 0.0, 1.0],
 	["maturity_age", "gene", 2, 0.0, 120.0],
 	["throw_range", "gene", 2, 0.0, 40.0],
 	["cruise_height", "gene", 2, 0.0, 60.0],
@@ -53,9 +51,6 @@ const LOCI: Array = [
 	["thermal_tolerance", "gene", 2, 0.0, 1.0],
 	# ADULT BODY MASS, log10 kilograms.
 	["log10_adult_mass_kg", "gene", 2, -6.0, 3.0],
-	["_reserved_5", "reserved", 2, 0.0, 1.0],
-	["_reserved_6", "reserved", 2, 0.0, 1.0],
-	["_reserved_7", "reserved", 2, 0.0, 1.0],
 ]
 
 # Diet gradient bucketing: carnivory below LOW → herbivore, below HIGH → omnivore, else carnivore.

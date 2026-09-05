@@ -202,6 +202,12 @@ bool DeviceMetal::build(KernelId k, std::string &err) {
 	NSError *nserr = nil;
 	MTLCompileOptions *opts = [MTLCompileOptions new];
 	opts.languageVersion = MTLLanguageVersion3_0;
+	// SAFE MATH, NOT METAL'S DEFAULT FAST MATH. The books close because both sides of a face evaluate
+	// the same expression on the same operands; a compiler free to reassociate and contract inlines the
+	// two instances differently, and matter appears at every face.
+	if (@available(macOS 15.0, *)) {
+		opts.mathMode = MTLMathModeSafe;
+	}
 	NSString *src = [NSString stringWithUTF8String:mk.meta.msl.c_str()];
 	id<MTLLibrary> lib = [dev_ newLibraryWithSource:src options:opts error:&nserr];
 	if (lib == nil) {
