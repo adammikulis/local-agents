@@ -166,10 +166,9 @@ func _surface_cell(centre: Vector3, dir: Vector3, solid: PackedByteArray) -> int
 
 
 func _read_stations() -> void:
-	var temp: PackedFloat32Array = _f._temp
+	var m: LAFieldMirrors = _f._mirrors
 	var solid: PackedByteArray = _f._solid
-	var cc: int = _f._cell_count
-	if temp.size() != cc or solid.size() != cc:
+	if m == null or not m.has("temp") or solid.size() != _f._cell_count:
 		return
 	for i in _cells.size():
 		var c: int = _cells[i]
@@ -177,7 +176,7 @@ func _read_stations() -> void:
 		# it while that lasts rather than recording a rock temperature as a surface air temperature.
 		if solid[c] != 0:
 			continue
-		var t: float = temp[c]
+		var t: float = m.at("temp", c)
 		if _day_seen[i] == 0:
 			_day_min[i] = t
 			_day_max[i] = t
