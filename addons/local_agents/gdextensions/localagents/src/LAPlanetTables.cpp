@@ -2,6 +2,8 @@
 #include <godot_cpp/variant/utility_functions.hpp>
 #include "LAPlanetTables.hpp"
 
+#include "LAFieldMirrors.hpp"
+
 #include <godot_cpp/variant/utility_functions.hpp>
 #include "LAScriptCall.hpp"
 
@@ -724,13 +726,13 @@ void LAPlanetComposition::seed(Object *p_field, double p_t_c, const PackedFloat3
 			"res://addons/local_agents/sim/material/FieldGeometry3D.gd", "centre", cargs));
 	const int cc = int(p_field->get("_cell_count"));
 	const PackedByteArray solid = PackedByteArray(p_field->get("_solid"));
-	PackedFloat32Array cement = PackedFloat32Array(p_field->get("_cement"));
-	PackedFloat32Array metal = PackedFloat32Array(p_field->get("_metal"));
+	PackedFloat32Array cement = LAFieldMirrors::of(p_field, "cement");
+	PackedFloat32Array metal = LAFieldMirrors::of(p_field, "metal");
 	const PackedStringArray ch = shell_channels();
 	std::vector<PackedFloat32Array> shell(ch.size());
 	std::vector<int> col(ch.size(), -1);
 	for (int i = 0; i < ch.size(); i++) {
-		shell[i] = PackedFloat32Array(p_field->get("_" + ch[i]));
+		shell[i] = LAFieldMirrors::of(p_field, ch[i]);
 		if (shell[i].size() != cc) {
 			shell[i].resize(cc);
 		}
@@ -816,10 +818,10 @@ void LAPlanetComposition::seed(Object *p_field, double p_t_c, const PackedFloat3
 			sw[i][c] = float(acc[i] * w_sub * f / (1.0 + alpha_at(alpha[i], k0[i], kp[i], p_c) * (t_rock - tref[i])));
 		}
 	}
-	p_field->set("_cement", cement);
-	p_field->set("_metal", metal);
+	LAFieldMirrors::store(p_field, "cement", cement);
+	LAFieldMirrors::store(p_field, "metal", metal);
 	for (int i = 0; i < ch.size(); i++) {
-		p_field->set("_" + ch[i], shell[i]);
+		LAFieldMirrors::store(p_field, ch[i], shell[i]);
 	}
 }
 

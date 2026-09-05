@@ -76,12 +76,10 @@ func graze(world_pos: Vector3, want: float) -> float:
 	var q = _queue()
 	if q == null:
 		return 0.0
-	if _f._biomass.size() != _f._cell_count:
-		return 0.0
 	var c: int = ground_cell(world_pos)
 	if c < 0:
 		return 0.0
-	var standing: float = _f._biomass[c]
+	var standing: float = _f._mirrors.at("biomass", c)
 	var reachable: float = maxf(0.0, standing - GRAZE_RESIDUAL)
 	if reachable <= 0.0:
 		return 0.0
@@ -89,7 +87,7 @@ func graze(world_pos: Vector3, want: float) -> float:
 	if take <= 0.0:
 		return 0.0
 	# Decrement the mirror NOW so the next grazer this frame sees a thinner pasture (see the header note).
-	_f._biomass[c] = maxf(0.0, standing - take)
+	_f._mirrors.set_at("biomass", c, maxf(0.0, standing - take))
 	var cells: PackedInt32Array = PackedInt32Array([c])
 	var amounts: PackedFloat32Array = PackedFloat32Array([take])
 	var sink: PackedInt32Array = PackedInt32Array([-1])
@@ -125,13 +123,13 @@ func drink(world_pos: Vector3, want: float) -> float:
 
 ## One channel, one cell, up to `want`. Decrements the LIVE mirror as graze() does.
 func _draw(q, channel: String, c: int, want: float) -> float:
-	if want <= 0.0 or c < 0 or _f._h2o.size() != _f._cell_count:
+	if want <= 0.0 or c < 0:
 		return 0.0
 	var have: float = _f._queries.liquid_at(c)
 	if have <= 0.0:
 		return 0.0
 	var take: float = minf(want, have)
-	_f._h2o[c] = maxf(0.0, _f._h2o[c] - take)
+	_f._mirrors.set_at("h2o", c, maxf(0.0, _f._mirrors.at("h2o", c) - take))
 	q.transfer(channel, PackedInt32Array([c]), PackedFloat32Array([take]), channel, PackedInt32Array([-1]))
 	exchanges += 1
 	return take
@@ -145,8 +143,6 @@ func respire(head_pos: Vector3, mass: float) -> float:
 	var q = _queue()
 	if q == null:
 		return 0.0
-	if _f._o2.size() != _f._cell_count:
-		return 0.0
 	var c: int = _f.world_to_cell(head_pos)
 	if c < 0 or _f._solid[c] != 0:
 		return 0.0
@@ -156,11 +152,11 @@ func respire(head_pos: Vector3, mass: float) -> float:
 	if m3 <= 0.0:
 		push_error("LAMaterialFieldBiota3D.respire: no cell volume, so respiration heat cannot be sized.")
 		return 0.0
-	var have: float = _f._o2[c]
+	var have: float = _f._mirrors.at("o2", c)
 	var got: float = minf(mass, maxf(0.0, have))
 	if got <= 0.0:
 		return 0.0
-	_f._o2[c] = have - got
+	_f._mirrors.set_at("o2", c, have - got)
 	# O₂ is debited with dst -1: it leaves the field.
 	q.transfer("o2", PackedInt32Array([c]), PackedFloat32Array([got]), "o2", PackedInt32Array([-1]))
 	# CO₂ is CREDITED with no field debit, because its carbon came out of the body.
@@ -186,8 +182,7 @@ func litter(world_pos: Vector3, mass: float) -> void:
 	if c < 0:
 		return
 	q.add("detritus", PackedInt32Array([c]), PackedFloat32Array([mass]))
-	if _f._detritus.size() == _f._cell_count:
-		_f._detritus[c] += mass          # keep the mirror in step until the next readback
+	_f._mirrors.add_at("detritus", c, mass)   # keep the mirror in step until the next readback
 	detritus_out += mass
 	exchanges += 1
 
@@ -198,8 +193,6 @@ func transpire(world_pos: Vector3, mass: float) -> void:
 		return
 	var q = _queue()
 	if q == null:
-		return
-	if _f._h2o.size() != _f._cell_count:
 		return
 	var c: int = _f.world_to_cell(world_pos)
 	if c < 0 or _f._solid[c] != 0:

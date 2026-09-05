@@ -47,14 +47,10 @@ func row_v(key: String, as_count: bool):
 	return int(round(float(r[key]))) if as_count else float(r[key])
 
 
-## True when `name`'s readback landed on the most recent GPU drain, so the CPU mirror is current. A
-## demand-gated channel (LAMaterialSphereGPU3D.SITUATIONAL_CHANNELS) is absent from any drain nobody asked
-## for, and its mirror then holds a stale or never-written zero.
+## True when `name`'s readback landed on the most recent GPU drain, so the mirror is current. A
+## demand-gated channel is absent from any drain nobody asked for, and its mirror then holds an older value.
 func _mirror_live(name: String) -> bool:
-	if _f == null or _f._gpu == null:
-		return false
-	var got = _f._gpu._cached.get(name, null)
-	return got is PackedFloat32Array and got.size() == _f._cell_count
+	return _f != null and _f._mirrors != null and _f._mirrors.live(name)
 
 
 # --- Water queries -----------------------------------------------------------
@@ -62,28 +58,26 @@ func _mirror_live(name: String) -> bool:
 ## True where there is drinkable water at a world point. False outside the box / before readback.
 ## LIQUID water in a cell, in channel units: the h2o it holds times the share the ladder says is liquid.
 func liquid_at(c: int) -> float:
-	if c < 0 or _f._h2o.size() != _f._cell_count or _f._h2o_liquid.size() != _f._cell_count:
+	if c < 0:
 		return 0.0
-	return maxf(_f._h2o[c], 0.0) * clampf(_f._h2o_liquid[c], 0.0, 1.0)
+	return maxf(_f._mirrors.at("h2o", c), 0.0) * clampf(_f._mirrors.at("h2o_liquid", c), 0.0, 1.0)
 
 
 ## FROZEN water in a cell, same units.
 func ice_at(c: int) -> float:
-	if c < 0 or _f._h2o.size() != _f._cell_count or _f._h2o_solid.size() != _f._cell_count:
+	if c < 0:
 		return 0.0
-	return maxf(_f._h2o[c], 0.0) * clampf(_f._h2o_solid[c], 0.0, 1.0)
+	return maxf(_f._mirrors.at("h2o", c), 0.0) * clampf(_f._mirrors.at("h2o_solid", c), 0.0, 1.0)
 
 
 ## WATER VAPOUR in a cell, same units.
 func vapour_at(c: int) -> float:
-	if c < 0 or _f._h2o.size() != _f._cell_count or _f._h2o_vapour.size() != _f._cell_count:
+	if c < 0:
 		return 0.0
-	return maxf(_f._h2o[c], 0.0) * clampf(_f._h2o_vapour[c], 0.0, 1.0)
+	return maxf(_f._mirrors.at("h2o", c), 0.0) * clampf(_f._mirrors.at("h2o_vapour", c), 0.0, 1.0)
 
 
 func is_water_at(pos: Vector3) -> bool:
-	if _f._h2o.size() != _f._cell_count:
-		return false
 	var c: int = _f.world_to_cell(pos)
 	return c >= 0 and liquid_at(c) >= _f.MIN_MASS
 
@@ -97,18 +91,14 @@ func total_water() -> float:
 
 ## Temperature °C at a world point (a mild default outside the shell). Sphere-native single 3D read.
 func temp_at(pos: Vector3) -> float:
-	if _f._temp.size() != _f._cell_count:
-		return _f.INITIAL_TEMP
 	var c: int = _f.world_to_cell(pos)
-	return _f._temp[c] if c >= 0 else _f.INITIAL_TEMP
+	return _f._mirrors.at("temp", c) if c >= 0 else _f.INITIAL_TEMP
 
 
 ## Pressure at a world point, Pa. NAN outside the box or before the first readback.
 func pressure_at(pos: Vector3) -> float:
-	if _f._pressure.size() != _f._cell_count:
-		return NAN
 	var c: int = _f.world_to_cell(pos)
-	return _f._pressure[c] if c >= 0 else NAN
+	return _f._mirrors.at("pressure", c) if c >= 0 else NAN
 
 
 # --- Diagnostics -------------------------------------------------------------
@@ -198,7 +188,7 @@ const UPDRAFT_SAMPLE_M: float = 40.0
 ## Air SPIN about the LOCAL VERTICAL at a world point, 1/s. The vertical is -down, read from gravity; the
 ## spin is the curl of the velocity field projected onto it.
 func vorticity_at(pos: Vector3) -> float:
-	if _f._grid == null or _f._vel_x.size() != _f._cell_count:
+	if _f._grid == null:
 		return 0.0
 	var c: int = _f.world_to_cell(pos)
 	if c < 0:
@@ -214,7 +204,7 @@ func vorticity_at(pos: Vector3) -> float:
 
 ## Convective lift a little above a world point — the velocity component along the local vertical, m/s.
 func updraft_at(pos: Vector3) -> float:
-	if _f._grid == null or _f._vel_y.size() != _f._cell_count:
+	if _f._grid == null:
 		return 0.0
 	var c: int = _f.world_to_cell(pos)
 	if c < 0:
@@ -232,7 +222,7 @@ func updraft_at(pos: Vector3) -> float:
 ## the pressure a flow puts on anything it meets, so a caller multiplies by its own frontal area. Zero
 ## where there is no water: a force needs matter to carry it.
 func water_force_at(pos: Vector3) -> Vector3:
-	if _f._grid == null or _f._h2o.size() != _f._cell_count or _f._vel_x.size() != _f._cell_count:
+	if _f._grid == null:
 		return Vector3.ZERO
 	var c: int = _f.world_to_cell(pos)
 	if c < 0 or liquid_at(c) <= 0.0:
@@ -251,7 +241,7 @@ func water_force_at(pos: Vector3) -> Vector3:
 ## Full 3D wind velocity at a world point, m/s. The velocity channels are the grid's own axes, so there is
 ## no basis to rotate through. Vector3.ZERO outside the box / before readback.
 func wind3_at(x: float, y: float, z: float) -> Vector3:
-	if _f._grid == null or _f._vel_x.size() != _f._cell_count:
+	if _f._grid == null:
 		return Vector3.ZERO
 	var c: int = _f.world_to_cell(Vector3(x, y, z))
 	if c < 0:
@@ -274,12 +264,20 @@ func open_cells() -> int:
 
 # --- MINERAL: airborne opacity + the molten state. Totals live in LAMaterialFieldLedger3D. -------------
 
+## Volume fraction of the cell that is wind-borne mineral: the amount times its derived airborne share.
+func airborne_at(c: int) -> float:
+	if c < 0:
+		return 0.0
+	return maxf(_f._mirrors.at("silicate", c), 0.0) \
+		* clampf(_f._mirrors.at("silicate_susp_air", c), 0.0, 1.0)
+
+
 ## Volume fraction of the cell that is molten mineral.
 func melt_at(c: int) -> float:
-	if c < 0 or _f._silicate.size() != _f._cell_count \
-			or _f._silicate_melt.size() != _f._cell_count:
+	if c < 0:
 		return 0.0
-	return maxf(_f._silicate[c], 0.0) * clampf(_f._silicate_melt[c], 0.0, 1.0)
+	return maxf(_f._mirrors.at("silicate", c), 0.0) \
+		* clampf(_f._mirrors.at("silicate_melt", c), 0.0, 1.0)
 
 
 ## Mean airborne mineral over every cell — the opacity LASystemOrbits turns into insolation. The grid is
@@ -351,10 +349,10 @@ func fire_cells() -> int:
 
 
 func is_burning(node) -> bool:
-	if node == null or not _mirror_live("fire") or _f._fire.size() != _f._cell_count:
+	if node == null or not _mirror_live("fire"):
 		return false
 	var c: int = _f.world_to_cell(node.global_position)
-	return c >= 0 and _f._fire[c] > 0.0
+	return c >= 0 and _f._mirrors.at("fire", c) > 0.0
 
 
 # --- LAVA-TUBE / HOLLOW signature -------------------------------------------
@@ -375,10 +373,8 @@ func enclosed_void_cells(min_solid_nbr: int = 4):
 
 ## Soil nutrient density at a world point (plants grow faster on rich ground). 0 outside the shell / before readback.
 func fertility_at(pos: Vector3) -> float:
-	if _f._fert.size() != _f._cell_count:
-		return 0.0
 	var c: int = _f.world_to_cell(pos)
-	return _f._fert[c] if c >= 0 else 0.0
+	return _f._mirrors.at("fert", c) if c >= 0 else 0.0
 
 ## Peak soil fertility over every open cell — above 0 once the decomposer loop deposits nutrient.
 func fertility_peak() -> float:

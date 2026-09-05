@@ -17,8 +17,6 @@ func setup(field) -> void:
 
 ## Frozen H₂O in the cell at a world point, in channel units.
 func snow_depth_at(pos: Vector3) -> float:
-	if _f._h2o.size() != _f._cell_count:
-		return 0.0
 	var c: int = _f.world_to_cell(pos)
 	return _f._queries.ice_at(c) if c >= 0 else 0.0
 
@@ -30,9 +28,9 @@ func _airborne_at_cell(substance: String, c: int) -> float:
 		return NAN
 	match substance:
 		"co2":
-			return _f._co2[c] if _f._co2.size() == _f._cell_count else NAN
+			return _f._mirrors.at("co2", c)
 		"o2":
-			return _f._o2[c] if _f._o2.size() == _f._cell_count else NAN
+			return _f._mirrors.at("o2", c)
 		"moisture":
 			return _f._queries.vapour_at(c)
 	return NAN
@@ -54,7 +52,7 @@ func airborne_gradient(substance: String, world_pos: Vector3) -> Vector3:
 func o2_at(x: float, y: float, z: float) -> float:
 	if _f._grid != null:
 		var c: int = _f.world_to_cell(Vector3(x, y, z))
-		return _f._o2[c] if c >= 0 else LAMaterialField3D.O2_AMBIENT
+		return _f._mirrors.at("o2", c) if c >= 0 else LAMaterialField3D.O2_AMBIENT
 	return LAMaterialField3D.O2_AMBIENT
 
 
@@ -70,7 +68,7 @@ func breathable_o2_at(x: float, y: float, z: float) -> float:
 		c = LAFieldGeometry.air_above(_f, c, HEAD_REACH)
 		if c < 0 or _f._queries.liquid_at(c) >= LAMaterialField3D.MAX_MASS * 0.5:
 			return 0.0
-	return _f._o2[c]
+	return _f._mirrors.at("o2", c)
 
 
 ## Is the TRUE-3D cell at this world point underwater (over half-full of water)? What a gill-breather needs
@@ -97,11 +95,10 @@ func o2_avg() -> float:
 
 ## Volume fraction of the cell that is wind-borne mineral: the amount times its derived airborne share.
 func airborne_mineral_at(x: float, y: float, z: float) -> float:
-	if _f._grid == null or _f._silicate.size() != _f._cell_count \
-			or _f._silicate_susp_air.size() != _f._cell_count:
+	if _f._grid == null:
 		return 0.0
 	var c: int = _f.world_to_cell(Vector3(x, y, z))
-	return _f._silicate[c] * clampf(_f._silicate_susp_air[c], 0.0, 1.0) if c >= 0 else 0.0
+	return _f._queries.airborne_at(c)
 
 
 # --- Emergent CARBON DIOXIDE (second gas channel): CO₂ level at a point + build-up diagnostics ---------
@@ -111,7 +108,7 @@ func co2_at(x: float, y: float, z: float) -> float:
 		_f._gpu.request_channel("co2")   # co2 is demand-gated; no producer-side event to hook, so query self-wakes it
 	if _f._grid != null:
 		var c: int = _f.world_to_cell(Vector3(x, y, z))
-		return _f._co2[c] if c >= 0 else 0.0
+		return _f._mirrors.at("co2", c) if c >= 0 else 0.0
 	return 0.0
 
 
@@ -134,7 +131,7 @@ func co2_avg() -> float:
 func biomass_at(x: float, y: float, z: float) -> float:
 	if _f._grid != null:
 		var c: int = _f.world_to_cell(Vector3(x, y, z))
-		return _f._biomass[c] if (c >= 0 and _f._biomass.size() == _f._cell_count) else 0.0
+		return _f._mirrors.at("biomass", c) if c >= 0 else 0.0
 	return 0.0
 
 
@@ -150,25 +147,23 @@ func biomass_total() -> float:
 
 ## Volume fraction of the cell that is molten mineral: the amount times its derived melt share.
 func melt_at(x: float, y: float, z: float) -> float:
-	if _f._grid == null or _f._silicate.size() != _f._cell_count \
-			or _f._silicate_melt.size() != _f._cell_count:
+	if _f._grid == null:
 		return 0.0
-	var c: int = _f.world_to_cell(Vector3(x, y, z))
-	return _f._silicate[c] * clampf(_f._silicate_melt[c], 0.0, 1.0) if c >= 0 else 0.0
+	return _f._queries.melt_at(_f.world_to_cell(Vector3(x, y, z)))
 
 
 ## Volume fraction of the cell that is mineral, in any state.
 func silicate_at(x: float, y: float, z: float) -> float:
-	if _f._grid == null or _f._silicate.size() != _f._cell_count:
+	if _f._grid == null:
 		return 0.0
 	var c: int = _f.world_to_cell(Vector3(x, y, z))
-	return _f._silicate[c] if c >= 0 else 0.0
+	return _f._mirrors.at("silicate", c) if c >= 0 else 0.0
 
 
 func charge_at(x: float, y: float, z: float) -> float:
 	if _f._grid != null:
 		var c: int = _f.world_to_cell(Vector3(x, y, z))
-		return _f._charge[c] if (c >= 0 and _f._charge.size() == _f._cell_count) else 0.0
+		return _f._mirrors.at("charge", c) if c >= 0 else 0.0
 	return 0.0
 
 
@@ -185,7 +180,7 @@ func fungus_at(x: float, y: float, z: float) -> float:
 		_f._gpu.request_channel("fungus")
 	if _f._grid != null:
 		var c: int = _f.world_to_cell(Vector3(x, y, z))
-		return _f._fungus[c] if (c >= 0 and _f._fungus.size() == _f._cell_count) else 0.0
+		return _f._mirrors.at("fungus", c) if c >= 0 else 0.0
 	return 0.0
 
 
