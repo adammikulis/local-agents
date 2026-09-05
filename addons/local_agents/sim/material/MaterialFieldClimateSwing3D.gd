@@ -168,7 +168,7 @@ func _surface_cell(centre: Vector3, dir: Vector3, solid: PackedByteArray) -> int
 
 
 func _read_stations() -> void:
-	var temp: PackedFloat32Array = _f._temp
+	var temp: PackedFloat32Array = _f._mirrors.array("temp")
 	var solid: PackedByteArray = _f._solid
 	var cc: int = _f._cell_count
 	if temp.size() != cc or solid.size() != cc:

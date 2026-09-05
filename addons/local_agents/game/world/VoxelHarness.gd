@@ -15,12 +15,13 @@ static func _count_meshes(n: Node) -> int:
 # population arc (and WHY it moves — which death causes dominate) is visible over time, not just at the end.
 # One line the balance harness scrapes: POP_TRACE={frame, per-species counts, plants/trees, temp, deaths-so-far}.
 static func emit_population_trace(w, frame: int) -> void:
-	if LAAblate.fauna_off():
-		return
+	# The seeded streams are the world's, not the fauna's: a run with no animals still draws.
 	if LASimRng.trace_enabled:
 		var rep: Dictionary = LASimRng.shared().trace_report()
 		print("RNG_TRACE={\"frame\":%d,\"draws\":%d,\"domains\":%s,\"tags\":%s}" % [
 			frame, int(rep["draws"]), JSON.stringify(LASimRng.domain_trace()), JSON.stringify(rep["tags"])])
+	if LAAblate.fauna_off():
+		return
 	var tree: SceneTree = w.get_tree()
 	var counts: Dictionary = {}
 	for sp in ["rabbit", "fox", "bird", "villager", "vulture", "fish"]:

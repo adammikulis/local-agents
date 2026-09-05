@@ -40,9 +40,12 @@ func sample() -> Dictionary:
 	if _f == null or _f._grid == null:
 		return {}
 	var cc: int = _f._cell_count
-	if _f._solid.size() != cc or _f._silicate.size() != cc:
+	if _f._solid.size() != cc or not _f._mirrors.has("silicate"):
 		return {}
-	if _f._silicate_bed.size() != cc or _f._silicate_susp_water.size() != cc:
+	var sil_all: PackedFloat32Array = _f._mirrors.array("silicate")
+	var bed_all: PackedFloat32Array = _f._mirrors.array("silicate_bed")
+	var susp_all: PackedFloat32Array = _f._mirrors.array("silicate_susp_water")
+	if bed_all.size() != cc or susp_all.size() != cc:
 		return {}
 	var cell: float = _f._grid.cell_size
 
@@ -58,9 +61,9 @@ func sample() -> Dictionary:
 	var susp_mass: float = 0.0
 	var susp_r: float = 0.0
 	for c in cc:
-		var sil: float = _f._silicate[c]
-		var sd: float = sil * _f._silicate_bed[c]
-		var sp: float = sil * _f._silicate_susp_water[c]
+		var sil: float = sil_all[c]
+		var sd: float = sil * bed_all[c]
+		var sp: float = sil * susp_all[c]
 		var m: float = sd + sp
 		var hi: int = LAFieldGeometry.above(_f, c)
 		if _f._solid[c] != 0:

@@ -108,11 +108,11 @@ func seed_tick() -> bool:
 		# where every condensed phase would be asked to boil.
 		_f._gpu._seed("pressure", balance.get("pressure", PackedFloat32Array()))
 		_f._gpu._seed("p_fluid", balance.get("fluid", PackedFloat32Array()))
-		_f._gpu._seed("e_j_m3", _f._e)
-		_f._gpu._seed("e_lith_j_m3", _f._e_lith)
+		_f._gpu._upload_mirror("e_j_m3")
+		_f._gpu._upload_mirror("e_lith_j_m3")
 		# Every matter channel, not a hand-written subset: the balance march touched all of them.
 		for name in LAFieldCellMass3D.mirror_names(_f):
-			_f._gpu.seed_field(String(name), _f.get("_" + String(name)), _f._seal)
+			_f._gpu.seed_field(String(name), _f._seal)
 		_f._gpu.mark_h_dirty()
 	if LAProcessSet.has_record("pass", GRAVITY_PASS):
 		_f._gravity.solve()  # the ocean just landed: relax the potential over the WHOLE seeded mass
@@ -180,8 +180,7 @@ func step() -> void:
 		var t_rest: int = Time.get_ticks_usec()
 		LASimReport.event("field_rest")
 		if _f._gpu._pending:              # the last moving step's readback and books, drained once
-			_f._gpu.begin_frame(_f._e, _f._h2o)
-			_apply_readback(_f._gpu.end_frame())
+			_f._gpu.begin_frame()
 			if _f._report_mod != null:
 				_f._report_mod.sample_ledgers()
 		_f._gpu.republish_latest()
@@ -189,7 +188,7 @@ func step() -> void:
 		return
 	var t0: int = Time.get_ticks_usec()
 	var t_begin: int = t0
-	_f._gpu.begin_frame(_f._e, _f._h2o)      # drains prev step (sync+readback) + uploads
+	_f._gpu.begin_frame()                    # drains prev step (sync + readback into the mirrors) + uploads
 	if LAProcessSet.has_record("pass", GRAVITY_PASS):
 		_f._gravity.solve_step(_f._gpu._step_index)   # the potential of the mass that moved, converged; the device is idle here
 	LASimReport.gauge("field_begin_ms", float(Time.get_ticks_usec() - t_begin) / 1000.0)
@@ -217,9 +216,7 @@ func step() -> void:
 	else:
 		_f._gpu.step()
 	LASimReport.gauge("field_dispatch_ms", float(Time.get_ticks_usec() - t_step) / 1000.0)
-	var res: Dictionary = _f._gpu.end_frame()
 	var t_post: int = Time.get_ticks_usec()
-	_apply_readback(res)
 	# Seal on the field clock, never the report clock. The seal takes only its own legs.
 	if _f._seal != null and _f._gpu.has_method("take_probe"):
 		_f._seal.poll(_f._gpu.take_probe(LAMaterialFieldSeal3D.required_channels()))
@@ -237,25 +234,3 @@ func step() -> void:
 		_sealed_full_steps += 1
 	if _mineral_profile != null:
 		_mineral_profile.post_step()  # LA_MINERAL_PROFILE: print WHERE the loose mineral is, by elevation
-
-
-## Channel -> the CPU mirror it refreshes. The three DERIVED h2o shares are recomputed by
-## StateDerivePass every step, never conserved and never uploaded; `vel_*` is the emergent wind
-## field that wind3_at reads.
-const MIRRORS: Dictionary = {
-	"e_j_m3": "_e", "e_lith_j_m3": "_e_lith", "temp": "_temp", "temp_lith": "_temp_lith", "h2o": "_h2o", "h2o_pore": "_h2o_pore", "h2o_solid": "_h2o_solid",
-	"h2o_liquid": "_h2o_liquid", "h2o_vapour": "_h2o_vapour", "silicate": "_silicate",
-	"porosity": "_porosity", "fire": "_fire", "fuel": "_fuel", "fert": "_fert", "o2": "_o2",
-	"co2": "_co2", "biomass": "_biomass", "cement": "_cement", "silicate_melt": "_silicate_melt",
-	"silicate_bed": "_silicate_bed", "silicate_susp_air": "_silicate_susp_air",
-	"silicate_susp_water": "_silicate_susp_water", "charge": "_charge",
-	"vel_x": "_vel_x", "vel_y": "_vel_y", "vel_z": "_vel_z", "pressure": "_pressure",
-	"detritus": "_detritus", "fungus": "_fungus"}
-
-
-func _apply_readback(res: Dictionary) -> void:
-	var n: int = _f._cell_count
-	for key: String in MIRRORS:
-		if res.has(key) and res[key].size() == n:
-			_f.set(String(MIRRORS[key]), res[key])
-	_f._atmos_dirty = true          # new h2o/temp -> invalidate the cached condensate aggregates

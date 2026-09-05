@@ -4,12 +4,6 @@ extends RefCounted
 ## Save/restore of the material field's per-cell state.
 
 
-## The field's CPU mirror for a channel, by the rule LAFieldCellMass3D reads them under: `_` and the
-## channel's own name, the enthalpy channel under the name the field holds it by.
-static func mirror_of(name: String) -> String:
-	return "_e" if name == "e_j_m3" else ("_e_lith" if name == "e_lith_j_m3" else "_" + name)
-
-
 ## True once the field has activated its GPU driver.
 static func is_ready(field) -> bool:
 	return field != null and field._use_gpu and field._gpu != null and field._gpu.has_method("snapshot_channels")
@@ -40,9 +34,6 @@ static func restore(field, data: Dictionary) -> bool:
 	# EVERY MIRROR THE CAPTURE CARRIES. A subset leaves the rest holding the pre-load world, and what
 	# reads a mirror — the body's mass among them — then weighs two worlds at once.
 	for name in channels.keys():
-		var arr: PackedFloat32Array = channels[name]
-		var key: String = mirror_of(String(name))
-		if arr.size() == field._cell_count and field.get(key) is PackedFloat32Array:
-			field.set(key, arr)
+		field._mirrors.set_array(String(name), channels[name])
 	field._atmos_dirty = true
 	return true

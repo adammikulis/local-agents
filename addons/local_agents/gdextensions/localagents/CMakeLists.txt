@@ -43,6 +43,7 @@ set(SRC
     src/LAGridGeometry.cpp
     src/LAGravitySolve.cpp
     src/LAFieldDriver.cpp
+    src/LAFieldMirrors.cpp
     src/LAFieldStateCache.cpp
     src/LAFieldHydrosphereSeed.cpp
     src/LAFieldLithostaticSeed.cpp
