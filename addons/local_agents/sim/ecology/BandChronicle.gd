@@ -67,22 +67,17 @@ func service() -> Node:
 func _enable() -> void:
 	if _service == null or not _service.has_method("set_world_time"):
 		return
-	var result: Variant = _service.call("set_world_time", LASimClock.world_day(), _season(), LASimClock.CALENDAR)
+	var result: Variant = _service.call("set_world_time", LASimClock.world_day(), "", LASimClock.CALENDAR)
 	if not (result is Dictionary) or not bool((result as Dictionary).get("ok", false)):
 		push_warning("LABandChronicle: the backstory store is unavailable, so this world keeps no social history (%s)." % [result])
 		return
 	_enabled = true
 
 
-func _season() -> String:
-	var clock: LASimClock = LASimClock.active()
-	return clock.season() if clock != null else ""
-
-
 func _on_day_advanced(day: int) -> void:
 	if not _enabled:
 		return
-	_service.call("set_world_time", day, _season(), LASimClock.CALENDAR)
+	_service.call("set_world_time", day, "", LASimClock.CALENDAR)
 
 
 func _process(delta: float) -> void:

@@ -2,8 +2,6 @@ class_name LASimClock
 extends Node
 
 
-const DAYS_PER_SEASON: int = 4
-const SEASONS: Array[String] = ["spring", "summer", "autumn", "winter"]
 const CALENDAR: String = "sim"
 
 signal day_advanced(day: int)
@@ -84,12 +82,8 @@ func days_elapsed() -> float:
 	return elapsed() / day_length()
 
 
-func season() -> String:
-	return SEASONS[(_day / DAYS_PER_SEASON) % SEASONS.size()]
-
-
-## SAVE: the whole clock is one step count, written out in simulated seconds. Everything else (day,
-## fraction, season) derives from it, so there is no second field that can be restored out of step.
+## SAVE: the whole clock is one step count, written out in simulated seconds. Everything else derives
+## from it, so there is no second field that can be restored out of step.
 func serialize() -> Dictionary:
 	return {"elapsed": elapsed()}
 

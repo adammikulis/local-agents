@@ -79,7 +79,7 @@ if a is None or b is None:
 
 # The conserved totals, plus the step count: two arms that ran different amounts of simulation are not a
 # comparison at all, and that is a DIFFERENT failure worth naming separately.
-KEYS = ("h2o_closed_total", "element_C_total", "mineral_total", "o2_total", "oxidant_all",
+KEYS = ("h2o_total", "element_C_total", "mineral_total", "o2_total", "oxidant_all",
         "nitrogen_all", "energy_stock")
 steps_a, steps_b = a.get("field_step"), b.get("field_step")
 if steps_a != steps_b:

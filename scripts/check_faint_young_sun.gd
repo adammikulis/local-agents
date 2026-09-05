@@ -145,12 +145,7 @@ func _init() -> void:
 	var p_s: float = LAPhysical.STANDARD_PRESSURE_PA
 	var g: float = STANDARD_GRAVITY_M_S2
 	var p_ref: float = LAPhysical.ABSORPTION_REF_PRESSURE_PA
-	var x: Dictionary = {
-		"co2": LAPhysical.PREBIOTIC_MOLE_FRAC_CO2, "n2": LAPhysical.PREBIOTIC_MOLE_FRAC_N2,
-		"h2": LAPhysical.PREBIOTIC_MOLE_FRAC_H2, "co": LAPhysical.PREBIOTIC_MOLE_FRAC_CO,
-		"ch4": LAPhysical.PREBIOTIC_MOLE_FRAC_CH4, "so2": LAPhysical.PREBIOTIC_MOLE_FRAC_SO2,
-		"h2s": LAPhysical.PREBIOTIC_MOLE_FRAC_H2S,
-	}
+	var x: Dictionary = LAFieldLithostaticSeed.seeded_air_mole_fractions()
 	var table: Dictionary = LASubstances.table()
 	var m_air: float = 0.0
 	var cp_mol: float = 0.0
@@ -165,7 +160,7 @@ func _init() -> void:
 	var col: float = p_s * p_s / (2.0 * g * p_ref)
 	var q_co2: float = float(x["co2"]) * float(table["co2"]["molar_mass"]) / m_air
 	# Path order matches the kappa columns: CO2 line, CO2 CIA, H2O line, H2O cont, O3 line, O3 xsc,
-	# CH4, CO, SO2, H2S. The seed atmosphere is dry and ozone-free, so those four legs are zero.
+	# CH4, CO, SO2, H2S. The seed is dry, ozone-free and carries no photochemical product.
 	var paths: PackedFloat64Array = PackedFloat64Array()
 	paths.append(q_co2 * col)
 	paths.append(q_co2 * float(x["co2"]) * col)
@@ -174,7 +169,7 @@ func _init() -> void:
 	paths.append(0.0)
 	paths.append(0.0)
 	for id in ["ch4", "co", "so2", "h2s"]:
-		paths.append(float(x[id]) * float(table[id]["molar_mass"]) / m_air * col)
+		paths.append(float(x.get(id, 0.0)) * float(table[id]["molar_mass"]) / m_air * col)
 
 	# The flux this planet actually receives: the epoch star's luminosity over the sphere it has spread
 	# across by the time it arrives. No solar constant, because a constant is a fact about one orbit.

@@ -357,6 +357,13 @@ kind = "text"
 marker = "^check_gate_fixtures: OK"
 
 [[gate]]
+name = "check_gate_executable"
+script = "scripts/check_gate_executable.sh"
+kind = "text"
+marker = "^check_gate_executable: OK"
+mutation = "git update-index --chmod=-x scripts/check_stack_balance.sh"
+
+[[gate]]
 name = "check_doc_claims"
 script = "scripts/check_doc_claims.sh"
 kind = "text"
@@ -667,6 +674,14 @@ marker = "^check_shot_look: OK"
 mutation = "python3 -c \"p='addons/local_agents/sim/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); s=s.replace('ALBEDO = col;','ALBEDO = vec3(0.0);'); open(p,'w').write(s.replace('EMISSION = incandescence(temp) * 3.8;','EMISSION = vec3(0.35);'))\""
 
 [[gate]]
+name = "check_impact_books"
+script = "scripts/check_impact_books.sh"
+kind = "headless"
+needs = ["import"]
+marker = "^check_impact_books: OK"
+mutation = "python3 -c \"p='addons/local_agents/sim/material/MaterialEjecta3D.gd'; s=open(p).read(); open(p,'w').write(s.replace('0.5 * kg * speed * speed','0.5 * kg * (_mass_unit_kg(_f.world_to_cell(pos)) / unit_kg) * speed * speed'))\""
+
+[[gate]]
 name = "check_shot_protocol"
 script = "scripts/check_shot_protocol.sh"
 kind = "gpu"
@@ -692,6 +707,13 @@ script = "scripts/check_kernel_properties.sh"
 kind = "gpu"
 marker = "^check_kernel_properties: OK"
 mutation = "sed -i '' 's|acc += la_load(uint(a));|acc -= la_load(uint(a));|' addons/local_agents/sim/material/kernels3d/pressure.glsl"
+
+[[gate]]
+name = "check_lasim_parity"
+script = "scripts/check_lasim_parity.sh"
+kind = "gpu"
+marker = "^check_lasim_parity: OK"
+mutation = "sed -i '' 's|acc += x;|acc += x * 1.0000001;|' addons/local_agents/native/src/field/FieldRun.cpp"
 
 [[gate]]
 name = "check_shaders_compile"

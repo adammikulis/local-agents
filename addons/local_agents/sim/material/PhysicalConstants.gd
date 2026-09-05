@@ -522,18 +522,8 @@ const THERMAL_CONDUCT_ORGANIC_W_MK: float = 0.25
 const PREBIOTIC_MOLE_FRAC_CO2: float = 0.5
 ## Outgassing vs. escape (Kasting 1993); contested — Tian et al. 2005 (Science 308:1014) argue ~0.3.
 const PREBIOTIC_MOLE_FRAC_H2: float = 1.0e-3
-## CO2-photolysis steady state (Kasting 1990, Orig. Life Evol. Biosph. 20:199).
-const PREBIOTIC_MOLE_FRAC_CO: float = 1.0e-4
-## Abiotic only (serpentinization; no methanogens): ~10 ppmv, uncertain by an order of magnitude
-## either way (Kasting 2005, Precambrian Res. 137:119).
-const PREBIOTIC_MOLE_FRAC_CH4: float = 1.0e-5
-## Volcanic supply vs. photolysis + rainout, ppb steady state (Zahnle et al. 2006, Geobiology 4:271).
-const PREBIOTIC_MOLE_FRAC_SO2: float = 1.0e-9
-const PREBIOTIC_MOLE_FRAC_H2S: float = 1.0e-9
 ## N2 carries the remainder, so the mole fractions sum to exactly 1.
-const PREBIOTIC_MOLE_FRAC_N2: float = 1.0 - PREBIOTIC_MOLE_FRAC_CO2 - PREBIOTIC_MOLE_FRAC_H2 \
-	- PREBIOTIC_MOLE_FRAC_CO - PREBIOTIC_MOLE_FRAC_CH4 - PREBIOTIC_MOLE_FRAC_SO2 \
-	- PREBIOTIC_MOLE_FRAC_H2S
+const PREBIOTIC_MOLE_FRAC_N2: float = 1.0 - PREBIOTIC_MOLE_FRAC_CO2 - PREBIOTIC_MOLE_FRAC_H2
 
 # EARTH'S HYPSOGRAPHIC CURVE: the area-by-elevation distribution of the solid surface against sea level.
 # Sverdrup, Johnson & Fleming 1942, The Oceans, ch. II; Eakins & Sharman 2010, NOAA ETOPO1 volumes.
@@ -561,10 +551,6 @@ const TOPOGRAPHY_DOMINANT_HARMONIC_DEGREE: int = 2
 
 ## Mantle potential temperature, K: 1280 C (McKenzie & Bickle 1988, J. Petrol. 29:625).
 const MANTLE_POTENTIAL_TEMP_K: float = 1553.15
-## Core-mantle boundary temperature, K (Lay, Hernlund & Buffett 2008, Nature Geosci. 1:25).
-const CORE_MANTLE_BOUNDARY_TEMP_K: float = 4000.0
-## Continental surface heat flow, W/m^2 (Pollack, Hurter & Johnson 1993, Rev. Geophys. 31:267).
-const SURFACE_HEAT_FLOW_W_M2: float = 0.065
 
 ## Temperature at which a solid first glows visibly, C (Draper 1847: 798 K).
 const DRAPER_POINT_C: float = 525.0
