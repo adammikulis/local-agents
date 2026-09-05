@@ -1,0 +1,8 @@
+# Properties of the kernels that do NOT hold on the real kernels, asserted by
+# `lasim --property-tests`. May fall, may not rise.
+#
+# state_derive.glsl / derive_is_a_fixed_point: a second derive over the state the first wrote restates
+# a different pressure, past what check_derive_fixed_point.sh declares.
+# sparse_edit.glsl / sparse_edit_stays_inside_the_stock: `take = gain / max(ratio, 1e-30)` undoes the
+# `take * ratio` above it in float32, so `src_ch[su] -= take` can leave the stock below zero.
+2

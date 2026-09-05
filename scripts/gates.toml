@@ -658,6 +658,13 @@ kind = "gpu"
 marker = "^check_native_device: OK"
 
 [[gate]]
+name = "check_kernel_properties"
+script = "scripts/check_kernel_properties.sh"
+kind = "gpu"
+marker = "^check_kernel_properties: OK"
+mutation = "sed -i '' 's|acc += la_load(uint(a));|acc -= la_load(uint(a));|' addons/local_agents/sim/material/kernels3d/pressure.glsl"
+
+[[gate]]
 name = "check_shaders_compile"
 script = "scripts/check_shaders_compile.sh"
 kind = "headless"
@@ -683,3 +690,10 @@ kind = "headless"
 marker = "^check_launch_count: OK"
 mutation = "printf '0\\n' > docs/LAUNCH_CEILING; printf 'la_godot --headless --path .\\n' >> \"$LA_LAUNCH_LOG\""
 
+
+[[gate]]
+name = "check_snapshot_roundtrip"
+script = "scripts/check_snapshot_roundtrip.sh"
+kind = "gpu"
+marker = "^check_snapshot_roundtrip: OK"
+mutation = "python3 -c \"p='addons/local_agents/sim/material/MaterialFieldSnapshot3D.gd'; s=open(p).read(); open(p,'w').write(s.replace('LAMaterialSphereGPU3D.channels() + LAMaterialSphereGPU3D.SEED_PRODUCTS', 'LAMaterialSphereGPU3D.channels()'))\""

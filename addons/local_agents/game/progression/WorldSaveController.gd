@@ -5,6 +5,10 @@ extends Node
 const StateScript: GDScript = preload("res://addons/local_agents/game/progression/WorldSaveState.gd")
 const FieldSnapshotScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSnapshot3D.gd")
 
+## What the rewind history may hold, in bytes. DECISION, not a law. A moment is the whole field, so the
+## depth of the ring is a memory budget and the number of moments is derived from what one costs.
+const RING_BYTES: int = 1 << 30
+
 static var _active: LAWorldSaveController = null
 
 var _world = null
@@ -15,19 +19,13 @@ var _pending: Dictionary = {}                     # a loaded save awaiting the f
 var _restore_pending: bool = false
 var _restore_deadline: int = 0                    # frames to wait for the field before giving up (fail-graceful)
 var _restore_min_wait: int = 0                    # frames to hold before applying (lets a live reset's queue_free complete)
-# --timeline-selftest: capture at frame 300, let the world diverge, restore in place at 600, print state each
-# step. Proves the in-memory capture + live reset + restore round-trips (population/kinship/field return).
-var _selftest_stage: int = 0                      # 0 off · 1 armed · 2 captured · 3 restoring · 4 done
-var _selftest_snap: Dictionary = {}
-# Headless round-trip harness hooks (CLI): --save-slot=NAME [--save-frame=N] auto-saves at frame N and prints a
-# deterministic state line; --load-slot=NAME resumes that slot (equivalent to the menu Continue).
-var _auto_save_slot: String = ""
-var _auto_save_frame: int = 0
+# The cells of every held moment. GDScript holds handles into it, never the cells.
+var _snapshots: LAFieldSnapshot = null
 var _frame: int = 0
-var _auto_saved: bool = false
-# Deterministic fixture-load path (CLI): --load-fixture=<dir> restores a COMMITTED save directory (a repo
-# test fixture) instead of a user:// slot — no file shuffling, so the round-trip check is reproducible.
-var _load_fixture_dir: String = ""
+# --snapshot-roundtrip: capture, let the world diverge, restore in place, and report what came back.
+var _rt_stage: int = 0                            # 0 off · 1 armed · 2 done
+var _rt_handle: int = -1
+var _rt_store: LAFieldSnapshot = null
 
 
 static func active() -> LAWorldSaveController:
@@ -51,10 +49,6 @@ func _exit_tree() -> void:
 func setup(world) -> void:
 	_world = world
 	_parse_cli()
-	# A committed fixture (--load-fixture=<dir>) takes precedence: it's the deterministic verification path.
-	if _load_fixture_dir != "":
-		_begin_load_dir(_load_fixture_dir)
-		return
 	var gm: Object = _game_mode()
 	var slot: String = ""
 	if gm != null and gm.has_method("take_pending_load_slot"):
@@ -64,22 +58,10 @@ func setup(world) -> void:
 	_begin_load(slot)
 
 
-# Round-trip harness CLI: --load-slot=NAME (resume, like Continue), --save-slot=NAME [--save-frame=N] (auto
-# snapshot at frame N, default 400). Parsed once at setup; a --load-slot pre-arms the GameMode pending slot.
 func _parse_cli() -> void:
 	for arg in OS.get_cmdline_user_args():
-		# --load-slot is handled by the GameMode autoload (it must arm campaign mode BEFORE progression readies);
-		# here we only parse the auto-save hooks.
-		if arg.begins_with("--save-slot="):
-			_auto_save_slot = arg.substr("--save-slot=".length())
-		elif arg.begins_with("--save-frame="):
-			_auto_save_frame = int(arg.substr("--save-frame=".length()))
-		elif arg.begins_with("--load-fixture="):
-			_load_fixture_dir = arg.substr("--load-fixture=".length())
-		elif arg == "--timeline-selftest":
-			_selftest_stage = 1
-	if _auto_save_slot != "" and _auto_save_frame <= 0:
-		_auto_save_frame = 400
+		if arg == "--snapshot-roundtrip":
+			_rt_stage = 1
 
 
 ## The game shell hands over its progression node; without one a save carries no stage. The shell builds
@@ -122,35 +104,10 @@ func _begin_load(slot: String) -> void:
 		slot, (data.get("creatures", []) as Array).size(), (data.get("fish", []) as Array).size()])
 
 
-# Load a COMMITTED fixture directory (--load-fixture=<dir>): identical restore path to _begin_load, but the
-# blob is read from an explicit repo dir via LAGameSave.read_world_dir (no user:// slot). The saved grid must
-# match the live one — the fixture is authored + loaded under --smoke so the Potato cell_count lines up.
-func _begin_load_dir(dir: String) -> void:
-	var data: Dictionary = LAGameSave.read_world_dir(dir)
-	if data.is_empty():
-		push_warning("LAWorldSaveController: fixture '%s' is missing or corrupt, so starting a fresh world" % dir)
-		return
-	_slot = LAGameSave.DEFAULT_SLOT
-	_pending = data
-	_restore_pending = true
-	_restore_deadline = 3600
-	_apply_progression(data)
-	if _world._spawn != null and _world._spawn.has_method("suppress_initial_spawn"):
-		_world._spawn.suppress_initial_spawn()
-	print("SAVE_LOAD_BEGIN={fixture:%s, creatures:%d, fish:%d}" % [
-		dir, (data.get("creatures", []) as Array).size(), (data.get("fish", []) as Array).size()])
-
-
 func _process(_delta: float) -> void:
 	_frame += 1
-	if _selftest_stage > 0:
-		_run_timeline_selftest()
-	# Headless auto-save hook: snapshot once the field is up AND the target frame has arrived.
-	if _auto_save_slot != "" and not _auto_saved and _frame >= _auto_save_frame \
-			and FieldSnapshotScript.is_ready(_world._material):
-		_auto_saved = true
-		save_to_slot(_auto_save_slot)
-		_emit_state("SAVE_STATE_SAVED")
+	if _rt_stage > 0:
+		_run_snapshot_roundtrip()
 	if not _restore_pending:
 		return
 	if _restore_min_wait > 0:
@@ -165,63 +122,60 @@ func _process(_delta: float) -> void:
 		_finish_restore()
 
 
-## Headless proof of the in-place snapshot round-trip. Emits TL_* state lines: the captured snapshot, the
-## diverged world just before restore, and the restored world (which should match the capture).
-func _run_timeline_selftest() -> void:
-	if _selftest_stage == 1 and _frame >= 300 and FieldSnapshotScript.is_ready(_world._material):
-		_selftest_snap = capture_snapshot()
-		_selftest_stage = 2 if not _selftest_snap.is_empty() else 1
-		if _selftest_stage == 2:
-			_emit_state("TL_CAPTURED")
-	elif _selftest_stage == 2 and _frame >= 600:
-		_emit_state("TL_BEFORE_RESTORE")
-		restore_snapshot(_selftest_snap)
-		_selftest_stage = 3
-	elif _selftest_stage == 3 and not _restore_pending:
-		_emit_state("TL_RESTORED")           # should match TL_CAPTURED (population/habits/families/mineral)
-		_selftest_stage = 4
+# The store the rewind history lives in, bounded by what RING_BYTES affords.
+func _store() -> LAFieldSnapshot:
+	if _snapshots == null:
+		_snapshots = LAFieldSnapshot.new()
+	if not FieldSnapshotScript.bind(_world._material, _snapshots):
+		return null
+	_snapshots.ring(snapshot_capacity())
+	return _snapshots
 
 
+## Moments of history the ring holds; 0 before the field is up.
+func snapshot_capacity() -> int:
+	if _snapshots == null:
+		return 0
+	var each: int = _snapshots.snapshot_bytes()
+	return 0 if each <= 0 else maxi(1, RING_BYTES / each)
+
+
+# A store of its own for work that must not evict a moment of history: writing a save, reading one back.
+func _lone_store() -> LAFieldSnapshot:
+	var store: LAFieldSnapshot = LAFieldSnapshot.new()
+	return store if FieldSnapshotScript.bind(_world._material, store) else null
+
+
+## The state of the whole world at this moment: its actors, and a handle to the field's cells.
+func capture_snapshot() -> Dictionary:
+	return _capture_into(_store())
+
+
+func _capture_into(store: LAFieldSnapshot) -> Dictionary:
+	if _world == null or _world._material == null or store == null:
+		return {}
+	var handle: int = store.capture()
+	if handle < 0:
+		return {}
+	var state: Dictionary = StateScript.capture(_world, _progression)
+	state["field"] = handle
+	return state
+
+
+# The pending block is a live handle the ring owns, or the bytes a save file holds. Disk is the only place
+# the cells are ever bytes, so that is the one place a handle is minted here and released again.
 func _finish_restore() -> void:
 	_restore_pending = false
-	FieldSnapshotScript.restore(_world._material, _pending.get("field", {}))
+	var block: Variant = _pending.get("field", -1)
+	var from_disk: bool = block is PackedByteArray
+	var store: LAFieldSnapshot = _lone_store() if from_disk else _store()
+	if store != null:
+		var handle: int = store.deserialize(block) if from_disk else int(block)
+		if handle >= 0:
+			FieldSnapshotScript.restore(_world._material, store, handle)
 	var n: int = StateScript.apply_actors(_world, _pending)
 	print("SAVE_LOAD_DONE={slot:%s, creatures_restored:%d}" % [_slot, n])
 	_pending = {}
-	_emit_state("SAVE_STATE_LOADED")
-
-
-# Print a deterministic aggregate line for round-trip verification: populations, total learned habits (Σ policy
-# sizes across creatures — proves cognition survived), kinship component count, progression stage, and the field
-# conservation totals (h2o/mineral/biomass). Compared between the pre-save world and the reloaded world.
-func _emit_state(tag: String) -> void:
-	var tree: SceneTree = get_tree()
-	var creatures: int = 0
-	var habits: int = 0
-	var sample_habits: int = -1
-	for c in tree.get_nodes_in_group("creature"):
-		if not is_instance_valid(c):
-			continue
-		creatures += 1
-		var cog = c.get_cognition() if c.has_method("get_cognition") else null
-		if cog != null:
-			var sz: int = cog.policy.size()
-			habits += sz
-			if sample_habits < 0:
-				sample_habits = sz
-	var fish: int = tree.get_nodes_in_group("fish").size()
-	var families: int = 0
-	if _world._ecology != null and _world._ecology.has_method("kinship"):
-		families = _world._ecology.kinship().family_count()
-	var stage: int = _progression.current_stage() if _progression != null else -1
-	var field = _world._material
-	var h2o: float = field.h2o_total() if field != null and field.has_method("h2o_total") else 0.0
-	var mineral: float = 0.0
-	var biomass: float = field.biomass_total() if field != null and field.has_method("biomass_total") else 0.0
-	if field != null and field.has_method("report"):
-		mineral = float((field.report() as Dictionary).get("mineral_total", 0.0))
-	print("%s={creatures:%d, fish:%d, habits:%d, sample_habits:%d, families:%d, stage:%d, h2o:%.2f, mineral:%.2f, biomass:%.2f}" % [
-		tag, creatures, fish, habits, sample_habits, families, stage, h2o, mineral, biomass])
 
 
 ## Snapshot the whole world to the current slot. Called by the pause-menu "Save game" entry. Returns OK, or an
@@ -234,7 +188,12 @@ func quick_save() -> int:
 func save_to_slot(slot: String) -> int:
 	if _world == null:
 		return FAILED
-	var state: Dictionary = StateScript.capture(_world, _progression)
+	var store: LAFieldSnapshot = _lone_store()
+	var state: Dictionary = _capture_into(store)
+	if state.is_empty():
+		return FAILED
+	# The one place the cells become bytes: a file cannot hold a handle.
+	state["field"] = store.serialize(int(state.get("field", -1)))
 	var population: int = (state.get("creatures", []) as Array).size()
 	var stage: int = 0
 	if _progression != null and _progression.has_method("current_stage"):
@@ -261,19 +220,13 @@ func field_version() -> int:
 	return _world._material.step_driver().full_steps()
 
 
-func capture_snapshot() -> Dictionary:
-	if _world == null or _world._material == null:
-		return {}
-	if not FieldSnapshotScript.is_ready(_world._material):
-		return {}
-	var state: Dictionary = StateScript.capture(_world, _progression)
-	if not _snapshot_includes_field():
-		state["field"] = {}                # drop the heavy field block; restore leaves the live field untouched
-	return state
-
-
-func _snapshot_includes_field() -> bool:
-	return OS.has_environment("LA_SNAPSHOT_FIELD") and OS.get_environment("LA_SNAPSHOT_FIELD") != "0"
+## Release a held moment's cells (the timeline evicting or forking away from one).
+func drop_snapshot(data: Dictionary) -> void:
+	if _snapshots == null:
+		return
+	var handle: int = int(data.get("field", -1))
+	if handle >= 0:
+		_snapshots.drop(handle)
 
 
 ## True while a restore is mid-flight (the caller should not capture or restore again until it clears).
@@ -295,3 +248,73 @@ func restore_snapshot(data: Dictionary) -> void:
 	_restore_deadline = 3600
 	if _progression != null and _progression.has_method("restore"):
 		_progression.restore(data.get("progression", {}))
+
+
+# THE SNAPSHOT'S OWN PROOF, run inside the seeded world on its own device. The world it stands in may be
+# at rest, so the state a restore has to overwrite is made rather than waited for: wipe the cells to
+# nothing, put the capture back, and read every channel again — from memory and through the save bytes.
+func _run_snapshot_roundtrip() -> void:
+	if _rt_stage != 1 or _frame < 60 or not FieldSnapshotScript.is_ready(_world._material):
+		return
+	_rt_store = _lone_store()
+	if _rt_store == null:
+		return
+	_rt_stage = 2
+	var store: LAFieldSnapshot = _rt_store
+	var field = _world._material
+	_rt_handle = store.capture()
+	var wiped: int = store.blank()
+
+	# THE CONTROL. The wipe must reach the device, or a restore that did nothing would read as exact.
+	FieldSnapshotScript.restore(field, store, wiped)
+	var h: int = store.capture()
+	var took: int = int((store.compare(wiped, h) as Dictionary).get("cells", -1))
+	var lost: int = int((store.compare(_rt_handle, h) as Dictionary).get("cells", -1))
+	store.drop(h)
+
+	FieldSnapshotScript.restore(field, store, _rt_handle)
+	var mirrors: int = store.apply_mirrors(_rt_handle, field)
+	h = store.capture()
+	var same: int = int((store.compare(_rt_handle, h) as Dictionary).get("cells", -1))
+	var totals_differ: int = _totals_differ(store.totals(_rt_handle), store.totals(h))
+	var nonzero: int = _nonzero_totals(store.totals(_rt_handle))
+	store.drop(h)
+
+	var blob: PackedByteArray = store.serialize(_rt_handle)
+	var bytes: int = blob.size()
+	h = store.deserialize(blob)
+	blob = PackedByteArray()
+	FieldSnapshotScript.restore(field, store, wiped)
+	FieldSnapshotScript.restore(field, store, h)
+	store.drop(h)
+	h = store.capture()
+	var save_same: int = int((store.compare(_rt_handle, h) as Dictionary).get("cells", -1))
+	store.drop(h)
+
+	# A snapshot of a world this is not must refuse rather than overwrite: point the store elsewhere and ask.
+	store.bind(field._gpu._rd, {}, PackedStringArray(), field._cell_count, null)
+	var refused: bool = not store.restore(_rt_handle)
+
+	var declared: int = LAMaterialSphereGPU3D.channels().size() + LAMaterialSphereGPU3D.SEED_PRODUCTS.size()
+	print("SNAPSHOT_ROUNDTRIP={layout:%d, channels:%d, declared:%d, cells:%d, mirrors:%d, took:%d, lost:%d, same:%d, save_same:%d, nonzero:%d, totals_differ:%d, refused:%d, bytes:%d}" % [
+		LAFieldSnapshot.LAYOUT_VERSION, store.channels(_rt_handle).size(), declared,
+		store.cell_count(_rt_handle), mirrors, took, lost, same, save_same, nonzero, totals_differ,
+		1 if refused else 0, bytes])
+	store.drop(_rt_handle)
+	store.drop(wiped)
+
+
+func _nonzero_totals(t: Dictionary) -> int:
+	var n: int = 0
+	for k in t:
+		if float(t[k]) != 0.0:
+			n += 1
+	return n
+
+
+func _totals_differ(a: Dictionary, b: Dictionary) -> int:
+	var n: int = 0
+	for k in a:
+		if not b.has(k) or float(a[k]) != float(b[k]):
+			n += 1
+	return n
