@@ -2,7 +2,7 @@ class_name LAFieldPassAttribution3D
 extends RefCounted
 
 ## Between-pass attribution for one conserved substance: which pass changed its total, and by how much.
-## A sample sums the halves it downloaded at the checkpoint; the ledger's totals come off the device.
+## Every total is a reduce row folded on the device; nothing here downloads a channel.
 
 const SampleScript: GDScript = preload("res://addons/local_agents/sim/material/FieldStepSample3D.gd")
 
@@ -48,12 +48,12 @@ func on_checkpoint(pass_index: int, pass_name: String) -> void:
 		_prev = opening.duplicate()
 		return
 	var now: Dictionary = _sample()
-	if now.is_empty():
+	if now.is_empty() or _start.is_empty():
 		return
 	var key: String = SampleScript.leg_key(pass_name)
 	for name in now:
 		var d: Dictionary = _legs.get(name, {})
-		d[key] = float(now[name]) - float(_prev.get(name, 0.0))
+		d[key] = float(now[name]) - float(_prev[name])
 		_legs[name] = d
 	_prev = now
 
@@ -76,7 +76,7 @@ func post_step() -> void:
 		_publish_row(out, row)
 	for key in _rec.get("derived", {}):
 		var pair: Array = _rec["derived"][key]
-		out[key] = float(_prev.get(pair[0], 0.0)) - float(_prev.get(pair[1], 0.0))
+		out[key] = float(_prev[pair[0]]) - float(_prev[pair[1]])
 	for scalar in _rec.get("parts", {}):
 		out[String(_rec["parts"][scalar])] = _parts.get(scalar, {})
 	var res: Dictionary = _rec.get("resolution", {})
@@ -85,8 +85,8 @@ func post_step() -> void:
 		floor_v = _resolution(String(res["scalar"]))
 		out[String(res["key"])] = floor_v
 	var silent: PackedStringArray = _rec.get("silent_heat", PackedStringArray())
-	if silent.size() > 0:
-		var violations: PackedStringArray = _silent_violations(silent, floor_v)
+	if silent.size() > 0 and not res.is_empty():
+		var violations: PackedStringArray = _silent_violations(silent, floor_v, String(res["scalar"]))
 		if violations.size() > 0:
 			out["INSTRUMENT_WRONG_silent_pass_moved_heat"] = violations
 	_pair_end = _prev.duplicate()
@@ -98,8 +98,8 @@ func post_step() -> void:
 
 func _publish_row(out: Dictionary, row: Dictionary) -> void:
 	var scalar: String = String(row["scalar"])
-	var value: float = float(_prev.get(scalar, 0.0))
-	var opened: float = float(_start.get(scalar, 0.0))
+	var value: float = float(_prev[scalar])
+	var opened: float = float(_start[scalar])
 	if row.has("total"):
 		out[String(row["total"])] = value
 	if row.has("step"):
@@ -107,11 +107,7 @@ func _publish_row(out: Dictionary, row: Dictionary) -> void:
 	if row.has("legs"):
 		out[String(row["legs"])] = _legs.get(scalar, {})
 	if row.has("residual"):
-		var against: Array = row["residual_of"] if row.has("residual_of") else [scalar]
-		var booked: float = 0.0
-		for other in against:
-			booked += _leg_sum(String(other))
-		out[String(row["residual"])] = (value - opened) - booked
+		out[String(row["residual"])] = (value - opened) - _leg_sum(scalar)
 	# The instrument's falsifiable number: this step opened where the previous one closed.
 	if row.has("chain") and _sched.pair() == 2 and _pair_end.has(scalar):
 		out[String(row["chain"])] = opened - float(_pair_end[scalar])
@@ -127,15 +123,15 @@ func _leg_sum(scalar: String) -> float:
 ## Absolute resolution of a difference of two float32 readback sums, in the scalar's own units.
 func _resolution(scalar: String) -> float:
 	var cc: int = _f._cell_count if _f != null else 0
-	return LAMaterialFieldConservation3D.noise_floor(cc) * absf(float(_prev.get(scalar, 0.0)))
+	return LAMaterialFieldConservation3D.noise_floor(cc) * absf(float(_prev[scalar]))
 
 
-## Passes that bind no writable temp buffer and yet carry a heat leg the readback can resolve.
-func _silent_violations(silent: PackedStringArray, floor_v: float) -> PackedStringArray:
+## Passes that bind no writable enthalpy buffer and yet moved the stock by more than the fold resolves.
+func _silent_violations(silent: PackedStringArray, floor_v: float, scalar: String) -> PackedStringArray:
 	var out: PackedStringArray = PackedStringArray()
-	var legs: Dictionary = _legs.get("heat", {})
+	var legs: Dictionary = _legs.get(scalar, {})
 	for k in legs:
-		if silent.has(String(k)) and absf(float(legs[k])) >= floor_v:
+		if silent.has(String(k)) and absf(float(legs[k])) > floor_v:
 			out.append(String(k))
 	return out
 
@@ -147,89 +143,51 @@ func _clear_step() -> void:
 
 # --- sampling -------------------------------------------------------------------------------------
 
-## One checkpoint. Returns the record's scalars, or an empty dictionary when a channel did not arrive.
+## One checkpoint, folded on the device. Returns the record's scalars, or an empty dictionary naming the
+## rows this world does not hold.
 func _sample() -> Dictionary:
-	var gpu = _f._gpu
-	var cc: int = _f._cell_count
-	var channels: PackedStringArray = _rec["channels"]
-	var energy: bool = bool(_rec["energy"])
-	var ch: Dictionary = {}
-	for name in channels:
-		ch[name] = gpu.read_raw(String(name))
-	if energy:
-		# The stock is enthalpy; temperature is derived and books nothing.
-		ch["e_j_m3"] = gpu.read_raw("e_j_m3")
-		ch["e_lith_j_m3"] = gpu.read_raw("e_lith_j_m3")
-	var f: Dictionary = _sums(ch, gpu.read_raw("solid"), cc, energy)
-	if f.is_empty():
-		_missing = PackedStringArray(["solid"])
+	var reduce = SampleScript.reduce_of(_f)
+	if reduce == null:
+		_missing = PackedStringArray(["ReducePass"])
 		return {}
-	var live: Dictionary = f["live"]
+	var gpu = _f._gpu
+	var rows: Dictionary = reduce.checkpoint(gpu._rd, gpu._ctx, gpu._cc)
+	if bool(_rec["energy"]):
+		return _energy_scalars(rows)
+	return _mass_scalars(rows, _rec["channels"])
+
+
+## The ledger's own mask-free and open-only stocks, in moles.
+func _mass_scalars(rows: Dictionary, channels: PackedStringArray) -> Dictionary:
+	var open_parts: Dictionary = {}
+	var all_parts: Dictionary = {}
 	var absent: PackedStringArray = PackedStringArray()
 	for name in channels:
-		if not bool(live.get(name, false)):
-			absent.append(String(name))
-	if energy and int(ch.get("e_j_m3", PackedFloat32Array()).size()) < cc and not absent.has("e_j_m3"):
-		absent.append("e_j_m3")
+		var n: String = String(name)
+		if not rows.has("all_" + n) or not rows.has("open_" + n):
+			absent.append(n)
+			continue
+		all_parts[n] = float(rows["all_" + n])
+		open_parts[n] = float(rows["open_" + n])
+	if not rows.has("solid_cells"):
+		absent.append("solid_cells")
 	_missing = absent
 	if absent.size() > 0:
 		return {}
-	if energy:
-		return _energy_scalars(f)
-	return _mass_scalars(f, channels)
-
-
-func _mass_scalars(f: Dictionary, channels: PackedStringArray) -> Dictionary:
-	var open_by: Dictionary = f["open"]
-	var all_by: Dictionary = f["all"]
-	var open_parts: Dictionary = {}
-	var all_parts: Dictionary = {}
-	for name in channels:
-		open_parts[name] = float(open_by[name])
-		all_parts[name] = float(all_by[name])
-	all_parts["solid_cells"] = f["solid_cells"]
+	var totals: Dictionary = {"open": LAFieldLedgerRecords.sum_of(open_parts, channels),
+		"all": LAFieldLedgerRecords.sum_of(all_parts, channels)}
+	all_parts["solid_cells"] = int(round(float(rows["solid_cells"])))
 	_parts = {"open": open_parts, "all": all_parts}
-	return {"open": LAFieldLedgerRecords.sum_of(open_by, channels),
-		"all": LAFieldLedgerRecords.sum_of(all_by, channels)}
+	return totals
 
 
-## The stock is the enthalpy the cells hold.
-func _energy_scalars(f: Dictionary) -> Dictionary:
-	return {"stock": float(f["energy_stock"])}
-
-
-## Mask-free and open-only amounts of the channels this checkpoint downloaded, in cubic metres of channel.
-## One uniform grid, so one volume; `temp` books nothing, the stock is the enthalpy.
-func _sums(ch: Dictionary, solid: PackedFloat32Array, cc: int, energy: bool) -> Dictionary:
-	if solid.size() < cc:
+## The stock is the enthalpy the cells hold: the fluid's reservoir and the lattice's.
+func _energy_scalars(rows: Dictionary) -> Dictionary:
+	var absent: PackedStringArray = PackedStringArray()
+	for key in ["energy_stock", "energy_stock_lith"]:
+		if not rows.has(key):
+			absent.append(String(key))
+	_missing = absent
+	if absent.size() > 0:
 		return {}
-	var m3: float = pow(float(_f._cell_size), 3.0)
-	var live: Dictionary = {}
-	var all_by: Dictionary = {}
-	var open_by: Dictionary = {}
-	var solid_cells: int = 0
-	for c in cc:
-		if solid[c] != 0.0:
-			solid_cells += 1
-	for name in ch:
-		var a: PackedFloat32Array = ch[name]
-		live[name] = a.size() == cc
-		if a.size() != cc:
-			continue
-		var s_all: float = 0.0
-		var s_open: float = 0.0
-		for c in cc:
-			var av: float = a[c] * m3
-			s_all += av
-			if solid[c] == 0.0:
-				s_open += av
-		all_by[name] = s_all
-		open_by[name] = s_open
-	var out: Dictionary = {"live": live, "all": all_by, "open": open_by, "solid_cells": solid_cells}
-	if energy:
-		out["energy_stock"] = float(all_by.get("e_j_m3", 0.0)) + float(all_by.get("e_lith_j_m3", 0.0))
-	return out
-
-
-
-
+	return {"stock": float(rows["energy_stock"]) + float(rows["energy_stock_lith"])}
