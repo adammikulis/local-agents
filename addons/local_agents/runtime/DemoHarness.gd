@@ -48,9 +48,9 @@ var _done: bool = false
 
 # The image read out is the one drawn BEFORE this frame, so readiness must have held through that draw.
 const SHOT_SETTLE_FRAMES: int = 2
-# A host that can say whether the picture is worth taking gets as long again to say so, then is shot anyway
-# and the shot says what state it was in.
-const SHOT_WAIT_MULT: int = 2
+# A host that can say whether the picture is worth taking is waited on in WALL TIME, up to the run's own
+# ceiling less this margin, then shot anyway; the shot says what state it was in. Meshing is thread work.
+const SHOT_WAIT_MARGIN_S: float = 10.0
 
 
 func _ready() -> void:
@@ -92,7 +92,7 @@ func _process(_delta: float) -> void:
 		return
 	if _has_shot_ready_hook():
 		_ready_frames = _ready_frames + 1 if bool(report_source.call("demo_shot_ready")) else 0
-		if _ready_frames < SHOT_SETTLE_FRAMES and _render_frame < shoot_frames * SHOT_WAIT_MULT:
+		if _ready_frames < SHOT_SETTLE_FRAMES and Time.get_ticks_msec() < _shot_deadline_ms():
 			return
 	_done = true
 	_capture(shoot_path)
@@ -101,6 +101,14 @@ func _process(_delta: float) -> void:
 
 ## A host that can say whether the picture is worth taking (e.g. the ground under its camera is drawn at
 ## the detail the camera stands at) is waited on past `shoot_frames`; one that cannot is shot on the frame.
+## The run's ceiling (LA_RUN_TIMEOUT, the launcher's kill), less the margin the capture and quit need.
+func _shot_deadline_ms() -> int:
+	var ceiling_s: float = 60.0
+	if OS.has_environment("LA_RUN_TIMEOUT"):
+		ceiling_s = float(OS.get_environment("LA_RUN_TIMEOUT"))
+	return int(maxf(ceiling_s - SHOT_WAIT_MARGIN_S, 1.0) * 1000.0)
+
+
 func _has_shot_ready_hook() -> bool:
 	return report_source != null and report_source.has_method("demo_shot_ready")
 
