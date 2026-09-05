@@ -221,7 +221,7 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MaterialSphereGPU3D.gd` | `CHANNEL_HOLD_DRAINS` | 20 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialSphereGPU3D.gd` | `SLOW_READBACK_EVERY` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `VAPOUR_TRANSFER_COEFF` | 1.2e-3 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `SOIL_SURFACE_RESISTANCE_S_M` | 1000.0 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `SOIL_SURFACE_RESISTANCE_S_M` | 10.0 | r_s of a soil surface at or above field capacity, Van de Griend & Owe 1994, Water Resour. Res. 30:181; the record fires only where the cell below still holds pore water, so it is on that branch | a per-cell r_s from `SOIL_TOP` on their exponential dry branch, which needs a rate model that reads the resistance per cell |
 | `addons/local_agents/sim/material/PhysicalConstants.gd` | `LITHIFICATION_RATE_PER_PA` | 1.0e-9 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `TEMP` | 0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `H2O` | 1 | slot id, not a measured quantity | — |
@@ -254,8 +254,9 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `GATE_NEAR_GROUND` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `GATE_AIR_ABOVE` | 128 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionDefs.gd` | `RECORD_BYTES` | 144 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/reactions/BioRecords.gd` | `LIGHT_SPHERE_MEAN` | 0.25 | exact geometric ratio: sun-facing cross-section piR^2 over sphere surface 4piR^2, the planetary mean of the LIGHT driver the cited global GPP flux was measured under | nothing; it is exact by geometry |
-| `addons/local_agents/sim/material/reactions/BioRecords.gd` | `TRANSPIRATION_MOL_H2O_PER_MOL_C` | 400.0 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/sim/material/reactions/BioRecords.gd` | `PHOTO_T_OPT` | 30.0 | C3 electron-transport optimum, C, June, Evans & Farquhar 2004, Funct. Plant Biol. 31:275 | nothing; it is the measured optimum |
+| `addons/local_agents/sim/material/reactions/BioRecords.gd` | `PHOTO_T_WIDTH` | 18.0 | Omega of the same Gaussian fit, C, June, Evans & Farquhar 2004 | nothing; it is the measured width |
+| `addons/local_agents/sim/material/reactions/BioRecords.gd` | `RESPIRATION_O2_P50_PA` | 35.0 | p50 of mitochondrial respiration, Pa: the midpoint of the 0.02-0.05 kPa range Gnaiger, Lassnig, Kuznetsov, Rieger & Margreiter 1998, J. Exp. Biol. 201:1129 measured across cell types | a p50 read off the cell's own tissue rather than one number for every organism |
 | `addons/local_agents/sim/material/reactions/BioRecords.gd` | `GLOBAL_GPP_PG_C_PER_YEAR` | 123.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/BioRecords.gd` | `GLOBAL_NPP_PG_C_PER_YEAR` | 56.4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/BioRecords.gd` | `GLOBAL_PLANT_CARBON_PG_C` | 450.0 | inherited, unreviewed | Stage 2 substrate rewrite |

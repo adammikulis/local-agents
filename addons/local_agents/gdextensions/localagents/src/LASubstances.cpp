@@ -101,6 +101,11 @@ constexpr double ENTROPY_CO2_GAS_J_MOLK = 213.785;
 // Standard formation enthalpy of water VAPOUR, J/mol (CODATA Key Values, 298.15 K).
 constexpr double FORMATION_ENTHALPY_H2O_GAS_J_MOL = -241826.0;
 
+// Nitric oxide, the form a discharge and a flame leave nitrogen in: standard formation enthalpy J/mol and
+// standard molar entropy of the GAS J/(mol K) (NIST-JANAF 4th ed., Chase 1998; CRC 97th ed., 298.15 K).
+constexpr double FORMATION_ENTHALPY_NO_J_MOL = 91290.0;
+constexpr double ENTROPY_NO_GAS_J_MOLK = 210.76;
+
 // Standard entropy of solid wood/paper organics per element MASS FRACTION, J/(kg K) (Eboh, Ahlstrom &
 // Richards 2016, Energy Sci. Eng. 4(3):217-231, eq. 26, converted from kJ/(K kg) per wt%).
 constexpr double WOOD_ENTROPY_C_J_KGK = 1620.0;
@@ -179,7 +184,7 @@ const ElementCount F_CH4[] = { { "C", 1.0 }, { "H", 4.0 } };
 
 const GasRow GASES[] = {
 	{ "n2", F_N2, 1, "MOLAR_MASS_N2_KG_MOL", "ATOMISATION_N2_J_MOL", "ENTROPY_N2_GAS_J_MOLK", 0.0,
-		nullptr, false, "N2_LIQUID_SPECIFIC_HEAT_J_KGK", "N2_GAS_SPECIFIC_HEAT_J_KGK",
+		nullptr, true, "N2_LIQUID_SPECIFIC_HEAT_J_KGK", "N2_GAS_SPECIFIC_HEAT_J_KGK",
 		"N2_TRIPLE_T_C", "N2_BOIL_C", "STANDARD_PRESSURE_PA", "N2_TRIPLE_T_C", "N2_TRIPLE_P_PA",
 		"N2_CRITICAL_T_C", "N2_CRITICAL_P_PA", "LATENT_HEAT_FUSION_N2_J_KG",
 		"LATENT_HEAT_VAPORISATION_N2_J_KG", "N2_BOIL_C", "THERMAL_CONDUCT_N2_GAS_W_MK",
@@ -416,13 +421,16 @@ Dictionary carbonate_entry() {
 	return d;
 }
 
-// Plant-available nitrogen: nitrate and ammonium DISSOLVED in the soil solution and on its exchange
-// sites, so it displaces no volume of its own and carries no bulk modulus.
+// Fixed nitrogen: nitrogen bound to oxygen, the form a discharge and a flame both leave it in. Held
+// DISSOLVED in the soil solution and on its exchange sites, so it displaces no volume of its own and
+// carries no bulk modulus. Its further oxidation to nitrate is not modelled.
 Dictionary fixed_n_entry() {
-	const ElementCount f[] = { { "N", 1.0 } };
+	const ElementCount f[] = { { "N", 1.0 }, { "O", 1.0 } };
 	Dictionary d;
-	d["formula"] = formula_of(f, 1);
-	d["molar_mass"] = pc("MOLAR_MASS_NITROGEN_KG_MOL");
+	d["formula"] = formula_of(f, 2);
+	d["molar_mass"] = LAElementAbundances::molar_mass(d["formula"]);
+	d["formation_enthalpy_j_mol"] = FORMATION_ENTHALPY_NO_J_MOL;
+	d["entropy_gas_j_molk"] = ENTROPY_NO_GAS_J_MOLK;
 	d["density"] = pc("ROCK_DENSITY_KG_M3");
 	d["specific_heat"] = pc("ROCK_SPECIFIC_HEAT_J_KGK");
 	d["conductivity"] = pc("THERMAL_CONDUCT_ROCK_W_MK");
@@ -552,6 +560,12 @@ void add_organic_formation() {
 			+ LASubstances::organic_energy_j_mol("H");
 	Dictionary o = t["organic_o"];
 	o["formation_enthalpy_j_mol"] = LASubstances::organic_energy_j_mol("O");
+	// Living tissue is the same elements at the same ratios, so it is the same sum: one price for the
+	// carbon-hydrogen-oxygen bond, whether a plant holds it or the litter does.
+	Dictionary cl = t["cellulose"];
+	cl["formation_enthalpy_j_mol"] = double(c["formation_enthalpy_j_mol"])
+			+ LASubstances::fresh_litter_per_carbon("H") * double(h["formation_enthalpy_j_mol"])
+			+ LASubstances::fresh_litter_per_carbon("O") * double(o["formation_enthalpy_j_mol"]);
 }
 
 Dictionary row_of(const String &p_id) {
@@ -781,6 +795,79 @@ double LASubstances::fresh_litter_per_carbon(const String &p_element) {
 
 // Heat released by fully oxidising ONE MOLE of one element of the dead organic pool, J/mol; water leaves
 // as vapour.
+namespace {
+
+// Standard formation enthalpy of what a reaction slot holds, J/mol; NaN when the table has none. A DERIVED
+// slot reads a condensed reservoir, so a vapour-referenced datum is walked down its heat of vaporisation.
+double slot_formation_j_mol(const String &p_id, bool p_derived) {
+	const Dictionary s = row_of(p_id);
+	if (!s.has("formation_enthalpy_j_mol")) {
+		return std::numeric_limits<double>::quiet_NaN();
+	}
+	const double dh = dget(s, "formation_enthalpy_j_mol", 0.0);
+	if (!p_derived) {
+		return dh;
+	}
+	return dh - dget(s, "molar_mass", 0.0)
+			* LASubstances::latent_vaporisation_at(p_id, pc("LAB_REFERENCE_TEMP_C"));
+}
+
+} // namespace
+
+// What the table says about one reaction record: the heat it releases per mole of extent as base / H:C /
+// O:C parts, the net moles of GAS it makes on the same split, and the standard entropy change. Empty when
+// a participant has no formation enthalpy. A record that only moves a substance between slots releases
+// nothing -- the enthalpy ladder books that.
+Dictionary LASubstances::reaction_terms(const Dictionary &p_rec, const Dictionary &p_slot_substance,
+		const Dictionary &p_derived_slots) {
+	Dictionary net;
+	Vector3 heat, dn;
+	double ds = 0.0;
+	bool has_entropy = true;
+	const char *sides[] = { "reactants", "products" };
+	for (int k = 0; k < 2; k++) {
+		const double sgn = k == 0 ? -1.0 : 1.0;
+		const Array side = Array(p_rec.get(sides[k], Array()));
+		for (int e = 0; e < side.size(); e++) {
+			const Array entry = Array(side[e]);
+			const int slot = int(entry[0]);
+			const String id = String(p_slot_substance.get(slot, String()));
+			const bool derived = p_derived_slots.has(slot);
+			const double form = slot_formation_j_mol(id, derived);
+			if (std::isnan(form)) {
+				return Dictionary();
+			}
+			const Vector3 v = float(sgn) * Vector3(float(entry[1]),
+					entry.size() > 2 ? float(entry[2]) : 0.0f, entry.size() > 3 ? float(entry[3]) : 0.0f);
+			net[id] = Vector3(net.get(id, Vector3())) + v;
+			heat -= float(form) * v;
+			const Dictionary s = row_of(id);
+			const double entropy = dget(s, "entropy_j_molk", dget(s, "entropy_gas_j_molk", 0.0));
+			has_entropy = has_entropy && entropy > 0.0;
+			ds += sgn * double(entry[1]) * entropy;
+			// Gaseous in the state the heat is referenced to: a standard gas entropy, and not a derived
+			// slot, which reads a condensed reservoir out of a cell that holds one.
+			if (!derived && dget(s, "entropy_gas_j_molk", 0.0) > 0.0) {
+				dn += v;
+			}
+		}
+	}
+	const Array ids = net.keys();
+	bool transport = true;
+	for (int i = 0; i < ids.size(); i++) {
+		transport = transport && Vector3(net[ids[i]]).length() <= 1.0e-9f;
+	}
+	Dictionary out;
+	out["enthalpy_j_mol"] = transport ? 0.0f : heat.x;
+	out["enthalpy_h_j_mol"] = transport ? 0.0f : heat.y;
+	out["enthalpy_o_j_mol"] = transport ? 0.0f : heat.z;
+	out["dn_gas"] = dn.x;
+	out["dn_gas_h"] = dn.y;
+	out["dn_gas_o"] = dn.z;
+	out["entropy_j_molk"] = has_entropy ? ds : std::numeric_limits<double>::quiet_NaN();
+	return out;
+}
+
 double LASubstances::organic_energy_j_mol(const String &p_element) {
 	if (p_element == "C") {
 		const double n_per_c = litter_n_per_c();
@@ -797,12 +884,6 @@ double LASubstances::organic_energy_j_mol(const String &p_element) {
 		return HHV_PER_KG_O_J * pc("MOLAR_MASS_OXYGEN_KG_MOL");
 	}
 	return 0.0;
-}
-
-// Heat of oxidising one mole of the dead pool's carbon, J/mol of extent, as (C, H, O) parts.
-Vector3 LASubstances::organic_oxidation_parts() {
-	return Vector3(float(organic_energy_j_mol("C")), float(organic_energy_j_mol("H")),
-			float(organic_energy_j_mol("O")));
 }
 
 // Latent heat of sublimation, J/kg -- DERIVED as fusion + vaporisation so Hess's law cannot be violated.
@@ -1118,23 +1199,6 @@ double LASubstances::melt_c_at(const String &p_id, double p_p_pa, double p_molal
 	return t_c;
 }
 
-// melt_c_at's Clapeyron slope inverted, Pa/K: dP/dT = dH_fus / (T_m dv), the same two reference
-// densities and latent heat.
-double LASubstances::fusion_pa_per_k(const String &p_id) {
-	const Dictionary s = row_of(p_id);
-	if (iapws_curves(s)) {
-		return std::abs(la_water::iapws_melting_ih_pa_per_k(pc("WATER_TRIPLE_T_C") + pc("KELVIN_OFFSET")));
-	}
-	const double t_ref_c = dget(s, "melt_c", kInf);
-	const double rho_l = dget(s, "density_melt", dget(s, "density", 0.0));
-	const double rho_s = s.has("density_melt") ? dget(s, "density", 0.0) : dget(s, "density_solid", 0.0);
-	const double l_fus = dget(s, "latent_fusion_j_kg", 0.0);
-	if (!std::isfinite(t_ref_c) || rho_l <= 0.0 || rho_s <= 0.0 || l_fus <= 0.0 || rho_l == rho_s) {
-		return 0.0;
-	}
-	return std::abs(l_fus * rho_l * rho_s / ((t_ref_c + pc("KELVIN_OFFSET")) * (rho_l - rho_s)));
-}
-
 // THE LIQUIDUS AT PRESSURE -- the temperature the last crystal goes. Water is the degenerate case where
 // it meets the solidus. DECISION, not a law: the interval keeps its width, both ends on one Clapeyron
 // slope.
@@ -1404,8 +1468,9 @@ Dictionary LASubstances::enthalpy_to_state(const String &p_id, double p_h_j_kg, 
 void LASubstances::_bind_methods() {
 	ClassDB::bind_static_method("LASubstances", D_METHOD("table"), &table);
 	ClassDB::bind_static_method("LASubstances", D_METHOD("fresh_litter_per_carbon", "element"), &fresh_litter_per_carbon);
+	ClassDB::bind_static_method("LASubstances",
+			D_METHOD("reaction_terms", "rec", "slot_substance", "derived_slots"), &reaction_terms);
 	ClassDB::bind_static_method("LASubstances", D_METHOD("organic_energy_j_mol", "element"), &organic_energy_j_mol);
-	ClassDB::bind_static_method("LASubstances", D_METHOD("organic_oxidation_parts"), &organic_oxidation_parts);
 	ClassDB::bind_static_method("LASubstances", D_METHOD("latent_sublimation_j_kg", "id"), &latent_sublimation_j_kg);
 	ClassDB::bind_static_method("LASubstances", D_METHOD("has_eos", "id"), &has_eos);
 	ClassDB::bind_static_method("LASubstances", D_METHOD("density", "id", "t_c", "p_pa"), &density);
@@ -1419,7 +1484,6 @@ void LASubstances::_bind_methods() {
 			D_METHOD("melt_c_at", "id", "p_pa", "molality_mol_kg"), &melt_c_at, DEFVAL(0.0));
 	ClassDB::bind_static_method("LASubstances",
 			D_METHOD("liquidus_c_at", "id", "p_pa", "molality_mol_kg"), &liquidus_c_at, DEFVAL(0.0));
-	ClassDB::bind_static_method("LASubstances", D_METHOD("fusion_pa_per_k", "id"), &fusion_pa_per_k);
 	ClassDB::bind_static_method("LASubstances", D_METHOD("saturation_p_at", "id", "t_c"), &saturation_p_at);
 	ClassDB::bind_static_method("LASubstances", D_METHOD("sublimation_p_at", "id", "t_c"), &sublimation_p_at);
 	ClassDB::bind_static_method("LASubstances", D_METHOD("sublimation_c_at", "id", "p_pa"), &sublimation_c_at);

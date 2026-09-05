@@ -163,7 +163,7 @@ struct Reaction {
 	float dg_h_j_mol;      // standard dH per mole of q_slot's substance
 	float dg_s_j_molk;     // standard dS, same basis
 	int   q_slot;          // the one participant whose activity varies; the rest are pure phases
-	float pad5;
+	float dn_gas;          // net moles of GAS per mole of extent, same composition split as the coefficients
 	// --- COMPOSITION-SCALED COEFFICIENTS. coeff = base + h*(org_h/org_c) + o*(org_o/org_c), per cell.
 	float react_h[4];
 	float react_o[4];
@@ -171,8 +171,8 @@ struct Reaction {
 	float prod_o[4];
 	float enthalpy_h_j_mol;
 	float enthalpy_o_j_mol;
-	int   pad3;
-	int   pad4;
+	float dn_gas_h;
+	float dn_gas_o;
 };
 
 layout(set = 0, binding = LA_BIND_REACTION_DEFS, std430) restrict readonly buffer Defs { Reaction recs[]; };
@@ -594,10 +594,12 @@ void main() {
 		for (int k = 0; k < rc.n_prod; k++) {
 			add_ch(rc.prod_slot[k], i, prod_coeff_at(rc, k, comp_h, comp_o) * x);
 		}
-		// Enthalpy is the state, so a reaction's heat is added straight to it. J/mol times mol/m^3.
+		// The state is INTERNAL energy and a record declares a standard reaction ENTHALPY, so the pV work
+		// of the gas it makes or eats comes back out: dU = dH - dn_gas R T at the cell's own temperature.
 		float dh = rc.enthalpy_j_mol + rc.enthalpy_h_j_mol * comp_h + rc.enthalpy_o_j_mol * comp_o;
 		if (dh != 0.0) {
-			h[i] += dh * x;
+			float dn = rc.dn_gas + rc.dn_gas_h * comp_h + rc.dn_gas_o * comp_o;
+			h[i] += (dh + dn * R_GAS * (temp[i] + KELVIN_0)) * x;
 		}
 		fired = true;
 	}
