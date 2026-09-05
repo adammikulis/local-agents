@@ -36,19 +36,21 @@ ocean and continental groundwater only. `REGOLITH_SURFACE_POROSITY` and `COMPACT
 1930, shales) are applied to basalt and basement. Cite the oceanic-crust and sediment pore-water
 reservoir and a porosity law per lithology from the substance table.
 
-## 3. A SLICE OFF THE BODY AXES CANNOT BE FRAMED
+## 3. THE GROUND DRAWS THIN DARK THREADS ACROSS IT AT EYE LEVEL
 
-`LA_SLICE_BOX="-0.6129,surface,0,3,24,3,5120,10" scripts/check_ground_drawn.sh` reads `cam_in_slice=false`
-with the eye 12 km up: the box's column is a body axis, so at a site off the axes the local vertical
-is not a box axis, and the pose is framed against the box's Y.
+`LA_SHOTS="30:-3:0" scripts/shoot_demo.sh addons/local_agents/examples/SliceRung0Demo.tscn <dir>`: the
+30 m picture carries one-pixel dark lines running to the horizon, and how far they run changes from run
+to run on the same seed.
+Reading: `mesher.transitions_enabled` is true in the terrain service, so the band stitching two levels
+of detail is drawn as geometry, and that band is a wedge carrying its own normal.
 
 ## 4. THE GROUND UNDER THE EYE IS NOT BUILT ON THE WHOLE BODY
 
-`scripts/agent_harness.sh ground` exits 2: its shot reads `ground_meshed=false`, and the view axis
-first meets built ground far past where the pose framed it. The same gate over a box,
-`LA_GROUND_SLICE="0,surface,0,3,24,3,5120,10" scripts/check_ground_drawn.sh`, exits 0.
-Reading: `is_area_meshed` in the terrain service answers whether a block is loaded at a level, not
-whether the mesher shows it, so `ground_resolved()` can go true while half the frame is still coarse.
+`LA_GROUND_BODY=1 scripts/check_ground_drawn.sh` exits 2: its shot reads `ground_meshed=false` and the
+view axis meets no built ground at all. The same gate over a box exits 0.
+Reading: `set_lod_distance` is called from `_stream_to_the_horizon` in the render layer, which runs only
+after the first frame, so the body's opening pose is solved against the level reach the terrain was
+built with.
 
 ## 5. THE RUNG-1 AND RUNG-2 DEMOS ARE NOT CUT
 

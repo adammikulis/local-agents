@@ -3,6 +3,10 @@ class_name LAVoxelCameraRig
 extends Camera3D
 
 
+## The field of view every frame is composed at, degrees. Applied in _ready; the terrain reads it to
+## solve how finely the ground it draws has to be built.
+const FRAME_FOV_DEG: float = 75.0
+
 const MIN_DISTANCE: float = 0.5           # closest zoom (units from focus) — right down onto an animal
 const MAX_DISTANCE: float = 1400.0        # farthest zoom — pull way out for a whole-world view
 const ZOOM_STEP: float = 1.12             # wheel multiplier per notch (bigger = faster zoom) — gentle, slow zoom
@@ -156,6 +160,7 @@ func add_shake(amount: float) -> void:
 
 func _ready() -> void:
 	current = true
+	fov = FRAME_FOV_DEG
 	_focus = Vector3(0.0, 20.0, 0.0)
 	_distance = 140.0
 	_target_distance = 140.0
@@ -859,11 +864,7 @@ func _ceiling_radius() -> float:
 	if not _body_answers("max_surface_radius"):
 		return NAN
 	var r: float = _geosync_body.max_surface_radius()
-	if is_nan(r) or r <= 0.0:
-		return NAN
-	if _geosync_body.has_method("sea_radius"):
-		r = maxf(r, _geosync_body.sea_radius())
-	return r
+	return NAN if is_nan(r) or r <= 0.0 else r
 
 
 # HOW FINELY THE GROUND UNDER A POINT IS DRAWN, in metres of voxel edge. INF where none is drawn yet.

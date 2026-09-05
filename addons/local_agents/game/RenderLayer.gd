@@ -10,6 +10,10 @@ var _draw_m: float = 0.0                   # the streamed distance last asked fo
 ## The vector field the world this layer draws declares. UNSET defers to the shell's --vectors flag.
 var declared_vectors: String = LAFieldVectors.SOURCE_UNSET
 
+## The frame this world is drawn at, in pixels.
+const FRAME_HEIGHT_SETTING: String = "display/window/size/viewport_height"
+
+
 # The node TREE is declared in RenderLayer.tscn; this script only wires it.
 @onready var _camera: Camera3D = $CameraRig
 @onready var _sky_ctrl: LAVoxelSkyController = $SkyController
@@ -31,6 +35,8 @@ func build(world: Node, sim: LASimulation, input: LAVoxelInputController) -> voi
 
 
 func _build_camera() -> void:
+	# The controls read what they may offer off this world's field; bind it before any is built.
+	LAWorldOffers.bind_field(_sim.material_field())
 	var body: Node3D = _sim.body()
 	_camera.current = true
 	# THE POSE COMES FIRST: a viewer attached at the origin streams the body's core, not its surface.
@@ -139,9 +145,7 @@ func step(delta: float) -> void:
 	_stream_to_the_horizon()
 
 
-## THE GROUND IS STREAMED AS FAR AS THE EYE CAN SEE. The camera's far plane is the horizon from its own
-## altitude; a draw distance held under it leaves the eye standing over ground nothing ever built. The
-## quality setting is the floor, not the ceiling. Visuals only — the field samples the generator's SDF.
+## THE GROUND IS STREAMED AS FAR AS THE EYE CAN SEE. The quality setting is the floor, not the ceiling.
 func _stream_to_the_horizon() -> void:
 	var terrain = _sim.terrain()
 	if terrain == null or _camera == null or not terrain.has_method("set_view_distance"):
@@ -151,12 +155,6 @@ func _stream_to_the_horizon() -> void:
 		return
 	_draw_m = want
 	terrain.set_view_distance(want)
-	# And levels are refined for THIS frame: the eye's own field of view and the pixels it is drawn into.
-	if terrain.has_method("set_lod_distance"):
-		var vp: Viewport = _camera.get_viewport()
-		var px: float = vp.get_visible_rect().size.y if vp != null else 0.0
-		if px > 1.0:
-			terrain.set_lod_distance(LAVoxelTerrainService.lod_distance_m(_camera.fov, px))
 
 
 func camera() -> Camera3D: return _camera

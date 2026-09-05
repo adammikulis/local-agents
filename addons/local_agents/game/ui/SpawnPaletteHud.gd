@@ -245,7 +245,8 @@ func _build_palette_buttons() -> void:
 	# goes entirely, caption and all.
 	_life_cluster.visible = LAWorldOffers.has_life() or LAWorldOffers.has_flora()
 	for kind in LIFE_KINDS:
-		var alive: bool = LAWorldOffers.has_flora() if FLORA_KINDS.has(kind) else LAWorldOffers.has_life()
+		var alive: bool = LAWorldOffers.has_flora() if FLORA_KINDS.has(kind) \
+			else LAWorldOffers.offers_species(kind)
 		if alive:
 			_life_cluster.add_child(_make_kind_button(_palette_group, kind))
 	# A rock from space needs a world that can answer for its fall, its heat and its crater.

@@ -129,14 +129,6 @@ func _lod_count_for(lod_dist: float) -> int:
 	return clampi(int(ceil(log(maxf(_planet_radius, lod_dist) / lod_dist) / log(2.0))) + 1, 1, MAX_LOD)
 
 
-## Set the level-0 reach from the frame the body is drawn in. No-op before build_planet().
-func set_lod_distance(metres: float) -> void:
-	if _terrain == null or not (metres > 0.0):
-		return
-	_terrain.lod_distance = metres
-	_terrain.lod_count = _lod_count_for(metres)
-
-
 ## How far the terrain streams and draws around a viewer, in metres — the draw-distance setting.
 func set_view_distance(metres: float) -> void:
 	if _terrain != null:

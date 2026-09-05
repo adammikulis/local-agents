@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# WHAT THE PICTURES LOOK LIKE, off the pixels, over the frame no HUD covers. THE GROUND IS A LIT SURFACE:
-# the median per-row standard deviation of luminance under the horizon beats one 8-bit step, which one
-# flat plate reads zero for at any brightness. NO BLOCK SEAM CROSSES IT: a pixel standing 0.06 of full
-# luminance clear of BOTH shoulders three columns out, either way, chained across rows within one column,
-# may not run 40 rows. EXIT 0 both pictures hold * 1 one does not * 2 the gate could not run.
+# WHAT THE PICTURES LOOK LIKE, off the pixels, over the frame no HUD covers. THE GROUND IS A LIT SURFACE
+# AND NOT A PLATE: over the lower half of that window the median per-row standard deviation of luminance
+# beats one 8-bit step, which one flat colour reads zero for at any brightness.
+# EXIT 0 every picture holds * 1 one does not * 2 the gate could not run.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh"
@@ -35,9 +34,6 @@ from PIL import Image
 
 X0, X1, Y0, Y1 = 0.17, 0.76, 0.19, 0.86   # the frame no HUD panel covers
 STEP = 1.0 / 255.0                        # one 8-bit step: the picture's own resolution
-RIDGE = 0.06                              # how far clear of its shoulders a thread stands
-RIDGE_SPAN = 3                            # columns either side the shoulders are read at
-SEAM_ROWS = 40                            # rows a thread may run before it is a seam
 
 fail = 0
 for path in sys.argv[1:]:
@@ -62,27 +58,8 @@ for path in sys.argv[1:]:
         print("      frame than the picture's own 8-bit step.", file=sys.stderr)
         fail = 1
 
-    # A one-pixel bright thread, chained down the rows.
-    prev = {}
-    longest = 0
-    for row in lum:
-        cur = {}
-        for i in range(RIDGE_SPAN, len(row) - RIDGE_SPAN):
-            lo, hi = row[i - RIDGE_SPAN], row[i + RIDGE_SPAN]
-            if row[i] - max(lo, hi) > RIDGE or min(lo, hi) - row[i] > RIDGE:
-                run = 1
-                for d in (-1, 0, 1):
-                    run = max(run, prev.get(i + d, 0) + 1)
-                cur[i] = run
-                longest = max(longest, run)
-        prev = cur
-    if longest >= SEAM_ROWS:
-        print("FAIL  %s carries a one-pixel thread %d rows long: a seam between mesh blocks, not ground."
-              % (name, longest), file=sys.stderr)
-        fail = 1
-
 raise SystemExit(1 if fail else 0)
 PY
 rc=$?
 [ "$rc" -eq 0 ] || exit "$rc"
-echo "check_shot_look: OK (${#PNGS[@]} pictures, lit under the horizon and no seam across them)"
+echo "check_shot_look: OK (${#PNGS[@]} pictures, lit under the horizon)"

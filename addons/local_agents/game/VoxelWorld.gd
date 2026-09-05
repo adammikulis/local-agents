@@ -69,7 +69,9 @@ var _frame_dt_accum: float = 0.0
 
 
 func _planet_opts() -> Dictionary:
-	return {"radius": planet_radius(), "caves_enabled": true, "seed": 1337}
+	return {"radius": planet_radius(), "caves_enabled": true, "seed": 1337,
+		"lod_distance": LAVoxelTerrainService.lod_distance_m(LAVoxelCameraRig.FRAME_FOV_DEG,
+			float(ProjectSettings.get_setting(LARenderLayer.FRAME_HEIGHT_SETTING, 0)))}
 
 
 func _ready() -> void:

@@ -4,10 +4,43 @@ extends RefCounted
 ## What this world holds, for the controls that would otherwise offer what is not there. One answer per
 ## control class, off LAProcessSet and LAAblate; nothing here keeps a list per rung.
 
+## A control's declared requirement of the SITE, in the rows that carry one.
+const NEEDS_OPEN_WATER: String = "open_water"
+
 const GRAVITY_PASS: String = "GravityPass.gd"
 const MOMENTUM_TRANSPORT: String = "mom_flux"
 const HEAT_CHANNEL: String = "e_j_m3"
 const ROCK_CHANNEL: String = "silicate"
+
+
+static var _field = null
+
+
+## The field these answers read the site off. Bound before any control is built; nothing keeps a copy.
+static func bind_field(field) -> void:
+	_field = field
+
+
+## OPEN WATER, WHEREVER IT STANDS: a cell of the field carrying liquid with air over it. A stream, a
+## lake and a sea are one answer, read off the fill's own result and never off a list of kinds.
+static func has_open_water() -> bool:
+	var f = _field
+	if f == null or f._grid == null or f._solid.size() != f._cell_count:
+		return false
+	for c in f._cell_count:
+		if f._solid[c] != 0 or f._queries.liquid_at(c) <= 0.0:
+			continue
+		var hi: int = LAFieldGeometry.above(f, c)
+		if hi < 0 or f._solid[hi] == 0:
+			return true
+	return false
+
+
+## What a species asks of the site, off its own record: an aquatic one needs water standing in the box.
+static func offers_species(kind: String) -> bool:
+	if not has_life():
+		return false
+	return has_open_water() if bool(LASpeciesLibrary.load_config(kind).get("aquatic", false)) else true
 
 
 ## Living things: creatures, their behaviours, their populations, and anything that only they make.
