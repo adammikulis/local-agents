@@ -557,14 +557,13 @@ func _fire_schedule(frame: int, spawned: bool) -> void:
 
 	# --water-cam: hover the camera just above sea level looking ACROSS the water toward a nearby shore, so the
 	# dynamic fluid surface (waves/foam/salinity) fills the frame — the close-up render proof I otherwise can't
-	# frame. Sits inside FAR_ALT so the dynamic surface (not the far sphere) draws.
 	if _water_cam and not _water_cam_done and _shoot_path != "" and _camera != null and _body != null:
 		if frame >= _shoot_frames - 60:
 			var wc_center: Vector3 = _body.center()
 			var sea_r: float = _body.sea_radius() if _body.has_method("sea_radius") else 500.0
 			var wdir: Vector3 = Vector3(0.42, 0.36, 0.83).normalized()      # a fixed spot on the planet
 			var wtan: Vector3 = wdir.cross(Vector3.UP).normalized()
-			# Low aerial oblique (inside FAR_ALT so the dynamic water surface draws), gazing DOWN-and-across so the
+			# Low aerial oblique, gazing DOWN-and-across so the
 			# land below — its lakes and valley rivers — fills the frame.
 			_camera.global_position = wc_center + wdir * (sea_r + 115.0)
 			var look_dir: Vector3 = (wdir * 0.45 + wtan * 0.7).normalized()  # steeper downward gaze onto the ground

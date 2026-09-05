@@ -526,7 +526,7 @@ so the sphere movement path runs unchanged on flat ground without losing horizon
 no sea, so land walkers never hit coast avoidance.
 
 `LAVoxelTerrainService` is the cubed-sphere planet, owned by `LAPlanetBody`, and it adds the voxel
-operations the flat adapter has no use for: `fill_sphere()`, `fill_box()`, `fill_rock()`, `sdf_at()`,
+operations the flat adapter has no use for: `fill_sphere()`, `fill_box()`, `sdf_at()`,
 `is_solid()`, `attach_viewer()` and `build_planet()`.
 
 `Creature.setup()` defaults `terrain` to a fresh `LAFlatGroundTerrain` when none is injected, so a

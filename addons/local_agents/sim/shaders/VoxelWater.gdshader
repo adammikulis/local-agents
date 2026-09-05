@@ -1,4 +1,4 @@
-// ONE unified water shader for the whole sim — the open sea (LAOceanPlane) AND every freshwater body
+// ONE water shader for the whole sim: every free water surface the field holds, at whatever level
 // (lakes/rivers/streams/floods/cave pools, the CA surface mesh in MaterialFieldRender3D) render with
 // THIS shader. There is no fresh-vs-salt shader split: a single `salinity` uniform (0 fresh → 1 salt)
 // CONTINUOUSLY drives colour (fresh = clearer teal/green, salt = deeper murkier blue), foam amount and
@@ -59,7 +59,7 @@ uniform sampler2D depth_tex : hint_depth_texture, filter_linear_mipmap;
 
 // --- EMERGENT SEA ICE (near-cap leg): whiten the SALT sea where the field froze it, matching the ocean shell so
 // descending onto a frozen pole shows continuous white ice (not a blue near-cap under a white shell). Fed the
-// SAME cube-face coverage texture as VoxelWaterSphere by LASeaIceShaderController; sampled by the surface radial
+// Cube-face coverage texture set by LASeaIceShaderController; sampled by the surface radial
 // (mesh origin = planet centre). Off (sea_ice_enabled=0) on the flat island and for all freshwater. ---
 uniform sampler2DArray sea_ice_tex : filter_linear;
 uniform float sea_ice_enabled = 0.0;
