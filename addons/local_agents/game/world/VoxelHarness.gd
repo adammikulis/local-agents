@@ -96,7 +96,7 @@ static func emit_population_trace(w, frame: int) -> void:
 				var rp: Vector3 = (rb as Node3D).global_position
 				var upv: Vector3 = rb.terrain.up_at(rp) if (rb.terrain != null and rb.terrain.has_method("up_at")) else Vector3.UP
 				var feet: Vector3 = rp + upv * maxf(float(rb.size), 0.8)
-				rab_b += float(mat.biomass_at(feet))
+				rab_b += float(mat.biomass_at(feet.x, feet.y, feet.z))
 				rab_n += 1
 	if rab_n > 0:
 		rab_e /= float(rab_n)

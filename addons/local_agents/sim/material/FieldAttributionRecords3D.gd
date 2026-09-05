@@ -3,13 +3,11 @@ extends RefCounted
 
 ## Which keys the report publishes.
 
-## Passes that bind no writable enthalpy buffer, keyed as FieldStepSample3D.leg_key names them: a heat leg
+## Passes that bind no writable enthalpy buffer, keyed as FieldStepSample3D.leg_key names them: a stock leg
 ## on one of these falsifies the instrument, not the planet. Only transport and reactions may move heat.
 const SILENT_HEAT_PASSES: PackedStringArray = ["gravity", "state_derive", "pressure", "reduce"]
 
 ## One report row per tracked scalar. `scalar` names the sampled quantity; the rest name the published keys.
-## `residual_of` lists the scalars whose leg sums are subtracted from this row's step delta; it defaults to
-## the row's own scalar.
 const MASS_ROWS: Array = [
 	{"scalar": "open", "total": "open_total", "step": "step_open", "legs": "legs_open",
 		"residual": "residual_open", "chain": "chain_open"},
@@ -18,11 +16,8 @@ const MASS_ROWS: Array = [
 ]
 
 const ENERGY_ROWS: Array = [
-	{"scalar": "stock", "total": "stock_j", "step": "step_total_j", "residual": "residual_j",
-		"residual_of": ["heat", "capacity"], "chain": "chain_j"},
-	{"scalar": "cap", "total": "cap_j_k"},
-	{"scalar": "heat", "step": "step_heat_j", "legs": "legs_heat_j"},
-	{"scalar": "capacity", "step": "step_cap_j", "legs": "legs_cap_j"},
+	{"scalar": "stock", "total": "stock_j", "step": "step_total_j", "legs": "legs_j",
+		"residual": "residual_j", "chain": "chain_j"},
 ]
 
 ## Which environment variable arms which substance, in the precedence the driver's single step-probe slot is

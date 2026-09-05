@@ -169,7 +169,7 @@ func _rebuild(cam_pos: Vector3, radial: Vector3) -> void:
 	if solid.size() != n:
 		return
 	var wind: bool = source == SOURCE_WIND
-	if wind and _f._vel_x.size() != n:
+	if wind and not _f._mirrors.has("vel_x"):
 		return
 	# THE GRADED GRID'S OWN CELLS: every leaf's centre and edge read once as an array, never a per-cell
 	# call that recomputes the edge from its level.
@@ -219,7 +219,7 @@ func _rebuild(cam_pos: Vector3, radial: Vector3) -> void:
 
 func _vector_at(c: int, wind: bool) -> Vector3:
 	if wind:
-		return Vector3(_f._vel_x[c], _f._vel_y[c], _f._vel_z[c])
+		return _f._mirrors.vec3("vel_x", "vel_y", "vel_z", c)
 	return _f._gravity.g_vec_at(c) if _f._gravity != null else Vector3.ZERO
 
 

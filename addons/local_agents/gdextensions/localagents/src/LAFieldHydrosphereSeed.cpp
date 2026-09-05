@@ -1,5 +1,7 @@
 #include "LAFieldHydrosphereSeed.hpp"
 
+#include "LAFieldMirrors.hpp"
+
 #include "LABodySystem.hpp"
 #include "LAGridGeometry.hpp"
 #include "LAPhysicalRead.hpp"
@@ -42,9 +44,9 @@ void LAFieldHydrosphereSeed::seed(Object *p_field) {
 	}
 	Object *grid = Object::cast_to<Object>(p_field->get("_grid"));
 	const int cc = int(p_field->get("_cell_count"));
-	PackedFloat32Array h2o = p_field->get("_h2o");
+	PackedFloat32Array h2o = LAFieldMirrors::of(p_field, "h2o");
 	const PackedByteArray regolith = p_field->get("_regolith");
-	const PackedFloat32Array porosity = p_field->get("_porosity");
+	const PackedFloat32Array porosity = LAFieldMirrors::of(p_field, "porosity");
 	// The share of each cell below the sea shell and above its ground: the terrain's own ocean.
 	const PackedFloat32Array water = p_field->get("_water_fraction");
 	const PackedFloat32Array rock = p_field->get("_rock_fraction");
@@ -85,7 +87,7 @@ void LAFieldHydrosphereSeed::seed(Object *p_field) {
 		return;
 	}
 	const Vector3 centre = field_centre(p_field);
-	PackedFloat32Array pore_w = p_field->get("_h2o_pore");
+	PackedFloat32Array pore_w = LAFieldMirrors::of(p_field, "h2o_pore");
 	pore_w.resize(cc);
 	float *w = h2o.ptrw();
 	float *pw = pore_w.ptrw();
@@ -107,8 +109,8 @@ void LAFieldHydrosphereSeed::seed(Object *p_field) {
 		const double fill = MIN(MAX(below, 0.0), 1.0);
 		pw[c] = float(fill * double(porosity[c]) * double(MAX(rock[c], 0.0f)) * full_mol);
 	}
-	p_field->set("_h2o", h2o);
-	p_field->set("_h2o_pore", pore_w);
+	LAFieldMirrors::store(p_field, "h2o", h2o);
+	LAFieldMirrors::store(p_field, "h2o_pore", pore_w);
 }
 
 Dictionary LAFieldHydrosphereSeed::wetness(Object *p_field) {
@@ -117,7 +119,7 @@ Dictionary LAFieldHydrosphereSeed::wetness(Object *p_field) {
 		return out;
 	}
 	const PackedByteArray regolith = p_field->get("_regolith");
-	const PackedFloat32Array pore = p_field->get("_h2o_pore");
+	const PackedFloat32Array pore = LAFieldMirrors::of(p_field, "h2o_pore");
 	const int n = MIN(int(p_field->get("_cell_count")), MIN(int(regolith.size()), int(pore.size())));
 	if (n <= 0) {
 		return out;
