@@ -3,49 +3,37 @@ class_name LAMeteor
 extends Node3D
 
 
-const SPAWN_HEIGHT: float = 140.0          # fallback drop height when launched with no camera origin
-const START_SPEED: float = 70.0            # initial fall speed (units/s) for the fallback drop
-const LAUNCH_SPEED: float = 150.0          # fallback launch speed only if no gravity body exists yet
-const MAX_SPEED: float = 600.0             # cap so a slingshot can't run away numerically
-const ESCAPE_RADIUS_MULT: float = 30.0     # free the rock once it coasts this many body-radii out (left the system)
-const MAX_LIFETIME: float = 240.0          # absolute lifespan cap so long-lived orbiters eventually clear
-const METEOR_MASS_SCALE: float = 400.0     # mass = size³ × this; momentum = mass × velocity → planet orbital impulse
-const IMPACT_RADIUS: float = 10.0          # carve radius — large & dramatic
-const DAMAGE_SCALE: float = 1.6            # ecology damage radius = radius * this
+const SPAWN_HEIGHT: float = 140.0          # drop height above the target for an ambient strike
+const START_SPEED: float = 70.0            # initial fall speed for that drop
 const BODY_RADIUS: float = 1.4
-const AMBIENT_TEMP_C: float = -60.0        # what it starts at and relaxes toward
-const ENTRY_HEAT_GAIN: float = 4.23e-6     # scales rho * v^3 into °C/s; ~1600 °C at MAX_SPEED in thick air
-const RADIATIVE_COOL: float = 0.55         # per second, fraction of the excess over ambient shed again
-const MAX_SURFACE_TEMP_C: float = 3000.0   # cap, so a runaway entry cannot inject absurd heat
 const FX_LINGER: float = 1.8               # seconds of FX after impact before free
+const DAMAGE_SCALE: float = 1.6            # ecology damage radius = crater radius * this
 
 enum State { IDLE, FALLING, IMPACTED }
 
 var _terrain: Object = null                # LAVoxelTerrainService (duck-typed)
 var _ecology: Object = null                # LAEcologyService (duck-typed)
 var _state: int = State.IDLE
-var _velocity: Vector3 = Vector3.ZERO
-var _surface_temp: float = AMBIENT_TEMP_C   # °C, integrated during flight; drives both glow and impact heat
+var _body_id: int = -1                     # the free body LABallistics is flying
+var _impact_velocity: Vector3 = Vector3.ZERO
 var _body_material: StandardMaterial3D = null
 var _target: Vector3 = Vector3.ZERO
-var _fall_time: float = 0.0
 var _fx_time: float = 0.0
 var _impact_point: Vector3 = Vector3.ZERO
 var _spawned_at: Vector3 = Vector3.ZERO
-var _guided: bool = false                  # true = FPS-style homing projectile; false = ballistic drop
 
 var _body: MeshInstance3D = null
 var _glow: OmniLight3D = null
 var _trail: GPUParticles3D = null
 var _picker: StaticBody3D = null
 
-# Per-meteor size (randomized on launch): scales the rock, crater, heat, blast and ground shake so
-# strikes vary from small bright pebbles to landscape-cratering giants.
+# Per-meteor size, drawn on launch: the impactor's own diameter, in body radii.
 var _size: float = 1.0
 
 
 func _ready() -> void:
 	add_to_group("selectable")
+	add_to_group("la_ballistics")
 	_build_visuals()
 
 
@@ -54,36 +42,34 @@ func setup(terrain: Object, ecology: Object) -> void:
 	_ecology = ecology
 
 
-const MIN_CRATER_CELLS: float = 1.5
-
+## Transient crater radius, m: D = 1.161 (rho_i/rho_t)^(1/3) L^0.78 v^0.44 g^-0.22 (sin theta)^(1/3)
+## (Melosh 1989, Impact Cratering, eq. 7.8.4). Rock into rock, so the density ratio is 1.
 func _radius() -> float:
-	var want: float = IMPACT_RADIUS * _size
-	var cell: float = 0.0
-	if _ecology != null and _ecology.has_method("material_field"):
-		var field: Object = _ecology.material_field()
-		if field != null and field.has_method("cell_size"):
-			cell = float(field.cell_size())
-	return maxf(want, cell * MIN_CRATER_CELLS)
+	var g: float = LABallistics.g_at(_impact_point).length()
+	var v: float = _impact_velocity.length()
+	if not (g > 0.0 and v > 0.0):
+		return 0.0
+	var up: Vector3 = _up_at(_impact_point)
+	var sin_theta: float = clampf(-_impact_velocity.normalized().dot(up), 0.0, 1.0)
+	if sin_theta <= 0.0:
+		return 0.0
+	var l: float = 2.0 * BODY_RADIUS * _size
+	return 0.5 * 1.161 * pow(l, 0.78) * pow(v, 0.44) * pow(g, -0.22) * pow(sin_theta, 1.0 / 3.0)
 
 
 func launch(target: Vector3, from_pos: Vector3 = Vector3(INF, INF, INF), size_scale: float = 1.0) -> void:
 	_target = target
-	# Base random variation scaled by the caller's size hint: the spawn brush passes a factor derived
-	# from its radius, so growing the brush (Ctrl + wheel) flings a bigger, more cratering rock. Clamped
-	# so a maxed brush can't produce a runaway crater.
+	# The caller's size hint scales the rock the brush flings.
 	_size = clampf(LASimRng.for_domain("planet").randf_range(0.55, 2.3) * size_scale, 0.2, 8.0)
+	var velocity: Vector3 = Vector3.ZERO
 	if is_finite(from_pos.x) and is_finite(from_pos.y) and is_finite(from_pos.z):
-		# Player-fired: leave the camera along the aim ray and then COAST under real N-body gravity — aim
-		# tangential to a body and it settles into ORBIT, aim inward and it strikes, aim fast/outward and it
-		# escapes. Launch at the local circular-orbit speed so a sideways flick actually orbits.
+		# Player-fired: leave the camera along the aim ray at the local circular-orbit speed and coast.
 		var aim: Vector3 = target - from_pos
 		if aim.length() < 0.001:
 			aim = Vector3.DOWN
 		aim = aim.normalized()
 		_spawned_at = from_pos + aim * 3.0
-		_guided = true
-		var vcirc: float = LAGravity.circular_speed(get_tree(), _spawned_at)
-		_velocity = aim * (vcirc if vcirc > 1.0 else LAUNCH_SPEED)
+		velocity = aim * LAGravity.circular_speed(get_tree(), _spawned_at)
 	else:
 		# Auto/ambient drop: spawn radially "up" (away from the nearest body's core) above the target and
 		# fall inward, so ballistic strikes head straight at the planet instead of drifting toward world -Y.
@@ -94,18 +80,17 @@ func launch(target: Vector3, from_pos: Vector3 = Vector3(INF, INF, INF), size_sc
 		tangent = tangent.normalized()
 		var lateral: Vector3 = tangent * LASimRng.for_domain("planet").randf_range(-24.0, 24.0) + up0.cross(tangent).normalized() * LASimRng.for_domain("planet").randf_range(-24.0, 24.0)
 		_spawned_at = target + up0 * SPAWN_HEIGHT + lateral
-		_guided = false
 		var dir: Vector3 = _target - _spawned_at
 		if dir.length() < 0.001:
 			dir = -up0
-		_velocity = dir.normalized() * START_SPEED
+		velocity = dir.normalized() * START_SPEED
 	global_position = _spawned_at
+	_body_id = LABallistics.drop(_spawned_at, velocity, _impact_mass_kg(), BODY_RADIUS * _size)
 	# Bigger rock = bigger visual body, glow and trail.
 	if _body != null:
 		_body.scale = Vector3.ONE * _size
 	if _glow != null:
 		_glow.omni_range = 30.0 * _size
-	_fall_time = 0.0
 	_state = State.FALLING
 	if _trail != null:
 		_trail.emitting = true
@@ -116,7 +101,7 @@ func get_inspector_payload() -> Dictionary:
 	match _state:
 		State.FALLING:
 			lines.append("Status: falling")
-			lines.append("Speed: %.0f u/s" % _velocity.length())
+			lines.append("Speed: %.0f m/s" % float(LABallistics.state(_body_id).get("speed", 0.0)))
 			var alt: float = _terrain.altitude_at(global_position) if _terrain != null and _terrain.has_method("altitude_at") else global_position.y
 			lines.append("Altitude: %.0f" % alt)
 		State.IMPACTED:
@@ -131,84 +116,45 @@ func get_inspector_payload() -> Dictionary:
 func _physics_process(delta: float) -> void:
 	match _state:
 		State.FALLING:
-			_step_fall(delta)
+			_follow_body()
 		State.IMPACTED:
 			_fx_time += delta
 			if _fx_time >= FX_LINGER:
 				queue_free()
 
 
-func _step_fall(delta: float) -> void:
-	_fall_time += delta
-	# Coast as a TEST PARTICLE under the summed N-body gravity of every body in the system (Outer-Wilds
-	# style). Symplectic Euler: nudge velocity by the local acceleration, then advance. Orbits, flybys and
-	# slingshots emerge — no homing, no single-centre / world-axis assumption.
-	_velocity += LAGravity.acceleration_at(get_tree(), global_position) * delta
-	if _velocity.length() > MAX_SPEED:
-		_velocity = _velocity.normalized() * MAX_SPEED
-
-	_step_entry_heat(delta)
-
-	var next_pos: Vector3 = global_position + _velocity * delta
-	var impact: Dictionary = _detect_impact(global_position, next_pos)
-	if bool(impact.get("hit", false)):
-		_impact_point = impact.get("point", next_pos)
-		global_position = _impact_point
-		_on_impact()
+## The rock is where LABallistics put it. Nothing here integrates: this reads the one integrator's state
+## and points the mesh along the flight.
+func _follow_body() -> void:
+	var st: Dictionary = LABallistics.state(_body_id)
+	if st.is_empty():
+		queue_free()
 		return
-
-	global_position = next_pos
-	if _velocity.length() > 0.01:
-		var vdir: Vector3 = _velocity.normalized()
+	global_position = st["position"]
+	var vel: Vector3 = st["velocity"]
+	if vel.length() > 0.01:
+		var vdir: Vector3 = vel.normalized()
 		var up_hint: Vector3 = _up_at(global_position)
-		look_at(global_position + _velocity, up_hint if absf(up_hint.dot(vdir)) < 0.98 else Vector3.UP)
-
-	# Missed everything and either drifted for ages or left the system — free it. Never force a phantom
-	# impact here: an orbiting body must be allowed to stay in orbit.
-	if _fall_time > MAX_LIFETIME or _escaped():
+		look_at(global_position + vel, up_hint if absf(up_hint.dot(vdir)) < 0.98 else Vector3.UP)
+	# It left the system: the orbit about the body it is nearest is unbound. An orbiting rock stays.
+	if LAGravity.is_unbound(get_tree(), global_position, vel):
+		LABallistics.release(_body_id)
 		queue_free()
 
 
-## How much air there is to ram, as a fraction of sea-level air: the cell's own mass density from its
-## pressure and temperature (ideal gas). 0 when there is no field or no air, so a meteor in vacuum
-## never heats.
-func _air_density_at(pos: Vector3) -> float:
-	if _ecology == null or not _ecology.has_method("material_field"):
-		return 0.0
-	var field: Object = _ecology.material_field()
-	if field == null or not field.has_method("pressure_at") or not field.has_method("temp_at"):
-		return 0.0
-	var p: float = float(field.pressure_at(pos))
-	if is_nan(p) or p <= 0.0:
-		return 0.0
-	var t_k: float = maxf(float(field.temp_at(pos)) + LAPhysical.KELVIN_OFFSET, 1.0)
-	var rho: float = p / (LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK * t_k)
-	return clampf(rho / LAPhysical.AIR_DENSITY_KG_M3, 0.0, 1.0)
-
-
-## Entry heating goes as air density times the cube of speed, cooling as the excess over ambient. Nothing
-## here knows what a "meteor" is, so the same rule would heat anything else moving fast through air.
-func _step_entry_heat(delta: float) -> void:
-	var speed: float = _velocity.length()
-	var rho: float = _air_density_at(global_position)
-	var gain: float = ENTRY_HEAT_GAIN * rho * speed * speed * speed
-	var excess: float = _surface_temp - AMBIENT_TEMP_C
-	_surface_temp = clampf(_surface_temp + (gain - RADIATIVE_COOL * excess) * delta,
-		AMBIENT_TEMP_C, MAX_SURFACE_TEMP_C)
-	_apply_heat_visual()
-
-
-## The look follows the temperature rather than being set once at spawn, so a rock visibly lights up on
-## the way in and a slow one never does.
-func _apply_heat_visual() -> void:
-	if _body_material != null:
-		LAHeatGlow.apply(_body_material, _surface_temp)
-	if _glow != null:
-		var lit: bool = _surface_temp >= LAHeatGlow.GLOW_MIN
-		_glow.visible = lit
-		if lit:
-			_glow.light_color = LAHeatGlow.emission(_surface_temp)
-			_glow.light_energy = LAHeatGlow.energy(_surface_temp) * _size
+## The integrator's landing report.
+func on_bodies_landed(rows: Array) -> void:
+	if _state != State.FALLING:
+		return
+	for row in rows:
+		if int(row["id"]) != _body_id:
+			continue
+		_impact_point = row["position"]
+		_impact_velocity = LABallistics.state(_body_id).get("velocity", Vector3.ZERO)
+		global_position = _impact_point
+		LABallistics.release(_body_id)
+		_on_impact()
+		return
 
 
 func _impact_mass_kg() -> float:
@@ -217,14 +163,8 @@ func _impact_mass_kg() -> float:
 
 
 func _impact_energy_j() -> float:
-	var m: float = _impact_mass_kg()
-	var speed: float = _velocity.length()
-	var kinetic: float = 0.5 * m * speed * speed
-	# Entry friction genuinely heats the body, and that heat arrives with it. Treated as the whole mass at the
-	# skin temperature, which is an OVER-estimate (only a thin skin gets that hot and most of it radiates away
-	# on the way down) — deliberately, so this cannot be accused of hiding energy the rock really brought.
-	var thermal: float = m * LAPhysical.ROCK_SPECIFIC_HEAT_J_KGK * maxf(0.0, _surface_temp - AMBIENT_TEMP_C)
-	return kinetic + thermal
+	var speed: float = _impact_velocity.length()
+	return 0.5 * _impact_mass_kg() * speed * speed
 
 
 ## Radial "up" (away from the nearest gravity body's core) at a world point — the dominant body, else the
@@ -240,52 +180,16 @@ func _up_at(pos: Vector3) -> Vector3:
 	return Vector3.UP
 
 
-## True once the meteor has coasted far beyond the dominant body's reach (it left the system).
-func _escaped() -> bool:
-	var b: Object = LAGravity.dominant_body(get_tree(), global_position)
-	if b == null or not (b.has_method("center") and b.has_method("radius")):
-		return false
-	var far: float = maxf(float(b.radius()), 1.0) * ESCAPE_RADIUS_MULT
-	return global_position.distance_to(b.center() as Vector3) > far
-
-
-## Returns {"hit": bool, "point": Vector3}. Tries surface_height, then a swept
-## raycast, then a fallback target plane so it always resolves.
-func _detect_impact(from: Vector3, to: Vector3) -> Dictionary:
-	var no_hit: Dictionary = {"hit": false, "point": Vector3.ZERO}
-
-	if _terrain != null and _terrain.has_method("altitude_at"):
-		var alt: float = _terrain.altitude_at(to)             # height above the local ground (radial); <0 = below
-		if not is_nan(alt) and alt <= 0.0:
-			var sp: Vector3 = _terrain.ground_point(to) if _terrain.has_method("ground_point") else to
-			return {"hit": true, "point": (to if is_nan(sp.x) else sp)}
-
-	if _terrain != null and _terrain.has_method("raycast_terrain"):
-		var seg: Vector3 = to - from
-		var dist: float = seg.length()
-		if dist > 0.0001:
-			var res: Dictionary = _terrain.raycast_terrain(from, seg / dist, dist + BODY_RADIUS)
-			if bool(res.get("hit", false)):
-				return {"hit": true, "point": res.get("position", to)}
-
-	if _terrain == null and to.y <= _target.y:
-		return {"hit": true, "point": Vector3(to.x, _target.y, to.z)}
-
-	return no_hit
-
-
 func _on_impact() -> void:
 	_state = State.IMPACTED
 	_fx_time = 0.0
 
-	# MOMENTUM into the planet's orbit: a big/fast strike (or a sustained volley) perturbs the orbital velocity —
-	# enough of it knocks the planet onto a decaying orbit into the sun, or past escape velocity out of the system.
-	# Impulse = meteor mass (∝ size³) × its impact velocity. Emergent from the same momentum the ejecta uses.
+	# Momentum into the planet's orbit: the rock's own mass times its impact velocity.
 	var orbits: Node = get_tree().get_first_node_in_group("system_orbits")
 	if orbits != null and orbits.has_method("apply_impulse"):
-		orbits.apply_impulse(_velocity * (METEOR_MASS_SCALE * _size * _size * _size))
+		orbits.apply_impulse(_impact_velocity * _impact_mass_kg())
 
-	var r: float = _radius()                                   # size-scaled crater
+	var r: float = _radius()
 	if _terrain != null and _terrain.has_method("carve_sphere"):
 		_terrain.carve_sphere(_impact_point, r)
 		if _ecology != null and _ecology.has_method("material_field"):
@@ -309,13 +213,11 @@ func _on_impact() -> void:
 		var field: Object = _ecology.material_field()
 		if field != null and field._inject != null and field._inject.has_method("add_heat_energy"):
 			field._inject.add_heat_energy(_impact_point, _impact_energy_j(), r * 2.2)
-		# The impact IS an ejecta source, the substrate's own primitive: eject throws molten debris
-		# parcels that arc under radial gravity and re-deposit on landing.
+		# The impact is an ejecta source, the substrate's own primitive.
 		if field != null and field.has_method("eject"):
 			var up: Vector3 = (_impact_point - field._origin).normalized() if "_origin" in field else Vector3.UP
 			field.eject(_impact_point, 0.4 * _size, 900.0 * _size, up * 0.6)
-	# Shake the ground: steep terrain in the blast radius slumps downhill under gravity (a meteor into
-	# a mountainside triggers a slide — pure material physics, no landslide code).
+	# Steep terrain in the blast radius slumps downhill under gravity.
 	if _ecology != null and _ecology.has_method("disturb_ground"):
 		_ecology.disturb_ground(_impact_point, r * 2.0, _size)
 
@@ -341,8 +243,6 @@ func _build_visuals() -> void:
 	_body.mesh = sphere
 	var mat: StandardMaterial3D = StandardMaterial3D.new()
 	mat.albedo_color = Color(0.35, 0.3, 0.28)
-	# Cold rock. Its incandescence is applied per frame from _surface_temp, which starts at ambient and
-	# only rises if the thing actually rams air on the way in.
 	_body_material = mat
 	_body.material_override = mat
 	add_child(_body)
@@ -352,7 +252,6 @@ func _build_visuals() -> void:
 	_glow.omni_range = 30.0
 	_glow.visible = false
 	add_child(_glow)
-	_apply_heat_visual()
 
 	_trail = GPUParticles3D.new()
 	_trail.emitting = false

@@ -48,11 +48,16 @@ func set_sky_controller(sky_ctrl: Node) -> void:
 func update(delta: float) -> void:
 	if _body == null:
 		return
-	# Publish state → integrate → derive. Publishing FIRST means both integrators (and any meteor stepping
-	# this frame) read one consistent set of body positions out of the gravity group.
+	# Publish state → integrate → derive. Publishing FIRST means every integrator reads one consistent set
+	# of body positions and one field.
 	_publish_bodies()
+	LAGravity.publish_field(_material)
 	_advance(_helio, _star, delta, true)
 	_advance(_moon_state, _moon, delta, false)
+	# Every free body — a meteor, an ejecta parcel, a dropped test mass — on the SIMULATED clock the
+	# orbit advances on, never a render frame's.
+	_land_bodies(LABallistics.step(delta))
+	_book_drag_heat(LABallistics.drag_work())
 
 	var centre: Vector3 = _body.center()
 	# Presentation only — the sky cycle's own light/environment. Absent in a run with no presentation layer.
@@ -83,6 +88,11 @@ func _barycentre() -> Vector3:
 func _publish_bodies() -> void:
 	if _body == null:
 		return
+	_position_bodies()
+	LAGravity.publish(get_tree())
+
+
+func _position_bodies() -> void:
 	var centre: Vector3 = _body.center()
 	if _star != null:
 		_star.global_position = centre + _barycentre() - _helio.position()
@@ -123,11 +133,25 @@ func _mass_of(node: Node3D) -> float:
 	return m if is_finite(m) and m > 0.0 else 0.0
 
 
-func _system_mu() -> float:
-	var tree: SceneTree = get_tree()
-	if tree == null:
-		return 0.0
-	return LAGravity.mu(tree, _star) + LAGravity.mu(tree, _body) + LAGravity.mu(tree, _moon)
+## A body that reached the ground: the owner registered under `la_ballistics` is told, so the deposit,
+## the crater and the heat are the owner's own business rather than the integrator's.
+func _land_bodies(rows: Array) -> void:
+	if rows.is_empty():
+		return
+	for owner in get_tree().get_nodes_in_group("la_ballistics"):
+		if owner.has_method("on_bodies_landed"):
+			owner.on_bodies_landed(rows)
+
+
+## The kinetic energy ram drag took out of the free bodies, put back into the air it was taken from.
+func _book_drag_heat(rows: Array) -> void:
+	if rows.is_empty() or _material == null or _material._inject == null:
+		return
+	if not _material._inject.has_method("add_heat_energy"):
+		return
+	var r: float = float(_material._cell_size) if "_cell_size" in _material else 0.0
+	for row in rows:
+		_material._inject.add_heat_energy(row["position"], float(row["joules"]), r)
 
 
 ## An impact's momentum, divided by the mass it lands on. There is no gain factor: a body's response to a
@@ -145,7 +169,7 @@ func apply_impulse(world_impulse: Vector3) -> void:
 ## Where this orbit ENDS UP, read off its own conic. Unbound above zero specific energy; it meets the star
 ## when its perihelion falls inside the star. No fitted fraction of a nominal radius.
 func status() -> String:
-	var mu: float = _system_mu()
+	var mu: float = LAGravity.system_mu(get_tree())
 	var r: float = _helio.distance()
 	if mu <= 0.0 or r <= 0.0:
 		return "unmeasured"
@@ -168,6 +192,8 @@ func report() -> Dictionary:
 	var irr: float = _star.irradiance_at(centre) if _star != null \
 		and _star.has_method("irradiance_at") else NAN
 	return {
+		"ballistics_read_rel": LABallistics.read_check(64),
+		"ballistics_live": LABallistics.live_count(),
 		"orbit_dist_m": _helio.distance(),
 		"orbit_speed_m_s": _helio.speed(),
 		"irradiance_w_m2": irr,

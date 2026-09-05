@@ -142,20 +142,9 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/streamer/StreamerOverlay.gd` | `FEED_MAX` | 4 | presentation or diagnostic buffer length, not physics | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/sim/actors/Meteor.gd` | `SPAWN_HEIGHT` | 140.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Meteor.gd` | `START_SPEED` | 70.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Meteor.gd` | `LAUNCH_SPEED` | 150.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Meteor.gd` | `MAX_SPEED` | 600.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Meteor.gd` | `ESCAPE_RADIUS_MULT` | 30.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Meteor.gd` | `MAX_LIFETIME` | 240.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Meteor.gd` | `METEOR_MASS_SCALE` | 400.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Meteor.gd` | `IMPACT_RADIUS` | 10.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Meteor.gd` | `DAMAGE_SCALE` | 1.6 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Meteor.gd` | `BODY_RADIUS` | 1.4 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Meteor.gd` | `AMBIENT_TEMP_C` | -60.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Meteor.gd` | `ENTRY_HEAT_GAIN` | 4.23e-6 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Meteor.gd` | `RADIATIVE_COOL` | 0.55 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Meteor.gd` | `MAX_SURFACE_TEMP_C` | 3000.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Meteor.gd` | `FX_LINGER` | 1.8 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Meteor.gd` | `MIN_CRATER_CELLS` | 1.5 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Nest.gd` | `IDLE_TIMEOUT` | 120.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Nest.gd` | `DISREPAIR_START` | 60.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/LightningStrike.gd` | `STRIKE_HEIGHT` | 130.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
@@ -293,7 +282,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MaterialFieldBiota3D.gd` | `HEAT_RADIUS` | 0.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialEjecta3D.gd` | `PARCELS_PER_EJECT` | 6 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialEjecta3D.gd` | `CONE` | 0.5 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialEjecta3D.gd` | `MAX_LIFETIME` | 12.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialEjecta3D.gd` | `LAND_HEAT_R` | 8.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/game/render/WaterParticles.gd` | `MAX_PARTICLES` | 12000 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/game/render/WaterParticles.gd` | `LIFETIME` | 7.0 | inherited, unreviewed | Stage 2 substrate rewrite |
