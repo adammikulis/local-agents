@@ -135,6 +135,13 @@ reconstructs element totals (`mol_per_unit`).
 `.github/workflows/gpu-lint.yml` targets a self-hosted macOS runner labelled `gpu`; none is registered
 (maintainer's hardware).
 
+## 17. THE DETERMINISM GATE CANNOT RUN IN THE WORLD THE DEMO DECLARES
+
+`scripts/check_determinism.sh` exits 2: the event arm drew no more from the `planet` stream than the
+quiet arm, so the gate refuses to call the run determinism.
+Reading: `offered` in `MeteorImpacts.gd` answers from `LAWorldOffers.has_impacts`, which names the
+gravity pass, the heat channel and the rock channel; `docs/PLAYABLE_RUNG` names the rung the run gets.
+
 ---
 
 ## How to run

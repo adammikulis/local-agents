@@ -11,15 +11,20 @@ static func _count_meshes(n: Node) -> int:
 	return c
 
 
+## What the seeded streams have drawn, per domain and per caller. The streams exist whatever life the
+## world holds, so this is not the population's line.
+static func emit_rng_trace(frame: int) -> void:
+	if not LASimRng.trace_enabled:
+		return
+	var rep: Dictionary = LASimRng.shared().trace_report()
+	print("RNG_TRACE={\"frame\":%d,\"draws\":%d,\"domains\":%s,\"tags\":%s}" % [
+		frame, int(rep["draws"]), JSON.stringify(LASimRng.domain_trace()), JSON.stringify(rep["tags"])])
+
+
 # Compact population + mortality trajectory sample, printed periodically through a long run-frames run so the
 # population arc (and WHY it moves — which death causes dominate) is visible over time, not just at the end.
 # One line the balance harness scrapes: POP_TRACE={frame, per-species counts, plants/trees, temp, deaths-so-far}.
 static func emit_population_trace(w, frame: int) -> void:
-	# The seeded streams are the world's, not the fauna's: a run with no animals still draws.
-	if LASimRng.trace_enabled:
-		var rep: Dictionary = LASimRng.shared().trace_report()
-		print("RNG_TRACE={\"frame\":%d,\"draws\":%d,\"domains\":%s,\"tags\":%s}" % [
-			frame, int(rep["draws"]), JSON.stringify(LASimRng.domain_trace()), JSON.stringify(rep["tags"])])
 	if LAAblate.fauna_off():
 		return
 	var tree: SceneTree = w.get_tree()
