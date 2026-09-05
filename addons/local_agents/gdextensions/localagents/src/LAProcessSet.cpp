@@ -33,7 +33,7 @@ const char *const NONE_[] = { nullptr };
 const char *const STATE_GATES[] = { "check_rung_state.sh", "check_derive_fixed_point.sh",
 	"check_condensed_moduli.sh", "check_bench_phase_change.sh",
 	nullptr };
-const char *const STATE_PASSES[] = { "StateDerivePass.gd", nullptr };
+const char *const STATE_PASSES[] = { "InjectPass.gd", "StateDerivePass.gd", nullptr };
 
 const char *const GRAVITY_GATES[] = { "check_gravity_solve.sh", "check_hydrosphere_mass.sh", nullptr };
 const char *const GRAVITY_PASSES[] = { "GravityPass.gd", "ReducePass.gd", nullptr };

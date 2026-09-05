@@ -9,6 +9,7 @@ const SEED_PRODUCTS: PackedStringArray = ["pressure", "p_fluid"]
 
 # Dispatch order is a data dependency chain: each pass reads what the one above it published.
 const PASS_SCRIPTS: PackedStringArray = [
+	"res://addons/local_agents/sim/material/sphere_passes/InjectPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/GravityPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/PressurePass.gd",
@@ -30,7 +31,7 @@ var _driver: LAFieldDriver = null
 var _staging: RID = RID()
 var _staging_slots: int = 0
 var _bnd_rids: Array = []
-var _audit_mirror: bool = OS.has_environment("LA_INJECT_AUDIT")
+var _inject = null                  # the InjectPass this world runs, or null where it has none
 var _field = null
 var _grid: RefCounted = null
 var _cc: int = 0
@@ -162,6 +163,8 @@ func setup(field) -> void:
 	for i in _passes.size():
 		_allocate_declared(_passes[i], _pass_names[i])
 		_moving = _moving or _passes[i].get("MOVES_STATE") == true
+		if _pass_names[i] == "InjectPass":
+			_inject = _passes[i]
 	_moving = _moving or LAProcessSet.has_record("derive", "lithify")
 	for p2 in _passes:
 		p2.setup(_rd, _bufs, _cc)
@@ -486,17 +489,6 @@ func mark_solid_dirty() -> void:
 	_solid_dirty = true
 
 
-func _audit_mirror_upload(name: String, arr) -> void:
-	var live: PackedFloat32Array = _rd.buffer_get_data(_bufs[name]).to_float32_array()
-	var lt: float = 0.0
-	var mt: float = 0.0
-	var n: int = mini(live.size(), arr.size())
-	for i in n:
-		lt += live[i]
-		mt += arr[i]
-	print("MIRROR_REWIND={\"channel\":\"%s\",\"live\":%.4f,\"mirror\":%.4f,\"delta\":%.4f}" % [name, lt, mt, mt - lt])
-
-
 ## SEEDING ONLY: hands the device a whole channel while the world is being built. The amount is declared to
 ## LAMaterialFieldSeal3D, which refuses it once the world is SEALED.
 func seed_field(name: String, arr, seal) -> void:
@@ -518,8 +510,6 @@ func seed_field(name: String, arr, seal) -> void:
 	if not seal.note_creation("seed_" + name, total - float(_seed_totals.get(name, 0.0))):
 		return
 	_seed_totals[name] = total
-	if _audit_mirror and arr is PackedFloat32Array:
-		_audit_mirror_upload(name, arr)
 	if name == "e_j_m3":
 		_h_dirty = true         # keep the gated begin_frame upload in step with a whole-mirror seed
 	_upload_f(_bufs[name], arr)
@@ -527,125 +517,21 @@ func seed_field(name: String, arr, seal) -> void:
 
 # --- SPARSE IN-PLACE EDITS (the only legal step-time write) -----------------------------------------------
 
-## A delta this negative empties a cell exactly (the clamp floor is 0), so callers that want to DRAIN a cell
-## without knowing what is in it pass this and read the returned total.
-const DRAIN_ALL: float = -1.0e30
-
-func add_field_sparse(name: String, cells: PackedInt32Array, deltas: PackedFloat32Array, ceiling: float = INF) -> float:
-	if cells.size() != deltas.size():
-		push_error("add_field_sparse('%s'): %d cells vs %d deltas — op dropped" % [name, cells.size(), deltas.size()])
-		return 0.0
-	if _rd == null or not _bufs.has(name) or cells.size() == 0:
-		return 0.0
-	var buf: RID = _bufs[name]
-	var arr: PackedFloat32Array = _rd.buffer_get_data(buf).to_float32_array()
-	if arr.size() < _cc:
-		return 0.0
-	var applied: float = 0.0
-	# Bound on the BUFFER, not on _cc, so a channel wider than one plane is editable at all.
-	var n: int = arr.size()
-	var lo: int = n
-	var hi: int = -1
-	for i in cells.size():
-		var c: int = cells[i]
-		if c < 0 or c >= n:
-			continue
-		var before: float = arr[c]
-		var delta: float = deltas[i]
-		if delta > 0.0:
-			delta = minf(delta, maxf(0.0, ceiling - before))   # fill the headroom only; never push a cell down
-		var after: float = maxf(0.0, before + delta)
-		if after == before:
-			continue
-		arr[c] = after
-		applied += after - before
-		lo = mini(lo, c)
-		hi = maxi(hi, c)
-	if hi < lo:
-		return 0.0
-	var span: PackedFloat32Array = arr.slice(lo, hi + 1)
-	var bytes: PackedByteArray = span.to_byte_array()
-	_rd.buffer_update(buf, lo * 4, bytes.size(), bytes)
+## Hand the InjectPass one step's queued edits. It names its own cells, so nothing here reads a channel
+## back and the cost is the batch's size, not the grid's.
+func queue_sparse(ops: Array) -> void:
+	if _rd == null or _inject == null or ops.is_empty():
+		return
+	_inject.plan(ops)
+	for op: Dictionary in ops:
+		request_channel(String(op["src"]))
+		request_channel(String(op["dst"]))
 	_wake_field()
-	return applied
 
 
-func move_field_sparse(src: String, src_cells: PackedInt32Array, amounts: PackedFloat32Array,
-		dst: String, dst_cells: PackedInt32Array, dst_ceiling: float = INF) -> float:
-	if _rd == null or not _bufs.has(src) or not _bufs.has(dst):
-		return 0.0
-	if src_cells.size() == 0 or src_cells.size() != amounts.size() or src_cells.size() != dst_cells.size():
-		return 0.0
-	var sbuf: RID = _bufs[src]
-	var dbuf: RID = _bufs[dst]
-	# A src==dst move (displacing water from a burying cell into its neighbour) must edit ONE array, or the
-	# second write-back would clobber the first. PackedFloat32Array is copy-on-write, so aliasing the handle is
-	# not enough — the branch below keeps a single array and a single touched span in that case.
-	var same: bool = sbuf == dbuf
-	var sarr: PackedFloat32Array = _rd.buffer_get_data(sbuf).to_float32_array()
-	var darr: PackedFloat32Array = PackedFloat32Array() if same else _rd.buffer_get_data(dbuf).to_float32_array()
-	if sarr.size() < _cc or (not same and darr.size() < _cc):
-		return 0.0
-	# A channel value is a fill fraction, so moving the same number between two cells of different volume
-	# moves a different amount of matter than it delivers. See kernels3d/cellvol.glsli.
-	var vol: PackedFloat32Array = _grid.cell_volumes() if _grid != null else PackedFloat32Array()
-	if vol.size() != _cc:
-		push_error("move_field_sparse: no per-cell volume table")
-		return 0.0
-	var moved: float = 0.0
-	var slo: int = _cc
-	var shi: int = -1
-	var dlo: int = _cc
-	var dhi: int = -1
-	for i in src_cells.size():
-		var sc: int = src_cells[i]
-		if sc < 0 or sc >= _cc:
-			continue
-		var take: float = minf(maxf(amounts[i], 0.0), sarr[sc])
-		var dc: int = dst_cells[i]
-		var live_dst: bool = dc >= 0 and dc < _cc
-		var ratio: float = 1.0
-		if live_dst:
-			ratio = vol[sc] / maxf(vol[dc], 1e-30)
-			# Honour the destination's own ceiling by taking only what it can hold (never spill mass).
-			var held: float = sarr[dc] if same else darr[dc]
-			take = minf(take, maxf(0.0, dst_ceiling - held) / maxf(ratio, 1e-30))
-		if take <= 0.0:
-			continue
-		sarr[sc] -= take
-		slo = mini(slo, sc)
-		shi = maxi(shi, sc)
-		if live_dst:
-			if same:
-				sarr[dc] += take * ratio
-				slo = mini(slo, dc)
-				shi = maxi(shi, dc)
-			else:
-				darr[dc] += take * ratio
-				dlo = mini(dlo, dc)
-				dhi = maxi(dhi, dc)
-		moved += take
-	if shi >= slo:
-		var sspan: PackedByteArray = sarr.slice(slo, shi + 1).to_byte_array()
-		_rd.buffer_update(sbuf, slo * 4, sspan.size(), sspan)
-	if not same and dhi >= dlo:
-		var dspan: PackedByteArray = darr.slice(dlo, dhi + 1).to_byte_array()
-		_rd.buffer_update(dbuf, dlo * 4, dspan.size(), dspan)
-	_wake_field()
-	return moved
-
-
-## Sum of a channel's device buffer. Diagnostic only (the injection queue's staleness audit compares it
-## against the CPU mirror to measure what a mirror-upload would have written away); nothing on the per-frame
-## path calls it, because it is a full-grid readback plus a full-grid sum.
-func channel_total(name: String) -> float:
-	if _rd == null or not _bufs.has(name):
-		return 0.0
-	var arr: PackedFloat32Array = _rd.buffer_get_data(_bufs[name]).to_float32_array()
-	var sum: float = 0.0
-	for i in mini(arr.size(), _cc):
-		sum += arr[i]
-	return sum
+## Cumulative amount injection has added to `channel` with no source in the field, as the device applied it.
+func inject_created(channel: String) -> float:
+	return _inject.created_total(channel) if _inject != null else 0.0
 
 
 func snapshot_channels() -> Dictionary:
