@@ -427,7 +427,7 @@ void LAFieldLedger::_publish_mineral(Dictionary &p_out, int p_step, double p_min
 	for (int i = 0; i < els.size(); i++) {
 		p_out["lith_element_" + String(els[i])] = Math::snapped(as_d(lith[els[i]]), 0.01);
 	}
-	// erupt_source injects mantle lava with no debit in the field, so the queue books it.
+	// erupt_source injects mantle lava with no debit in the field; `p_mineral_minted` books it.
 	p_out["mineral_src_total"] = Math::snapped(p_mineral_minted, 0.01);
 	_run_pair(p_out, "mineral", "mineral", "mineral", total, p_step, boundary_of(group, "Si"));
 	// Every element the rock alone holds gets its own drift book, keyed on its lith moles.
