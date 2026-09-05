@@ -1,5 +1,8 @@
 #include "LAGravityMultigrid.hpp"
 
+#include "bindings.glsli"
+
+#include <godot_cpp/classes/rd_uniform.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/core/error_macros.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
@@ -72,7 +75,9 @@ uint32_t groups_for(int n) {
 
 } // namespace
 
-Dictionary LAGravityMultigrid::build(Object *p_grid) {
+namespace {
+
+Dictionary build_hierarchy(Object *p_grid) {
 	Dictionary out;
 	ERR_FAIL_NULL_V(p_grid, out);
 	const int cc = int(p_grid->get("cell_count"));
@@ -93,14 +98,14 @@ Dictionary LAGravityMultigrid::build(Object *p_grid) {
 	int span = nx > ny ? nx : ny;
 	span = span > nz ? span : nz;
 	int agglomerations = 0;
-	while (span > COARSEST_SPAN) {
+	while (span > 4) {
 		span = (span + 1) / 2;
 		agglomerations++;
 	}
 	if (agglomerations == 0) {
 		agglomerations = 1;
 	}
-	ERR_FAIL_COND_V_MSG(max_level + agglomerations > DEPTH_MAX, out,
+	ERR_FAIL_COND_V_MSG(max_level + agglomerations > 31, out,
 			"LAGravityMultigrid: the hierarchy is deeper than the flag word's depth field.");
 	const int n_levels = max_level + agglomerations + 1;
 
@@ -290,13 +295,112 @@ Dictionary LAGravityMultigrid::build(Object *p_grid) {
 	return out;
 }
 
-Dictionary LAGravityMultigrid::cycle(RenderingDevice *p_rd, const RID &p_pipe, const RID &p_uset,
-		const RID &p_moments, const Dictionary &p_hier, double p_coarse_edge, double p_g_si,
-		double p_tol_rel, int p_max_cycles) {
+// The slots gravity_multigrid.glsl declares, in Bindings.gd's own numbering. The driver's own buffers
+// come by name out of the pass's dictionary; the hierarchy's are made here.
+const char *const SHARED[] = { "nbr", "pos", "slot_off", "face_partner", "grav_phi", "grav_density",
+	"grav_moments", "grav_partials", nullptr };
+const int SHARED_BIND[] = { LA_BIND_NBR, LA_BIND_POS, LA_BIND_SLOT_OFF, LA_BIND_FACE_PARTNER,
+	LA_BIND_GRAV_PHI, LA_BIND_GRAV_DENSITY, LA_BIND_GRAV_MOMENTS, LA_BIND_GRAV_PARTIALS };
+const char *const TABLE[] = { "slot_off", "nbr", "flags", "parent", "child_off", "child_idx", nullptr };
+const int TABLE_BIND[] = { LA_BIND_MG_SLOT_OFF, LA_BIND_MG_NBR, LA_BIND_MG_FLAGS, LA_BIND_MG_PARENT,
+	LA_BIND_MG_CHILD_OFF, LA_BIND_MG_CHILD_IDX };
+const int FIELD_BIND[] = { LA_BIND_MG_PHI, LA_BIND_MG_RHS, LA_BIND_MG_RES };
+
+void bind_at(TypedArray<RDUniform> &p_set, int p_binding, const RID &p_rid) {
+	Ref<RDUniform> u;
+	u.instantiate();
+	u->set_uniform_type(RenderingDevice::UNIFORM_TYPE_STORAGE_BUFFER);
+	u->set_binding(p_binding);
+	u->add_id(p_rid);
+	p_set.push_back(u);
+}
+
+} // namespace
+
+bool LAGravityMultigrid::attach(RenderingDevice *p_rd, const RID &p_shader, Object *p_grid,
+		const Dictionary &p_bufs) {
+	if (set_.is_valid()) {
+		return true;
+	}
+	ERR_FAIL_NULL_V(p_rd, false);
+	const Dictionary hier = build_hierarchy(p_grid);
+	if (hier.is_empty()) {
+		return false;
+	}
+	level_off_ = hier["level_off"];
+	levels_ = int(hier["levels"]);
+	coarse_edge_ = double(hier["coarse_edge"]);
+	moments_ = p_bufs.get("grav_moments", RID());
+	TypedArray<RDUniform> uniforms;
+	for (int i = 0; SHARED[i] != nullptr; ++i) {
+		const RID r = p_bufs.get(String(SHARED[i]), RID());
+		if (!r.is_valid()) {
+			ERR_FAIL_V_MSG(false, String("LAGravityMultigrid: the field has no \"") + SHARED[i]
+					+ "\" buffer, so the V-cycle would read memory nobody wrote.");
+		}
+		bind_at(uniforms, SHARED_BIND[i], r);
+	}
+	for (int i = 0; TABLE[i] != nullptr; ++i) {
+		const PackedInt32Array a = hier[TABLE[i]];
+		const PackedByteArray bytes = a.to_byte_array();
+		const RID r = p_rd->storage_buffer_create(uint32_t(bytes.size()), bytes);
+		owned_.push_back(r);
+		bind_at(uniforms, TABLE_BIND[i], r);
+	}
+	PackedFloat32Array zeros;
+	zeros.resize(int(hier["total"]));
+	const PackedByteArray zbytes = zeros.to_byte_array();
+	for (int i = 0; i < 3; ++i) {
+		const RID r = p_rd->storage_buffer_create(uint32_t(zbytes.size()), zbytes);
+		owned_.push_back(r);
+		bind_at(uniforms, FIELD_BIND[i], r);
+	}
+	set_ = p_rd->uniform_set_create(uniforms, p_shader, 0);
+	return set_.is_valid();
+}
+
+Dictionary LAGravityMultigrid::solve(RenderingDevice *p_rd, Object *p_pass, const RID &p_pipe, int p_cc,
+		int p_groups, double p_g_si, double p_tol_rel, int p_max_cycles) {
 	Dictionary out;
 	ERR_FAIL_NULL_V(p_rd, out);
-	const PackedInt32Array level_off = p_hier.get("level_off", PackedInt32Array());
-	const int n_levels = int(p_hier.get("levels", 0));
+	ERR_FAIL_NULL_V(p_pass, out);
+	Dictionary ctx;
+	for (int phase = 0; phase < 2; ++phase) {
+		if (phase == 1) {
+			out = cycle(p_rd, p_pipe, p_g_si, p_tol_rel, p_max_cycles);
+		}
+		ctx["gravity_solve"] = phase == 0 ? String("pre") : String("post");
+		const int64_t cl = p_rd->compute_list_begin();
+		p_pass->call("dispatch", p_rd, cl, ctx, p_cc, p_groups);
+		p_rd->compute_list_end();
+		p_rd->submit();
+		p_rd->sync();
+	}
+	return out;
+}
+
+void LAGravityMultigrid::dispose(RenderingDevice *p_rd) {
+	if (p_rd == nullptr) {
+		return;
+	}
+	if (set_.is_valid()) {
+		p_rd->free_rid(set_);
+		set_ = RID();
+	}
+	for (size_t i = 0; i < owned_.size(); ++i) {
+		p_rd->free_rid(owned_[i]);
+	}
+	owned_.clear();
+}
+
+Dictionary LAGravityMultigrid::cycle(RenderingDevice *p_rd, const RID &p_pipe, double p_g_si,
+		double p_tol_rel, int p_max_cycles) {
+	Dictionary out;
+	const PackedInt32Array level_off = level_off_;
+	const int n_levels = levels_;
+	const RID p_uset = set_;
+	const RID p_moments = moments_;
+	const double p_coarse_edge = coarse_edge_;
 	if (n_levels <= 0 || level_off.size() < n_levels + 1 || !p_pipe.is_valid() || !p_uset.is_valid()) {
 		return out;
 	}
@@ -384,10 +488,10 @@ Dictionary LAGravityMultigrid::cycle(RenderingDevice *p_rd, const RID &p_pipe, c
 }
 
 void LAGravityMultigrid::_bind_methods() {
-	ClassDB::bind_static_method("LAGravityMultigrid", D_METHOD("build", "grid"),
-			&LAGravityMultigrid::build);
-	ClassDB::bind_static_method("LAGravityMultigrid",
-			D_METHOD("cycle", "rd", "pipe", "uset", "moments", "hier", "coarse_edge", "g_si", "tol_rel",
-					"max_cycles"),
-			&LAGravityMultigrid::cycle);
+	ClassDB::bind_method(D_METHOD("attach", "rd", "shader", "grid", "bufs"),
+			&LAGravityMultigrid::attach);
+	ClassDB::bind_method(
+			D_METHOD("solve", "rd", "pass", "pipe", "cc", "groups", "g_si", "tol_rel", "max_cycles"),
+			&LAGravityMultigrid::solve);
+	ClassDB::bind_method(D_METHOD("dispose", "rd"), &LAGravityMultigrid::dispose);
 }

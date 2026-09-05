@@ -33,19 +33,15 @@ func solve() -> void:
 		return
 	_bind()
 	if _pass == null or _f._gpu == null or _f._gpu._rd == null:
+		# A world that contains the pass and cannot reach it has no `below`: say so rather than return.
 		if LAProcessSet.has_record("pass", PASS_FILE):
-			push_error("GRAVITY_UNSOLVED: this world contains GravityPass and the field asked it for a "
-				+ "solve, but the pass is not on the device yet, so `gravity` stays zero and every "
-				+ "`above`/`below` walk below this reads a direction nothing produced.")
+			push_error("GRAVITY_UNSOLVED: the pass this world declares is not on the device, so gravity stays zero.")
 		return
 	_pass.set_datum(0.5 * float(_f._grid.nx) * _f._grid.cell_size)
 	var rel: float = _pass.solve_converged(_f._gpu._rd, _f._grid, _f._gpu._cc, _f._gpu._groups)
 	# Published where the solve happens: a world at rest never reaches the frame's drain, and the field
 	# it is at rest in is the one this solve just produced.
-	for key: String in _pass._last:
-		var v: Variant = _pass._last[key]
-		if v is float or v is int:
-			LASimReport.gauge(String(key), float(v))
+	LASimReport.register(Callable(_pass, "readings"))
 	if rel > _pass.RESIDUAL_TOLERANCE:
 		push_error(("The gravity solve did not converge: the discrete Poisson residual is still %f of its "
 			+ "source. Every `above`/`below` walk below this — pressure, the regolith burial march, the "

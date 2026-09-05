@@ -65,6 +65,7 @@ set(INCLUDE_DIRS
     include
     ${LA_LLAMA_INCLUDES}
     ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/sqlite
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../sim/material/kernels3d
 )
 
 add_library(localagents SHARED ${SRC} ${SQLITE_SRC})

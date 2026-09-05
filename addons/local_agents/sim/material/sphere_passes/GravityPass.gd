@@ -62,16 +62,10 @@ var _failed_announced: bool = false
 ## SLICE: centre xyz, radius, mass of the declared body. Empty = solve Poisson from the grid's own mass.
 var _slab: bool = false
 var _r_datum: float = 0.0                # m: where the reference potential is zero                  # a slab carries the declared body's field, uploaded once
-var _phi_rid: RID = RID()
-var _cycles: int = 0
-var _factor: float = 1.0                # the residual's geometric mean fall per V-cycle
+var _vcycle: Dictionary = {}            # the last solve's cycle count and its residual fall per cycle
 var _mg_pipe: RID = RID()
-var _mg_set: RID = RID()
-var _hier: Dictionary = {}
-var _coarse_edge: float = 0.0
+var _mg: LAGravityMultigrid = LAGravityMultigrid.new()
 var _bufs: Dictionary = {}
-var _density_rid: RID = RID()
-var _flags_rid: RID = RID()
 var _base_edge: float = 0.0
 var _origin: Vector3 = Vector3.ZERO
 
@@ -91,7 +85,7 @@ func _buffers(cc: int) -> Dictionary:
 func _setup(bufs: Dictionary, cc: int) -> void:
 	_pipe = _kernel(KERNEL_PATH)
 	_mg_pipe = _kernel(MG_KERNEL_PATH)
-	if not _pipe.is_valid() or not _mg_pipe.is_valid():
+	if not _pipe.is_valid() or not _mg_pipe.is_valid() or grid_cell_size <= 0.0:
 		return
 	_bufs = bufs
 	_groups = maxi(int(ceil(float(cc) / float(GROUP))), 1)
@@ -109,9 +103,6 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	var props_ssbo: RID = _storage_buffer(props.to_byte_array())
 
 	_moments = _single(bufs, MOMENTS)
-	_phi_rid = _single(bufs, PHI)
-	_density_rid = _single(bufs, DENSITY)
-	_flags_rid = _single(bufs, FLAGS)
 	_gravity = _single(bufs, "gravity")
 	_up_rid = _single(bufs, VERT_UP)
 	_down_rid = _single(bufs, VERT_DOWN)
@@ -119,38 +110,14 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	_set = _uset(_pipe, LABindings.set_for("gravity_poisson.glsl", bufs, {"grav_props": props_ssbo}))
 
 
-## THE HIERARCHY, once per grid: the octree levels the V-cycle descends, and the three fields it carries
-## over them. Every level past 0 lives in this pass's own buffers.
-func _hierarchy(grid) -> bool:
-	if _mg_set.is_valid():
-		return true
-	_hier = LAGravityMultigrid.build(grid)
-	if _hier.is_empty():
-		push_error("GravityPass: LAGravityMultigrid built no hierarchy for this grid, so Poisson has no "
-			+ "coarse levels to converge on.")
-		return false
-	var total: int = int(_hier["total"])
-	_coarse_edge = float(_hier["coarse_edge"])
-	var own: Dictionary = {}
-	for key: String in ["slot_off", "nbr", "flags", "parent", "child_off", "child_idx"]:
-		var a: PackedInt32Array = _hier[key]
-		if a.is_empty():
-			a.resize(1)
-		own["mg_" + key] = _storage_buffer(a.to_byte_array())
-	for key: String in ["mg_phi", "mg_rhs", "mg_res"]:
-		own[key] = _scratch(maxi(total, 1))
-	_mg_set = _uset(_mg_pipe, LABindings.set_for("gravity_multigrid.glsl", _bufs, own))
-	return _mg_set.is_valid()
-
-
 func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:
 	ctx["gravity_self"] = 1.0 if _slab else 0.5
 	if not _dispatchable() or not _set.is_valid():
 		if not _failed_announced:
 			_failed_announced = true
-			push_error("GPU_REQUIRED: GravityPass has no pipeline, so gravity is never solved and every "
-				+ "`above`/`below` read in the tree points nowhere. Usual cause: gravity_poisson.glsl was "
-				+ "never imported — run `godot --headless --path . --import` in this worktree.")
+			push_error("GPU_REQUIRED: GravityPass built nothing, so gravity is never solved and every "
+				+ "`above`/`below` read in the tree points nowhere. Either the kernels were never "
+				+ "imported (run `godot --headless --path . --import`) or the grid states no cell size.")
 		return
 	if _slab:
 		return
@@ -178,26 +145,12 @@ func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: i
 func solve_converged(rd: RenderingDevice, grid, cc: int, groups: int) -> float:
 	if not _dispatchable() or not _set.is_valid() or _slab or grid == null:
 		return INF
-	if not _hierarchy(grid):
+	if not _mg.attach(rd, _shader_of(_mg_pipe), grid, _bufs):
+		push_error("GravityPass: the multigrid built no hierarchy, so Poisson has no coarse levels.")
 		return INF
-	var ctx: Dictionary = {"gravity_solve": "pre"}
-	var cl: int = rd.compute_list_begin()
-	dispatch(rd, cl, ctx, cc, groups)
-	rd.compute_list_end()
-	rd.submit()
-	rd.sync()
-	var r: Dictionary = LAGravityMultigrid.cycle(rd, _mg_pipe, _mg_set, _moments, _hier, _coarse_edge,
+	var r: Dictionary = _mg.solve(rd, self, _mg_pipe, cc, groups,
 		LAPhysical.GRAVITATIONAL_CONSTANT, RESIDUAL_TOLERANCE, MAX_CYCLES)
-	if r.is_empty():
-		return INF
-	_cycles = int(r["cycles"])
-	_factor = float(r["factor"])
-	ctx["gravity_solve"] = "post"
-	cl = rd.compute_list_begin()
-	dispatch(rd, cl, ctx, cc, groups)
-	rd.compute_list_end()
-	rd.submit()
-	rd.sync()
+	_vcycle = r
 	_drain(rd)
 	return _residual_rel
 
@@ -263,8 +216,7 @@ func _drain(rd: RenderingDevice) -> Dictionary:
 	if m.size() < MOMENT_SLOTS:
 		return {}
 	_mean_g = m[4]
-	if not _slab:
-		_residual_rel = m[5]
+	_residual_rel = _residual_rel if _slab else m[5]
 	_mirror = rd.buffer_get_data(_gravity).to_float32_array()
 	_up = rd.buffer_get_data(_up_rid).to_int32_array()
 	_down = rd.buffer_get_data(_down_rid).to_int32_array()
@@ -272,11 +224,22 @@ func _drain(rd: RenderingDevice) -> Dictionary:
 		"gravity_total_mass_kg": m[0],
 		"gravity_mean_g": m[4],
 		"gravity_residual_rel": _residual_rel,
-		"gravity_vcycles": float(_cycles),
-		"gravity_vcycle_factor": _factor,
+		"gravity_vcycles": float(_vcycle.get("cycles", 0)),
+		"gravity_vcycle_factor": float(_vcycle.get("factor", 1.0)),
 		"gravity_gauss_rel": m[6],
 		"gravity_solves": float(_solves)}
 	return _last
+
+
+## The last drain's readings; the solve registers this as the report's provider for them.
+func readings() -> Dictionary:
+	return _last
+
+
+## The hierarchy's own buffers and set are the multigrid's, so they are freed with it.
+func dispose(rd: RenderingDevice) -> void:
+	_mg.dispose(rd)
+	super(rd)
 
 
 ## Solved acceleration, flat cell*3, m/s^2. Empty until the first drain after the first solve.
@@ -298,7 +261,3 @@ func down_table() -> PackedInt32Array:
 func mean_g() -> float:
 	return _mean_g
 
-
-## Worst |laplacian(phi) - 4 pi G rho| over the source term: dimensionless, INF before the first drain.
-func residual_rel() -> float:
-	return _residual_rel

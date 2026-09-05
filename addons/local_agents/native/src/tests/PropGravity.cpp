@@ -27,6 +27,20 @@ constexpr uint32_t kModeSeed = 3;
 constexpr uint32_t kModeGradient = 5;
 constexpr uint32_t kFlagBoundary = 1;
 
+// gravity_multigrid.glsl's own mode tag and push constant.
+constexpr uint32_t kMgModeSmooth = 1;
+
+struct MgPush {
+	uint32_t cell_count;
+	uint32_t level_base;
+	uint32_t level_count;
+	uint32_t mode;
+	uint32_t colour;
+	uint32_t groups;
+	float g_si;
+	float base_edge;
+};
+
 struct Push {
 	uint32_t cell_count;
 	uint32_t mode;
@@ -162,6 +176,7 @@ bool prop_moments_are_the_boxs_mass(Case &c) {
 		const double vol = double(kEdgeM) * double(kEdgeM) * double(kEdgeM);
 		double mass = 0.0;
 		double com[3] = { 0.0, 0.0, 0.0 };
+		double r2_origin = 0.0;
 		for (uint32_t cell = 0; cell < w.lat.cells(); ++cell) {
 			double rho = 0.0;
 			for (uint32_t i = 0; i < kChannelSlots; ++i) {
@@ -169,7 +184,11 @@ bool prop_moments_are_the_boxs_mass(Case &c) {
 			}
 			const double m = rho * vol;
 			mass += m;
-			for (uint32_t k = 0; k < 3u; ++k) { com[k] += m * double(w.lat.pos[cell * 3u + k]); }
+			for (uint32_t k = 0; k < 3u; ++k) {
+				const double q = double(w.lat.pos[cell * 3u + k]);
+				com[k] += m * q;
+				r2_origin += m * q * q;
+			}
 		}
 		if (!(mass > 0.0)) {
 			c.why = "the draw put no mass in the box, so the moments were never asked anything";
@@ -192,12 +211,24 @@ bool prop_moments_are_the_boxs_mass(Case &c) {
 				return false;
 			}
 		}
+		// The radius of the uniform sphere of that mass at that second moment about the centre of mass:
+		// sum m r^2 = (3/5) M R^2. The kernel takes the moment about the origin and subtracts M |com|^2,
+		// so the cancellation between them carries the fold's error into R.
+		const double inertia = r2_origin - mass * (com[0] * com[0] + com[1] * com[1] + com[2] * com[2]);
+		const double req = std::sqrt(std::fmax(5.0 * inertia / (3.0 * mass), 0.0));
+		c.examined += 1;
+		if (!(std::fabs(double(shifted(mom[7], c.mutate)) - req)
+					<= bound / mass * (r2_origin / std::fmax(inertia, 1.0e-30)) * req)) {
+			c.why = "the reference sphere's radius is not the second moment of the mass the box holds";
+			return false;
+		}
 	}
 	return c.examined > 0;
 }
 
-// The seeded reference is the monopole potential of the mass the box holds, stated against the datum.
-bool prop_reference_is_the_monopole(Case &c) {
+// The seeded reference is the potential of the uniform sphere the box's own mass and second moment
+// name -- the interior solution inside it, the monopole outside -- stated against the datum.
+bool prop_reference_is_the_sphere(Case &c) {
 	std::string err;
 	Rig rig(c.dev, "gravity_poisson", kWords, err);
 	if (!rig.ok()) {
@@ -217,19 +248,25 @@ bool prop_reference_is_the_monopole(Case &c) {
 		const std::vector<float> mom = rig.get(LA_BIND_GRAV_MOMENTS, 8);
 		const std::vector<float> ref = rig.get(LA_BIND_GRAV_REF, w.lat.cells());
 		const double total = double(mom[0]);
+		const double req = std::fmax(double(mom[7]), 1.0e-30);
 		for (uint32_t cell = 0; cell < w.lat.cells(); ++cell) {
 			double r2 = 0.0;
 			for (uint32_t k = 0; k < 3u; ++k) {
 				const double q = double(w.lat.pos[cell * 3u + k]) - double(mom[1 + k]);
 				r2 += q * q;
 			}
-			const double r = std::fmax(std::sqrt(r2), double(kEdgeM));
-			const double datum = std::fmax(double(w.r_datum), double(kEdgeM));
-			const double want = -double(kG) * total * (1.0 / r - 1.0 / datum);
-			const double scale = double(kG) * total * (1.0 / r + 1.0 / datum);
+			const double r = std::sqrt(r2);
+			const double at_r = r >= req ? -double(kG) * total / r
+					: -double(kG) * total * (3.0 * req * req - r2) / (2.0 * req * req * req);
+			const double datum = double(w.r_datum) >= req
+					? -double(kG) * total / std::fmax(double(w.r_datum), 1.0e-30)
+					: -double(kG) * total * (3.0 * req * req - double(w.r_datum) * double(w.r_datum))
+							/ (2.0 * req * req * req);
+			const double want = at_r - datum;
+			const double scale = double(kG) * total * (1.5 / std::fmax(r, req) + 1.5 / req);
 			c.examined += 1;
 			if (!(std::fabs(double(shifted(ref[cell], c.mutate)) - want) <= 8.0 * kU * scale)) {
-				c.why = "the seeded reference is not the monopole potential of the mass the box holds";
+				c.why = "the seeded reference is not the potential of the sphere the box's mass names";
 				return false;
 			}
 		}
@@ -294,16 +331,89 @@ bool prop_field_outside_a_sphere(Case &c) {
 	return c.examined > 0;
 }
 
+// THE SMOOTHER'S FIXED POINT IS THE EQUATION'S SOLUTION. Hand gravity_multigrid.glsl a potential and
+// the source term that potential actually produces, and a sweep of all four colours must leave it where
+// it is: a smoother that moves it is solving something other than what the residual measures.
+bool prop_smoother_holds_the_solution(Case &c) {
+	std::string err;
+	Rig rig(c.dev, "gravity_multigrid", kWords, err);
+	if (!rig.ok()) {
+		c.why = err;
+		return false;
+	}
+	Rng rng(c.seed);
+	rng.stream(35);
+	const Lattice lat = Lattice::box(kN, kN, kN, kEdgeM, 0.0f, 0.0f, 0.0f);
+	const uint32_t n = lat.cells();
+	for (uint32_t d = 0; d < kDraws; ++d) {
+		std::vector<uint32_t> flags(n, 0u);
+		std::vector<float> phi(n, 0.0f);
+		std::vector<float> rhs(n, 0.0f);
+		double scale = 0.0;
+		for (uint32_t cell = 0; cell < n; ++cell) {
+			bool ring = false;
+			for (size_t f = size_t(lat.slot_off[cell * 7u]); f < size_t(lat.slot_off[cell * 7u + 6u]); ++f) {
+				if (lat.nbr[f] < 0) { ring = true; }
+			}
+			int parity = 0;
+			for (uint32_t k = 0; k < 3u; ++k) {
+				parity += int(double(lat.pos[cell * 3u + k]) / double(kEdgeM));
+			}
+			flags[cell] = (ring ? 1u : 0u) | (uint32_t(parity & 1) << 1);
+			phi[cell] = ring ? 0.0f : rng.range(-1.0e5f, 1.0e5f);
+			scale = std::fmax(scale, std::fabs(double(phi[cell])));
+		}
+		// The source those potentials solve: the face conductance of a uniform box is its own edge.
+		const double vol = double(kEdgeM) * double(kEdgeM) * double(kEdgeM);
+		for (uint32_t cell = 0; cell < n; ++cell) {
+			double acc = 0.0;
+			for (size_t f = size_t(lat.slot_off[cell * 7u]); f < size_t(lat.slot_off[cell * 7u + 6u]); ++f) {
+				if (lat.nbr[f] < 0) { continue; }
+				acc += double(kEdgeM) * (double(phi[size_t(lat.nbr[f])]) - double(phi[cell]));
+			}
+			rhs[cell] = float(acc / vol);
+		}
+		rig.put(LA_BIND_NBR, lat.nbr);
+		rig.put(LA_BIND_SLOT_OFF, lat.slot_off);
+		rig.put(LA_BIND_MG_FLAGS, flags);
+		rig.put(LA_BIND_MG_PHI, phi);
+		rig.put(LA_BIND_MG_RHS, rhs);
+		MgPush p{};
+		p.cell_count = n;
+		p.level_base = 0;
+		p.level_count = n;
+		p.mode = kMgModeSmooth;
+		p.groups = rig.groups_for(n);
+		p.g_si = kG;
+		p.base_edge = kEdgeM;
+		for (uint32_t colour = 0; colour < 4u; ++colour) {
+			p.colour = colour;
+			rig.run(&p, sizeof(p), n);
+		}
+		const std::vector<float> got = rig.get(LA_BIND_MG_PHI, n);
+		for (uint32_t cell = 0; cell < n; ++cell) {
+			c.examined += 1;
+			if (!(std::fabs(double(shifted(got[cell], c.mutate)) - double(phi[cell])) <= 64.0 * kU * scale)) {
+				c.why = "a smoothing sweep moved a potential that already solves its own equation";
+				return false;
+			}
+		}
+	}
+	return c.examined > 0;
+}
+
 } // namespace
 
 void add_gravity_properties(std::vector<Property> &out) {
 	out.push_back({ "gravity_poisson.glsl", "gravity_colours_never_touch", prop_colours_never_touch });
 	out.push_back({ "gravity_poisson.glsl", "gravity_moments_are_the_boxs_mass",
 			prop_moments_are_the_boxs_mass });
-	out.push_back({ "gravity_poisson.glsl", "gravity_reference_is_the_monopole",
-			prop_reference_is_the_monopole });
+	out.push_back({ "gravity_poisson.glsl", "gravity_reference_is_the_sphere",
+			prop_reference_is_the_sphere });
 	out.push_back({ "gravity_poisson.glsl", "gravity_field_outside_a_sphere_is_inverse_square",
 			prop_field_outside_a_sphere });
+	out.push_back({ "gravity_multigrid.glsl", "multigrid_smoother_holds_the_solution",
+			prop_smoother_holds_the_solution });
 }
 
 } // namespace lasim

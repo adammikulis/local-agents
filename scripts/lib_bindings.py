@@ -227,11 +227,10 @@ def pass_sets(fn, classes):
     return out, unresolved
 
 
-def pass_kernel(fn):
-    """The one kernel a pass loads, or None."""
+def pass_kernels(fn):
+    """Every kernel a pass loads."""
     src = read(os.path.join(PASSES, fn))
-    got = sorted(set(re.findall(r'kernels3d/([\w.]+\.glsl)"', src)))
-    return got[0] if len(got) == 1 else (None if not got else got)
+    return sorted(set(re.findall(r'kernels3d/([\w.]+\.glsl)"', src)))
 
 
 def pass_literal_bindings(fn):

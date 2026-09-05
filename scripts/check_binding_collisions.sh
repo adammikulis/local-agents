@@ -109,20 +109,19 @@ for fn in LB.pass_files():
     unresolved += un
     if not sets:
         continue
-    kernel = LB.pass_kernel(fn)
-    if kernel is None or isinstance(kernel, list):
-        print("check_binding_collisions: %s builds a uniform set but names %s kernels — the gate cannot "
-              "tell which kernel its slots must exist in."
-              % (fn, "no" if kernel is None else len(kernel)), file=sys.stderr)
+    kernels = LB.pass_kernels(fn)
+    if not kernels:
+        print("check_binding_collisions: %s builds a uniform set and loads no kernel — the gate cannot "
+              "tell which kernel its slots must exist in." % fn, file=sys.stderr)
         sys.exit(2)
     for named, own in sets:
-        if named != kernel:
+        if named not in kernels:
             bad.append("%s loads %s and calls set_for(\"%s\") — it would bind another kernel's slots"
-                       % (fn, kernel, named))
+                       % (fn, ", ".join(kernels), named))
             continue
         scanned += len(own)
-        for name in sorted(set(own) - set(unit[kernel])):
-            bad.append("%s supplies \"%s\" to %s, which never declares it" % (fn, name, kernel))
+        for name in sorted(set(own) - set(unit[named])):
+            bad.append("%s supplies \"%s\" to %s, which never declares it" % (fn, name, named))
 
 if unresolved:
     print("check_binding_collisions: a uniform set the gate cannot read is a set it cannot check.",
