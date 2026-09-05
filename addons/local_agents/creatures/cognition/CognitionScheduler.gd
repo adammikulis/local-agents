@@ -328,7 +328,7 @@ func _gather_context(creature) -> Dictionary:
 	if creature != null and creature._material != null and creature._material.has_method("is_water_at"):
 		at_water = creature._material.is_water_at(creature.global_position)
 	var night: bool = false
-	if creature != null and creature._ecology != null and creature._ecology.has_method("is_night_at"):
+	if creature != null and creature._ecology != null and creature._ecology.has_method("has_sun") and creature._ecology.has_sun():
 		night = creature._ecology.is_night_at(creature.global_position)
 
 	var predator_visible: bool = false

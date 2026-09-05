@@ -15,7 +15,7 @@ question, which nothing could previously ask: should this be a number at all, an
 Every row names what would have to exist for the number to stop being needed. A row that never acquires
 that field is a value nobody intends to fix.
 
-**MAX_DECLARED: 253**
+**MAX_DECLARED: 231**
 
 The gate fails if the table grows past that ceiling. To add a number, derive it, bind it, or raise the
 ceiling in the same commit and argue for it in the message. When the count drops, lower the ceiling to bank
@@ -151,15 +151,14 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/actors/LightningStrike.gd` | `FLASH_ENERGY` | 34.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/LightningStrike.gd` | `LINGER` | 0.7 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/LightningStrike.gd` | `SEGMENTS` | 14 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Tree.gd` | `GROW_TIME` | 20.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Tree.gd` | `START_FRACTION` | 0.35 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
+| `addons/local_agents/sim/actors/Tree.gd` | `MATURE_YEARS` | 60.0 | years from germination to full stem height for a temperate tree | the wood the tree has actually fixed sets its height, and the years fall out |
 | `addons/local_agents/sim/actors/Tree.gd` | `TREE_BIOMASS_FULL` | 0.0025 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/Tree.gd` | `TREE_GROWTH_FLOOR` | 0.05 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/actors/Tree.gd` | `TOPPLE_TIME` | 1.5 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Tree.gd` | `TOPPLE_ANGLE` | 1.483529 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Tree.gd` | `TREE_SETTLE_STRIDE` | 30 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Plant.gd` | `BIOMASS_GROWTH_GAIN` | 4.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Plant.gd` | `BIOMASS_GROWTH_MAX` | 2.0 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
+| `addons/local_agents/sim/actors/Plant.gd` | `SEEDLING_SHOOT_M` | 0.05 | the shoot a germinating seed puts up: the smallest a living plant is | the seed's own mass sets the seedling it makes |
 | `addons/local_agents/sim/actors/Plant.gd` | `BIOMASS_PER_FOOD` | 1.8e-4 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Plant.gd` | `FOOD_CAPACITY` | 46.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Plant.gd` | `FOOD_UPTAKE_RATE` | 8.0 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
@@ -185,14 +184,12 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/ecology/BandChronicle.gd` | `SCAN_PERIOD` | 0.5 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/ecology/BandChronicle.gd` | `DWELL_SECONDS` | 1.5 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/ecology/BandChronicle.gd` | `MAX_WRITES_PER_SCAN` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/ecology/EcologyService.gd` | `AQUATIC_STOCK_MULT` | 2.6 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/ecology/EcologyService.gd` | `GROW_MIN_TEMP` | 7.5 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/ecology/EcologyService.gd` | `GROW_SNOW_MAX` | 0.02 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
+| `addons/local_agents/sim/ecology/EcologyService.gd` | `GDD_BASE_C` | 5.0 | growing-degree-day base temperature for temperate plants | the plant's own enzyme rate against temperature |
+| `addons/local_agents/sim/ecology/EcologyService.gd` | `TREELINE_ISOTHERM_C` | 10.0 | the warmest-month isotherm the treeline follows (Koppen) | a tree's carbon balance goes negative on its own |
 | `addons/local_agents/sim/ecology/EcologyService.gd` | `SURFACE_PROBE_UP` | 6.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/ecology/EcologyBreeding.gd` | `AQUATIC_BREED_FRACTION` | 0.12 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/ecology/EcologyBreeding.gd` | `AQUATIC_BREED_MAX_PER_TICK` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/ecology/EcologyBreeding.gd` | `GRAZE_BIOMASS_FULL` | 0.05 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/ecology/EcologyBreeding.gd` | `GRAZE_BIOMASS_FLOOR` | 0.30 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
 | `addons/local_agents/sim/ecology/EcologyBreeding.gd` | `GRAZE_BIOMASS_SAMPLES` | 6 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/ecology/EcologyBreeding.gd` | `SPAWN_ENERGY_FRAC` | 0.15 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/ecology/EcologyBreeding.gd` | `SPAWN_ENERGY_FLOOR` | 0.45 | presence floor or numerical guard | Stage 2: show it never binds, or delete it |
@@ -223,7 +220,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MineralStamp3D.gd` | `STAMP_BUDGET` | 96 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialSphereGPU3D.gd` | `CHANNEL_HOLD_DRAINS` | 20 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialSphereGPU3D.gd` | `SLOW_READBACK_EVERY` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialFieldMineralProfile3D.gd` | `SAMPLE_EVERY` | 100 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `VAPOUR_TRANSFER_COEFF` | 1.2e-3 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `SOIL_SURFACE_RESISTANCE_S_M` | 1000.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/PhysicalConstants.gd` | `LITHIFICATION_RATE_PER_PA` | 1.0e-9 | inherited, unreviewed | Stage 2 substrate rewrite |

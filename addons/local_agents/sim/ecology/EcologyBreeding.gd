@@ -2,10 +2,11 @@ class_name LAEcologyBreeding
 extends RefCounted
 
 
-const AQUATIC_BREED_FRACTION: float = 0.12    # fraction of mature adults that may spawn young each aquatic tick
-const AQUATIC_BREED_MAX_PER_TICK: int = 4     # per-species per-tick bound (keeps the surge + work bounded)
+## Fraction of mature adults spawning young per aquatic tick, and the per-species bound on one tick. Both
+## are the stand-in `recruitment_rate` and are read nowhere else.
+const AQUATIC_BREED_FRACTION: float = 0.12
+const AQUATIC_BREED_MAX_PER_TICK: int = 4
 const GRAZE_BIOMASS_FULL: float = 0.05        # biomass at/above which a grazer breeds at full rate (algae-rich water)
-const GRAZE_BIOMASS_FLOOR: float = 0.30       # survival birth-rate multiplier in barren water (never a hard 0 → no collapse)
 const GRAZE_BIOMASS_SAMPLES: int = 6          # adults sampled for the school's mean biomass (O(k), not O(adults))
 
 const SPAWN_ENERGY_FRAC: float = 0.15
@@ -26,7 +27,7 @@ func species_below_cap(kind: String) -> bool:
 	if cached != null and int((cached as Array)[0]) == frame:
 		return bool((cached as Array)[1])
 	var cfg: Dictionary = _eco._species_config(kind)
-	var cap: int = int(round(float(cfg.get("pop_cap", 20)) * LAAblate.spawn_scale()))
+	var cap: int = int(cfg.get("pop_cap", 0))
 	var members: Array = _eco.get_tree().get_nodes_in_group("species_%s" % kind)
 	var below: bool = members.size() < cap
 	_cap_frame[kind] = [frame, below]
@@ -97,10 +98,15 @@ func _breed_genome(pa, pb):
 	return child
 
 
+## How many young a school produces is set by the food it converts. Nothing on this field feeds a fish, so
+## while `recruitment_rate` stands in, an authored fraction of the adults spawns instead; with the fake gone
+## and no food budget in the world, a school produces nothing.
 func _tick_aquatic() -> void:
+	if not LAFakes.stands_in("recruitment_rate"):
+		return
 	for kind in _eco._aquatic_kinds():
 		var cfg: Dictionary = _eco._species_config(String(kind))
-		var cap: int = int(round(float(cfg.get("pop_cap", 12)) * LAEcologyService.AQUATIC_STOCK_MULT * LAAblate.spawn_scale()))
+		var cap: int = int(cfg.get("pop_cap", 0))
 		var members: Array = _eco.get_tree().get_nodes_in_group("species_%s" % String(kind))
 		var deficit: int = cap - members.size()
 		if members.size() < 2 or deficit <= 0:
@@ -115,7 +121,7 @@ func _tick_aquatic() -> void:
 		var food_mult: float = 1.0
 		if bool(cfg.get("grazes_biomass", false)):
 			food_mult = _graze_food_mult(adults)
-		var births: int = clampi(int(ceil(float(adults.size()) * AQUATIC_BREED_FRACTION * food_mult)), 1, mini(deficit, AQUATIC_BREED_MAX_PER_TICK))
+		var births: int = clampi(int(ceil(float(adults.size()) * AQUATIC_BREED_FRACTION * food_mult)), 0, mini(deficit, AQUATIC_BREED_MAX_PER_TICK))
 		for i in range(births):
 			_birth_aquatic_one(String(kind), adults, cfg)
 
@@ -134,7 +140,7 @@ func _spawn_cost(pa: Node3D) -> float:
 
 func _graze_food_mult(adults: Array) -> float:
 	if adults.is_empty():
-		return GRAZE_BIOMASS_FLOOR
+		return 0.0
 	var sum_b: float = 0.0
 	var n: int = mini(adults.size(), GRAZE_BIOMASS_SAMPLES)
 	for i in range(n):
@@ -142,7 +148,7 @@ func _graze_food_mult(adults: Array) -> float:
 		if a != null and is_instance_valid(a):
 			sum_b += _eco._biomass_at(a.global_position)
 	var mean_b: float = sum_b / float(maxi(n, 1))
-	return clampf(mean_b / GRAZE_BIOMASS_FULL, GRAZE_BIOMASS_FLOOR, 1.0)
+	return clampf(mean_b / GRAZE_BIOMASS_FULL, 0.0, 1.0)
 
 
 # Produce ONE aquatic offspring for `kind`: born beside a random mature parent (nudged in the water so schools
