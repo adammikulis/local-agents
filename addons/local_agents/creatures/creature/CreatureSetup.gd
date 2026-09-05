@@ -111,4 +111,3 @@ static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
 	# Per-creature ageing/senescence state (owned off this monolith).
 	c.senescence = LACreatureSenescence.new()
 	c.senescence.setup(c)
-	LACreatureBodyMass.note_spawn(c, genome_arg != null)

@@ -659,11 +659,7 @@ func deposit_detritus(pos: Vector3, mass: float) -> void:
 func transpire_at(pos: Vector3, mass: float) -> void:
 	if _biota != null:
 		_biota.transpire(pos, mass)
-## Accounting only: body mass taken from a node rather than a field channel.
-func note_biota_node_intake(mass: float) -> void:
+## A body appeared with `mass`: seeded matter before the seal, a booked stand-in's after it.
+func note_biota_spawn(mass: float) -> void:
 	if _biota != null:
-		_biota.note_node_intake(mass)
-## Accounting only: a body appeared with `mass` that no field channel paid for.
-func note_biota_spawn(mass: float, founder: bool) -> void:
-	if _biota != null:
-		_biota.note_spawn(mass, founder)
+		_biota.note_body(mass)

@@ -4,7 +4,6 @@ extends RefCounted
 
 # Standing crop per cell a mouth cannot reach (regrowth stays possible), mol/m^3 of biomass.
 const GRAZE_RESIDUAL: float = 0.02 * LAPhysical.DRY_WOOD_DENSITY_KG_M3 / LAPhysical.MOLAR_MASS_CH2O_UNIT_KG_MOL
-const BITE_TAKE_FRAC: float = 0.35       # share of the reachable crop one animal's bite may take in a frame
 
 const HEAT_RADIUS: float = 0.0           # the animal's own cell only; body heat does not teleport
 
@@ -25,19 +24,61 @@ static func _respiration_j_per_o2_unit() -> float:
 	return _resp_j_per_unit
 
 
+# --- THE BODY STOCK. Matter crosses between the sealed field and a body only here, so the field plus this
+# book is closed. Matter a stand-in made is held apart and never handed to the field.
+var _stock: Dictionary = {}              # element -> mol taken out of the sealed field
+var _stood_in: Dictionary = {}           # fake name -> {element -> mol} a stand-in made
+
+
+## Fresh litter: the dead pool's carbon channel plus the hydrogen and oxygen the inject queue credits
+## with it. A body is made of what it becomes; this is the only organic composition the table declares.
+static func litter_comp() -> Dictionary:
+	var out: Dictionary = LAReactionBalance.channel_elements("detritus").duplicate()
+	out["H"] = float(out.get("H", 0.0)) + LASubstances.fresh_litter_per_carbon("H")
+	out["O"] = float(out.get("O", 0.0)) + LASubstances.fresh_litter_per_carbon("O")
+	return out
+
+
+## Largest amount of `comp` a pool of element moles can serve, in units of `comp`.
+static func _room(pool: Dictionary, comp: Dictionary, amount: float) -> float:
+	var out: float = amount
+	for el in comp:
+		if float(comp[el]) > 0.0:
+			out = minf(out, float(pool.get(el, 0.0)) / float(comp[el]))
+	return maxf(out, 0.0)
+
+
+static func _shift(pool: Dictionary, comp: Dictionary, amount: float, sign: float) -> void:
+	for el in comp:
+		pool[el] = float(pool.get(el, 0.0)) + sign * amount * float(comp[el])
+
+
+## Body -> field. Returns what the field-backed book carries, which is all the caller may hand to the
+## device; the rest came from a stand-in, so it goes home to one instead of into the sealed field.
+func _give(comp: Dictionary, amount: float, fallback: String) -> float:
+	var real: float = _room(_stock, comp, amount)
+	_shift(_stock, comp, real, -1.0)
+	var left: float = amount - real
+	for fake in _stood_in:
+		if left <= 0.0:
+			break
+		var can: float = _room(_stood_in[fake], comp, left)
+		if can <= 0.0:
+			continue
+		_shift(_stood_in[fake], comp, can, -1.0)
+		LAFakes.give_back(String(fake), can)
+		left -= can
+	if left > 0.0:
+		LAFakes.give_back(fallback, left)
+	return real
+
+
 # --- the biotic ledger (published into SIM_REPORT through the LASimReport.register seam) --------------------
-var graze_asked: float = 0.0             # standing crop animals bit at
-var graze_taken: float = 0.0             # ...of which the local mirror agreed was there (the gut credit)
-var node_intake: float = 0.0             # body mass taken from plant/carcass NODES, which are not field channels
-var o2_in: float = 0.0                   # free O₂ animals drew out of their head cells
-var co2_out: float = 0.0                 # CO₂ their respiration put back (== o2_in, one for one)
+var graze_taken: float = 0.0             # standing crop that left the field and entered a gut
+var co2_out: float = 0.0                 # body carbon respiration turned the head cell's O₂ into
 var detritus_out: float = 0.0            # body mass returned to the soil as litter (feces, carcass, carrion)
 var water_in: float = 0.0                # H₂O drunk out of the field
 var water_out: float = 0.0               # H₂O breathed/sweated/passed back into it
-var heat_out: float = 0.0                # JOULES of respiration heat handed to the field
-var spawn_mass: float = 0.0              # body mass that entered the world by SPAWNING rather than by eating
-var spawn_founder: float = 0.0           # ...of which the founding population (an initial condition)
-var spawn_runtime: float = 0.0           # ...of which spawned after the founding wave — matter made at runtime
 var exchanges: int = 0                   # per-cell edits queued, so a dead seam is distinguishable from a calm one
 
 
@@ -82,19 +123,16 @@ func graze(world_pos: Vector3, want: float) -> float:
 	if c < 0:
 		return 0.0
 	var standing: float = _f._biomass[c]
-	var reachable: float = maxf(0.0, standing - GRAZE_RESIDUAL)
-	if reachable <= 0.0:
-		return 0.0
-	var take: float = minf(want, reachable * BITE_TAKE_FRAC)
+	# What a mouth can reach: the crop standing above the grazing horizon. Nothing else bounds a bite;
+	# the animal already asked for what its jaw takes in this step.
+	var take: float = minf(want, maxf(0.0, standing - GRAZE_RESIDUAL))
 	if take <= 0.0:
 		return 0.0
 	# Decrement the mirror NOW so the next grazer this frame sees a thinner pasture (see the header note).
 	_f._biomass[c] = maxf(0.0, standing - take)
-	var cells: PackedInt32Array = PackedInt32Array([c])
-	var amounts: PackedFloat32Array = PackedFloat32Array([take])
-	var sink: PackedInt32Array = PackedInt32Array([-1])
-	q.transfer("biomass", cells, amounts, "biomass", sink)
-	graze_asked += want
+	q.transfer("biomass", PackedInt32Array([c]), PackedFloat32Array([take]),
+		"biomass", PackedInt32Array([-1]))
+	_shift(_stock, LAReactionBalance.channel_elements("biomass"), take, 1.0)
 	graze_taken += take
 	exchanges += 1
 	return take
@@ -133,12 +171,15 @@ func _draw(q, channel: String, c: int, want: float) -> float:
 	var take: float = minf(want, have)
 	_f._h2o[c] = maxf(0.0, _f._h2o[c] - take)
 	q.transfer(channel, PackedInt32Array([c]), PackedFloat32Array([take]), channel, PackedInt32Array([-1]))
+	_shift(_stock, LAReactionBalance.channel_elements(channel), take, 1.0)
 	exchanges += 1
 	return take
 
 
 # --- OUTPUT: matter leaving a body and entering the field -------------------------------------------------
 
+## Oxidise body carbon in the O2 of the head cell. One mole of the cell's O2 becomes one mole of CO2 in
+## place, so its oxygen is transformed rather than destroyed; the carbon comes out of the body.
 func respire(head_pos: Vector3, mass: float) -> float:
 	if mass <= 0.0:
 		return 0.0
@@ -157,22 +198,20 @@ func respire(head_pos: Vector3, mass: float) -> float:
 		push_error("LAMaterialFieldBiota3D.respire: no cell volume, so respiration heat cannot be sized.")
 		return 0.0
 	var have: float = _f._o2[c]
-	var got: float = minf(mass, maxf(0.0, have))
+	var want: float = minf(mass, maxf(0.0, have))
+	if want <= 0.0:
+		return 0.0
+	var got: float = _give({"C": float(LAReactionBalance.channel_elements("co2")["C"])}, want, "plant_carbon")
 	if got <= 0.0:
 		return 0.0
 	_f._o2[c] = have - got
-	# O₂ is debited with dst -1: it leaves the field.
-	q.transfer("o2", PackedInt32Array([c]), PackedFloat32Array([got]), "o2", PackedInt32Array([-1]))
-	# CO₂ is CREDITED with no field debit, because its carbon came out of the body.
-	q.add("co2", PackedInt32Array([c]), PackedFloat32Array([got]))
-	o2_in += got
+	q.transfer("o2", PackedInt32Array([c]), PackedFloat32Array([got]), "co2", PackedInt32Array([c]))
 	co2_out += got
-	exchanges += 2
+	exchanges += 1
 	# Respiration heat, by Hess's law over the same formation enthalpies the reaction table uses.
 	var j: float = got * _respiration_j_per_o2_unit() * m3
 	if j > 0.0 and _f.has_method("add_heat_energy"):
 		_f.add_heat_energy(head_pos, j, HEAT_RADIUS)
-		heat_out += j
 	return got
 
 
@@ -185,10 +224,13 @@ func litter(world_pos: Vector3, mass: float) -> void:
 	var c: int = ground_cell(world_pos)
 	if c < 0:
 		return
-	q.add("detritus", PackedInt32Array([c]), PackedFloat32Array([mass]))
+	var got: float = _give(litter_comp(), mass, "plant_carbon")
+	if got <= 0.0:
+		return
+	q.add("detritus", PackedInt32Array([c]), PackedFloat32Array([got]))
 	if _f._detritus.size() == _f._cell_count:
-		_f._detritus[c] += mass          # keep the mirror in step until the next readback
-	detritus_out += mass
+		_f._detritus[c] += got          # keep the mirror in step until the next readback
+	detritus_out += got
 	exchanges += 1
 
 
@@ -201,53 +243,41 @@ func transpire(world_pos: Vector3, mass: float) -> void:
 		return
 	if _f._h2o.size() != _f._cell_count:
 		return
+	# Breath and sweat go into the air around the animal. Its own cell is rock when it is standing on the
+	# ground, so the open cell resting on that ground is where the vapour is.
 	var c: int = _f.world_to_cell(world_pos)
 	if c < 0 or _f._solid[c] != 0:
+		c = ground_cell(world_pos)
+	if c < 0:
 		return
-	q.add("h2o", PackedInt32Array([c]), PackedFloat32Array([mass]))
-	water_out += mass
+	var got: float = _give(LAReactionBalance.channel_elements("h2o"), mass, "drinking_water")
+	if got <= 0.0:
+		return
+	q.add("h2o", PackedInt32Array([c]), PackedFloat32Array([got]))
+	water_out += got
 	exchanges += 1
 
 
-## Body mass taken from a NODE rather than from a field channel (a plant eaten, a carcass bitten, a kill).
-func note_node_intake(mass: float) -> void:
-	if mass > 0.0:
-		node_intake += mass
-
-
-func note_spawn(mass: float, founder: bool) -> void:
-	if mass <= 0.0:
+## A body appeared. While the world is still seeding it is matter the planet is handed, declared at the
+## seal; after the seal nothing sources it, so a stand-in makes it and books what it made.
+func note_body(mass: float) -> void:
+	if mass <= 0.0 or _f == null or _f._seal == null:
 		return
-	spawn_mass += mass
-	if founder:
-		spawn_founder += mass
-	else:
-		spawn_runtime += mass
-
-
-## Carbon standing in living bodies and undecomposed carcasses right now.
-func biota_carbon() -> float:
-	return spawn_mass + graze_taken + node_intake - co2_out - detritus_out
+	var comp: Dictionary = litter_comp()
+	if not _f._seal.sealed():
+		_f._seal.note_creation("biota_body", mass)
+		_shift(_stock, comp, mass, 1.0)
+		return
+	var got: float = LAFakes.draw("founding_stock", mass)
+	if got > 0.0:
+		_shift(_stood_in.get_or_add("founding_stock", {}), comp, got, 1.0)
 
 
 func report() -> Dictionary:
-	return {
-		"biota_carbon": snappedf(biota_carbon(), 0.01),
-		"biota_graze_asked": snappedf(graze_asked, 0.01),
-		"biota_graze_taken": snappedf(graze_taken, 0.01),
-		# What the pasture could not supply.
-		"biota_graze_short": snappedf(maxf(0.0, graze_asked - graze_taken), 0.01),
-		"biota_node_intake": snappedf(node_intake, 0.01),
-		# Body mass that arrived by SPAWNING. The founding split is an initial condition.
-		"biota_spawn_mass": snappedf(spawn_mass, 0.01),
-		"biota_spawn_founder": snappedf(spawn_founder, 0.01),
-		"biota_spawn_runtime": snappedf(spawn_runtime, 0.01),
-		"biota_o2_in": snappedf(o2_in, 0.01),
-		"biota_co2_out": snappedf(co2_out, 0.01),
-		"biota_detritus_out": snappedf(detritus_out, 0.01),
-		"biota_water_in": snappedf(water_in, 0.01),
-		"biota_water_out": snappedf(water_out, 0.01),
-		"biota_heat": snappedf(heat_out, 0.01),
-		# Per-cell device edits this seam queued. Zero with animals alive means the seam is dead.
-		"biota_exchanges": exchanges,
-	}
+	# `biota_exchanges` is the per-cell device edits this seam queued: zero with animals alive is a dead seam.
+	var out: Dictionary = {"biota_graze_taken": graze_taken, "biota_co2_out": co2_out,
+		"biota_detritus_out": detritus_out, "biota_water_in": water_in,
+		"biota_water_out": water_out, "biota_exchanges": exchanges}
+	for el in _stock:
+		out["biota_stock_" + String(el)] = float(_stock[el])
+	return out
