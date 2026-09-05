@@ -158,6 +158,7 @@ var _panic_source: Vector3 = Vector3.ZERO
 var _eff_speed: float = 0.0                 # decided speed, carried between think-frames
 var _think_phase: int = -1                  # per-instance stagger offset (lazily set on first tick)
 var _force_think: bool = false              # acute event (scare/damage) → re-decide next frame
+var _think_dt: float = 0.0                  # seconds since this body last acted on a decision
 
 var _leader: Node3D = null
 var _is_leader: bool = true
@@ -501,7 +502,10 @@ func _physics_process(delta: float) -> void:
 		_pt = Time.get_ticks_usec()
 	var stride: int = LACreatureLod.think_stride(self)
 	var do_think: bool = _force_think or ((int(Engine.get_physics_frames()) + _think_phase) % stride == 0)
+	_think_dt += delta
 	if do_think:
+		var think_dt: float = _think_dt
+		_think_dt = 0.0
 		LASimReport.event("decision")   # telemetry: discretionary decisions/run — proves the AI-tick stride knob bites
 		var desired: Vector3 = _heading
 		_wander_timer -= delta
@@ -556,7 +560,7 @@ func _physics_process(delta: float) -> void:
 			else:
 				# Thirst competes with hunger: once parched, seeking/drinking water interrupts
 				# normal behavior (but never overrides fleeing a predator, handled above).
-				var thirst_action: String = LACreatureThirst.handle_thirst(self, pos, delta)
+				var thirst_action: String = LACreatureThirst.handle_thirst(self, pos, think_dt)
 				if thirst_action == "drink":
 					eff_speed = 0.0                      # stand at the water's edge and drink
 					state = "drink"

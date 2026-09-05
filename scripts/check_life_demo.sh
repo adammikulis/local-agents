@@ -15,8 +15,8 @@ SCENE="addons/local_agents/examples/LifeDemo.tscn"
 FRAMES="${LA_LIFE_FRAMES:-300}"
 MIN_FPS="${LA_LIFE_MIN_FPS:-30}"
 
-LOG="$(mktemp "${TMPDIR:-/tmp}/la_life_demo.XXXXXX")"
-trap 'rm -f "$LOG"' EXIT INT TERM
+LOG="${LA_LIFE_LOG:-$(mktemp "${TMPDIR:-/tmp}/la_life_demo.XXXXXX")}"
+[ -n "${LA_LIFE_LOG:-}" ] || trap 'rm -f "$LOG"' EXIT INT TERM
 LA_RUN_TIMEOUT="${LA_LIFE_TIMEOUT:-110}" "$ROOT/scripts/run_sim_offscreen.sh" --path "$ROOT" \
 	"$SCENE" --fixed-fps 60 -- --sandbox "--run-frames=$FRAMES" > "$LOG" 2>&1
 rc=$?
@@ -41,8 +41,17 @@ if report is None or pop is None:
           % ("SIM_REPORT" if report is None else "POP_TRACE", rc), file=sys.stderr)
     print("\n".join(text.splitlines()[-25:]), file=sys.stderr)
     sys.exit(2)
-snap = json.loads(report)
-trace = json.loads(pop)
+# The run prints its own numbers, and a gauge that went non-finite prints as `nan`, which is not JSON.
+def load(line, what):
+    try:
+        return json.loads(re.sub(r"(?<![\\w.])-?(nan|inf)(?![\\w.])", "null", line))
+    except ValueError as e:
+        print("check_life_demo: the run's %s line is not readable: %s" % (what, e), file=sys.stderr)
+        print(line[:400], file=sys.stderr)
+        sys.exit(2)
+
+snap = load(report, "SIM_REPORT")
+trace = load(pop, "POP_TRACE")
 gauges = snap.get("gauges", {})
 
 fails = []
@@ -71,6 +80,14 @@ else:
         made = float(fakes.get(name, {}).get("created", 0.0))
         if made <= 0.0:
             fails.append("the '%s' stand-in handed nothing out, so nothing drew on it" % name)
+
+# NOTHING DIED OF A STAND-IN. While `drinking_water` is in force there is a drink wherever an animal
+# stands, so a death by thirst means the fake never reached it and the demo is killing life with its
+# own scaffolding.
+if "drinking_water" in fakes:
+    thirst = int(snap.get("events", {}).get("death/thirst", 0))
+    if thirst > 0:
+        fails.append("creatures died of thirst while the 'drinking_water' stand-in was in force")
 
 # NO SLOW FRAME. `fps` keeps its own running minimum, so this is the worst frame the run had.
 fps = gauges.get("fps", {})
