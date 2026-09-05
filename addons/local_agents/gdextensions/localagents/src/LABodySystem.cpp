@@ -49,9 +49,9 @@ constexpr double LUNAR_SEPARATION_AT_EPOCH_M = 2.42e7;
 // Semi-major axis of the planet's orbit, metres. The au is exact by definition (IAU 2012 B2).
 constexpr double ASTRONOMICAL_UNIT_M = 1.495978707e11;
 
-// Young-sun XUV (1-1200 A), erg cm^-2 s^-1 at 1 au for a sun tau Gyr old, valid past 0.1 Gyr
-// (Ribas et al. 2005, ApJ 622:680). Carried as a LUMINOSITY so no body's orbit is baked into it.
-constexpr double XUV_1AU_1GYR_W_M2 = 0.0297;
+// Young-sun XUV (1-1200 A) at 1 au for a sun tau Gyr old, valid past 0.1 Gyr: Ribas et al. 2005,
+// ApJ 622:680, 29.7 erg cm^-2 s^-1 in SI. Carried as a LUMINOSITY so no body's orbit is baked into it.
+constexpr double XUV_1AU_1GYR_W_M2 = 0.0297;   // W/m^2
 // The tau exponent of the fit above (Ribas et al. 2005).
 constexpr double XUV_AGE_EXPONENT = 1.23;
 
@@ -275,7 +275,6 @@ void LABodyMeasure::measure(Object *p_field, const Vector3 &p_spin_axis) {
 	mass_kg = -1.0;
 	surface_r_m = -1.0;
 	inertia_kg_m2 = -1.0;
-	gas_constant_j_kgk = -1.0;
 	mass_by_channel = Dictionary();
 	if (!p_field) {
 		return;
@@ -290,7 +289,6 @@ void LABodyMeasure::measure(Object *p_field, const Vector3 &p_spin_axis) {
 		return;
 	}
 	const Array mirrors = LAFieldCellMass3D::mirrors(p_field);
-	const Array gases = LAFieldCellMass3D::gas_mirrors(p_field);
 	if (mirrors.is_empty()) {
 		return;
 	}
@@ -302,12 +300,12 @@ void LABodyMeasure::measure(Object *p_field, const Vector3 &p_spin_axis) {
 	const Vector3 centre = la_call_gd(GEOMETRY_GD, "centre", cargs);
 	const Vector3 n = p_spin_axis.normalized();
 	double m_acc = 0.0;
-	double r_max = 0.0;
+	double v_rock = 0.0;
 	double i_acc = 0.0;
-	double moles = 0.0;
-	double gas_kg = 0.0;
 	const PackedVector3Array la_cw = grid->get("centres");
 	const PackedFloat32Array la_cv = grid->call("cell_volumes");
+	const PackedFloat32Array rock = p_field->get("_rock_fraction");
+	const bool has_rock = rock.size() == cc;
 	for (int c = 0; c < cc; c++) {
 		const double vol = double(la_cv[c]);
 		const Vector3 r = la_cw[c] - centre;
@@ -322,40 +320,24 @@ void LABodyMeasure::measure(Object *p_field, const Vector3 &p_spin_axis) {
 		m_acc += cell_kg;
 		const Vector3 perp = r - n * r.dot(n);
 		i_acc += cell_kg * double(perp.length_squared());
-		if (solid[c] != 0) {
-			r_max = MAX(r_max, double(r.length()));
-			continue;
-		}
-		for (int g = 0; g < gases.size(); g++) {
-			const Array pair = gases[g];
-			const PackedFloat32Array arr = pair[0];
-			const double g_mol = MAX(double(arr[c]), 0.0) * vol;
-			moles += g_mol;
-			gas_kg += g_mol * double(pair[1]);
-		}
+		// The crust's own volume, sub-cell: what the radius below is the radius OF.
+		v_rock += (has_rock ? MAX(double(rock[c]), 0.0) : (solid[c] != 0 ? 1.0 : 0.0)) * vol;
 	}
-	if (m_acc <= 0.0 || r_max <= 0.0) {
+	if (m_acc <= 0.0 || v_rock <= 0.0) {
 		return;
 	}
 	mass_kg = m_acc;
 	for (int k = 0; k < names.size(); k++) {
 		mass_by_channel[names[k]] = per[k];
 	}
-	surface_r_m = r_max;
 	// A WINDOW ON A BODY IS NOT THE BODY. A slice holds a slab of it, so the mass it sums carries no
-	// moment about the body's axis and the inertia stays UNMEASURED: the spin rate has no denominator
-	// and there is no rotating frame, rather than one whose rate is the slab's own.
-	inertia_kg_m2 = p_field->get("_slice").get_type() == Variant::NIL ? i_acc : -1.0;
-	if (moles > 0.0 && gas_kg > 0.0) {
-		gas_constant_j_kgk = la_physical("GAS_CONSTANT_J_MOL_K") * moles / gas_kg;
-	}
-}
-
-double LABodyMeasure::surface_gravity_m_s2() const {
-	if (!measured()) {
-		return NAN;
-	}
-	return la_physical("GRAVITATIONAL_CONSTANT") * mass_kg / (surface_r_m * surface_r_m);
+	// moment about the body's axis and no crust volume the body's radius could come out of: both stay
+	// UNMEASURED rather than reading as the slab's own.
+	const bool whole = p_field->get("_slice").get_type() == Variant::NIL;
+	// THE VOLUMETRIC MEAN RADIUS of the crust, the radius published for a planet: the sphere holding the
+	// solid volume that was seeded. A peak is not a radius, and gravity is the solve's field, not GM/r^2.
+	surface_r_m = whole ? std::cbrt(3.0 * v_rock / (4.0 * Math::PI)) : -1.0;
+	inertia_kg_m2 = whole ? i_acc : -1.0;
 }
 
 double LABodyMeasure::angular_velocity_rad_s(double p_spin_l_kg_m2_s) const {
@@ -365,7 +347,6 @@ double LABodyMeasure::angular_velocity_rad_s(double p_spin_l_kg_m2_s) const {
 void LABodyMeasure::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("measured"), &LABodyMeasure::measured);
 	ClassDB::bind_method(D_METHOD("measure", "field", "spin_axis"), &LABodyMeasure::measure);
-	ClassDB::bind_method(D_METHOD("surface_gravity_m_s2"), &LABodyMeasure::surface_gravity_m_s2);
 	ClassDB::bind_method(D_METHOD("angular_velocity_rad_s", "spin_l_kg_m2_s"),
 			&LABodyMeasure::angular_velocity_rad_s);
 #define LA_MEASURE_READING(m, t)                                              \
@@ -374,7 +355,6 @@ void LABodyMeasure::_bind_methods() {
 	LA_MEASURE_READING(mass_kg, Variant::FLOAT);
 	LA_MEASURE_READING(surface_r_m, Variant::FLOAT);
 	LA_MEASURE_READING(inertia_kg_m2, Variant::FLOAT);
-	LA_MEASURE_READING(gas_constant_j_kgk, Variant::FLOAT);
 	LA_MEASURE_READING(mass_by_channel, Variant::DICTIONARY);
 #undef LA_MEASURE_READING
 }
