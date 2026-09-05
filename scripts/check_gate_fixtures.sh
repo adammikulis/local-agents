@@ -1,15 +1,10 @@
 #!/usr/bin/env bash
-# A GATE THAT BUILDS ITS OWN INPUTS PROVES THE KERNEL CORRECT AND SAYS NOTHING ABOUT THE SYSTEM.
-#
-# THE RULE. A gate whose GDScript makes its own RenderingDevice and dispatches a pass over buffers it
-# allocated is feeding the kernel a table the sim never sends it. Such a gate must ALSO boot the world the
-# sim seeds — scripts/sim_run.sh, or agent_harness.sh sim — and read a published gauge back off it.
-#
-# WHAT COMES OUT CLEAN, AND WHY IT IS THE RULE RATHER THAN A LIST. A pure text check over source constructs
-# nothing, so the conjunction never fires on it. check_voxel_grid.sh builds a grid and dispatches nothing at
-# it: the grid IS the subject under test, not a stand-in for the world's field.
-#
-# EXIT 0 clean · 1 a gate has a fixture arm and no seeded-world arm · 2 could not run.
+# TWO RULES OVER THE GATES THEMSELVES.
+# 1  A gate whose GDScript makes its own RenderingDevice and dispatches a pass over buffers it allocated
+#    must ALSO boot the world the sim seeds and read a published gauge off it. A pure text check
+#    constructs nothing and never fires; check_voxel_grid.sh builds the grid that IS its subject.
+# 2  A gate may not compare a run against a recording. Assert the invariant it stood for off a live run.
+# EXIT 0 clean · 1 a fixture arm with no seeded-world arm, or a recording · 2 could not run.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh"
@@ -73,6 +68,28 @@ def seeded_arm(text):
     boots = "sim_run.sh" in text or HARNESS_SIM.search(text) is not None
     return boots and "--report" in text
 
+# A path token carrying a `fixtures` component, and a stored digest. Neither matches this file: the first
+# demands a slash, the second a run of 32 hex characters.
+RECORDING_PATH = re.compile(r"[\w.${}][\w.${}/-]*")
+STORED_DIGEST = re.compile(r"(?<![0-9a-zA-Z])[0-9a-f]{32,}(?![0-9a-zA-Z])")
+
+
+def recordings(text):
+    out = []
+    for tok in RECORDING_PATH.findall(text):
+        if "/" in tok and "fixtures" in tok.split("/"):
+            out.append(tok)
+    for d in STORED_DIGEST.findall(text):
+        out.append("stored digest " + d[:12])
+    return sorted(set(out))
+
+
+scripts = sorted(s for s in os.listdir(sdir) if s.endswith(".sh"))
+recorded = []
+for s in scripts:
+    for r in recordings(read(os.path.join(sdir, s))):
+        recorded.append((s, r))
+
 gates = sorted(g for g in os.listdir(sdir) if g.startswith("check_") and g.endswith(".sh"))
 fixture_gates, seeded_gates, bad = [], [], []
 for g in gates:
@@ -98,6 +115,16 @@ if not fixture_gates or not seeded_gates:
           "and this gate can no longer fail." % (len(fixture_gates), len(seeded_gates)), file=sys.stderr)
     sys.exit(2)
 
+if recorded:
+    print("check_gate_fixtures: FAILED", file=sys.stderr)
+    for s, r in recorded:
+        print("  %s compares against a recording: %s" % (s, r), file=sys.stderr)
+    print("\nA recording reads red on every correct change until someone re-records it, and green on a wrong\n"
+          "substrate whose output matches its own past. Assert the invariant it stood for off a live run:\n"
+          "conservation to a bound, symmetry, a fixed point, monotonicity, an analytic solution,\n"
+          "order-independence, or determinism between two runs of one build.", file=sys.stderr)
+    sys.exit(1)
+
 if bad:
     print("check_gate_fixtures: FAILED", file=sys.stderr)
     for g in bad:
@@ -108,6 +135,6 @@ if bad:
           "does with Gauss's law.", file=sys.stderr)
     sys.exit(1)
 
-print("check_gate_fixtures: OK (%d gates, %d with a fixture arm, all of those boot the seeded world)"
-      % (len(gates), len(fixture_gates)))
+print("check_gate_fixtures: OK (%d gates, %d with a fixture arm, all of those boot the seeded world; "
+      "%d scripts, none against a recording)" % (len(gates), len(fixture_gates), len(scripts)))
 PY
