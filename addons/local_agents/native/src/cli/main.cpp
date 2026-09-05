@@ -1,6 +1,7 @@
 #include "Selftest.hpp"
 #include "la/Device.hpp"
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -12,7 +13,8 @@ namespace {
 
 const char *kUsage =
 		"Usage: lasim [--backend metal|vulkan] [--device N] [--kernels FILE]\n"
-		"             [--selftest-device | --selftest-kernels]\n";
+		"             [--selftest-device | --selftest-kernels]\n"
+		"             [--property-tests [--seed N] [--only NAME]]\n";
 
 // The blob sits beside the binary, which is where the build writes it.
 std::string blob_beside(const char *argv0) {
@@ -29,6 +31,11 @@ int main(int argc, char **argv) {
 	std::string blob;
 	bool want_device = false;
 	bool want_kernels = false;
+	bool want_properties = false;
+	// The seed is printed with every failure, so a case replays; a run with none picks its own.
+	uint64_t seed = 0;
+	bool have_seed = false;
+	const char *only = nullptr;
 
 	for (int i = 1; i < argc; ++i) {
 		const std::string a = argv[i];
@@ -50,6 +57,13 @@ int main(int argc, char **argv) {
 			want_device = true;
 		} else if (a == "--selftest-kernels") {
 			want_kernels = true;
+		} else if (a == "--property-tests") {
+			want_properties = true;
+		} else if (a == "--seed" && i + 1 < argc) {
+			seed = std::strtoull(argv[++i], nullptr, 10);
+			have_seed = true;
+		} else if (a == "--only" && i + 1 < argc) {
+			only = argv[++i];
 		} else if (a == "-h" || a == "--help") {
 			std::fputs(kUsage, stdout);
 			return 0;
@@ -58,11 +72,14 @@ int main(int argc, char **argv) {
 			return 2;
 		}
 	}
-	if (!want_device && !want_kernels) {
+	if (!want_device && !want_kernels && !want_properties) {
 		std::fputs(kUsage, stderr);
 		return 2;
 	}
 	if (blob.empty()) { blob = blob_beside(argv[0]); }
+	if (!have_seed) {
+		seed = static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
+	}
 
 	std::string err;
 	std::unique_ptr<la::Device> dev = la::Device::create(backend, index, err);
@@ -75,6 +92,7 @@ int main(int argc, char **argv) {
 	int code = 0;
 	if (want_device) { code = lasim::selftest_device(*dev, blob); }
 	if (code == 0 && want_kernels) { code = lasim::selftest_kernels(*dev, blob); }
+	if (code == 0 && want_properties) { code = lasim::property_tests(*dev, blob, seed, only); }
 	std::printf("LA_RUN_COMPLETE={\"code\":%d}\n", code);
 	return code;
 }
