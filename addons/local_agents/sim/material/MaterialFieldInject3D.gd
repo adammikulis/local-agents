@@ -42,7 +42,7 @@ func _device_ready() -> bool:
 # --- Local field injection (add_heat_energy) -----------------------------------------
 
 func add_heat_energy(world_pos: Vector3, joules: float, radius: float = 0.0) -> float:
-	if joules == 0.0 or _f._e.size() != _f._cell_count:
+	if joules == 0.0 or not _f._mirrors.has("e_j_m3"):
 		return 0.0
 	return _inject_energy(_cells_within(world_pos, radius), joules)
 
@@ -71,7 +71,7 @@ func _apply_h(cells: PackedInt32Array, dh: float) -> void:
 		# The box/CPU reference field has no device and nothing flushes the queue there, so the mirror IS the
 		# field.
 		for c in cells:
-			_f._e[c] = _f._e[c] + dh
+			_f._mirrors.add_at("e_j_m3", c, dh)
 		return
 	var deltas: PackedFloat32Array = PackedFloat32Array()
 	deltas.resize(cells.size())
@@ -85,8 +85,6 @@ func _apply_h(cells: PackedInt32Array, dh: float) -> void:
 func land_ejecta(src_cell: int, world_pos: Vector3, mass: float) -> void:
 	if mass <= 0.0 or src_cell < 0 or src_cell >= _f._cell_count or not _device_ready():
 		return
-	if _f._silicate.size() != _f._cell_count:
-		return
 	var dst: int = _f.world_to_cell(world_pos)
 	if dst < 0 or dst >= _f._cell_count:
 		return
@@ -97,7 +95,7 @@ func land_ejecta(src_cell: int, world_pos: Vector3, mass: float) -> void:
 
 ## Loose mineral arriving at a point. What lands is grains, so the cell's consolidated share goes with it.
 func deposit_sediment(world_pos: Vector3, amount: float) -> void:
-	if amount <= 0.0 or _f._silicate.size() != _f._cell_count or not _device_ready():
+	if amount <= 0.0 or not _device_ready():
 		return
 	var c: int = _f.world_to_cell(world_pos)
 	if c < 0 or c >= _f._cell_count:
@@ -160,7 +158,7 @@ func _cells_within(world_pos: Vector3, radius: float) -> PackedInt32Array:
 ## Flood pool-fill: add water only where the ground is at/below the centre column's ground, so a surge
 ## fills the basin and runs downhill (never climbs a hillside). 3D analogue of the 2.5D add_water_pooled.
 func add_water_pooled(center: Vector3, amount: float, radius: float) -> void:
-	if amount <= 0.0 or _f._h2o.size() != _f._cell_count or not _device_ready():
+	if amount <= 0.0 or not _device_ready():
 		return
 	var center_r: float = (center - _f.centre()).length()
 	var cells: PackedInt32Array = _cells_within(center, radius)
@@ -178,7 +176,7 @@ func add_water_pooled(center: Vector3, amount: float, radius: float) -> void:
 	var src_cells: PackedInt32Array = PackedInt32Array()
 	var takes: PackedFloat32Array = PackedFloat32Array()
 	var dsts: PackedInt32Array = PackedInt32Array()
-	var have_moisture: bool = _f._h2o.size() == _f._cell_count
+	var have_moisture: bool = _f._mirrors.has("h2o")
 	var i: int = 0
 	var offer: float = 0.0
 	if have_moisture:
@@ -202,7 +200,7 @@ func add_water_pooled(center: Vector3, amount: float, radius: float) -> void:
 func resample_terrain(world_pos: Vector3, radius: float) -> void:
 	if _f == null or _f._terrain == null or not _f._terrain.has_method("is_solid"):
 		return
-	if _f._solid.size() != _f._cell_count or _f._silicate.size() != _f._cell_count:
+	if _f._solid.size() != _f._cell_count or not _f._mirrors.has("silicate"):
 		return
 	var cells: PackedInt32Array = _cells_within(world_pos, radius)
 	if cells.size() == 0:
@@ -215,7 +213,6 @@ func resample_terrain(world_pos: Vector3, radius: float) -> void:
 			mask[c] = 1 if _f._terrain.is_solid(_f.cell_world_pos_linear(c)) else 0
 		_f._solid = mask
 		return
-	var rock: PackedFloat32Array = _f._silicate
 	var solid: PackedByteArray = _f._solid
 	var src: PackedInt32Array = PackedInt32Array()
 	var was_rock: PackedInt32Array = PackedInt32Array()   # cells the field held as derived-solid bedrock
@@ -226,7 +223,7 @@ func resample_terrain(world_pos: Vector3, radius: float) -> void:
 	for c in cells:
 		if _f._terrain.is_solid(_f.cell_world_pos_linear(c)):
 			continue                                   # still rock — the edit did not reach this cell
-		var rf: float = rock[c]
+		var rf: float = _f._mirrors.at("silicate", c)
 		if rf <= 0.0 and solid[c] == 0:
 			continue                                   # already void in the substrate — nothing was excavated
 		if solid[c] != 0:
@@ -257,7 +254,7 @@ func resample_terrain(world_pos: Vector3, radius: float) -> void:
 
 ## SINK: water_sphere3d.glsl skips any cell whose `static` flag is set when it gathers outflow, so a static sea
 func _flood_from_sea(cells: PackedInt32Array) -> void:
-	if _f._grid == null or _f._h2o.size() != _f._cell_count:
+	if _f._grid == null or not _f._mirrors.has("h2o"):
 		return
 	var solid: PackedByteArray = _f._solid
 	var srcs: PackedInt32Array = PackedInt32Array()
@@ -306,13 +303,13 @@ func crater_report() -> Dictionary:
 	var rock_now: float = 0.0
 	var water: float = 0.0
 	var watch: int = _crater_watch.size()
-	if _f != null and watch > 0 and _f._cement.size() == _f._cell_count:
+	if _f != null and watch > 0 and _f._mirrors.has("cement"):
 		var sea_r: float = 0.0
 		if _f._terrain != null and _f._terrain.has_method("sea_radius"):
 			sea_r = float(_f._terrain.sea_radius())
-		var has_water: bool = _f._h2o.size() == _f._cell_count
+		var has_water: bool = _f._mirrors.has("h2o")
 		for c in _crater_watch:
-			rock_now += _f._cement[c]
+			rock_now += _f._mirrors.at("cement", c)
 			if _f._solid.size() == _f._cell_count and _f._solid[c] == 0:
 				open_now += 1
 			if sea_r > 0.0 and (_f.cell_world_pos_linear(c) - _f.centre()).length() < sea_r:

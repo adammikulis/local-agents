@@ -26,12 +26,9 @@ var _rock_fraction: PackedFloat32Array = PackedFloat32Array()   # share of the c
 var _surface_depth: PackedFloat32Array = PackedFloat32Array()   # m below the local ground, negative above it
 var _water_fraction: PackedFloat32Array = PackedFloat32Array()  # share of the cell's volume under the sea shell and over its ground
 var _ground_d: PackedFloat32Array = PackedFloat32Array()        # depth of the ground under the cell's fluid below its centre, m
-# One h2o channel, every phase; mol/m^3 of the cell. Phase is derived per cell.
-var _h2o: PackedFloat32Array = PackedFloat32Array()
-var _h2o_pore: PackedFloat32Array = PackedFloat32Array()   # water in the rock's pores, mol/m^3
-var _h2o_solid: PackedFloat32Array = PackedFloat32Array()    # share of _h2o that is ice
-var _h2o_liquid: PackedFloat32Array = PackedFloat32Array()   # share that is free liquid; pore water is h2o_pore
-var _h2o_vapour: PackedFloat32Array = PackedFloat32Array()   # share that is vapour
+## THE ONE CPU-SIDE DECLARATION of every per-cell channel: LAFieldMirrors, native storage the drain
+## lands the device's channels in. Nothing here holds a cell-sized array.
+var _mirrors: LAFieldMirrors = null
 
 const INITIAL_TEMP: float = 15.0
 # Gas channel seeds, mol/m^3.
@@ -41,52 +38,7 @@ const ICE_DEPTH: float = 0.5 * MAX_MASS
 const FOG_MAX_TEMP: float = 12.0
 # Condensate at which a cell counts as covered, mol/m^3.
 const CONDENSE_COVER_MIN: float = 5.0e-5 / LAPhysical.MOLAR_MASS_WATER_KG_MOL
-var _e: PackedFloat32Array = PackedFloat32Array()        # THE STATE: the fluid's internal energy J/m^3 per cell
-var _e_lith: PackedFloat32Array = PackedFloat32Array()   # THE STATE: the lattice's internal energy J/m^3 per cell
 var _t_rock: PackedFloat32Array = PackedFloat32Array()   # the geotherm's mean over each cell's rock, C, at the seed
-var _temp: PackedFloat32Array = PackedFloat32Array()     # DERIVED °C of the fluid, rewritten by StateDerivePass each step
-var _temp_lith: PackedFloat32Array = PackedFloat32Array()   # DERIVED °C of the lattice
-# The mineral amounts, mol/m^3 of the cell. Silicate melt and suspended shares are derived on the GPU;
-# how much of a cell's rock is consolidated is `_cement`.
-var _silicate: PackedFloat32Array = PackedFloat32Array()
-var _cement: PackedFloat32Array = PackedFloat32Array()   # consolidated share of this cell's rock, 0..1
-# The differentiated planet's other phases, seeded by LAPlanetComposition and static until their
-# transport exists.
-var _metal: PackedFloat32Array = PackedFloat32Array()
-var _olivine: PackedFloat32Array = PackedFloat32Array()
-var _pyroxene: PackedFloat32Array = PackedFloat32Array()
-var _plagioclase: PackedFloat32Array = PackedFloat32Array()
-var _halite: PackedFloat32Array = PackedFloat32Array()
-var _apatite: PackedFloat32Array = PackedFloat32Array()
-# DERIVED shares of `_silicate`, rewritten every step by the GPU. Never seeded, never conserved.
-var _silicate_melt: PackedFloat32Array = PackedFloat32Array()
-var _silicate_susp_water: PackedFloat32Array = PackedFloat32Array()
-var _silicate_susp_air: PackedFloat32Array = PackedFloat32Array()
-var _silicate_bed: PackedFloat32Array = PackedFloat32Array()
-# --- Emergent FIRE / COMBUSTION (LAMaterialCombustion3D): a FUEL channel (flammable vegetation mass seeded
-var _fuel: PackedFloat32Array = PackedFloat32Array()     # flammable fuel mass per cell (vegetation)
-var _fire: PackedFloat32Array = PackedFloat32Array()     # burning intensity per cell (0 = not burning)
-var _o2: PackedFloat32Array = PackedFloat32Array()       # atmospheric O₂ per cell, mol/m^3
-var _co2: PackedFloat32Array = PackedFloat32Array()      # atmospheric CO₂ per cell, mol/m^3
-var _n2: PackedFloat32Array = PackedFloat32Array()       # atmospheric N₂ per cell, mol/m^3
-# The 4.4 Ga atmosphere's minor gases, mol/m^3: volcanic H2/CO/SO2/H2S, abiotic (serpentinization) CH4.
-var _h2: PackedFloat32Array = PackedFloat32Array()
-var _co: PackedFloat32Array = PackedFloat32Array()
-var _so2: PackedFloat32Array = PackedFloat32Array()
-var _h2s: PackedFloat32Array = PackedFloat32Array()
-var _ch4: PackedFloat32Array = PackedFloat32Array()
-var _detritus: PackedFloat32Array = PackedFloat32Array() # dead decomposable organic matter per cell (0 = none)
-# Hydrogen and oxygen bound in the dead organic pool (detritus + fuel).
-var _org_h: PackedFloat32Array = PackedFloat32Array()
-var _org_o: PackedFloat32Array = PackedFloat32Array()
-var _fungus: PackedFloat32Array = PackedFloat32Array()   # fungal biomass density per cell (0 = none; high = mushrooms)
-var _fert: PackedFloat32Array = PackedFloat32Array()     # soil nutrient density per cell (0 = barren)
-var _biomass: PackedFloat32Array = PackedFloat32Array()  # living plant matter density per cell (0 = none)
-var _pressure: PackedFloat32Array = PackedFloat32Array() # pressure per cell, Pa; negative = never written
-var _vel_x: PackedFloat32Array = PackedFloat32Array()    # wind velocity X per cell (world +X)
-var _vel_y: PackedFloat32Array = PackedFloat32Array()    # wind velocity Y per cell (world +Y)
-var _vel_z: PackedFloat32Array = PackedFloat32Array()    # wind velocity Z per cell (world +Z)
-var _charge: PackedFloat32Array = PackedFloat32Array()   # electrification charge per cell (updraft × supercooled cloud)
 var _sun_light = null                                    # DirectionalLight3D — solar forcing (top cells)
 
 var _ecology = null                                      # LAEcologyService back-ref (ash regrowth / actor coupling)
@@ -236,50 +188,26 @@ func _adopt(grid: LAVoxelGrid) -> void:
 func centre() -> Vector3:
 	return LAFieldGeometry.centre(self)
 
-## Allocate + seed every per-cell channel for the current `_cell_count`.
+## Allocate every per-cell channel mirror for the current `_cell_count`, in native storage.
 func _alloc_channels() -> void:
 	_solid = PackedByteArray()
 	_solid.resize(_cell_count)
-	_h2o = _cells_filled(0.0)
-	_h2o_pore = _cells_filled(0.0)
-	_h2o_solid = _cells_filled(0.0)
-	_h2o_liquid = _cells_filled(0.0)
-	_h2o_vapour = _cells_filled(0.0)
-	_e = _cells_filled(0.0)
-	_e_lith = _cells_filled(0.0)
-	_temp = _cells_filled(INITIAL_TEMP)
-	_temp_lith = _cells_filled(INITIAL_TEMP)
-	# Mineral amounts: seeded from the solid mask on activate; the silicate is GPU-owned thereafter.
-	_silicate = _cells_filled(0.0)
-	_cement = _cells_filled(0.0)
-	_metal = _cells_filled(0.0)
-	_olivine = _cells_filled(0.0)
-	_pyroxene = _cells_filled(0.0)
-	_plagioclase = _cells_filled(0.0)
-	_halite = _cells_filled(0.0)
-	_apatite = _cells_filled(0.0)
-	_fuel = _cells_filled(0.0)
-	_fire = _cells_filled(0.0)
-	for gas in ["o2", "co2", "n2", "h2", "co", "so2", "h2s", "ch4"]:
-		set("_" + gas, _cells_filled(0.0))
-	# Detritus + fungus start empty; carcasses/ash deposit detritus, fungus grows on it (decomposer loop).
-	_detritus = _cells_filled(0.0)
-	_org_h = _cells_filled(0.0)
-	_org_o = _cells_filled(0.0)
-	_fungus = _cells_filled(0.0)
-	# Soil fertility (decomposer output) starts barren; the GPU decomposer grows it where detritus rots.
-	_fert = _cells_filled(0.0)
-	# Biomass starts empty; photosynthesis grows it on the GPU where CO₂ + warmth + sky-exposed surface meet.
-	_biomass = _cells_filled(0.0)
-	_pressure = _cells_filled(0.0)
-	_vel_x = _cells_filled(0.0)
-	_vel_y = _cells_filled(0.0)
-	_vel_z = _cells_filled(0.0)
-	_charge = _cells_filled(0.0)
-	# Read-only query accessors bind to this field now; the arrays they read exist from here on.
+	# The channel table plus the buffers a pass recomputes each step. `regolith` is a CPU byte mask, not
+	# a mirror, so it is not one here.
+	var names: PackedStringArray = PackedStringArray()
+	for name in LAChannels.channels():
+		if String(name) != "regolith":
+			names.append(String(name))
+	for name in LAChannels.derived_buffers():
+		if not names.has(String(name)):
+			names.append(String(name))
+	_mirrors = LAFieldMirrors.new()
+	_mirrors.alloc(names, _cell_count)
+	_mirrors.fill("temp", INITIAL_TEMP)
+	_mirrors.fill("temp_lith", INITIAL_TEMP)
+	# Read-only query accessors bind to this field now; the mirrors they read exist from here on.
 	_queries = QueriesScript.new()
 	_queries.setup(self)
-
 
 
 func cell_world_pos(ix: int, iy: int, iz: int) -> Vector3:
@@ -319,14 +247,6 @@ func water_force_at(pos: Vector3) -> Vector3:
 
 
 
-
-
-## One channel mirror, `_cell_count` long, at a uniform value.
-func _cells_filled(v: float) -> PackedFloat32Array:
-	var a: PackedFloat32Array = PackedFloat32Array()
-	a.resize(_cell_count)
-	a.fill(v)
-	return a
 
 
 ## Begin simulating + rendering (called after setup + sample_solidity + seed_sea).
@@ -377,7 +297,7 @@ func sample_solidity() -> void:
 
 ## Mineral amounts mirror the sampled mask: consolidated bedrock layered as LAPlanetComposition derives.
 func _seed_silicate() -> void:
-	if _silicate.size() != _cell_count or _cement.size() != _cell_count or _solid.size() != _cell_count:
+	if _mirrors == null or not _mirrors.has("silicate") or _solid.size() != _cell_count:
 		return
 	var r_body: float = LABodySeeds.seed_radius_m(_body_key)
 	_t_rock = LAFieldCellMass3D.rock_temperature(self, _grid, LAFieldGeothermSeed.profile_k(r_body, INITIAL_TEMP), r_body, INITIAL_TEMP, _surface_depth)
@@ -386,10 +306,8 @@ func _seed_silicate() -> void:
 	_body_measure.measure(self, LABodySeeds.spin_axis_of(_body_key))
 
 
-# Athy pore fraction per cell (0 outside regolith), GPU-written and read back on the slow cadence.
-var _porosity: PackedFloat32Array = PackedFloat32Array()
+# 1 where the rock is loose enough to hold pore water; its pore fraction and grain size are mirrors.
 var _regolith: PackedByteArray = PackedByteArray()
-var _grain: PackedFloat32Array = PackedFloat32Array()    # representative grain diameter (m) per regolith cell
 
 
 
@@ -434,10 +352,6 @@ func cloud_at(x: float, z: float) -> float:
 ## Fog density at a world XZ column (0 if unresolved). Fog = cool near-ground condensate.
 func fog_at(x: float, z: float) -> float:
 	return _atmos.fog_at(x, z)
-
-## Read-only climate snapshot; empty until the field is active.
-func climate_snapshot() -> Dictionary:
-	return _atmos.climate_snapshot()
 
 ## The atmosphere band radii, measured from `centre()`, that the water-particle renderer places against.
 func atmos_cloud_base_r() -> float:
