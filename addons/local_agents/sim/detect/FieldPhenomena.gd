@@ -18,9 +18,9 @@ func observe() -> Dictionary:
 	if step >= 0 and step == _step and not _obs.is_empty():
 		return _obs
 	_step = step
-	var vel_ok: bool = _f != null and _f._vel_x.size() == _f._cell_count
+	var vel_ok: bool = _f != null and _f._mirrors != null and _f._mirrors.has("vel_x")
 	var melt_ok: bool = _live("silicate") and LAProcessSet.has_record("pass", "FluxPass.gd")
-	var low_ok: bool = _live("pressure") and vel_ok and _f._temp.size() == _f._cell_count \
+	var low_ok: bool = _live("pressure") and vel_ok and _f._mirrors.has("temp") \
 		and LAProcessSet.has_record("transport", "mom_flux")
 	_obs = {
 		"eruptions": _eruptions() if melt_ok else [],
@@ -33,10 +33,7 @@ func observe() -> Dictionary:
 
 ## True when `name`'s readback landed on the most recent drain, so its mirror is current.
 func _live(name: String) -> bool:
-	if _f == null or _f._gpu == null or _f._cell_count <= 0:
-		return false
-	var got = _f._gpu._cached.get(name, null)
-	return got is PackedFloat32Array and got.size() == _f._cell_count
+	return _f != null and _f._mirrors != null and _f._mirrors.live(name)
 
 
 ## Melt standing in an open cell is melt that reached the surface. state_derive.glsl's detect phase
@@ -44,11 +41,11 @@ func _live(name: String) -> bool:
 func _eruptions() -> Array:
 	var out: Array = []
 	var grid: LAVoxelGrid = _f._grid
-	if grid == null or _f._temp.size() != _f._cell_count:
+	if grid == null or not _f._mirrors.has("temp"):
 		return out
 	for c in _f._gpu.list_indices("erupt"):
 		out.append({"pos": grid.cell_world_pos(c), "melt": _f._queries.melt_at(c),
-			"temp_c": _f._temp[c]})
+			"temp_c": _f._mirrors.at("temp", c)})
 	return out
 
 
@@ -57,8 +54,9 @@ func _eruptions() -> Array:
 func _cyclones() -> Array:
 	var out: Array = []
 	var grid: LAVoxelGrid = _f._grid
-	if grid == null or _f._pressure.size() != _f._cell_count:
+	if grid == null or not _f._mirrors.has("pressure"):
 		return out
+	var m: LAFieldMirrors = _f._mirrors
 	for c in _f._gpu.list_indices("cyclone"):
 		var ring: PackedInt32Array = _ring(c)
 		if ring.is_empty():
@@ -66,15 +64,15 @@ func _cyclones() -> Array:
 		var p_sum: float = 0.0
 		var t_sum: float = 0.0
 		for n in ring:
-			p_sum += _f._pressure[n]
-			t_sum += _f._temp[n]
+			p_sum += m.at("pressure", n)
+			t_sum += m.at("temp", n)
 		var w: float = float(ring.size())
 		out.append({
 			"pos": grid.cell_world_pos(c),
-			"pressure_pa": _f._pressure[c],
-			"depth_pa": p_sum / w - _f._pressure[c],
-			"core_temp_c": _f._temp[c],
-			"warm_core_k": _f._temp[c] - t_sum / w,
+			"pressure_pa": m.at("pressure", c),
+			"depth_pa": p_sum / w - m.at("pressure", c),
+			"core_temp_c": m.at("temp", c),
+			"warm_core_k": m.at("temp", c) - t_sum / w,
 			"vorticity_s": absf(LAFieldGeometry.curl(_f, c).dot(LAFieldGeometry.up(_f, c))),
 		})
 	return out

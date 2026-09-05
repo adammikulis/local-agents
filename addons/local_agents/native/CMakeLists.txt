@@ -44,6 +44,9 @@ add_executable(lasim
     src/cli/SelftestDevice.cpp
     src/cli/SelftestKernels.cpp
     src/cli/PropertyTests.cpp
+    src/field/FieldRun.cpp
+    src/field/Plan.cpp
+    src/field/Snapshot.cpp
     src/tests/Lattice.cpp
     src/tests/Rig.cpp
     src/tests/PropReduce.cpp
