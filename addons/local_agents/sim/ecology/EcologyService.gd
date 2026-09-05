@@ -425,8 +425,6 @@ func broadcast_scare(world_pos: Vector3, radius: float, base_intensity: float = 
 
 ## ONE simulated step. LASimLoop drives it; nothing here reads a frame delta.
 func on_sim_step(step: int) -> void:
-	if LAAblate.off("ecology"):
-		return
 	if terrain == null or actors_root == null:
 		return
 	_process_pending()

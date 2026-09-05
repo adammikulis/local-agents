@@ -74,7 +74,7 @@ func _ready() -> void:
 		_apply_baseline()
 		if gm != null and String(gm.pending_load_slot) != "":
 			load_from_disk()
-	LASimReport.register(Callable(self, "report"))
+	LASimReport.register(Callable(self, "report"), true)
 	print("PROGRESSION={mode:%s, stage:%d/%d, zoom_mult:%.2f, unlocked:%d}" % [
 		("sandbox" if _sandbox else "campaign"), _current, _stages.size(), _zoom_mult, _unlocked.size()])
 
@@ -184,7 +184,7 @@ func current_progress() -> Dictionary:
 			"value": 0.0, "threshold": 0.0, "ratio": 1.0, "done": true,
 		}
 	var stage: LAProgressionStage = _stages[_current]
-	var value: float = _read_metric(LASimReport.snapshot(), stage.metric)
+	var value: float = _read_metric(LASimReport.snapshot(true), stage.metric)
 	var denom: float = maxf(stage.threshold, 0.0001)
 	return {
 		"sandbox": false, "title": stage.title, "stage": _current + 1, "stages_total": total,
@@ -207,7 +207,7 @@ func _process(delta: float) -> void:
 ## the hold timer accumulates while the metric stays at/above threshold and resets when it drops.
 func _evaluate(dt: float) -> void:
 	var stage: LAProgressionStage = _stages[_current]
-	var snapshot: Dictionary = LASimReport.snapshot()
+	var snapshot: Dictionary = LASimReport.snapshot(true)
 	var value: float = _read_metric(snapshot, stage.metric)
 	if value < stage.threshold:
 		_hold_accum = 0.0

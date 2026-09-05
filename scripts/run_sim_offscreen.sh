@@ -5,7 +5,7 @@
 # keyboard focus is handed back to whatever app was frontmost, so a verification run never steals
 # attention. Override the position with LA_WIN_POS="x,y". Pass the normal godot args, e.g.:
 #   scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn -- --run-frames=200
-# Env passthrough (LA_NO_STREAMER etc.) works as usual. Requires macOS (osascript); elsewhere it just runs.
+# Env passthrough works as usual. Requires macOS (osascript); elsewhere it just runs.
 #
 # USE THIS ONLY FOR SCENES THAT NEED A REAL GPU: game/VoxelWorld.tscn, whose field is a compute shader and
 # whose report measures nothing headless, because headless has no compute device. Every example scene under

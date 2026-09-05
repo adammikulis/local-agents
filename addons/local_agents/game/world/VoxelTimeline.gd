@@ -30,6 +30,7 @@ var _reversing: bool = false
 var _cursor: int = -1                 # -1 = live present; >=0 = viewing _ring[_cursor] (scrubbed)
 var _reverse_at_ms: int = 0
 var _restore_inflight: bool = false
+var _ring_version: int = -1           # full_steps() the newest snapshot holds
 
 
 func _init() -> void:
@@ -39,9 +40,6 @@ func _init() -> void:
 func setup(save_controller: Node) -> void:
 	_save = save_controller
 	_enabled = _resolve_enabled()
-	var loop: LASimLoop = LASimLoop.active()
-	if loop != null:
-		loop.stepped.connect(on_sim_step)
 
 
 func is_enabled() -> bool:
@@ -89,6 +87,10 @@ func on_sim_step(step: int) -> void:
 func _capture() -> void:
 	if not _save.has_method("capture_snapshot"):
 		return
+	var version: int = _save.field_version()
+	if version == _ring_version:
+		return                          # the field has not moved since the newest snapshot
+	_ring_version = version
 	var snap: Dictionary = _save.capture_snapshot()
 	if snap.is_empty():
 		return                          # field not ready yet — try again next cadence

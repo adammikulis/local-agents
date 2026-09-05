@@ -24,6 +24,19 @@ var _f = null                                          # back-reference to the o
 var _mineral_profile = null
 # The driver's ONE between-pass probe.
 var _probe = null
+var _sealed_full_steps: int = 0
+
+
+## Full steps run since the seal. A snapshot or a cache keyed on it is stale only when it moved.
+func full_steps() -> int:
+	return _sealed_full_steps
+
+
+## A sealed world with no writer this step is unchanged, so nothing is dispatched or read back.
+func _at_rest() -> bool:
+	return _sealed_full_steps > 0 and _f._seal != null and _f._seal.sealed() and _f._capture == null \
+		and not _f._gpu.state_moves() and (_f._inject == null or _f._inject.queue.is_empty()) \
+		and not _f._gpu._step_probe.is_valid()
 
 
 func _armed(name: String) -> bool:
@@ -161,6 +174,10 @@ func step() -> void:
 		return
 	# Refresh the body rotation FIRST: everything below that converts a position or a direction reads it.
 	_f.sync_body_frame()
+	LASimReport.event("field_step")   # telemetry: field steps per run, moving or at rest
+	if _at_rest():
+		LASimReport.event("field_rest")
+		return
 	var t0: int = Time.get_ticks_usec()
 	var t_begin: int = t0
 	_f._gpu.begin_frame(_f._e, _f._h2o)      # drains prev step (sync+readback) + uploads
@@ -210,7 +227,8 @@ func step() -> void:
 		_f._stamp.maybe_scan()                       # stamp solid-flag crossings into the SDF (gated)
 	LASimReport.gauge("field_post_ms", float(Time.get_ticks_usec() - t_post) / 1000.0)   # scatter + CPU post-passes
 	LASimReport.gauge("field_ms", float(Time.get_ticks_usec() - t0) / 1000.0)
-	LASimReport.event("field_step")   # telemetry: GPU field steps per run
+	if _f._seal != null and _f._seal.sealed():
+		_sealed_full_steps += 1
 	if _mineral_profile != null:
 		_mineral_profile.post_step()  # LA_MINERAL_PROFILE: print WHERE the loose mineral is, by elevation
 

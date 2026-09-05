@@ -4,6 +4,7 @@ extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 ## LATransportRecords row by row over it.
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/flux.glsl"
+const MOVES_STATE: bool = true   # crossings move matter and energy
 
 const BoundaryRowsScript: GDScript = preload("res://addons/local_agents/sim/material/reduce/BoundaryRows.gd")
 const LevelsScript: GDScript = preload("res://addons/local_agents/sim/material/sphere_passes/TemporalLevels.gd")

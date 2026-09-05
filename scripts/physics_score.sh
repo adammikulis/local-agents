@@ -35,7 +35,7 @@ if [ -z "$REPORT_SRC" ]; then
   trap 'rm -f "$TMP_OUT"' EXIT
   echo "physics_score: running ${FRAMES} frames, seed ${SEED} (set LA_SCORE_REPORT to score an existing run)" >&2
   # SOAK: takes its own comparison runs by design; minutes, run by hand
-  LA_RUN_TIMEOUT="${LA_RUN_TIMEOUT:-900}" LA_NO_STREAMER=1 \
+  LA_RUN_TIMEOUT="${LA_RUN_TIMEOUT:-900}" \
     "$SCRIPT_DIR/run_sim_offscreen.sh" --path "$PROJ" \
     addons/local_agents/game/VoxelWorld.tscn --fixed-fps 60 \
     -- --sandbox --planet-only "--run-frames=${FRAMES}" "--seed=${SEED}" --no-fauna \
@@ -58,7 +58,7 @@ if [ -z "$REPORT_SRC" ]; then
   run_aux() {  # $1 = output file, $2.. = extra scene args
     local out="$1"; shift
     # SOAK: takes its own comparison runs by design; minutes, run by hand
-    LA_RUN_TIMEOUT="${LA_RUN_TIMEOUT:-900}" LA_NO_STREAMER=1 \
+    LA_RUN_TIMEOUT="${LA_RUN_TIMEOUT:-900}" \
       "$SCRIPT_DIR/run_sim_offscreen.sh" --path "$PROJ" \
       addons/local_agents/game/VoxelWorld.tscn --fixed-fps 60 \
       -- --sandbox --planet-only "--run-frames=${AUX_FRAMES}" "--seed=${SEED}" --no-fauna "$@" \

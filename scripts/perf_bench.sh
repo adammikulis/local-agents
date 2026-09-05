@@ -35,7 +35,7 @@ printf -- '-%.0s' {1..80}; printf '\n'
 run_one() {  # $1=label  $2=extra-env (space-sep KEY=VAL)  $3=extra-sim-args
   local label="$1"; local xenv="$2"; local xargs="$3"
   local out rep
-  out=$(env $xenv LA_NO_STREAMER=1 LA_RUN_TIMEOUT=$(( FRAMES / 2 + 200 )) \
+  out=$(env $xenv LA_RUN_TIMEOUT=$(( FRAMES / 2 + 200 )) \
         scripts/run_sim_offscreen.sh --path . "$SCENE" \
         -- --sandbox --ui --perf-frames="$FRAMES" $xargs 2>&1)
   rep=$(echo "$out" | grep -oE "PERF=.*" | tail -1)

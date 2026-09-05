@@ -39,6 +39,7 @@ enabled=PackedStringArray("res://addons/local_agents/plugin.cfg")
 
 [physics]
 
+common/max_physics_steps_per_frame=1
 3d/physics_engine="Jolt Physics"
 
 [rendering]

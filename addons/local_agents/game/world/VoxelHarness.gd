@@ -15,6 +15,8 @@ static func _count_meshes(n: Node) -> int:
 # population arc (and WHY it moves — which death causes dominate) is visible over time, not just at the end.
 # One line the balance harness scrapes: POP_TRACE={frame, per-species counts, plants/trees, temp, deaths-so-far}.
 static func emit_population_trace(w, frame: int) -> void:
+	if LAAblate.fauna_off():
+		return
 	if LASimRng.trace_enabled:
 		var rep: Dictionary = LASimRng.shared().trace_report()
 		print("RNG_TRACE={\"frame\":%d,\"draws\":%d,\"domains\":%s,\"tags\":%s}" % [
@@ -27,19 +29,19 @@ static func emit_population_trace(w, frame: int) -> void:
 	counts["plants"] = tree.get_nodes_in_group("plant").size()
 	counts["trees"] = tree.get_nodes_in_group("tree").size()
 	var deaths: Dictionary = {}
-	var snap: Dictionary = LASimReport.snapshot()
+	var snap: Dictionary = LASimReport.snapshot(true)
 	var ev = snap.get("events", {})
 	if ev is Dictionary:
 		for k in ev:
 			if String(k).begins_with("death/"):
 				deaths[String(k).substr(6)] = ev[k]
-	var temp_mean: float = float(snap.get("temp_mean", 0.0))
+	var temp_mean: float = _num(snap, "temp_mean")
 	# Storm life-cycle telemetry: charge_peak (should rise then discharge in a sawtooth, not pin at breakdown)
 	# and cumulative bolts (their per-window delta shows lightning clustered in storm episodes, not constant).
-	var charge_peak: float = float(snap.get("charge_peak", 0.0))
-	var bolts: int = int(snap.get("bolts", 0))
-	var rain: float = float(snap.get("vapour_total", 0.0))
-	var clouds: int = int(snap.get("cloud_cells", 0))
+	var charge_peak: float = _num(snap, "charge_peak")
+	var bolts: int = int(_num(snap, "bolts"))
+	var rain: float = _num(snap, "vapour_total")
+	var clouds: int = int(_num(snap, "cloud_cells"))
 	# Sample the temperature creatures ACTUALLY stand in: read the field at living surface actors (trees/plants).
 	var surf_sum: float = 0.0
 	var surf_max: float = -1.0e9
@@ -94,14 +96,20 @@ static func emit_population_trace(w, frame: int) -> void:
 		rab_e /= float(rab_n)
 		rab_g /= float(rab_n)
 		rab_b /= float(rab_n)
-	var t_min: float = float(snap.get("temp_min", 0.0))
-	var t_max: float = float(snap.get("temp_max", 0.0))
-	var snow_c: int = int(snap.get("snow_cells", 0))
-	var ice_c: int = int(snap.get("ice_cells", 0))
-	var sea_ice: int = int(snap.get("sea_ice_cells", 0))
-	var cloud_cover: float = float(snap.get("cloud_cover", 0.0))
-	var open_sea_t: float = float(snap.get("open_sea_temp", 0.0))
+	var t_min: float = _num(snap, "temp_min")
+	var t_max: float = _num(snap, "temp_max")
+	var snow_c: int = int(_num(snap, "snow_cells"))
+	var ice_c: int = int(_num(snap, "ice_cells"))
+	var sea_ice: int = int(_num(snap, "sea_ice_cells"))
+	var cloud_cover: float = _num(snap, "cloud_cover")
+	var open_sea_t: float = _num(snap, "open_sea_temp")
 	print("POP_TRACE={\"frame\":%d,\"counts\":%s,\"temp_mean\":%.1f,\"surf_mean\":%.1f,\"surf_max\":%.1f,\"t_eq\":%.1f,\"t_pole\":%.1f,\"rab_e\":%.2f,\"rab_gut\":%.2f,\"rab_bio\":%.4f,\"t_min\":%.1f,\"t_max\":%.1f,\"snow\":%d,\"ice\":%d,\"sea_ice\":%d,\"cloud_cover\":%.3f,\"sea_t\":%.1f,\"charge_peak\":%.2f,\"bolts\":%d,\"moisture\":%.0f,\"cloud_cells\":%d,\"deaths\":%s}" % [frame, JSON.stringify(counts), temp_mean, surf_mean, surf_max, t_eq, t_pole, rab_e, rab_g, rab_b, t_min, t_max, snow_c, ice_c, sea_ice, cloud_cover, open_sea_t, charge_peak, bolts, rain, clouds, JSON.stringify(deaths)])
+
+
+## A reading the run never published is NAN, never zero.
+static func _num(snap: Dictionary, key: String) -> float:
+	var v: Variant = snap.get(key, null)
+	return float(v) if v is float or v is int else NAN
 
 
 static func build_report(w) -> Dictionary:

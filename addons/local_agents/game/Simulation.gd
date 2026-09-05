@@ -68,11 +68,7 @@ func build(opts: Dictionary) -> void:
 
 	_build_field()
 
-	if OS.has_environment("LA_NO_EVENT_TRACKER"):
-		_events.queue_free()
-		_events = null
-	else:
-		_events.setup(self)
+	_events.setup(self)
 
 	_build_system()
 	_build_geology_and_life()
@@ -88,10 +84,21 @@ func _wire_loop() -> void:
 	_loop.hold()
 	_loop.seeding.connect(_on_seeding)
 	_loop.stepped.connect(_on_step)
-	_loop.stepped.connect(Callable(_ecology, "on_sim_step"))
 	_loop.stepped.connect(Callable(_material.step_driver(), "step").unbind(1))
-	if _events != null:
-		_loop.stepped.connect(Callable(_events, "on_sim_step"))
+	_subscribe("ecology", _ecology)
+	_subscribe("events", _events)
+	_subscribe("timeline", _timeline)
+	for pair in [["orbits", _orbits], ["impacts", _impacts], ["markers", _markers], ["spawn", _spawn],
+			["save", _save], ["llm", _llm_service], ["star", _star], ["moon", _moon]]:
+		LAAblate.adopt(pair[0], pair[1])
+
+
+## A step subscriber is a named, ablatable module: off means its handler never runs.
+func _subscribe(name: String, node: Node) -> void:
+	LAAblate.adopt(name, node)
+	_loop.stepped.connect(func(step: int) -> void:
+		if node.can_process():
+			node.on_sim_step(step))
 
 
 func _on_seeding(_tick: int) -> void:
@@ -124,8 +131,8 @@ func _build_field() -> void:
 		_material.sample_solidity()
 	LASimReport.register(Callable(_material, "report"))
 	LASimReport.register(func() -> Dictionary: return _body_block())
-	LASimReport.register(func() -> Dictionary: return LASimReportSources.population(self))
-	LASimReport.register(func() -> Dictionary: return LASimReportSources.cognition(self))
+	LASimReport.register(func() -> Dictionary: return LASimReportSources.population(self), true)
+	LASimReport.register(func() -> Dictionary: return LASimReportSources.cognition(self), true)
 	LASimReport.register(func() -> Dictionary: return LASimReportSources.disease(self))
 	# The STAR's light, never the sky cycle's: direction from its basis, intensity from `insolation`.
 	_material.set_sun(_star.light())

@@ -33,6 +33,7 @@ var _streamer_avatar_flavor: String = "male"
 var _shoot_path: String = ""
 var _shoot_frames: int = 150
 var _run_frames: int = 0
+var _ablate_sweep: int = 0              # --ablate-sweep=N: each adopted module off for N frames in turn
 var _perf_frames: int = 0               # --perf-frames=N: GPU-timed fps bench (see parse_cmdline + VoxelWorld._process)
 var _smoke: bool = false                # --smoke: boot the MINIMAL (Potato/Low) config for fast parse+run checks
 var _cognition_stats: bool = false      # --cognition-stats: print fast/slow brain + genetics metrics
@@ -156,6 +157,8 @@ func parse_cmdline() -> void:
 			_local_hour = clampf(float(arg.substr("--local-hour=".length())), 0.0, 24.0)
 		elif arg.begins_with("--vectors="):
 			_vectors = arg.substr("--vectors=".length())
+		elif arg.begins_with("--ablate-sweep="):
+			_ablate_sweep = int(arg.substr("--ablate-sweep=".length()))
 		elif arg.begins_with("--debug-field="):
 			_debug_field = arg.substr("--debug-field=".length())
 		elif arg == "--debug-behaviors":
@@ -787,6 +790,7 @@ func streamer_avatar_flavor() -> String: return _streamer_avatar_flavor
 func shoot_path() -> String: return _shoot_path
 func shoot_frames() -> int: return _shoot_frames
 func run_frames() -> int: return _run_frames
+func ablate_sweep() -> int: return _ablate_sweep
 func perf_frames() -> int: return _perf_frames
 func smoke() -> bool: return _smoke
 func overview() -> bool: return _overview
@@ -837,7 +841,7 @@ func _bench_fire(frame: int) -> void:
 
 
 func _bench_snapshot(frame: int) -> void:
-	var snap: Dictionary = LASimReport.snapshot()
+	var snap: Dictionary = LASimReport.snapshot(true)
 	var g: Dictionary = snap.get("gauges", {})
 	var fps: float = float(g.get("fps", {}).get("cur", 0.0))
 	var dispatch_ms: float = float(g.get("field_dispatch_ms", {}).get("cur", 0.0))

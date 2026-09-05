@@ -5,6 +5,7 @@ extends RefCounted
 static var _events: Dictionary = {}       # tally: key -> count (bare kind + per-tag breakdowns)
 static var _gauges: Dictionary = {}       # name -> {"cur","min","max"}
 static var _providers: Array = []         # registered Callables: func() -> Dictionary
+static var _live: Array = []              # the providers cheap enough for a HUD cadence
 
 
 static func reset(drop_providers: bool = false) -> void:
@@ -12,6 +13,7 @@ static func reset(drop_providers: bool = false) -> void:
 	_gauges = {}
 	if drop_providers:
 		_providers = []
+		_live = []
 
 
 ## Record that something happened. Bumps the bare `kind` plus `kind/<value>` for each tag value — e.g.
@@ -42,15 +44,18 @@ static func gauge_cur(name: String, default_val: float = 0.0) -> float:
 	return float(g.get("cur", default_val))
 
 
-static func register(provider: Callable) -> void:
+## `live` marks a provider a HUD may poll every half second; a grid walk is never live.
+static func register(provider: Callable, live: bool = false) -> void:
 	if not _providers.has(provider):
 		_providers.append(provider)
+	if live:
+		_live.append(provider)
 
 
 ## Read-only view of the current telemetry. `events`/`gauges` are shallow top-level copies — cheap, since
 ## `gauge()` never mutates a stored entry in place — marked read-only so a caller cannot corrupt the live
 ## tallies through the handed-out dict.
-static func snapshot() -> Dictionary:
+static func snapshot(live_only: bool = false) -> Dictionary:
 	var events_view: Dictionary = _events.duplicate()
 	var gauges_view: Dictionary = _gauges.duplicate()
 	events_view.make_read_only()
@@ -58,6 +63,8 @@ static func snapshot() -> Dictionary:
 	var out: Dictionary = {"events": events_view, "gauges": gauges_view}
 	var dead: Array = []
 	for p in _providers:
+		if live_only and not _live.has(p):
+			continue
 		if p is Callable and p.is_valid():
 			var d = p.call()
 			if d is Dictionary:

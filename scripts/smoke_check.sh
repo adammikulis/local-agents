@@ -37,9 +37,8 @@ LOG_DIR="${LOG_DIR:-${TMPDIR:-/tmp}}"
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/smoke_check_$(date +%s).log"
 
-# Boot the minimal config. Streamer + event tracker are also killed by env for a fully quiet, fast boot.
-LA_NO_STREAMER=1 LA_NO_EVENT_TRACKER=1 \
-  "$SCRIPT_DIR/run_sim_offscreen.sh" --path . "$SCENE" -- --smoke --run-frames="$FRAMES" \
+# Boot the minimal config with the event tracker ablated: a quiet, fast boot.
+  "$SCRIPT_DIR/run_sim_offscreen.sh" --path . "$SCENE" -- --smoke --ablate=events --run-frames="$FRAMES" \
   > "$LOG_FILE" 2>&1
 # (godot's exit code is intentionally ignored — see header.)
 

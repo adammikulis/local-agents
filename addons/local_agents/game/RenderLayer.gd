@@ -121,6 +121,10 @@ func _build_world_visuals() -> void:
 	# Hot ground glows — the live per-cell temperature as a 3D texture over the field box.
 	_heat_tex.setup(material, terrain)
 
+	for pair in [["terrain", terrain.terrain_node()], ["camera", _camera], ["sky", _sky_ctrl], ["vegetation", _veg_renderer],
+			["ocean", _ocean], ["water_particles", _water], ["water_surface", _water_surface],
+			["vectors", _vectors], ["heat_texture", _heat_tex]]:
+		LAAblate.adopt(pair[0], pair[1])
 	# Effects density onto the atmosphere particles.
 	_sim.settings_applier().bind(_world, terrain, _water)
 	# The screen-ray casts the impact controller accepts but never requires.
