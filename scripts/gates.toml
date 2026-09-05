@@ -665,6 +665,13 @@ marker = "^check_kernel_properties: OK"
 mutation = "sed -i '' 's|acc += la_load(uint(a));|acc -= la_load(uint(a));|' addons/local_agents/sim/material/kernels3d/pressure.glsl"
 
 [[gate]]
+name = "check_lasim_parity"
+script = "scripts/check_lasim_parity.sh"
+kind = "gpu"
+marker = "^check_lasim_parity: OK"
+mutation = "sed -i '' 's|acc += x;|acc += x * 1.0000001;|' addons/local_agents/native/src/field/FieldRun.cpp"
+
+[[gate]]
 name = "check_shaders_compile"
 script = "scripts/check_shaders_compile.sh"
 kind = "headless"
