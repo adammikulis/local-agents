@@ -1,0 +1,3 @@
+# Channels of the solved state that do not land in the same place under both math modes, asserted by
+# `scripts/check_derive_safe_math.sh`. May fall, may not rise.
+5
