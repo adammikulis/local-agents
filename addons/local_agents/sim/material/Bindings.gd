@@ -53,27 +53,28 @@ const SLOT: Dictionary = {
 	# the reaction table
 	"reaction_defs": 160,
 	# the selftest probes
-	"stack_probe": 161, "enthalpy_probe": 162
+	# water_rho is kg/m^3 the cell's own liquid water stands at
+	"stack_probe": 161, "enthalpy_probe": 162, "water_rho": 173
 }
 
 ## The slots each kernel's translation unit declares, its includes with it. A pass binds this
 ## list and nothing else, so a kernel and its uniform set cannot drift apart.
 const IN_KERNEL: Dictionary = {
 	"enthalpy_selftest.glsl": ["enthalpy_probe"],
-	"flux.glsl": ["nbr", "ghost", "rim_ghost", "rim_w", "slot_off", "face_partner", "cell_edge", "ground_d",
-		"h2o", "silicate", "o2", "co2", "n2", "biomass", "h2", "co", "so2", "h2s", "ch4", "charge", "mom_x",
-		"mom_y", "mom_z", "cement", "porosity", "grain", "temp", "temp_lith", "solid", "pressure", "rho_bulk",
-		"h2o_solid", "h2o_liquid", "h2o_vapour", "silicate_melt", "silicate_susp_water", "silicate_susp_air",
-		"silicate_bed", "vel_x", "vel_y", "vel_z", "speed", "gas_r", "gas_gamma", "k_cond", "cap_sensible",
-		"cap_lith", "lattice_frac", "lithic_frac", "lithic_kg", "bodyf_x", "bodyf_y", "bodyf_z", "g_rest",
-		"pe_j_m3", "rad_absorbed", "rad_emitted", "rad_w_m3", "radiogenic", "col_e", "strike", "sw_space",
-		"rad_residual", "grav_phi", "grav_ref", "tlevel", "level_idx", "level_args", "level_peak", "act_quiet",
-		"act_claim", "act_queue", "act_wake", "act_wake_args", "active_idx", "active_args", "flux_amount",
-		"flux_energy", "flux_resist", "flux_drive", "flux_aux", "flux_frac", "flux_h_carried", "flux_bnd_amt",
-		"flux_bnd_h", "flux_bnd_mom_x", "flux_bnd_mom_y", "flux_bnd_mom_z", "flux_bnd_q", "flux_o3",
-		"flux_rad_table", "flux_face_u", "flux_fp_star", "flux_face_uw", "flux_fpw_star", "flux_send",
-		"flux_x_amt", "flux_x_h", "flux_x_q", "flux_lw_emis", "flux_sw_absorbed", "flux_sw_keep", "flux_sw_src",
-		"flux_nu_t", "flux_w_top"],
+	"flux.glsl": ["nbr", "ghost", "rim_ghost", "rim_w", "slot_off", "face_partner", "cell_edge", "ground_d", "h2o",
+		"silicate", "o2", "co2", "n2", "biomass", "h2", "co", "so2", "h2s", "ch4", "charge", "mom_x", "mom_y",
+		"mom_z", "cement", "porosity", "grain", "temp", "temp_lith", "solid", "pressure", "rho_bulk",
+		"h2o_pore", "h2o_solid", "h2o_liquid", "h2o_vapour", "water_rho", "silicate_melt",
+		"silicate_susp_water", "silicate_susp_air", "silicate_bed", "vel_x", "vel_y", "vel_z", "speed", "gas_r",
+		"gas_gamma", "k_cond", "cap_sensible", "cap_lith", "lattice_frac", "lithic_frac", "lithic_kg",
+		"bodyf_x", "bodyf_y", "bodyf_z", "g_rest", "pe_j_m3", "rad_absorbed", "rad_emitted", "rad_w_m3",
+		"radiogenic", "col_e", "strike", "sw_space", "rad_residual", "grav_phi", "grav_ref", "tlevel",
+		"level_idx", "level_args", "level_peak", "act_quiet", "act_claim", "act_queue", "act_wake",
+		"act_wake_args", "active_idx", "active_args", "flux_amount", "flux_energy", "flux_resist", "flux_drive",
+		"flux_aux", "flux_frac", "flux_h_carried", "flux_bnd_amt", "flux_bnd_h", "flux_bnd_mom_x",
+		"flux_bnd_mom_y", "flux_bnd_mom_z", "flux_bnd_q", "flux_o3", "flux_rad_table", "flux_face_u",
+		"flux_fp_star", "flux_face_uw", "flux_fpw_star", "flux_send", "flux_x_amt", "flux_x_h", "flux_x_q",
+		"flux_lw_emis", "flux_sw_absorbed", "flux_sw_keep", "flux_sw_src", "flux_nu_t", "flux_w_top"],
 	"gravity_poisson.glsl": ["nbr", "pos", "vert_up", "vert_down", "slot_off", "face_partner", "cell_edge",
 		"h2o", "silicate", "carbonate", "silica", "o2", "co2", "n2", "biomass", "fungus", "detritus", "fuel",
 		"org_h", "org_o", "fert", "metal", "olivine", "pyroxene", "plagioclase", "halite", "apatite", "h2", "co",
@@ -91,18 +92,17 @@ const IN_KERNEL: Dictionary = {
 		"reduce_src", "reduce_aux", "reduce_aux2", "reduce_ref", "reduce_gate", "reduce_gate_aux",
 		"reduce_partials"],
 	"stack_selftest.glsl": ["stack_probe"],
-	"state_derive.glsl": ["nbr", "slot_off", "face_partner", "vert_up", "vert_down",
-		"r_frac", "surface_class", "melt_body", "erupt", "cyclone",
-		"pos", "cell_edge", "h2o", "silicate", "carbonate", "silica", "o2", "co2", "n2",
-		"biomass", "fungus", "detritus", "fuel", "org_h", "org_o", "fert", "metal", "olivine", "pyroxene",
-		"plagioclase", "halite", "apatite", "h2", "co", "so2", "h2s", "ch4", "h2o_pore", "e_j_m3", "e_lith_j_m3",
-		"mom_x", "mom_y", "mom_z", "cement", "regolith", "grain", "temp", "temp_lith", "conductivity",
-		"conductivity_lith", "solid", "liquid", "pressure", "p_fluid", "rho_bulk", "h2o_solid", "h2o_liquid",
-		"h2o_vapour", "silicate_melt", "vel_x", "vel_y", "vel_z", "speed", "lat", "alt", "mach", "gas_r",
-		"gas_gamma", "k_cond", "cap_sensible", "cap_lith", "h_h2o", "h_h2o_vap", "h_silicate", "h_sensible",
-		"lattice_frac", "lithic_frac", "lithic_kg", "org_hc", "org_oc", "org_fresh", "bodyf_x", "bodyf_y",
-		"bodyf_z", "g_rest", "ke_j_m3", "pe_j_m3", "mom_orphan", "nonfinite", "unconverged", "rad_w_m3",
-		"gravity", "grav_phi", "grav_ref", "derive_props", "level_idx", "level_args"],
+	"state_derive.glsl": ["nbr", "slot_off", "face_partner", "vert_up", "vert_down", "r_frac", "surface_class",
+		"melt_body", "erupt", "cyclone", "pos", "cell_edge", "h2o", "silicate", "carbonate", "silica", "o2",
+		"co2", "n2", "biomass", "fungus", "detritus", "fuel", "org_h", "org_o", "fert", "metal", "olivine",
+		"pyroxene", "plagioclase", "halite", "apatite", "h2", "co", "so2", "h2s", "ch4", "h2o_pore", "e_j_m3",
+		"e_lith_j_m3", "mom_x", "mom_y", "mom_z", "cement", "regolith", "grain", "temp", "temp_lith",
+		"conductivity", "conductivity_lith", "solid", "liquid", "pressure", "p_fluid", "rho_bulk", "h2o_solid",
+		"h2o_liquid", "h2o_vapour", "water_rho", "silicate_melt", "vel_x", "vel_y", "vel_z", "speed", "lat",
+		"alt", "mach", "gas_r", "gas_gamma", "k_cond", "cap_sensible", "cap_lith", "h_h2o", "h_h2o_vap",
+		"h_silicate", "h_sensible", "lattice_frac", "lithic_frac", "lithic_kg", "org_hc", "org_oc", "org_fresh",
+		"bodyf_x", "bodyf_y", "bodyf_z", "g_rest", "ke_j_m3", "pe_j_m3", "mom_orphan", "nonfinite",
+		"unconverged", "rad_w_m3", "gravity", "grav_phi", "grav_ref", "derive_props", "level_idx", "level_args"],
 }
 
 

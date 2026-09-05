@@ -5,8 +5,9 @@
 #ifndef LA_TRANSPORT_RADIATE_GLSLI
 #define LA_TRANSPORT_RADIATE_GLSLI
 
-// DECISION, not a law: hops a march may take. SimWorld.grid_res caps at 64, so a ray can cross the box.
-const uint MARCH_HOPS = 64u;
+// A STRAIGHT MARCH NEVER REVISITS A CELL, so the box itself is the bound: past a fixed hop count a beam
+// would stop attenuating and a longwave gather would stop, both in the middle of the grid.
+uint march_hops() { return params.cell_count; }
 
 uint temp_count() { return uint(rad_table[3]); }
 uint edge_off() { return 4u; }
@@ -102,8 +103,8 @@ vec2 o3_paths(uint c, float len) {
 	return vec2(p_tot * rho_o3 * len, rho_o3 * len);
 }
 
-float band_tau(vec4 a, vec2 z, vec4 m, uint b, uint ti, float tf) {
-	return (kappa_at(b, 0u, ti, tf) + kappa_at(b, 1u, ti, tf)) * a.x
+float band_tau(vec4 a, vec2 z, vec4 m, float cloud, uint b, uint ti, float tf) {
+	return cloud + (kappa_at(b, 0u, ti, tf) + kappa_at(b, 1u, ti, tf)) * a.x
 		+ kappa_at(b, 2u, ti, tf) * a.y
 		+ kappa_at(b, 3u, ti, tf) * a.z
 		+ kappa_at(b, 4u, ti, tf) * a.w
@@ -125,14 +126,17 @@ vec2 longwave_emissivity_parts(uint c) {
 	vec4 m = minor_paths(c, cell_edge[c]);
 	float tf = 0.0;
 	uint ti = slice_of(tk, tf);
+	// The cell's droplets absorb across the infrared as the gas bands do, so they enter the same optical
+	// depth rather than a geometric fraction that a cloud never has.
+	float cloud = cloud_tau(c, cell_edge[c]);
 	float eps = 0.0;
 	for (uint b = 0u; b < params.band_count; ++b) {
-		eps += band_weight(b, tk) * (1.0 - exp(-DIFFUSIVITY * band_tau(a, z, m, b, ti, tf)));
+		eps += band_weight(b, tk) * (1.0 - exp(-DIFFUSIVITY * band_tau(a, z, m, cloud, b, ti, tf)));
 	}
 	eps = clamp(eps, 0.0, 1.0);
-	float wet = h2o_water(c) / FULL_H2O;
-	float icy = h2o_ice(c) / FULL_H2O;
-	float dry = max(silicate[c], 0.0) / FULL_SILICATE + (solid[c] != 0.0 ? 1.0 : 0.0);
+	float wet = water_vol_frac(c);
+	float icy = ice_vol_frac(c);
+	float dry = max(lithic_frac[c], 0.0) + (solid[c] != 0.0 ? 1.0 : 0.0);
 	float mass = wet + icy + dry;
 	if (mass <= 0.0) {
 		return vec2(eps, 0.0);
@@ -158,15 +162,17 @@ float radiated_by(uint c, vec2 eps2) {
 // Shortwave reflectivity: the cited albedo of each thing the cell holds, weighted by how much of it there
 // is. A cell holding nothing condensed reflects nothing and the beam goes on through it.
 float shortwave_albedo(uint c) {
-	float wet = h2o_water(c) / FULL_H2O;
-	float icy = h2o_ice(c) / FULL_H2O;
+	float wet = water_vol_frac(c);
+	float icy = ice_vol_frac(c);
 	float veg = max(biomass[c], 0.0) / FULL_CELLULOSE;
-	float dry = max(silicate[c], 0.0) / FULL_SILICATE + (solid[c] != 0.0 ? 1.0 : 0.0);
+	float dry = max(lithic_frac[c], 0.0) + (solid[c] != 0.0 ? 1.0 : 0.0);
 	float mass = wet + icy + veg + dry;
-	if (mass <= 0.0) {
-		return 0.0;
-	}
-	return (wet * ALBEDO_WATER + icy * ALBEDO_ICE + veg * ALBEDO_VEG + dry * ALBEDO_GROUND) / mass;
+	float surf = mass > 0.0
+		? (wet * ALBEDO_WATER + icy * ALBEDO_ICE + veg * ALBEDO_VEG + dry * ALBEDO_GROUND) / mass : 0.0;
+	// A CONTINUOUS BODY REFLECTS OFF ITS SURFACE; what is dispersed in the room beside it scatters. The
+	// condensed fraction is which of the two the cell is, and a cloud is the second one.
+	float cf = condensed_frac(c);
+	return clamp(cf * surf + (1.0 - cf) * cloud_reflectance(c), 0.0, 1.0);
 }
 
 // Share of the DIRECT solar beam a cell takes over `len` m of slant path: the CO2, H2O and O3 bands the
@@ -179,8 +185,10 @@ float shortwave_absorbed_frac(uint c, float len) {
 	uint ti = slice_of(t_k(c), tf);
 	float gas = 0.0;
 	for (uint b = 0u; b < params.band_count; ++b) {
-		gas += solar_weight(b) * (1.0 - exp(-band_tau(a, z, m, b, ti, tf)));
+		gas += solar_weight(b) * (1.0 - exp(-band_tau(a, z, m, 0.0, b, ti, tf)));
 	}
+	// A DROPLET SCATTERS, it does not absorb: the cloud's solar effect is the albedo above, so no cloud
+	// depth enters here.
 	float f_c = condensed_frac(c);
 	return clamp(f_c + (1.0 - f_c) * gas, 0.0, 1.0);
 }
@@ -206,7 +214,7 @@ float solar_incident(uint c) {
 	// sun_len IS the irradiance at this body, W/m^2. There is no solar constant to multiply by.
 	float beam = sun_len * mu;
 	int at = la_step(c, dir);
-	for (uint i = 0u; i < MARCH_HOPS && at >= 0 && beam > 0.0; ++i) {
+	for (uint i = 0u; i < march_hops() && at >= 0 && beam > 0.0; ++i) {
 		beam *= 1.0 - sw_absorbed[uint(at)];
 		at = la_step(uint(at), dir);
 	}
@@ -221,7 +229,7 @@ float longwave_incident(uint c, uint f0, uint d) {
 	uint f = f0;
 	int at = nbr[f];
 	if (at < 0) { at = ghost[f]; }
-	for (uint i = 0u; i < MARCH_HOPS && at >= 0 && through > 0.0; ++i) {
+	for (uint i = 0u; i < march_hops() && at >= 0 && through > 0.0; ++i) {
 		uint a = uint(at);
 		arriving += through * send[la_back_face(f, a, d)] * vol_ratio(a, c);
 		through *= 1.0 - lw_emis[a];
@@ -245,7 +253,7 @@ void sw_scatter(uint c) {
 	float through = 1.0;
 	float arriving = 0.0;
 	int at = la_step(c, -up);
-	for (uint i = 0u; i < MARCH_HOPS && at >= 0 && through > 0.0; ++i) {
+	for (uint i = 0u; i < march_hops() && at >= 0 && through > 0.0; ++i) {
 		uint a = uint(at);
 		arriving += through * sw_src[a];
 		through *= 1.0 - sw_keep[a];
@@ -262,7 +270,7 @@ void sw_scatter(uint c) {
 	}
 	float esc = 1.0;
 	int above = la_step(c, up);
-	for (uint i = 0u; i < MARCH_HOPS && above >= 0 && esc > 0.0; ++i) {
+	for (uint i = 0u; i < march_hops() && above >= 0 && esc > 0.0; ++i) {
 		esc *= 1.0 - sw_keep[uint(above)];
 		above = la_step(uint(above), up);
 	}

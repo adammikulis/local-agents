@@ -4,8 +4,7 @@
 #include "bindings.glsli"
 
 // One thread per NAMED cell: ADD credits from outside the field, MOVE debits a source and credits a
-// destination in the same thread. `inject_src`/`inject_dst` are the two channels the dispatch names;
-// one channel on both binds one buffer and sets `same`.
+// destination. `inject_src`/`inject_dst` are the pair the dispatch names; one channel on both sets `same`.
 
 #include "cellvol.glsli"
 
@@ -59,20 +58,25 @@ void main() {
 		return;
 	}
 	// MOVE: what the source holds is the bound, so a debit can never exceed what is there.
-	float take = min(max(amount, 0.0), src_ch[su]);
+	float before = src_ch[su];
+	float take = min(max(amount, 0.0), before);
 	if (d >= 0 && uint(d) < params.cell_count) {
 		uint du = uint(d);
 		// A channel value is a fill fraction, so the same matter is a different fraction of a different cell.
 		float ratio = vol_ratio(su, du);
 		float held = params.same == 1u ? src_ch[du] : dst_ch[du];
-		float gain = min(take * ratio, max(0.0, ceiling - held));
-		take = gain / max(ratio, 1e-30);
+		// THE DEBIT IS DECIDED ONCE, IN THE SOURCE'S OWN UNIT: never a credit divided back.
+		float headroom = max(0.0, ceiling - held);
+		take = min(take, ratio > 0.0 ? headroom / ratio : 0.0);
+		float gain = take * ratio;
 		if (params.same == 1u) {
 			src_ch[du] = held + gain;
 		} else {
 			dst_ch[du] = held + gain;
 		}
 	}
-	src_ch[su] -= take;
-	inj_applied[e] = take;
+	// The stock as it stands, less a debit it already bounds: what leaves is what the stock lost.
+	float after = src_ch[su] - take;
+	src_ch[su] = after;
+	inj_applied[e] = before - after;
 }

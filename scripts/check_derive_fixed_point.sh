@@ -17,130 +17,108 @@ trap 'rm -f "$PROBE" "$PROBE.uid"' EXIT INT TERM
 cat > "$PROBE" <<'GD'
 extends SceneTree
 
+## A BOX OF REAL MIXTURES: every matter channel holding something, a cemented lattice beside the fluid,
+## locked cells beside open ones, momentum, spin and a sea shell — the states a planet actually has.
+## The derive runs twice over it; the second pass reads the state the first wrote.
+
 const QuietWindow: GDScript = preload("res://addons/local_agents/runtime/QuietWindow.gd")
+const RigScript: GDScript = preload("res://addons/local_agents/tests/bench_rig.gd")
 const PASS_PATH: String = "res://addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd"
 
-const CELL: float = 2000.0
+const N: int = 4
+const CELL: float = 1000.0
 ## Relative move a second pass may make: float32 on the pressure, and the ladder's own last bit on T.
 const TOL_REL: float = 1.0e-5
 const TOL_K: float = 1.0e-3
+## Fixed, so the gate reproduces. A wider sweep is a soak with its own seed.
+const SEED: int = 20260904
+## The rig's own body: Earth's sidereal rotation (IAU 2009, rad/s) and standard gravity (CGPM 1901,
+## m/s^2), so the frame terms and the weight the solve stands under are a real body's.
+const SPIN_RAD_S: float = 7.292115e-5
+const G_M_S2: float = 9.80665
 
-var _rd: RenderingDevice = null
-var _owned: Array[RID] = []
 var _fails: int = 0
-
-
-## A buffer holding the values it is given, rather than n copies of one.
-func _write_f32(vals: PackedFloat32Array) -> RID:
-	var b: PackedByteArray = vals.to_byte_array()
-	return _rd.storage_buffer_create(b.size(), b)
-
-
-func _f32(n: int, v: float = 0.0) -> RID:
-	var a: PackedFloat32Array = PackedFloat32Array()
-	a.resize(maxi(n, 1))
-	a.fill(v)
-	var b: PackedByteArray = a.to_byte_array()
-	var r: RID = _rd.storage_buffer_create(b.size(), b)
-	_owned.append(r)
-	return r
-
-
-func _upload(rid: RID, vals: PackedFloat32Array) -> void:
-	var b: PackedByteArray = vals.to_byte_array()
-	_rd.buffer_update(rid, 0, b.size(), b)
+var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 
 
 func _init() -> void:
 	QuietWindow.apply_if_automated()
-	_rd = RenderingServer.create_local_rendering_device()
-	if _rd == null:
-		printerr("no RenderingDevice — headless has no compute device, so this gate cannot run.")
-		quit(2)
-		return
+	_rng.seed = SEED
 	_run()
-	for r in _owned:
-		if r.is_valid():
-			_rd.free_rid(r)
 	quit(1 if _fails > 0 else 0)
 
 
-## A column of cells spanning air, an air/water mix and brim-full water, each at a different pressure:
-## the gas branch of the equation of state, the mixed one and the condensed one.
+## Uniform across decades: a planet holds amounts and pressures that span them.
+func _decades(lo: float, hi: float) -> float:
+	return lo * pow(hi / lo, _rng.randf())
+
+
 func _run() -> void:
-	var grid: LAVoxelGrid = LAVoxelGrid.new()
-	grid.build(12, 1, 1, CELL, Vector3(-6.0 * CELL, -0.5 * CELL, -0.5 * CELL))
-	var cc: int = grid.cell_count
-	var scr: GDScript = load(PASS_PATH)
-	var p: RefCounted = scr.new()
-	var bufs: Dictionary = {}
-	for name in LAChannels.channels():
-		bufs[String(name)] = _f32(cc)
-	for name in LAChannels.derived_buffers():
-		bufs[String(name)] = _f32(cc)
-	var want: Dictionary = p._buffers(cc)
-	for name in want:
-		var spec: Variant = want[name]
-		bufs[String(name)] = _f32(int(spec["n"]) if spec is Dictionary else int(spec))
-	var nbr_bytes: PackedByteArray = grid.neighbours.to_byte_array()
-	var nbr: RID = _rd.storage_buffer_create(nbr_bytes.size(), nbr_bytes)
-	_owned.append(nbr)
-	bufs["nbr"] = nbr
-	# THE FACE LIST'S OWN GEOMETRY: where a cell's faces begin, the face pointing back, and its edge.
-	var off_b: PackedByteArray = grid.slot_off.to_byte_array()
-	var par_b: PackedByteArray = grid.partners.to_byte_array()
-	var edge_b: PackedByteArray = grid.cell_edges().to_byte_array()
-	bufs["slot_off"] = _rd.storage_buffer_create(off_b.size(), off_b)
-	bufs["face_partner"] = _rd.storage_buffer_create(par_b.size(), par_b)
-	bufs["cell_edge"] = _rd.storage_buffer_create(edge_b.size(), edge_b)
-	_owned.append(bufs["slot_off"])
-	_owned.append(bufs["face_partner"])
-	_owned.append(bufs["cell_edge"])
-	bufs["gravity"] = _f32(cc * 3)
-	bufs["g_rest"] = _f32(cc * 3)
-	bufs["pos"] = _f32(cc * 3)
-	bufs["cell_edge"] = _write_f32(grid.cell_edges())
+	var rig: RefCounted = RigScript.new()
+	if not rig.open():
+		printerr("check_derive_fixed_point: " + rig.error)
+		_fails += 1
+		return
+	# ONLY THE SOLVE: lithification is a per-step process that moves cement, so a world holding it is a
+	# world whose second pass is a second step rather than a restatement.
+	LAProcessSet.declare_records(PackedStringArray(["pass:StateDerivePass.gd"]))
+	if not rig.build(N, N, N, CELL):
+		printerr("check_derive_fixed_point: " + rig.error)
+		_fails += 1
+		return
+	var cc: int = rig.cell_count
+	var derive: RefCounted = rig.attach(PASS_PATH)
+	if derive == null:
+		printerr("check_derive_fixed_point: " + rig.error)
+		_fails += 1
+		return
 
-	var full_h2o: float = LASubstances.full_mol_m3("h2o")
-	var h2o: PackedFloat32Array = PackedFloat32Array()
-	var n2: PackedFloat32Array = PackedFloat32Array()
-	var h: PackedFloat32Array = PackedFloat32Array()
-	var pres: PackedFloat32Array = PackedFloat32Array()
-	for c in cc:
-		var wet: float = float(c) / float(cc - 1)
-		h2o.append(wet * full_h2o)
-		n2.append(40.0 * (1.0 - wet))
-		pres.append(101325.0 * pow(10.0, 3.0 * wet))
-		var kg: float = wet * full_h2o * LAPhysical.MOLAR_MASS_WATER_KG_MOL
-		h.append(kg * LASubstances.enthalpy_at("h2o", 15.0, pres[c]))
-	_upload(bufs["h2o"], h2o)
-	_upload(bufs["n2"], n2)
-	_upload(bufs["e_j_m3"], h)
-	_upload(bufs["pressure"], pres)
-
-	p.setup(_rd, bufs, cc)
-	var groups: int = int(ceil(float(cc) / 64.0))
-	var ctx: Dictionary = {"cell_size": CELL, "centre": Vector3.ZERO, "spin": Vector3.ZERO,
-		"spin_rate_rad_s": 0.0, "sea_radius": 0.0, "step_index": 0.0, "dt_s": 1.0}
-	var t1: PackedFloat32Array = _pass_once(p, ctx, cc, groups, bufs, "temp")
-	var p1: PackedFloat32Array = _rd.buffer_get_data(bufs["pressure"]).to_float32_array()
-	var t2: PackedFloat32Array = _pass_once(p, ctx, cc, groups, bufs, "temp")
-	var p2: PackedFloat32Array = _rd.buffer_get_data(bufs["pressure"]).to_float32_array()
-	p.dispose(_rd)
+	_seed_world(rig, cc)
+	var ctx: Dictionary = {"cell_size": CELL, "centre": Vector3.ZERO,
+		"spin": Vector3(0.0, 1.0, 0.0), "spin_rate_rad_s": SPIN_RAD_S,
+		"sea_radius": 1.5 * CELL, "gravity_self": 1.0, "step_index": 0.0, "dt_s": 1.0}
+	rig.step_only(derive, ctx)
+	var t1: PackedFloat32Array = rig.read("temp")
+	var p1: PackedFloat32Array = rig.read("pressure")
+	var tl1: PackedFloat32Array = rig.read("temp_lith")
+	var pf1: PackedFloat32Array = rig.read("p_fluid")
+	var unconv: PackedFloat32Array = rig.read("unconverged")
+	var nonfinite: PackedFloat32Array = rig.read("nonfinite")
+	rig.step_only(derive, ctx)
+	var t2: PackedFloat32Array = rig.read("temp")
+	var p2: PackedFloat32Array = rig.read("pressure")
+	var tl2: PackedFloat32Array = rig.read("temp_lith")
+	var pf2: PackedFloat32Array = rig.read("p_fluid")
+	# A DIFFERENT STARTING ITERATE OVER THE SAME MATTER: the cell's state is its matter and its energy,
+	# so a solve handed another temperature and another pressure to start from must land in one place.
+	_scramble(rig, cc)
+	rig.step_only(derive, ctx)
+	var t3: PackedFloat32Array = rig.read("temp")
+	var p3: PackedFloat32Array = rig.read("pressure")
+	var tl3: PackedFloat32Array = rig.read("temp_lith")
+	var pf3: PackedFloat32Array = rig.read("p_fluid")
+	rig.close()
 
 	var worst_t: float = 0.0
 	var worst_p: float = 0.0
 	var moved: int = 0
 	var live: int = 0
+	var unsettled: int = 0
 	for c in cc:
-		if not is_finite(t1[c]) or not is_finite(p1[c]):
+		if nonfinite[c] != 0.0:
 			_fails += 1
 			continue
-		if p1[c] <= 0.0:
+		# A cell whose solve did not converge has no state to return to.
+		if unconv[c] != 0.0:
+			unsettled += 1
+			continue
+		if not (p1[c] > 0.0):
 			continue
 		live += 1
-		var dt: float = absf(t2[c] - t1[c])
-		var dp: float = absf(p2[c] - p1[c]) / maxf(absf(p1[c]), 1.0)
+		var dt: float = maxf(absf(t2[c] - t1[c]), absf(tl2[c] - tl1[c]))
+		dt = maxf(dt, maxf(absf(t3[c] - t2[c]), absf(tl3[c] - tl2[c])))
+		var dp: float = maxf(absf(p2[c] - p1[c]), absf(pf2[c] - pf1[c]))
+		dp = maxf(dp, maxf(absf(p3[c] - p2[c]), absf(pf3[c] - pf2[c]))) / maxf(absf(p1[c]), 1.0)
 		worst_t = maxf(worst_t, dt)
 		worst_p = maxf(worst_p, dp)
 		if dt > TOL_K or dp > TOL_REL:
@@ -150,21 +128,105 @@ func _run() -> void:
 		_fails += 1
 	if moved > 0:
 		_fails += 1
-	print('DERIVE_FIXED_POINT={"cells":%d,"live":%d,"moved":%d,"worst_k":%s,"worst_p_rel":%s,"failures":%d}'
-		% [cc, live, moved, String.num(worst_t, 9), String.num(worst_p, 9), _fails])
+	print('DERIVE_FIXED_POINT={"cells":%d,"live":%d,"unconverged":%d,"moved":%d,"worst_k":%s,"worst_p_rel":%s,"failures":%d}'
+		% [cc, live, unsettled, moved, String.num(worst_t, 9), String.num(worst_p, 9), _fails])
 	if moved > 0:
 		printerr("The derive did not return the state it wrote: %d cell(s) moved. It solves T at a "
-			% moved + "pressure and states a pressure from that T, so the two must be solved together.")
+			% moved + "pressure and states a pressure from that T, so the two must be solved together, "
+			+ "and neither may be read back off the state the last pass wrote.")
 
 
-func _pass_once(p: RefCounted, ctx: Dictionary, cc: int, groups: int, bufs: Dictionary,
-		key: String) -> PackedFloat32Array:
-	var cl: int = _rd.compute_list_begin()
-	p.dispatch(_rd, cl, ctx, cc, groups)
-	_rd.compute_list_end()
-	_rd.submit()
-	_rd.sync()
-	return _rd.buffer_get_data(bufs[key]).to_float32_array()
+## Matter, energy and motion in every cell: amounts scaled so the volume fractions sum under one, a
+## cemented share of the lithic channels, and the energy the mixture actually holds at a drawn
+## temperature — never an energy picked apart from the matter that carries it.
+func _seed_world(rig: RefCounted, cc: int) -> void:
+	var channels: PackedStringArray = LAMatterChannels.CHANNELS
+	var molar: PackedFloat32Array = LAMatterChannels.molar_masses()
+	var full: PackedFloat32Array = LAMatterChannels.full_amounts()
+	var rows: Dictionary = LAChannels.rows()
+	var vol: float = CELL * CELL * CELL
+	var subs: PackedStringArray = PackedStringArray()
+	var lattice: PackedInt32Array = PackedInt32Array()
+	for name: String in channels:
+		var row: Dictionary = rows[name]
+		subs.append(String(row.get("substance", "")))
+		lattice.append(1 if bool(row.get("lithic", false)) or bool(row.get("lattice", false)) else 0)
+
+	var amount: Array = []
+	for i in channels.size():
+		amount.append(rig.filled(cc, 0.0))
+	var pres: PackedFloat32Array = rig.filled(cc, 0.0)
+	var cem: PackedFloat32Array = rig.filled(cc, 0.0)
+	var sol: PackedFloat32Array = rig.filled(cc, 0.0)
+	var e_fluid: PackedFloat32Array = rig.filled(cc, 0.0)
+	var e_lat: PackedFloat32Array = rig.filled(cc, 0.0)
+	var grain: PackedFloat32Array = rig.filled(cc, 0.0)
+	var mom: Array = [rig.filled(cc, 0.0), rig.filled(cc, 0.0), rig.filled(cc, 0.0)]
+	for c in cc:
+		var frac: float = 0.0
+		for i in channels.size():
+			var a: float = _decades(1.0e-3, 1.0e2)
+			amount[i][c] = a
+			frac += a / full[i]
+		var fill: float = _rng.randf_range(0.05, 0.95)
+		for i in channels.size():
+			amount[i][c] = amount[i][c] * fill / frac
+		pres[c] = _decades(1.0e3, 1.0e9)
+		cem[c] = _rng.randf_range(0.0, 0.9)
+		sol[c] = 1.0 if _rng.randf() < 0.3 else 0.0
+		grain[c] = _decades(1.0e-5, 1.0e-2)
+		var t_c: float = _rng.randf_range(-60.0, 1600.0)
+		var h_f: float = 0.0
+		var h_l: float = 0.0
+		for i in channels.size():
+			var kg: float = amount[i][c] * molar[i] * vol
+			var sl: float = cem[c] if lattice[i] == 1 else 0.0
+			var h: float = kg * LASubstances.enthalpy_at(subs[i], t_c, pres[c])
+			h_f += h * (1.0 - sl)
+			h_l += h * sl
+		# H = U + p V over the room the fluid stands in, so the state handed in is the internal energy.
+		e_fluid[c] = h_f / vol - pres[c]
+		e_lat[c] = h_l / vol
+		for k in 3:
+			mom[k][c] = _rng.randf_range(-8.0, 8.0)
+	for i in channels.size():
+		rig.upload(channels[i], amount[i])
+	rig.upload("pressure", pres)
+	rig.upload("p_fluid", pres)
+	rig.upload("cement", cem)
+	rig.upload("solid", sol)
+	rig.upload("grain", grain)
+	rig.upload("e_j_m3", e_fluid)
+	rig.upload("e_lith_j_m3", e_lat)
+	rig.upload("mom_x", mom[0])
+	rig.upload("mom_y", mom[1])
+	rig.upload("mom_z", mom[2])
+	# A body that pulls: the derive reads the field, never a direction it assumed.
+	var grav: PackedFloat32Array = rig.filled(cc * 3, 0.0)
+	for c in cc:
+		grav[c * 3 + 1] = -G_M_S2
+	rig.upload("gravity", grav)
+
+
+## Another temperature and another pressure to start the same solve from. A LOCKED cell's pressure is
+## not the derive's to state — the column kernel writes it and the seal holds its fluid at it — so only
+## an open cell's is replaced.
+func _scramble(rig: RefCounted, cc: int) -> void:
+	var sol: PackedFloat32Array = rig.read("solid")
+	var temp: PackedFloat32Array = rig.read("temp")
+	var pres: PackedFloat32Array = rig.read("pressure")
+	var pf: PackedFloat32Array = rig.read("p_fluid")
+	var tl: PackedFloat32Array = rig.read("temp_lith")
+	for c in cc:
+		temp[c] = _rng.randf_range(-100.0, 3000.0)
+		tl[c] = _rng.randf_range(-100.0, 3000.0)
+		if sol[c] == 0.0:
+			pres[c] = _decades(1.0e2, 1.0e10)
+			pf[c] = pres[c]
+	rig.upload("temp", temp)
+	rig.upload("temp_lith", tl)
+	rig.upload("pressure", pres)
+	rig.upload("p_fluid", pf)
 GD
 
 OUT="$(LA_DONE_RE='^DERIVE_FIXED_POINT=' "$REPO_ROOT/scripts/run_sim_offscreen.sh" \
@@ -177,6 +239,14 @@ printf '%s\n' "$OUT" | grep -q '^DERIVE_FIXED_POINT=' || {
 	printf '%s\n' "$OUT" | tail -20 >&2
 	exit 2
 }
+# A world whose cells all failed to settle asserts nothing about the state the derive returns.
+LIVE="$(printf '%s\n' "$OUT" | sed -n 's/.*"live":\([0-9]*\).*/\1/p' | head -1)"
+CELLS="$(printf '%s\n' "$OUT" | sed -n 's/.*DERIVE_FIXED_POINT={"cells":\([0-9]*\).*/\1/p' | head -1)"
+if [ -z "$LIVE" ] || [ -z "$CELLS" ] || [ "$LIVE" -lt $(( CELLS / 2 )) ]; then
+	echo "check_derive_fixed_point: only $LIVE of $CELLS cells solved, so the probe asked the derive" >&2
+	echo "                          about too little of the world to mean anything." >&2
+	exit 1
+fi
 case "$RC" in
 	0) ;;
 	1) exit 1 ;;

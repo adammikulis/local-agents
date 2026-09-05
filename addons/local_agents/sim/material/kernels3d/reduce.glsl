@@ -41,6 +41,9 @@ layout(push_constant, std430) uniform Params {
 #include "march.glsli"
 
 shared float s_acc[64];
+// The low half of the running sum, carried beside it: a lane walks the whole strided list, and a float32
+// running total loses a digit per term long before the CPU's float64 fold ever sees it.
+shared float s_comp[64];
 
 // The fold's identity, so a lane that keeps no cell cannot move the result.
 float la_identity() {
@@ -51,6 +54,18 @@ float la_identity() {
 		return uintBitsToFloat(0xFF800000u);
 	}
 	return 0.0;
+}
+
+// A summing row, as against one that folds a minimum or a maximum.
+bool la_sums() {
+	return params.op != OP_MIN && params.op != OP_MAX && params.op != OP_MAX_REL_DIFF;
+}
+
+// Neumaier compensation: what the sum could not hold goes into `comp`, whichever of the two is larger.
+void la_add(inout float sum, inout float comp, float term) {
+	float t = sum + term;
+	comp += (abs(sum) >= abs(term)) ? ((sum - t) + term) : ((term - t) + sum);
+	sum = t;
 }
 
 float la_fold(float a, float b) {
@@ -185,6 +200,7 @@ void main() {
 	}
 
 	float acc = la_identity();
+	float comp = 0.0;
 	uint stride = gl_NumWorkGroups.x * 64u;
 	for (uint i = g; i < params.cell_count; i += stride) {
 		if (!la_keep(i)) {
@@ -206,34 +222,43 @@ void main() {
 			v = abs(v);
 		}
 		if (params.op == OP_COUNT_GT) {
-			acc += (v > params.threshold) ? 1.0 : 0.0;
+			la_add(acc, comp, (v > params.threshold) ? 1.0 : 0.0);
 		} else if (params.op == OP_COUNT_GE) {
-			acc += (v >= params.threshold) ? 1.0 : 0.0;
+			la_add(acc, comp, (v >= params.threshold) ? 1.0 : 0.0);
 		} else if (params.op == OP_COUNT_LT) {
-			acc += (v < params.threshold) ? 1.0 : 0.0;
+			la_add(acc, comp, (v < params.threshold) ? 1.0 : 0.0);
 		} else if (params.op == OP_COUNT) {
-			acc += 1.0;
-		} else if (params.op == OP_MIN || params.op == OP_MAX || params.op == OP_MAX_REL_DIFF) {
+			la_add(acc, comp, 1.0);
+		} else if (!la_sums()) {
 			acc = la_fold(acc, v);
 		} else {
-			acc += v * (params.weight != 0u ? cell_volume(i) : 1.0);
+			la_add(acc, comp, v * (params.weight != 0u ? cell_volume(i) : 1.0));
 		}
 	}
 
 	s_acc[lid] = acc;
+	s_comp[lid] = comp;
 	memoryBarrierShared();
 	barrier();
 
 	// Fixed-order tree: the loop bound is a literal, so every invocation reaches every barrier.
 	for (uint s = 32u; s > 0u; s >>= 1u) {
 		if (lid < s) {
-			s_acc[lid] = la_fold(s_acc[lid], s_acc[lid + s]);
+			if (la_sums()) {
+				float a = s_acc[lid];
+				float ca = s_comp[lid] + s_comp[lid + s];
+				la_add(a, ca, s_acc[lid + s]);
+				s_acc[lid] = a;
+				s_comp[lid] = ca;
+			} else {
+				s_acc[lid] = la_fold(s_acc[lid], s_acc[lid + s]);
+			}
 		}
 		memoryBarrierShared();
 		barrier();
 	}
 
 	if (lid == 0u) {
-		partials[params.base + gl_WorkGroupID.x] = s_acc[0];
+		partials[params.base + gl_WorkGroupID.x] = la_sums() ? s_acc[0] + s_comp[0] : s_acc[0];
 	}
 }

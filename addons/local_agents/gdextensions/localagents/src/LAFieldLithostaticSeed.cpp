@@ -96,24 +96,21 @@ int slot_toward(const Vector3 &p_dir) {
 	return best;
 }
 
-double eos_p(double vol, double a_gas_rt, double b_vol, double c_comp, double p_std) {
+double eos_p(double vol, double a_gas_rt, double b_vol, double c_comp, double p_ref) {
 	if (vol <= 0.0) {
 		return 0.0;
 	}
-	// Nothing compressible: the gas fills what the condensed phases leave.
 	if (c_comp <= 0.0) {
 		double room = vol - b_vol;
 		return room > 0.0 ? a_gas_rt / room : 0.0;
 	}
 	// No gas at all: the condensed phases alone are squeezed into the cell.
 	if (a_gas_rt <= 0.0) {
-		return p_std + (b_vol - vol) / c_comp;
+		return p_ref + (b_vol - vol) / c_comp;
 	}
-	double k = vol - b_vol - c_comp * p_std;
+	double k = vol - b_vol - c_comp * p_ref;
 	double disc = sqrt(k * k + 4.0 * c_comp * a_gas_rt);
-	// Stable root of the same quadratic: for k > 0, (disc - k)/(2C) cancels catastrophically as C -> 0
-	// and one ulp over 2C is an arbitrary pressure; 2A/(k + disc) is algebraically identical, sums
-	// positives, and limits exactly to the ideal-gas A/k.
+	// Stable root: (disc - k)/(2C) cancels catastrophically as C -> 0; 2A/(k + disc) is identical.
 	double p = (k > 0.0) ? 2.0 * a_gas_rt / (k + disc) : (disc - k) / (2.0 * c_comp);
 	return p;
 }

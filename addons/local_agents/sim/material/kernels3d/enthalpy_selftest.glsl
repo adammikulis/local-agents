@@ -3,9 +3,9 @@
 
 #include "bindings.glsli"
 
-// The two enthalpy headers are libraries no kernel has adopted yet, so nothing would compile them and a
-// syntax error in either would sit there unseen. This kernel exists to be COMPILED, not dispatched;
-// test_enthalpy_roundtrip.gd reads its SPIR-V and fails on a compile error.
+// Every entry point of the two enthalpy headers at once: state_derive.glsl and reactions_sphere3d.glsl
+// each adopt a part, so a syntax error in a path neither takes still fails the build. Compiled, never
+// dispatched; test_enthalpy_roundtrip.gd reads its SPIR-V.
 #include "enthalpy.glsli"
 #include "mixture_enthalpy.glsli"
 
