@@ -615,6 +615,14 @@ kind = "gpu"
 marker = "^SHOT_SAVED="
 
 [[gate]]
+name = "check_meteor_offer"
+script = "scripts/check_meteor_offer.sh"
+kind = "gpu"
+needs = ["import"]
+marker = "^check_meteor_offer: OK"
+mutation = "python3 -c \"p='addons/local_agents/game/ui/WorldOffers.gd'; s=open(p).read(); open(p,'w').write(s.replace('return impacts_missing().is_empty()','return true'))\""
+
+[[gate]]
 name = "check_lakc"
 script = "scripts/check_lakc.sh"
 kind = "text"
