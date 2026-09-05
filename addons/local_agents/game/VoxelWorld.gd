@@ -25,6 +25,11 @@ const FPS_PROBE_FRAMES: int = 150
 ## The local hour at the slice's site when this world starts: 12 is noon. Negative keeps the seed's own
 ## spin phase. It turns the body once, as an initial condition; nothing paints the sun.
 @export var start_local_hour: float = -1.0
+## What this world DECLARES, outranking the command line: "cli" defers to the flags.
+@export_enum("cli", "on", "off") var presentation: String = "cli"
+## "" defers to the flags; otherwise LAAblate.LIFE_PLANET_ONLY, LIFE_NO_FAUNA or LIFE_FULL.
+@export var life: String = ""
+@export_enum("cli", "sandbox", "campaign") var game_mode: String = "cli"
 
 var _input: LAVoxelInputController = null
 var _sim: LASimulation = null
@@ -72,6 +77,14 @@ func _ready() -> void:
 	_input.name = "InputController"
 	add_child(_input)
 	_input.parse_cmdline()
+	if presentation != "cli":
+		_input.declare_ui(presentation == "on")
+	if life != "":
+		_input.declare_life(life)
+	if game_mode == "sandbox":
+		GameMode.start_sandbox()
+	elif game_mode == "campaign":
+		GameMode.start_campaign()
 	_apply_window_mode()
 
 	_sim = SimulationScene.instantiate()

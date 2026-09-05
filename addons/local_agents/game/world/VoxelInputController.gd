@@ -775,6 +775,12 @@ func _frame_villager_hut() -> void:
 func streamer_enabled() -> bool: return _streamer_enabled
 func llm() -> bool: return _llm
 func ui() -> bool: return _ui
+## The world node's own declaration, outranking the flags parsed above.
+func declare_ui(on: bool) -> void: _ui = on
+func declare_life(mode: String) -> void:
+	_ablate_life(mode)
+	if mode != LAAblate.LIFE_FULL:
+		_streamer_enabled = false
 func render() -> bool: return _render
 func streamer_persona() -> String: return _streamer_persona
 func streamer_avatar_flavor() -> String: return _streamer_avatar_flavor
