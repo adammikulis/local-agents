@@ -2,7 +2,7 @@ class_name LAMaterialEjecta3D
 extends Node3D
 
 ## LAMaterialEjecta3D: the momentum/ejecta primitive of the substrate — a pressure release throws mass, the
-## mass arcs under the N-body field, and it lands as sediment plus its own kinetic energy as heat.
+## mass arcs under the field LABallistics integrates, and it lands as sediment plus its kinetic energy as heat.
 
 const PARCELS_PER_EJECT: int = 6
 # Sideways spread of the spray around the launch direction (radians of cone half-angle).
@@ -11,18 +11,13 @@ const CONE: float = 0.5
 # may not vary with a setting or a viewpoint.
 const DRAW_CEIL: int = 256          # multimesh instances. Presentation: it may not reach the physics.
 const DRAW_FLOOR: int = 48
-const MAX_LIFETIME: float = 12.0           # s; a parcel that never lands is culled
 const LAND_HEAT_R: float = 8.0
 
 var _f = null                                            # owning LAMaterialField3D
 var _center: Vector3 = Vector3.ZERO                      # planet centre (radial-gravity origin)
-# Parcel state as parallel arrays (avoids per-parcel object churn). Index i is one in-flight parcel.
-var _p_pos: Array = []                                   # Vector3 world position
-var _p_vel: Array = []                                   # Vector3 world velocity
+# Parcel state as parallel arrays. Index i is one in-flight parcel; the arc itself is LABallistics'.
+var _p_id: PackedInt32Array = PackedInt32Array()         # the free body carrying it
 var _p_mass: PackedFloat32Array = PackedFloat32Array()   # carried mineral mass
-var _p_launch_r: PackedFloat32Array = PackedFloat32Array()  # launch radius (landing test)
-var _p_age: PackedFloat32Array = PackedFloat32Array()
-var _p_risen: PackedByteArray = PackedByteArray()        # 1 once the parcel has climbed above launch radius
 var _p_src: PackedInt32Array = PackedInt32Array()        # cell the parcel was thrown out of (the debit site)
 var _deposited: float = 0.0                              # cumulative mass deposited (diagnostic)
 var _ejected: float = 0.0                                # cumulative mass handed to eject() (diagnostic)
@@ -59,6 +54,7 @@ func report() -> Dictionary:
 
 
 func _ready() -> void:
+	add_to_group("la_ballistics")
 	_build_visual()
 
 
@@ -100,7 +96,6 @@ func eject(world_pos: Vector3, mass: float, energy: float, dir_bias: Vector3 = V
 		radial = Vector3.UP
 	radial = radial.normalized()
 	var launch_dir: Vector3 = (radial + dir_bias).normalized() if (radial + dir_bias).length_squared() > 1.0e-6 else radial
-	var launch_r: float = (world_pos - _center).length()
 	# Build a tangent basis for the spray cone.
 	var tan_a: Vector3 = launch_dir.cross(Vector3.UP)
 	if tan_a.length_squared() < 1.0e-6:
@@ -113,48 +108,34 @@ func eject(world_pos: Vector3, mass: float, energy: float, dir_bias: Vector3 = V
 		var spread: float = rng.randf() * CONE
 		var dir: Vector3 = (launch_dir * cos(spread) + (tan_a * cos(ang) + tan_b * sin(ang)) * sin(spread)).normalized()
 		var speed: float = base_speed * rng.randf_range(0.7, 1.15)
-		_p_pos.append(world_pos)
-		_p_vel.append(dir * speed)
+		# A parcel is a cloud of grains, not a sphere: it declares no size, so nothing rams air with it.
+		_p_id.append(LABallistics.drop(world_pos, dir * speed, 0.0, 0.0))
 		_p_mass.append(per_mass)
-		_p_launch_r.append(launch_r)
-		_p_age.append(0.0)
-		_p_risen.append(0)
 		_p_src.append(src)
 		_ejected += per_mass
 	if _p_mass.size() > _peak_inflight:
 		_peak_inflight = _p_mass.size()
 
 
-func _physics_process(delta: float) -> void:
-	if _p_mass.size() == 0:
-		if _multimesh != null and _multimesh.visible_instance_count != 0:
-			_multimesh.visible_instance_count = 0
-		return
-	var dt: float = delta
+## The integrator's landing report: the debris the parcel carried out of its source cell arrives here.
+func on_bodies_landed(rows: Array) -> void:
+	for row in rows:
+		var i: int = _p_id.find(int(row["id"]))
+		if i < 0:
+			continue
+		_deposit(_p_src[i], row["position"], _p_mass[i], float(row["speed"]))
+		_remove_parcel(i)
+
+
+## A parcel that has left the box has left the ground its debris came from; the transfer never happens, so
+## the mass simply stays in the cell it was debited from.
+func _physics_process(_delta: float) -> void:
 	var i: int = _p_mass.size() - 1
 	while i >= 0:
-		var pos: Vector3 = _p_pos[i]
-		var vel: Vector3 = _p_vel[i]
-		var radial: Vector3 = pos - _center
-		var r: float = radial.length()
-		var r_hat: Vector3 = radial / r if r > 1.0e-6 else Vector3.UP
-		# The N-body field, not a local constant: the same call the meteor's coast uses, so a parcel arcs
-		# under the planet, gets bent by the moon on a close pass, and feels the star's tide out at range.
-		vel += LAGravity.acceleration_at(get_tree(), pos) * dt
-		pos += vel * dt
-		var age: float = _p_age[i] + dt
-		var r_now: float = (pos - _center).length()
-		if r_now > _p_launch_r[i] + 1.0:
-			_p_risen[i] = 1
-		var descending: bool = vel.dot(r_hat) < 0.0
-		var landed: bool = (_p_risen[i] == 1 and descending and r_now <= _p_launch_r[i]) or age > MAX_LIFETIME
-		if landed:
-			_deposit(_p_src[i], pos, _p_mass[i], vel.length())
+		var st: Dictionary = LABallistics.state(_p_id[i])
+		if st.is_empty() or _f.world_to_cell(st["position"]) < 0:
+			LABallistics.release(_p_id[i])
 			_remove_parcel(i)
-		else:
-			_p_pos[i] = pos
-			_p_vel[i] = vel
-			_p_age[i] = age
 		i -= 1
 	_refresh_visual()
 
@@ -182,20 +163,13 @@ func _deposit(src: int, pos: Vector3, mass: float, speed: float) -> void:
 
 
 func _remove_parcel(i: int) -> void:
+	LABallistics.release(_p_id[i])
 	var last: int = _p_mass.size() - 1
-	_p_pos[i] = _p_pos[last]
-	_p_vel[i] = _p_vel[last]
+	_p_id[i] = _p_id[last]
 	_p_mass[i] = _p_mass[last]
-	_p_launch_r[i] = _p_launch_r[last]
-	_p_age[i] = _p_age[last]
-	_p_risen[i] = _p_risen[last]
 	_p_src[i] = _p_src[last]
-	_p_pos.remove_at(last)
-	_p_vel.remove_at(last)
+	_p_id.remove_at(last)
 	_p_mass.remove_at(last)
-	_p_launch_r.remove_at(last)
-	_p_age.remove_at(last)
-	_p_risen.remove_at(last)
 	_p_src.remove_at(last)
 
 
@@ -204,8 +178,10 @@ func _refresh_visual() -> void:
 		return
 	var n: int = mini(_p_mass.size(), _draw_cap())
 	for i in range(n):
-		var t: Transform3D = Transform3D(Basis(), _p_pos[i])
-		_multimesh.set_instance_transform(i, t)
+		var st: Dictionary = LABallistics.state(_p_id[i])
+		if st.is_empty():
+			continue
+		_multimesh.set_instance_transform(i, Transform3D(Basis(), st["position"]))
 	_multimesh.visible_instance_count = n
 
 
