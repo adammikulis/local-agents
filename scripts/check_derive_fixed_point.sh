@@ -1,11 +1,8 @@
 #!/usr/bin/env bash
-# ONE STATE PER CELL. The derive solves a temperature at a pressure and states a pressure from that
-# temperature, so it is a function of the cell's matter and energy and of nothing else. Run under
-# `lasim`, whose device compiles at MTLMathModeSafe: Godot's driver compiles the same kernels with fast
-# math, and a solve that stops on a residual rather than on the state lands somewhere different under
-# each. Arms: (A) a second derive over the state the first wrote returns it; (B) the same matter handed
-# a different temperature and pressure to start from returns the same state; (C) the seeded world's
-# derive writes finite state.
+# ONE STATE PER CELL: the derive is a function of the cell's matter and energy and of nothing else. Run
+# under `lasim`, at MTLMathModeSafe -- Godot compiles with fast math, and a solve stopping on a residual
+# lands elsewhere under each. (A) a second derive returns the state the first wrote; (B) the same matter
+# from another starting iterate returns it too; (C) the seeded world's derive writes finite state.
 # EXIT 0 the derive is a function of the cell * 1 it is not * 2 could not run.
 set -uo pipefail
 

@@ -176,9 +176,8 @@ if [[ "$rows" -gt "$cap" ]]; then
   echo "to be a modelling choice, raise MAX_DECLARED in the same commit and say why in the message."
   exit 1
 fi
-# --- NO GHOST ROWS, AND NO STALE VALUES ---------------------------------------------------------------
-# A row for a constant that is gone still counts toward the ceiling, so deleting code would stop lowering
-# it. A row recording a value the code does not hold reads as review of a number nobody is using.
+# --- NO GHOST ROWS, AND NO STALE VALUES: a row for a constant that is gone holds the ceiling up, and one
+# recording a value the code does not hold reads as review of a number nobody uses ---------------------
 ghosts=0
 while IFS=$'\t' read -r gfile gname gval; do
   [[ -z "$gname" || "$gfile" == "*" ]] && continue

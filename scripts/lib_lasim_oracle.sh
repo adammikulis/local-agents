@@ -3,8 +3,7 @@
 # ReducePass, which record the plan they produced, so lasim replays the field rather than a copy of it.
 # One declaration: a gate writing its own oracle measures against a different world than its neighbour.
 #   la_lasim_oracle_write / _clean      put the probes in tests/ and take them out again
-#   la_lasim_oracle_run <work> <steps>  leaves field.lafs, plan.lapl, plan_derive.lapl,
-#                                       plan_reduce.lapl and godot_mirrors.lafs. 0 ran * 2 could not.
+#   la_lasim_oracle_run <work> <steps>  leaves the snapshots and plans in <work>. 0 ran * 2 could not.
 
 LA_ORACLE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LA_ORACLE_TESTS="$LA_ORACLE_ROOT/addons/local_agents/tests"
