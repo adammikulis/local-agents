@@ -46,6 +46,7 @@ const char *const GRAVITY_REDUCE[] = { "@amounts", "energy_stock", "energy_stock
 	"bodyf_*",
 	"open_temp_*", "all_temp_max", "ground_cells", "temp_ground_sum", "hot_cells",
 	"geo_grad_*", "air_grad_*", "clim_ground_*", "clim_air_*", "clim_lat*", "clim_alt*",
+	"rock_*", "sea_ice_*", "open_sea_*",
 	"water_liquid_total", "wet_cells", "vapour_amount", "hotspring_*", "clim_water_*",
 	"melt_total", "magma_cells", "lava_*", "enclosed_void*",
 	"o2_open_*", "co2_open_*", "precip_cells", "cloud_cells", "fog_cells",

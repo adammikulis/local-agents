@@ -50,7 +50,31 @@ static func rows() -> Array:
 			"nbr": Rec.Nbr.ABOVE},
 		{"key": "air_grad_pairs", "source": "temp", "op": Rec.Op.COUNT, "mask": Rec.Mask.OPEN,
 			"nbr": Rec.Nbr.ABOVE},
-	] + _lat_band_rows() + _alt_band_rows()
+		# THE ROCK SKIN: the outermost rock of a column, which state_derive.glsl classes 3.
+		{"key": "rock_skin_cells", "source": "surface_class", "op": Rec.Op.COUNT_GE, "threshold": 2.5},
+		{"key": "rock_skin_sum", "source": "temp", "op": Rec.Op.SUM, "gate": "surface_class",
+			"gate_lo": 2.5},
+	] + _lat_band_rows() + _alt_band_rows() + _rock_profile_rows()
+
+
+## THE GEOTHERM AGAINST RADIUS: five samples of the rock's temperature, each a sixteenth of the sea
+## shell's radius wide, the outermost open above so a peak standing over the shell falls in it.
+## `r_frac` is |r| over that radius, NaN where the body carries no shell.
+const PROFILE_WIDTH: float = 1.0 / 16.0
+const PROFILE_SAMPLES: Dictionary = {"core": 0, "q25": 4, "mid": 8, "q75": 12, "surf": 15}
+
+
+static func _rock_profile_rows() -> Array:
+	var out: Array = []
+	for tag: String in PROFILE_SAMPLES:
+		var b: int = int(PROFILE_SAMPLES[tag])
+		var g: Dictionary = {"source": "temp", "mask": Rec.Mask.SOLID, "gate": "r_frac",
+			"gate_lo": float(b) * PROFILE_WIDTH}
+		if b < 15:
+			g["gate_hi"] = float(b + 1) * PROFILE_WIDTH
+		out.append(g.merged({"key": "rock_%s_sum" % tag, "op": Rec.Op.SUM}, true))
+		out.append(g.merged({"key": "rock_%s_n" % tag, "op": Rec.Op.COUNT}, true))
+	return out
 
 
 ## Ground temperature per |lat| band: `lat` is signed, so each band is a north gate plus a south gate.

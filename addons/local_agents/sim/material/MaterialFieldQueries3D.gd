@@ -113,52 +113,24 @@ func pressure_at(pos: Vector3) -> float:
 
 # --- Diagnostics -------------------------------------------------------------
 
-## Radial bins the rock temperature profile is reduced into, between the centre and the outermost rock.
-const PROFILE_BINS: int = 16
-
-
-## Mean rock temperature against distance from the body centre, plus the SKIN: the outermost rock cell of
-## every column, found by asking which cells have open air one step up the local vertical.
+## Mean rock temperature at five radii, plus the SKIN: the outermost rock of every column. A sample
+## no cell fell in is null: a mean over nothing is not zero degrees.
 func rock_radial_profile() -> Dictionary:
-	if _f._grid == null or _f._temp.size() != _f._cell_count or _f._solid.size() != _f._cell_count:
-		return {}
-	var outer: float = 0.0
-	for c in _f._cell_count:
-		if _f._solid[c] != 0:
-			outer = maxf(outer, LAFieldGeometry.radius_of(_f, c))
-	if outer <= 0.0:
-		return {}
-	var bin_sum: PackedFloat32Array = PackedFloat32Array()
-	var bin_n: PackedInt32Array = PackedInt32Array()
-	bin_sum.resize(PROFILE_BINS)
-	bin_n.resize(PROFILE_BINS)
-	var skin_sum: float = 0.0
-	var skin_n: int = 0
-	for c in _f._cell_count:
-		if _f._solid[c] == 0:
-			continue
-		var b: int = clampi(int(LAFieldGeometry.radius_of(_f, c) / outer * float(PROFILE_BINS)), 0, PROFILE_BINS - 1)
-		bin_sum[b] += _f._temp[c]
-		bin_n[b] += 1
-		var hi: int = LAFieldGeometry.above(_f, c)
-		if hi >= 0 and _f._solid[hi] == 0:
-			skin_sum += _f._temp[c]
-			skin_n += 1
-	return {
-		"rock_core_c": _bin_mean(bin_sum, bin_n, 0),
-		"rock_q25_c": _bin_mean(bin_sum, bin_n, PROFILE_BINS / 4),
-		"rock_mid_c": _bin_mean(bin_sum, bin_n, PROFILE_BINS / 2),
-		"rock_q75_c": _bin_mean(bin_sum, bin_n, PROFILE_BINS * 3 / 4),
-		"rock_surf_c": _bin_mean(bin_sum, bin_n, PROFILE_BINS - 1),
-		"rock_skin_c": (skin_sum / float(skin_n)) if skin_n > 0 else 0.0,
-		"rock_skin_cells": skin_n,
-	}
+	var out: Dictionary = {}
+	for tag: String in LAReduceHeatRows.PROFILE_SAMPLES:
+		out["rock_%s_c" % tag] = _row_mean("rock_%s_sum" % tag, "rock_%s_n" % tag)
+	out["rock_skin_c"] = _row_mean("rock_skin_sum", "rock_skin_cells")
+	out["rock_skin_cells"] = row_v("rock_skin_cells", true)
+	return out
 
 
-func _bin_mean(bin_sum: PackedFloat32Array, bin_n: PackedInt32Array, b: int) -> float:
-	if b < 0 or b >= bin_n.size() or bin_n[b] == 0:
-		return 0.0
-	return bin_sum[b] / float(bin_n[b])
+## A reduced SUM over a reduced COUNT, or null when either is absent or the count is zero.
+func _row_mean(sum_key: String, n_key: String):
+	var r: Dictionary = reduced()
+	if not r.has(sum_key) or not r.has(n_key):
+		return null
+	var n: float = float(r[n_key])
+	return snappedf(float(r[sum_key]) / n, 0.1) if n > 0.0 else null
 
 
 ## Open cells holding surface water, how many of those are warm / boiling, and the hottest of them. The
@@ -423,94 +395,26 @@ func fertility_peak() -> float:
 
 # --- SEA SURFACE — the free water surface, frozen and open ---------------------------------------------
 
-## True when cell `c` holds water and the cell one step UP the local vertical is open and DRY — the free
-## water surface, where ice forms. The dryness above is what makes it a surface, not a mid-column cell.
-func _is_sea_surface(c: int) -> bool:
-	if _f._solid[c] != 0 or liquid_at(c) < _f.MIN_MASS:
-		return false
-	var hi: int = LAFieldGeometry.above(_f, c)
-	if hi < 0:
-		return true                                   # the march left the box — open sky above
-	return _f._solid[hi] == 0 and liquid_at(hi) < _f.MIN_MASS
-
-## Frozen extent and the MEDIAN temperature of the frozen and open halves of the sea surface, in one walk.
-## Median, not mean: a handful of undersea-vent cells at hundreds of °C moves a mean and cannot move a
-## median, so no cell has to be excluded to keep the number readable.
+## Frozen extent and the MEAN temperature of the frozen and open halves of the free water surface, off
+## the rows LAReduceWaterRows declares over the surface class the derive publishes.
 func sea_surface_stats() -> Dictionary:
-	var out: Dictionary = {"sea_ice_cells": 0, "sea_ice_temp": 0.0, "open_sea_cells": 0, "open_sea_temp": 0.0}
-	if _f._grid == null:
-		return out
-	if _f._h2o.size() != _f._cell_count or _f._temp.size() != _f._cell_count:
-		return out
-	var frozen: PackedFloat32Array = PackedFloat32Array()
-	var open: PackedFloat32Array = PackedFloat32Array()
-	for c in _f._cell_count:
-		if not _is_sea_surface(c):
-			continue
-		if ice_at(c) > _f.SNOW_PRESENT:
-			frozen.append(_f._temp[c])
-		else:
-			open.append(_f._temp[c])
-	out["sea_ice_cells"] = frozen.size()
-	out["sea_ice_temp"] = _median(frozen)
-	out["open_sea_cells"] = open.size()
-	out["open_sea_temp"] = _median(open)
-	return out
+	return {
+		"sea_ice_cells": row_v("sea_ice_cells", true),
+		"sea_ice_temp_mean": _row_mean("sea_ice_temp_sum", "sea_ice_cells"),
+		"open_sea_cells": row_v("open_sea_cells", true),
+		"open_sea_temp_mean": _row_mean("open_sea_temp_sum", "open_sea_cells"),
+	}
 
 
-func _median(v: PackedFloat32Array) -> float:
-	if v.is_empty():
-		return 0.0
-	v.sort()
-	return snappedf(v[v.size() / 2], 0.1)
-
-
-## Melt body/rind split. The three body rows are reduced on the device, so they stand whether or not the
-## silicate mirror arrived. The interior/rind split asks each cell's six neighbours for THEIR melt, which no
-## reduce row can express, so it walks the mirror and publishes null when the mirror is absent.
+## Melt body/rind split, every part of it reduced on the device: the interior is walled by rock or by
+## more of the same melt, the rind is not.
 func lava_shell_diag() -> Dictionary:
 	var mx: Variant = row_v("lava_maxmass", false)
-	var out: Dictionary = {"lava_hot": row_v("lava_hot", true), "lava_thick": row_v("lava_thick", true),
+	return {"lava_hot": row_v("lava_hot", true), "lava_thick": row_v("lava_thick", true),
 		"lava_maxmass": snappedf(float(mx), 0.001) if mx != null else null,
-		"lava_interior": null, "lava_rind": null, "lava_int_c": null, "lava_rind_c": null}
-	if not _mirror_live("silicate") or _f._silicate_melt.size() != _f._cell_count:
-		return out
-	if _f._grid == null or _f._solid.size() != _f._cell_count or _f._temp.size() != _f._cell_count:
-		return out
-	# The melt depth that makes a cell part of the body, read back from the row the device counted with.
-	var grid: LAVoxelGrid = _f._grid
-	var body: float = float(LAReduceRecords.row("lava_hot").get("threshold", NAN))
-	if grid.neighbours.is_empty() or is_nan(body):
-		return out
-	var interior: int = 0
-	var rind: int = 0
-	var int_sum: float = 0.0
-	var rind_sum: float = 0.0
-	for c in range(_f._cell_count):
-		var lv: float = melt_at(c)
-		if _f._solid[c] != 0 or lv < body or _f._silicate_melt[c] <= 0.0:
-			continue
-		var exposed: int = 0
-		for f in range(grid.slot_begin(c, 0), grid.slot_begin(c, LAVoxelGrid.SLOTS)):
-			var nb: int = grid.neighbours[f]
-			if nb < 0:
-				exposed += 1
-				continue
-			if _f._solid[nb] != 0:
-				continue
-			if melt_at(nb) < TUBE_MELT_NEAR_ZERO or _f._silicate_melt[nb] <= 0.0:
-				exposed += 1
-		if exposed == 0:
-			interior += 1
-			int_sum += _f._temp[c]
-		else:
-			rind += 1
-			rind_sum += _f._temp[c]
-	out["lava_interior"] = interior
-	out["lava_rind"] = rind
-	out["lava_int_c"] = snappedf(int_sum / float(interior), 0.1) if interior > 0 else null
-	out["lava_rind_c"] = snappedf(rind_sum / float(rind), 0.1) if rind > 0 else null
-	return out
+		"lava_interior": row_v("lava_interior", true), "lava_rind": row_v("lava_rind", true),
+		"lava_int_c": _row_mean("lava_interior_sum", "lava_interior"),
+		"lava_rind_c": _row_mean("lava_rind_sum", "lava_rind")}
 
 
 # Whole-grid liquid water, one value per cell — the `liquid` buffer state_derive.glsl writes, read back at

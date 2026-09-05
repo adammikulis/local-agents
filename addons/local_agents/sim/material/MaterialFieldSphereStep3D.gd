@@ -177,6 +177,7 @@ func step() -> void:
 	LASimReport.event("field_step")   # telemetry: field steps per run, moving or at rest
 	LASimReport.gauge("field_cells", float(_f._gpu._cc))
 	if _at_rest():
+		var t_rest: int = Time.get_ticks_usec()
 		LASimReport.event("field_rest")
 		if _f._gpu._pending:              # the last moving step's readback and books, drained once
 			_f._gpu.begin_frame(_f._e, _f._h2o)
@@ -184,6 +185,7 @@ func step() -> void:
 			if _f._report_mod != null:
 				_f._report_mod.sample_ledgers()
 		_f._gpu.republish_latest()
+		LASimReport.gauge("field_ms", float(Time.get_ticks_usec() - t_rest) / 1000.0)
 		return
 	var t0: int = Time.get_ticks_usec()
 	var t_begin: int = t0

@@ -113,9 +113,8 @@ ratio of its band absorptivity to its emissivity.
 
 ## 13. Reduce the rest on the device
 
-`FieldPassAttribution3D._sums` walks the channels it downloads at a checkpoint; a reduce dispatch per
-checkpoint replaces it. Three shapes refused a row and say why: `sea_surface_stats`, `lava_shell_diag`,
-`rock_radial_profile`.
+`FieldPassAttribution3D._sums` walks the channels it downloads at a checkpoint, and
+`MaterialFieldMineralProfile3D` walks the grid by elevation band; a reduce dispatch replaces each.
 
 ## 14. THE PHYSICS RUNS INSIDE GODOT'S PROCESS
 

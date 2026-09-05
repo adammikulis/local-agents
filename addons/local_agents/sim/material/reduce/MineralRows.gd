@@ -9,6 +9,8 @@ static func rows() -> Array:
 	var drained: Dictionary = {"gate": "silicate", "gate_aux": "silicate_melt",
 		"gate_hi": LAMaterialFieldQueries3D.TUBE_MELT_NEAR_ZERO}
 	var melt: Dictionary = {"source": "silicate", "aux": "silicate_melt", "mask": Rec.Mask.OPEN}
+	var rind: Dictionary = {"source": "temp", "gate": "melt_body", "gate_lo": 0.5, "gate_hi": 1.5}
+	var interior: Dictionary = {"source": "temp", "gate": "melt_body", "gate_lo": 1.5}
 	return [
 		{"key": "melt_total", "source": "silicate", "aux": "silicate_melt", "op": Rec.Op.SUM,
 			"mask": Rec.Mask.ALL, "weight": true},
@@ -32,4 +34,10 @@ static func rows() -> Array:
 			"mask": Rec.Mask.OPEN, "threshold": 4.0, "nbr": Rec.Nbr.SOLID_COUNT}, true),
 		drained.merged({"key": "enclosed_void5", "source": "solid", "op": Rec.Op.COUNT_GE,
 			"mask": Rec.Mask.OPEN, "threshold": 5.0, "nbr": Rec.Nbr.SOLID_COUNT}, true),
+		# THE MELT BODY'S SKIN: state_derive.glsl classes an open melt cell 1 where a neighbour is
+		# neither rock nor more of the same melt, and 2 where none is.
+		rind.merged({"key": "lava_rind", "op": Rec.Op.COUNT}, true),
+		rind.merged({"key": "lava_rind_sum", "op": Rec.Op.SUM}, true),
+		interior.merged({"key": "lava_interior", "op": Rec.Op.COUNT}, true),
+		interior.merged({"key": "lava_interior_sum", "op": Rec.Op.SUM}, true),
 	]

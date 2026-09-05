@@ -12,6 +12,12 @@ layout(local_size_x = 64) in;
 #include "matter_channels.glsli"
 #include "eos.glsli"
 
+// THE NEIGHBOUR GRAPH, read only by the detect phase below.
+layout(set = 0, binding = LA_BIND_NBR, std430) restrict readonly buffer Nbr { int nbr[]; };
+layout(set = 0, binding = LA_BIND_VERT_UP, std430) restrict readonly buffer VertUp { int vert_up[]; };
+layout(set = 0, binding = LA_BIND_VERT_DOWN, std430) restrict readonly buffer VertDown { int vert_down[]; };
+#include "neighbours.glsli"
+
 // THE STATE: internal energy per volume, J/m^3. Enthalpy is derived from it at the pressure solved.
 layout(set = 0, binding = LA_BIND_E_J_M3, std430) restrict buffer Energy { float e_j_m3[]; };
 layout(set = 0, binding = LA_BIND_PRESSURE, std430) restrict buffer Pressure { float pressure[]; };
@@ -65,9 +71,9 @@ layout(set = 0, binding = LA_BIND_RAD_W_M3, std430) restrict writeonly buffer Ra
 layout(set = 0, binding = LA_BIND_MOM_X, std430) restrict buffer MomX { float mom_x[]; };
 layout(set = 0, binding = LA_BIND_MOM_Y, std430) restrict buffer MomY { float mom_y[]; };
 layout(set = 0, binding = LA_BIND_MOM_Z, std430) restrict buffer MomZ { float mom_z[]; };
-layout(set = 0, binding = LA_BIND_VEL_X, std430) restrict writeonly buffer VelX { float vel_x[]; };
-layout(set = 0, binding = LA_BIND_VEL_Y, std430) restrict writeonly buffer VelY { float vel_y[]; };
-layout(set = 0, binding = LA_BIND_VEL_Z, std430) restrict writeonly buffer VelZ { float vel_z[]; };
+layout(set = 0, binding = LA_BIND_VEL_X, std430) restrict buffer VelX { float vel_x[]; };
+layout(set = 0, binding = LA_BIND_VEL_Y, std430) restrict buffer VelY { float vel_y[]; };
+layout(set = 0, binding = LA_BIND_VEL_Z, std430) restrict buffer VelZ { float vel_z[]; };
 
 // What the pressure kernel needs and this pass already computes: the cell's gas in mol/m^3 and the
 // density of its CONDENSED matter alone, kg/m^3.
@@ -75,13 +81,13 @@ layout(set = 0, binding = LA_BIND_RHO_BULK, std430) restrict writeonly buffer Rh
 layout(set = 0, binding = LA_BIND_CONDUCTIVITY, std430) restrict writeonly buffer Cond { float conductivity[]; };
 
 // THE PHASE OF THE CELL'S H2O, as three shares of h2o[] summing to 1. Derived, never stored.
-layout(set = 0, binding = LA_BIND_H2O_SOLID, std430) restrict writeonly buffer H2OSolid { float h2o_solid[]; };
-layout(set = 0, binding = LA_BIND_H2O_LIQUID, std430) restrict writeonly buffer H2OLiquid { float h2o_liquid[]; };
+layout(set = 0, binding = LA_BIND_H2O_SOLID, std430) restrict buffer H2OSolid { float h2o_solid[]; };
+layout(set = 0, binding = LA_BIND_H2O_LIQUID, std430) restrict buffer H2OLiquid { float h2o_liquid[]; };
 layout(set = 0, binding = LA_BIND_H2O_VAPOUR, std430) restrict writeonly buffer H2OVapour { float h2o_vapour[]; };
 
 // THE MELT SHARE OF THE CELL'S SILICATE: the lever rule across the solidus-liquidus interval. Derived from
 // the same enthalpy ladder the temperature came off, never stored.
-layout(set = 0, binding = LA_BIND_SILICATE_MELT, std430) restrict writeonly buffer SilicateMelt { float silicate_melt[]; };
+layout(set = 0, binding = LA_BIND_SILICATE_MELT, std430) restrict buffer SilicateMelt { float silicate_melt[]; };
 
 // LIQUID water per cell: h2o times its liquid share. Read back every drain for the CPU consumers.
 layout(set = 0, binding = LA_BIND_LIQUID, std430) restrict writeonly buffer Liquid { float liquid[]; };
@@ -98,6 +104,16 @@ layout(set = 0, binding = LA_BIND_ORG_FRESH, std430) restrict writeonly buffer O
 layout(set = 0, binding = LA_BIND_SPEED, std430) restrict writeonly buffer Speed { float speed[]; };
 layout(set = 0, binding = LA_BIND_LAT, std430) restrict writeonly buffer Lat { float lat[]; };
 layout(set = 0, binding = LA_BIND_ALT, std430) restrict writeonly buffer Alt { float alt[]; };
+
+// |r| over the sea shell's radius, NaN where the body carries none.
+layout(set = 0, binding = LA_BIND_R_FRAC, std430) restrict writeonly buffer RFrac { float r_frac[]; };
+// 0 buried, 1 open sea surface, 2 frozen sea surface, 3 the outermost rock of a column.
+layout(set = 0, binding = LA_BIND_SURFACE_CLASS, std430) restrict writeonly buffer SurfClass { float surface_class[]; };
+// 0 outside the melt body, 1 its rind, 2 its interior.
+layout(set = 0, binding = LA_BIND_MELT_BODY, std430) restrict writeonly buffer MeltBody { float melt_body[]; };
+// 1 at a cell the detect phase names one.
+layout(set = 0, binding = LA_BIND_ERUPT, std430) restrict writeonly buffer Erupt { float erupt[]; };
+layout(set = 0, binding = LA_BIND_CYCLONE, std430) restrict writeonly buffer Cyclone { float cyclone[]; };
 
 // How many of this cell's channel amounts, its enthalpy and its momentum are NaN or infinite.
 // Reduced by the `nonfinite_cells` row.
@@ -136,10 +152,13 @@ layout(push_constant, std430) uniform Params {
 	float rad_w_kg_4;
 	float sea_radius_m;     // the sea shell's radius from the body centre; 0 = the body carries no shell
 	float grav_self;        // 1/2 where the box's own mass sources the potential, 1 for a declared body
+	uint lithify;           // 1 where the ladder holds the "lithify" derive record
+	uint detect;            // 1 = the detect phase: only the neighbour classes, off settled state
+	// THE LAST THREE WORDS ARE THE RESTATE'S OWN: LAFieldDriver::run_transport writes them at
+	// size-12, size-8 and size-4, so nothing may be appended after them.
 	uint restate;           // 0 = the field step's derive; 1 = the transport substep's restate
 	uint args_slot;         // where this substep's level args start, in words
 	uint act_base;          // where this row group's sorted list starts, in cells
-	uint lithify;           // 1 where the ladder holds the "lithify" derive record
 } params;
 
 const float SOLID_IN = 0.6;    // LAPhysical.RHEOLOGICAL_LOCKUP_CRYSTAL_FRAC
@@ -242,8 +261,183 @@ void lithify(uint g, float melt, float v_lithic) {
 }
 
 
+
+// THE DETECT PHASE: a class about the cells AROUND one, dispatched after a barrier so every
+// neighbour it reads is settled. Thresholds sit after the channel rows of `props`.
+const int DET_WET = 0;        // mol/m^3 of liquid h2o that makes a cell wet
+const int DET_ICE = 1;        // mol/m^3 of frozen h2o that makes a sea-surface cell frozen
+const int DET_BODY = 2;       // mol/m^3 of melt an open cell holds to be part of the melt body
+const int DET_DRAINED = 3;    // mol/m^3 under which a neighbour counts as drained of that melt
+const int DET_MOLTEN = 4;     // mol/m^3 of melt the readback resolves above zero
+
+float det(int k) {
+	return props[LA_CHANNEL_SLOTS * PROP_STRIDE + k];
+}
+
+// The neighbour across cell `c`'s slot `d`; -1 where that slot carries no face.
+int la_nb(uint c, uint d) {
+	uint f = la_slot_lo(c, d);
+	return (f < la_slot_hi(c, d)) ? nbr[f] : -1;
+}
+
+vec3 la_vel(uint c) {
+	return vec3(vel_x[c], vel_y[c], vel_z[c]);
+}
+
+vec3 la_cell_pos(uint c) {
+	return vec3(pos[c * 3u], pos[c * 3u + 1u], pos[c * 3u + 2u]);
+}
+
+// The local vertical: away from the mass. Zero where no solve has said which way is down.
+vec3 la_up(uint c) {
+	vec3 gv = vec3(g_field[c * 3u], g_field[c * 3u + 1u], g_field[c * 3u + 2u]);
+	float l = length(gv);
+	return (l > 0.0) ? -gv / l : vec3(0.0);
+}
+
+float la_melt_at(uint c) {
+	return max(silicate[c], 0.0) * clamp(silicate_melt[c], 0.0, 1.0);
+}
+
+float la_liquid_at(uint c) {
+	return max(h2o[c], 0.0) * clamp(h2o_liquid[c], 0.0, 1.0);
+}
+
+// d(velocity)/d(axis) across the pair of slots on one axis, 1/s.
+vec3 la_axis_deriv(uint c, uint lo_slot, uint hi_slot) {
+	int lo = la_nb(c, lo_slot);
+	int hi = la_nb(c, hi_slot);
+	float d_lo = max(la_face_dist(c, lo), 1.0e-6);
+	float d_hi = max(la_face_dist(c, hi), 1.0e-6);
+	if (lo >= 0 && hi >= 0) {
+		return (la_vel(uint(hi)) - la_vel(uint(lo))) / (d_lo + d_hi);
+	}
+	if (hi >= 0) {
+		return (la_vel(uint(hi)) - la_vel(c)) / d_hi;
+	}
+	if (lo >= 0) {
+		return (la_vel(c) - la_vel(uint(lo))) / d_lo;
+	}
+	return vec3(0.0);
+}
+
+// Air spin about the local vertical at `c`, 1/s.
+float la_spin(uint c) {
+	vec3 dx = la_axis_deriv(c, 0u, 1u);
+	vec3 dy = la_axis_deriv(c, 2u, 3u);
+	vec3 dz = la_axis_deriv(c, 4u, 5u);
+	vec3 curl = vec3(dy.z - dz.y, dz.x - dx.z, dx.y - dy.x);
+	return abs(dot(curl, la_up(c)));
+}
+
+// The outermost cell of a column: rock with sky over it, or free water with dry sky over it.
+float la_surface_class(uint g) {
+	if (la_up(g) == vec3(0.0)) {
+		return 0.0;                                 // nothing has solved which way is up
+	}
+	int hi = vert_up[g];
+	bool open_above = (hi < 0) || (solid[uint(hi)] == 0.0);
+	if (solid[g] != 0.0) {
+		return open_above ? 3.0 : 0.0;
+	}
+	if (la_liquid_at(g) < det(DET_WET)) {
+		return 0.0;
+	}
+	if (hi >= 0 && (!open_above || la_liquid_at(uint(hi)) >= det(DET_WET))) {
+		return 0.0;                                 // a mid-column cell, not the free surface
+	}
+	float ice = max(h2o[g], 0.0) * clamp(h2o_solid[g], 0.0, 1.0);
+	return (ice > det(DET_ICE)) ? 2.0 : 1.0;
+}
+
+// Melt in the open: its INTERIOR is walled by rock or by more of itself, its RIND is not.
+float la_melt_body(uint g) {
+	if (solid[g] != 0.0 || silicate_melt[g] <= 0.0 || la_melt_at(g) < det(DET_BODY)) {
+		return 0.0;
+	}
+	for (uint f = la_face_lo(g); f < la_face_hi(g); ++f) {
+		int nb = nbr[f];
+		if (nb < 0) {
+			return 1.0;
+		}
+		if (solid[uint(nb)] != 0.0) {
+			continue;
+		}
+		if (silicate_melt[uint(nb)] <= 0.0 || la_melt_at(uint(nb)) < det(DET_DRAINED)) {
+			return 1.0;
+		}
+	}
+	return 2.0;
+}
+
+// Melt standing in an open cell that no neighbour tops: melt that reached the surface.
+float la_erupt(uint g) {
+	float here = la_melt_at(g);
+	if (solid[g] != 0.0 || here < det(DET_MOLTEN)) {
+		return 0.0;
+	}
+	for (uint f = la_face_lo(g); f < la_face_hi(g); ++f) {
+		int nb = nbr[f];
+		if (nb >= 0 && la_melt_at(uint(nb)) > here) {
+			return 0.0;
+		}
+	}
+	return 1.0;
+}
+
+// A closed low with a warm core spinning harder than its ring, on the ground layer of an air column.
+// The ring is the cell's own horizontal neighbours: the faces whose step is across the local vertical.
+float la_cyclone(uint g) {
+	vec3 up = la_up(g);
+	if (up == vec3(0.0)) {
+		return 0.0;                                 // nothing has solved which way is up
+	}
+	int lo = vert_down[g];
+	if (solid[g] != 0.0 || lo < 0 || solid[uint(lo)] == 0.0) {
+		return 0.0;
+	}
+	vec3 here = la_cell_pos(g);
+	float p_sum = 0.0;
+	float t_sum = 0.0;
+	float z_sum = 0.0;
+	uint n = 0u;
+	for (uint f = la_face_lo(g); f < la_face_hi(g); ++f) {
+		int nb = nbr[f];
+		if (nb < 0) {
+			continue;
+		}
+		vec3 d = la_cell_pos(uint(nb)) - here;
+		float dl = length(d);
+		if (dl <= 0.0 || abs(dot(d / dl, up)) >= 0.5) {
+			continue;                               // the vertical pair, not the ring
+		}
+		if (solid[uint(nb)] != 0.0 || pressure[uint(nb)] <= pressure[g]) {
+			return 0.0;                             // walled in, or the low is not closed
+		}
+		p_sum += pressure[uint(nb)];
+		t_sum += temp[uint(nb)];
+		z_sum += la_spin(uint(nb));
+		n += 1u;
+	}
+	if (n < 4u) {
+		return 0.0;                                 // an incomplete ring cannot say a low is closed
+	}
+	float w = float(n);
+	return (temp[g] > t_sum / w && la_spin(g) > z_sum / w) ? 1.0 : 0.0;
+}
+
+
 void main() {
 	uint g = gl_GlobalInvocationID.x;
+	if (params.detect != 0u) {
+		if (g < params.cell_count) {
+			surface_class[g] = la_surface_class(g);
+			melt_body[g] = la_melt_body(g);
+			erupt[g] = la_erupt(g);
+			cyclone[g] = la_cyclone(g);
+		}
+		return;
+	}
 	// THE SAME SOLVE INSIDE THE SUBSTEP: what the substep moved is at a new pressure before the next face
 	// reads one.
 	if (params.restate != 0u) {
@@ -273,6 +467,8 @@ void main() {
 	// GEOMETRY AND THE PER-STEP BOOKS: neither moves inside a step.
 	if (params.restate == 0u) {
 		alt[g] = (params.sea_radius_m > 0.0) ? r_len - params.sea_radius_m
+			: uintBitsToFloat(0x7FC00000u);
+		r_frac[g] = (params.sea_radius_m > 0.0) ? r_len / params.sea_radius_m
 			: uintBitsToFloat(0x7FC00000u);
 		g_rest[g * 3u] = g_eff.x;
 		g_rest[g * 3u + 1u] = g_eff.y;
