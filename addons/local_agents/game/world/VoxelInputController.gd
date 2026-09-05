@@ -388,9 +388,10 @@ func _apply_fly_view() -> void:
 		return
 	set_fly(true)
 	var center: Vector3 = _body.center()
-	# THE COAST, NOT THE +Y POLE. The sea shell sits at the mean radius, so most directions are open ocean
-	# and a fixed pole framed the demo over water.
-	var toward: Vector3 = _terrain.coast_site_dir(0.0) if _terrain.has_method("coast_site_dir") else Vector3.UP
+	# THE COAST, NOT THE +Y POLE: most bearings on this body are open water. World frame, as `surface_point`
+	# and the rig both are.
+	var toward: Vector3 = _terrain.coast_site_world_dir() if _terrain.has_method("coast_site_world_dir") \
+		else Vector3.UP
 	if toward == Vector3.ZERO:
 		toward = Vector3.UP
 	var sp: Vector3 = _terrain.surface_point(toward) if _terrain.has_method("surface_point") else (center + toward * 200.0)

@@ -79,15 +79,14 @@ func _build_sky() -> void:
 		return
 	if _camera != null and _camera.has_method("face_sun_on_start"):
 		_camera.face_sun_on_start(_sky_ctrl.sun())
-	# OPEN ON THE COAST. The sea shell sits at the mean radius, so most of the sphere is open ocean and a
-	# view that opens on an arbitrary bearing opens on water.
+	# OPEN ON THE COAST, in the world frame the rig steers in: most bearings on this body are open water.
 	var terrain = _sim.terrain()
-	if terrain != null and terrain.has_method("coast_site_dir") and _camera.has_method("orient_toward"):
-		var site: Vector3 = slice_site_dir(_sim.material_field())
-		if site == Vector3.ZERO:
-			site = terrain.coast_site_dir(0.0)
-		if site != Vector3.ZERO:
-			_camera.orient_toward(site)
+	if terrain == null or not terrain.has_method("coast_site_world_dir") \
+			or not _camera.has_method("orient_toward"):
+		return
+	var site: Vector3 = terrain.coast_site_world_dir()
+	if site != Vector3.ZERO:
+		_camera.orient_toward(site)
 
 
 func _build_world_visuals() -> void:
@@ -152,6 +151,12 @@ func _stream_to_the_horizon() -> void:
 		return
 	_draw_m = want
 	terrain.set_view_distance(want)
+	# And levels are refined for THIS frame: the eye's own field of view and the pixels it is drawn into.
+	if terrain.has_method("set_lod_distance"):
+		var vp: Viewport = _camera.get_viewport()
+		var px: float = vp.get_visible_rect().size.y if vp != null else 0.0
+		if px > 1.0:
+			terrain.set_lod_distance(LAVoxelTerrainService.lod_distance_m(_camera.fov, px))
 
 
 func camera() -> Camera3D: return _camera

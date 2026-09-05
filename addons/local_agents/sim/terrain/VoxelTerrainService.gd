@@ -80,13 +80,9 @@ func build_planet(parent: Node3D, opts: Dictionary = {}) -> void:
 		tm.set_shader_parameter("planet_enabled", 1.0)
 		tm.set_shader_parameter("planet_center", _center)
 		tm.set_shader_parameter("planet_sea_radius", _sea_radius)
-	# THE LOD PYRAMID SPANS THE BODY OR ITS FAR SIDE IS NEVER MESHED. The coarsest level reaches
-	# lod_distance * 2^(lod_count-1) metres, and the body is metres of real radius, so the count is read
-	# off the radius rather than typed. A viewer sees the whole body: the far limb stands 2R away.
-	var lod_dist: float = float(opts.get("lod_distance", 56.0))
-	terrain.lod_distance = lod_dist
-	terrain.lod_count = clampi(int(ceil(log(maxf(_planet_radius, lod_dist) / lod_dist) / log(2.0))) + 1,
-		1, MAX_LOD)
+	if opts.has("lod_distance"):
+		terrain.lod_distance = float(opts["lod_distance"])
+	terrain.lod_count = _lod_count_for(terrain.lod_distance)
 	terrain.view_distance = int(opts.get("view_distance", 8000))
 	terrain.generate_collisions = true
 	terrain.collision_layer = 1
@@ -118,6 +114,28 @@ func generator_options() -> Dictionary:
 func set_shader_param(param: String, value) -> void:
 	if _terrain != null and _terrain.material is ShaderMaterial:
 		(_terrain.material as ShaderMaterial).set_shader_parameter(param, value)
+
+## A VOXEL IS REFINED WHILE ITS EDGE COVERS MORE THAN ONE PIXEL of the frame it is drawn in: the terrain
+## is unscaled, so a level-0 voxel is one metre and subtends one pixel of a `height_px` frame at `fov_deg`
+## at this range. Closer in, the band stitching two levels is wider than a pixel and draws as a line.
+static func lod_distance_m(fov_deg: float, height_px: float) -> float:
+	return 0.5 * height_px / tan(deg_to_rad(fov_deg) * 0.5)
+
+
+## THE LOD PYRAMID SPANS THE BODY OR ITS FAR SIDE IS NEVER MESHED. The coarsest level reaches
+## lod_distance * 2^(lod_count-1) metres and the far limb stands 2R away, so the count is read off the
+## radius rather than typed.
+func _lod_count_for(lod_dist: float) -> int:
+	return clampi(int(ceil(log(maxf(_planet_radius, lod_dist) / lod_dist) / log(2.0))) + 1, 1, MAX_LOD)
+
+
+## Set the level-0 reach from the frame the body is drawn in. No-op before build_planet().
+func set_lod_distance(metres: float) -> void:
+	if _terrain == null or not (metres > 0.0):
+		return
+	_terrain.lod_distance = metres
+	_terrain.lod_count = _lod_count_for(metres)
+
 
 ## How far the terrain streams and draws around a viewer, in metres — the draw-distance setting.
 func set_view_distance(metres: float) -> void:
@@ -200,10 +218,28 @@ func raycast_terrain(from: Vector3, dir: Vector3, max_distance: float) -> Dictio
 func ground_point(pos: Vector3) -> Vector3:
 	return surface_point(pos - _center)
 
-## PLANET: world radius of the solid surface along `dir`, solved from the SDF the body is generated from,
-## so one direction gives one radius whatever a viewer has streamed. NAN when there is no terrain.
+## PLANET: world radius of the solid surface along the WORLD direction `dir`, solved from the SDF the body
+## is generated from, so one direction gives one radius whatever a viewer has streamed. NAN without terrain.
 func surface_radius(dir: Vector3) -> float:
-	return _generated_surface_radius(dir)
+	return body_surface_radius(to_body_dir(dir))
+
+
+## The same radius along a direction fixed IN THE BODY: a place on the planet, which the world direction
+## sweeps past as the body turns.
+func body_surface_radius(body_dir: Vector3) -> float:
+	return _generated_surface_radius(body_dir)
+
+
+## The body's own frame is the frame its SDF is written in; the world frame is that one turned by the
+## body's rotation. A direction given in one means a different place on the planet in the other.
+func to_body_dir(world_dir: Vector3) -> Vector3:
+	return world_dir if _terrain == null \
+		else (_terrain.global_transform.basis.orthonormalized().inverse() * world_dir)
+
+
+func to_world_dir(body_dir: Vector3) -> Vector3:
+	return body_dir if _terrain == null \
+		else (_terrain.global_transform.basis.orthonormalized() * body_dir)
 
 
 ## WHERE TO STAND A DEMO BOX SO IT HOLDS A SHORE, solved in LAPlanetComposition over a few hundred
@@ -212,11 +248,18 @@ func surface_radius(dir: Vector3) -> float:
 func coast_site_dir(footprint_m: float) -> Vector3:
 	if footprint_m <= 0.0:
 		return _coast_dir
-	print("SITE_CHOOSER_STANDIN=%s" % JSON.stringify({"reads": "crust against the settled level",
+	print("SITE_CHOOSER_STANDIN=%s" % JSON.stringify({
+		"file": "addons/local_agents/gdextensions/localagents/src/LAPlanetTables.cpp",
+		"expr": "LAPlanetComposition::coast_site: la_surface_radius(dir) - p_sea_r_m",
 		"replaced_by": "the hydrosphere fill's own liquid-at-surface columns"}))
 	var g: Dictionary = LAPlanetComposition.coast_site(self, _planet_radius, _sea_radius, footprint_m)
 	_coast_dir = g.get("dir", Vector3.ZERO)
 	return _coast_dir
+
+
+## The coast site as a WORLD direction now: the body-frame site turned by the body's own rotation.
+func coast_site_world_dir() -> Vector3:
+	return Vector3.ZERO if _coast_dir == Vector3.ZERO else to_world_dir(_coast_dir)
 
 
 ## What the crust under a footprint at `d` is: the site rule is read off this reading.

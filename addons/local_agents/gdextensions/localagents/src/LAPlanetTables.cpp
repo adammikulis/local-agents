@@ -1034,12 +1034,17 @@ double LAPlanetComposition::sea_level_m(double p_r_m, double p_ocean_m3, const P
 // Directions swept over the body, lands whose shores are examined, halvings onto a waterline, and
 // samples per side of a footprint reading.
 static const int kSweepSamples = 128;
-static const int kSiteCandidates = 8;
+static const int kSiteCandidates = 16;
 static const int kCoastBisect = 24;
 static const int kFootprintSamples = 7;
+// THE SITE RULE, one declaration: the share of the footprint standing under the waterline that makes it
+// a shore rather than a pond or a headland.
+static const double kSiteSeaShareMin = 0.25;
+static const double kSiteSeaShareMax = 0.75;
 
+// The body's OWN frame: a place on the planet, not a direction the rotating world sweeps past.
 static double la_surface_radius(Object *p_surface, const Vector3 &p_dir) {
-	return double(p_surface->call("surface_radius", p_dir));
+	return double(p_surface->call("body_surface_radius", p_dir));
 }
 
 // A Fibonacci lattice direction: even coverage, no clustering at the poles.
@@ -1081,7 +1086,8 @@ Dictionary LAPlanetComposition::footprint_ground(Object *p_surface, const Vector
 }
 
 // WHERE TO STAND A BOX SO IT HOLDS A SHORE: of the waterlines between the body's highest lands and its
-// deepest water, the one whose footprint holds the most of the smaller of its two reliefs.
+// deepest water, the one whose footprint straddles the waterline by the site rule and carries the most
+// relief across it -- the deepest basin under the highest land, which is what a coast looks like.
 // LA_APPROX: site_from_settled_level
 Dictionary LAPlanetComposition::coast_site(Object *p_surface, double p_body_r_m, double p_sea_r_m,
 		double p_footprint_m) {
@@ -1089,20 +1095,13 @@ Dictionary LAPlanetComposition::coast_site(Object *p_surface, double p_body_r_m,
 	if (!p_surface || !(p_footprint_m > 0.0)) {
 		return out;
 	}
-	std::vector<std::pair<double, Vector3>> high;
-	Vector3 deep_dir;
-	double floor_r = INFINITY;
+	std::vector<std::pair<double, Vector3>> high, low;
 	for (int i = 0; i < kSweepSamples; i++) {
 		const Vector3 d = la_sweep_dir(i, kSweepSamples);
 		const double r = la_surface_radius(p_surface, d);
-		if (r - p_sea_r_m > 0.0) {
-			high.push_back({ r, d });
-		} else if (r < floor_r) {
-			floor_r = r;
-			deep_dir = d;
-		}
+		(r - p_sea_r_m > 0.0 ? high : low).push_back({ r, d });
 	}
-	if (high.empty() || deep_dir == Vector3()) {
+	if (high.empty() || low.empty()) {
 		return out;
 	}
 	std::sort(high.begin(), high.end(), [](const std::pair<double, Vector3> &x,
@@ -1110,7 +1109,18 @@ Dictionary LAPlanetComposition::coast_site(Object *p_surface, double p_body_r_m,
 	double score = -INFINITY;
 	for (int k = 0; k < std::min(kSiteCandidates, int(high.size())); k++) {
 		Vector3 a = high[k].second;
-		Vector3 b = deep_dir;
+		// THE STEEPEST SHORE THIS LAND HAS: of the water this height stands over, the one whose drop per
+		// radian is greatest -- a deep basin close by, not the deepest one on the body.
+		Vector3 b;
+		double steep = -INFINITY;
+		for (const std::pair<double, Vector3> &w : low) {
+			const double ang = std::acos(std::clamp(double(a.dot(w.second)), -1.0, 1.0));
+			const double s = ang > 1.0e-6 ? (high[k].first - w.first) / ang : -INFINITY;
+			if (s > steep) {
+				steep = s;
+				b = w.second;
+			}
+		}
 		for (int i = 0; i < kCoastBisect; i++) {
 			const Vector3 m = (a + b).normalized();
 			if (la_surface_radius(p_surface, m) - p_sea_r_m > 0.0) {
@@ -1121,7 +1131,11 @@ Dictionary LAPlanetComposition::coast_site(Object *p_surface, double p_body_r_m,
 		}
 		const Vector3 site = (a + b).normalized();
 		const Dictionary g = footprint_ground(p_surface, site, p_body_r_m, p_sea_r_m, p_footprint_m);
-		const double s = std::min(double(g["land_m"]), double(g["depth_m"]));
+		const double share = double(g["sea_share"]);
+		if (share < kSiteSeaShareMin || share > kSiteSeaShareMax) {
+			continue;
+		}
+		const double s = double(g["land_m"]) + double(g["depth_m"]);
 		if (s > score) {
 			score = s;
 			out = g;

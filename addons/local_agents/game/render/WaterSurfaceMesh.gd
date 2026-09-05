@@ -13,20 +13,20 @@ func build(field, inv_xform: Transform3D, cam_radial: Vector3, cap_cos: float,
 	var colors: PackedColorArray = PackedColorArray()
 	var indices: PackedInt32Array = PackedInt32Array()
 	var grid: LAVoxelGrid = field._grid
-	var water: PackedFloat32Array = field._queries.liquid()
+	var q = field._queries
 	var solid: PackedByteArray = field._solid
 	var out: Dictionary = {"verts": verts, "normals": normals, "colors": colors,
 		"indices": indices, "count": 0}
-	if grid == null or water.size() != grid.cell_count or solid.size() != grid.cell_count:
+	if grid == null or solid.size() != grid.cell_count:
 		return out
 	var centre: Vector3 = LAFieldGeometry.centre(field)
 	var half: float = 0.5 * grid.cell_size
 
 	for c in grid.cell_count:
-		if solid[c] != 0 or water[c] < render_min:
+		if solid[c] != 0 or q.liquid_at(c) < render_min:
 			continue
 		var hi: int = LAFieldGeometry.above(field, c)
-		if hi >= 0 and (solid[hi] != 0 or water[hi] >= render_min):
+		if hi >= 0 and (solid[hi] != 0 or q.liquid_at(hi) >= render_min):
 			continue                                   # not the free surface: more water or rock above
 		var pos: Vector3 = grid.cell_world_pos(c)
 		var radial: Vector3 = pos - centre
@@ -37,7 +37,7 @@ func build(field, inv_xform: Transform3D, cam_radial: Vector3, cap_cos: float,
 		if up == Vector3.ZERO:
 			continue
 		# Sub-cell height, so a half-full cell reads as a shoreline rather than a step.
-		var fill: float = clampf(water[c] / max_mass, 0.0, 1.0)
+		var fill: float = clampf(q.liquid_at(c) / max_mass, 0.0, 1.0)
 		var top: Vector3 = pos + up * (fill - 0.5) * grid.cell_size
 		var a: Vector3 = up.cross(cam_radial)
 		if a.length_squared() < 1.0e-8:
