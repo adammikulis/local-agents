@@ -31,7 +31,7 @@ func setup(world: Node) -> void:
 		_queries = _material.get("_queries")   # the read-accessor object, not the hub
 	_build_registry()
 	LASimReport.register(Callable(self, "report"))
-	_log_dormant_detectors()
+	print("EVENT_TRACKER={armed:%s}" % str(_detectors.map(func(d): return d.phenomenon())))
 
 
 ## The ordered registry — all field phenomena are CONFIGURED records of the one generic threshold detector
@@ -158,14 +158,3 @@ func report() -> Dictionary:
 	}
 
 
-## Startup diagnostic: LOG (never silently skip) which detectors watch a signal nothing has written.
-func _log_dormant_detectors() -> void:
-	var probe: Dictionary = _snapshot()
-	var dormant: Array = []
-	var live: Array = []
-	for d in _detectors:
-		if d.has_method("signal_live") and not d.signal_live(probe):
-			dormant.append(d.phenomenon())
-		else:
-			live.append(d.phenomenon())
-	print("EVENT_TRACKER={live:%s, dormant:%s}" % [str(live), str(dormant)])

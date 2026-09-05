@@ -10,5 +10,3 @@ func phenomenon() -> String:
 	return "unknown"
 
 
-func signal_live(_cur: Dictionary) -> bool:
-	return true
