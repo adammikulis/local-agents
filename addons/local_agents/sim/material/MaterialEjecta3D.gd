@@ -5,22 +5,23 @@ extends Node3D
 ## mass arcs under the field LABallistics integrates, and it lands as sediment plus its kinetic energy as heat.
 
 const PARCELS_PER_EJECT: int = 6
-# Sideways spread of the spray around the launch direction (radians of cone half-angle).
-const CONE: float = 0.5
+## Crater ejecta leaves near 45 degrees from the horizontal (Melosh 1989, Impact Cratering, ch. 5), which
+## is also the angle whose ballistic range is v^2/g.
+const EJECTION_ANGLE_RAD: float = PI / 4.0
 # Ceiling on simultaneous in-flight parcels, and the MultiMesh allocation. Fixed: it bounds the work, so it
 # may not vary with a setting or a viewpoint.
 const DRAW_CEIL: int = 256          # multimesh instances. Presentation: it may not reach the physics.
 const DRAW_FLOOR: int = 48
-const LAND_HEAT_R: float = 8.0
 
 var _f = null                                            # owning LAMaterialField3D
 var _center: Vector3 = Vector3.ZERO                      # planet centre (radial-gravity origin)
 # Parcel state as parallel arrays. Index i is one in-flight parcel; the arc itself is LABallistics'.
 var _p_id: PackedInt32Array = PackedInt32Array()         # the free body carrying it
-var _p_mass: PackedFloat32Array = PackedFloat32Array()   # carried mineral mass
+# ONE PARCEL, ONE MASS, ONE UNIT: kilograms, sized at the cell it was debited from.
+var _p_kg: PackedFloat32Array = PackedFloat32Array()
 var _p_src: PackedInt32Array = PackedInt32Array()        # cell the parcel was thrown out of (the debit site)
-var _deposited: float = 0.0                              # cumulative mass deposited (diagnostic)
-var _ejected: float = 0.0                                # cumulative mass handed to eject() (diagnostic)
+var _deposited: float = 0.0                              # cumulative kg deposited (diagnostic)
+var _ejected: float = 0.0                                # cumulative kg handed to eject() (diagnostic)
 var _impact_energy_j: float = 0.0                        # cumulative landing kinetic energy given to the field
 var _peak_inflight: int = 0                              # high-water mark of live parcels (plateau check)
 
@@ -45,10 +46,10 @@ func _draw_cap() -> int:
 ## Ejecta aggregates for SIM_REPORT: launched must track deposited.
 func report() -> Dictionary:
 	return {
-		"ejecta_inflight": _p_mass.size(),
+		"ejecta_inflight": _p_kg.size(),
 		"ejecta_peak": _peak_inflight,
-		"ejecta_launched": _ejected,
-		"ejecta_deposited": _deposited,
+		"ejecta_launched_kg": _ejected,
+		"ejecta_deposited_kg": _deposited,
 		"ejecta_impact_j": snappedf(_impact_energy_j, 0.01),
 	}
 
@@ -84,37 +85,41 @@ func _build_visual() -> void:
 	add_child(_mm)
 
 
-func eject(world_pos: Vector3, mass: float, energy: float, dir_bias: Vector3 = Vector3.ZERO) -> void:
-	if _f == null or mass <= 0.0 or energy <= 0.0 or is_nan(world_pos.x):
-		return
-	var per_mass: float = mass / float(PARCELS_PER_EJECT)
-	# A parcel deposited without flying still carries the energy it was thrown with.
-	var base_speed: float = sqrt(2.0 * energy / mass)
+## A pressure release throws mineral out of the cell at `world_pos` at `speed_m_s`, in the axisymmetric
+## curtain a crater throws. Returns the kinetic energy it actually launched, J: a cell cannot give up more
+## mineral than it holds, so the caller sizes the rest of its energy budget against what came back.
+func eject(world_pos: Vector3, mass_kg: float, speed_m_s: float) -> float:
+	if _f == null or mass_kg <= 0.0 or speed_m_s <= 0.0 or is_nan(world_pos.x):
+		return 0.0
 	var src: int = _f.world_to_cell(world_pos)
+	var unit_kg: float = _mass_unit_kg(src)
+	if unit_kg <= 0.0 or src >= _f._silicate.size():
+		return 0.0
+	var units: float = minf(mass_kg / unit_kg, _f._silicate[src])
+	if units <= 0.0:
+		return 0.0
+	var per_kg: float = units * unit_kg / float(PARCELS_PER_EJECT)
 	var radial: Vector3 = world_pos - _center
 	if radial.length_squared() < 1.0e-6:
 		radial = Vector3.UP
 	radial = radial.normalized()
-	var launch_dir: Vector3 = (radial + dir_bias).normalized() if (radial + dir_bias).length_squared() > 1.0e-6 else radial
-	# Build a tangent basis for the spray cone.
-	var tan_a: Vector3 = launch_dir.cross(Vector3.UP)
+	var tan_a: Vector3 = radial.cross(Vector3.UP)
 	if tan_a.length_squared() < 1.0e-6:
-		tan_a = launch_dir.cross(Vector3.RIGHT)
+		tan_a = radial.cross(Vector3.RIGHT)
 	tan_a = tan_a.normalized()
-	var tan_b: Vector3 = launch_dir.cross(tan_a).normalized()
+	var tan_b: Vector3 = radial.cross(tan_a).normalized()
 	for i in range(PARCELS_PER_EJECT):
-		var rng: LASimRng = LASimRng.shared()
-		var ang: float = rng.randf() * TAU
-		var spread: float = rng.randf() * CONE
-		var dir: Vector3 = (launch_dir * cos(spread) + (tan_a * cos(ang) + tan_b * sin(ang)) * sin(spread)).normalized()
-		var speed: float = base_speed * rng.randf_range(0.7, 1.15)
+		var az: float = TAU * float(i) / float(PARCELS_PER_EJECT)
+		var horizontal: Vector3 = tan_a * cos(az) + tan_b * sin(az)
+		var dir: Vector3 = radial * sin(EJECTION_ANGLE_RAD) + horizontal * cos(EJECTION_ANGLE_RAD)
 		# A parcel is a cloud of grains, not a sphere: it declares no size, so nothing rams air with it.
-		_p_id.append(LABallistics.drop(world_pos, dir * speed, 0.0, 0.0))
-		_p_mass.append(per_mass)
+		_p_id.append(LABallistics.drop(world_pos, dir.normalized() * speed_m_s, 0.0, 0.0))
+		_p_kg.append(per_kg)
 		_p_src.append(src)
-		_ejected += per_mass
-	if _p_mass.size() > _peak_inflight:
-		_peak_inflight = _p_mass.size()
+		_ejected += per_kg
+	if _p_kg.size() > _peak_inflight:
+		_peak_inflight = _p_kg.size()
+	return 0.5 * per_kg * float(PARCELS_PER_EJECT) * speed_m_s * speed_m_s
 
 
 ## The integrator's landing report: the debris the parcel carried out of its source cell arrives here.
@@ -123,14 +128,14 @@ func on_bodies_landed(rows: Array) -> void:
 		var i: int = _p_id.find(int(row["id"]))
 		if i < 0:
 			continue
-		_deposit(_p_src[i], row["position"], _p_mass[i], float(row["speed"]))
+		_deposit(_p_src[i], row["position"], _p_kg[i], float(row["speed"]))
 		_remove_parcel(i)
 
 
 ## A parcel that has left the box has left the ground its debris came from; the transfer never happens, so
 ## the mass simply stays in the cell it was debited from.
 func _physics_process(_delta: float) -> void:
-	var i: int = _p_mass.size() - 1
+	var i: int = _p_kg.size() - 1
 	while i >= 0:
 		var st: Dictionary = LABallistics.state(_p_id[i])
 		if st.is_empty() or _f.world_to_cell(st["position"]) < 0:
@@ -151,32 +156,36 @@ func _mass_unit_kg(cell: int) -> float:
 
 
 ## A parcel lands: the debris it carried out of `src` arrives here, and its kinetic energy arrives as heat.
-## Impact ejecta is pulverised rock, so it lands as `sediment` — nothing here asserts that it is molten.
-func _deposit(src: int, pos: Vector3, mass: float, speed: float) -> void:
-	_deposited += mass
+## Its kilograms were sized at `src`, the cell that was debited; on a graded grid the cell it lands in has
+## a different volume, so the destination may not size either the transfer or the joules.
+func _deposit(src: int, pos: Vector3, kg: float, speed: float) -> void:
+	var unit_kg: float = _mass_unit_kg(src)
+	if unit_kg <= 0.0:
+		return
+	_deposited += kg
 	if _f._inject != null:
-		_f._inject.land_ejecta(src, pos, mass)
+		_f._inject.land_ejecta(src, pos, kg / unit_kg)
 	if _f._inject != null and speed > 0.0:
-		var joules: float = 0.5 * mass * _mass_unit_kg(_f.world_to_cell(pos)) * speed * speed
+		var joules: float = 0.5 * kg * speed * speed
 		_impact_energy_j += joules
-		_f._inject.add_heat_energy(pos, joules, LAND_HEAT_R)
+		_f._inject.add_heat_energy(pos, joules)
 
 
 func _remove_parcel(i: int) -> void:
 	LABallistics.release(_p_id[i])
-	var last: int = _p_mass.size() - 1
+	var last: int = _p_kg.size() - 1
 	_p_id[i] = _p_id[last]
-	_p_mass[i] = _p_mass[last]
+	_p_kg[i] = _p_kg[last]
 	_p_src[i] = _p_src[last]
 	_p_id.remove_at(last)
-	_p_mass.remove_at(last)
+	_p_kg.remove_at(last)
 	_p_src.remove_at(last)
 
 
 func _refresh_visual() -> void:
 	if _multimesh == null:
 		return
-	var n: int = mini(_p_mass.size(), _draw_cap())
+	var n: int = mini(_p_kg.size(), _draw_cap())
 	for i in range(n):
 		var st: Dictionary = LABallistics.state(_p_id[i])
 		if st.is_empty():
@@ -188,4 +197,4 @@ func _refresh_visual() -> void:
 # --- Diagnostics -------------------------------------------------------------
 
 func in_flight() -> int:
-	return _p_mass.size()
+	return _p_kg.size()

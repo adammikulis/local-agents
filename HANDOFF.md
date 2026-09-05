@@ -41,6 +41,11 @@ own minimum, while `mineral_total` and `h2o_total` drift by nothing.
 `scripts/sim_run.sh --body --rung 2 --frames 6 --report pressure_rest_rel,derive_unconverged_cells`
 reads `pressure_rest_rel` above its bar with every cell converged, now that the ground cells are
 graded finer; the slice column (`scripts/sim_run.sh --rung 2 --frames 6`) reads zero.
+`scripts/check_lasim_parity.sh` leaves `pressure` and `p_fluid` uncompared: on the native device, which
+compiles with `MTLMathModeSafe`, deriving a box and then deriving what it wrote moves the pressure of
+some cells past the bar `scripts/check_derive_fixed_point.sh` declares. Re-point that gate at
+`addons/local_agents/native/bin/lasim`, then put the two channels back into the parity comparison.
+Reading: `state_derive.glsl` ends the (T, p) solve on `abs(f) <= LA_STATE_TOL * max(p_pa, 1.0)`.
 
 ## 4. THE BODY RECORD OMITS THE PORE WATER BELOW THE SEA FLOOR, AND ONE POROSITY LAW SERVES EVERY ROCK
 
