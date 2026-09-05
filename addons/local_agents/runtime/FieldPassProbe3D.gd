@@ -98,10 +98,12 @@ func _peak() -> Dictionary:
 	if lv.size() >= (at + 1) * 4:
 		out["tlevel"] = lv.decode_s32(at * 4)
 	# The CPU-side seed arrays the device was handed, for the same cell.
-	for mirror in ["_porosity", "_surface_depth", "_rock_fraction", "_water_fraction"]:
-		var arr = _f.get(mirror)
+	for name in ["_surface_depth", "_rock_fraction", "_water_fraction"]:
+		var arr = _f.get(name)
 		if arr is PackedFloat32Array and arr.size() > at:
-			out["cpu" + mirror] = String.num(arr[at])
+			out["cpu" + name] = String.num(arr[at])
+	if _f._mirrors != null and _f._mirrors.has("porosity"):
+		out["cpu_porosity"] = String.num(_f._mirrors.at("porosity", at))
 	if _f._regolith.size() > at:
 		out["cpu_regolith"] = _f._regolith[at]
 	var g: PackedFloat32Array = _f._gpu.read_raw("g_rest")

@@ -2,17 +2,17 @@ class_name LAHeatFieldTexture
 extends Node
 
 ## The terrain shader's window onto the field: per-cell temperature °C, water, and the share of it that
-## is frozen, each uploaded as an R-float 3D texture over the field box. Reads the field's public climate
-## snapshot and writes shader uniforms only. The mirrors go up as they lie in memory — no per-cell walk.
+## is frozen, each uploaded as an R-float 3D texture over the field box. Reads the field's native mirrors
+## and writes shader uniforms only. They go up as they lie in memory — no per-cell walk.
 
 const UPDATE_EVERY: int = 3        # render frames between uploads
-## The snapshot key each texture carries, and the shader uniform it lands on.
+## The channel each texture carries, and the shader uniform it lands on.
 const CHANNELS: Dictionary = {"temp": "heat_tex", "h2o": "h2o_tex", "h2o_solid": "h2o_solid_tex"}
 
 var _field = null
 var _terrain = null
-var _tex: Dictionary = {}          # snapshot key -> ImageTexture3D
-var _slices: Dictionary = {}       # snapshot key -> Array[Image]
+var _tex: Dictionary = {}          # channel -> ImageTexture3D
+var _slices: Dictionary = {}       # channel -> Array[Image]
 var _nx: int = 0
 var _ny: int = 0
 var _nz: int = 0
@@ -52,21 +52,20 @@ func _process(_delta: float) -> void:
 	if _tick < UPDATE_EVERY:
 		return
 	_tick = 0
-	var snap: Dictionary = _field.climate_snapshot()
-	if snap.is_empty():
+	var mirrors: LAFieldMirrors = _field._mirrors
+	if mirrors == null or mirrors.cells() != _nx * _ny * _nz:
 		return
 	for key in CHANNELS:
-		_upload(String(key), snap.get(key, PackedFloat32Array()))
+		_upload(mirrors, String(key))
 
 
 ## One mirror to one 3D texture. Grid index is x + nx * (y + ny * z), so slice z is one row-major
-## nx*ny image and the whole upload is a byte-range copy.
-func _upload(key: String, values: PackedFloat32Array) -> void:
-	if values.size() != _nx * _ny * _nz:
+## nx*ny image and each slice is a byte range read straight out of native storage.
+func _upload(mirrors: LAFieldMirrors, key: String) -> void:
+	if not mirrors.has(key):
 		return
 	var slices: Array[Image] = _slices[key]
-	var bytes: PackedByteArray = values.to_byte_array()
-	var stride: int = _nx * _ny * 4
+	var stride: int = _nx * _ny
 	for z in _nz:
-		slices[z].set_data(_nx, _ny, false, Image.FORMAT_RF, bytes.slice(z * stride, (z + 1) * stride))
+		slices[z].set_data(_nx, _ny, false, Image.FORMAT_RF, mirrors.bytes(key, z * stride, stride))
 	_tex[key].update(slices)

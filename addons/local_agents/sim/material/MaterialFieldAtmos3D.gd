@@ -44,7 +44,7 @@ func cloud_at(x: float, z: float) -> float:
 	var c: int = _f.world_to_cell(Vector3(x, cloud_base_y(), z))
 	if c < 0:
 		return 0.0
-	return 0.0 if _f._temp[c] < LAMaterialField3D.FOG_MAX_TEMP else _condensed_at(c)
+	return 0.0 if _f._mirrors.at("temp", c) < LAMaterialField3D.FOG_MAX_TEMP else _condensed_at(c)
 
 
 ## Fog density at a world XZ column (0 if unresolved). Fog = cool near-ground condensate.
@@ -52,7 +52,7 @@ func fog_at(x: float, z: float) -> float:
 	var c: int = _f.world_to_cell(Vector3(x, fog_base_y(), z))
 	if c < 0:
 		return 0.0
-	return _condensed_at(c) if _f._temp[c] < LAMaterialField3D.FOG_MAX_TEMP else 0.0
+	return _condensed_at(c) if _f._mirrors.at("temp", c) < LAMaterialField3D.FOG_MAX_TEMP else 0.0
 
 
 ## Condensate counts and vapour off the device: three thresholds on one reduced quantity, NAN when absent.
@@ -71,10 +71,6 @@ func refresh_aggregates() -> void:
 	_f._vapour_total_c = q.row_f("vapour_amount")
 
 
-func climate_snapshot() -> Dictionary:
-	if _f._cell_count <= 0 or _f._h2o.size() != _f._cell_count or _f._temp.size() != _f._cell_count:
-		return {}
-	return {"temp": _f._temp, "solid": _f._solid, "h2o": _f._h2o, "h2o_solid": _f._h2o_solid, "cell_count": _f._cell_count}
 
 
 ## The atmosphere band radii the water-particle renderer places against, measured from the body centre.
@@ -143,7 +139,7 @@ func relative_humidity_at(x: float, z: float) -> float:
 	var c: int = _f.world_to_cell(Vector3(x, fog_base_y(), z))
 	if c < 0 or _f._solid[c] != 0:
 		return 0.0
-	var s: float = _sat(_f._temp[c], _cell_p(c))
+	var s: float = _sat(_f._mirrors.at("temp", c), _cell_p(c))
 	if s <= 0.0:
 		return 0.0
 	return clampf(_f._queries.vapour_at(c) / s, 0.0, 1.0)
@@ -156,13 +152,13 @@ func dewpoint_at(x: float, z: float) -> float:
 		return NAN
 	# Partial pressure of the vapour the cell holds: e = (n/V) R T, the amount already mol/m^3.
 	var e: float = _f._queries.vapour_at(c) * LAPhysical.GAS_CONSTANT_J_MOL_K \
-		* (_f._temp[c] + LAPhysical.KELVIN_OFFSET)
+		* (_f._mirrors.at("temp", c) + LAPhysical.KELVIN_OFFSET)
 	# The dewpoint is the boiling point at the vapour's own partial pressure: one curve, inverted.
 	return LASubstances.boil_c_at("h2o", e)
 
 
 ## The cell's own air pressure, Pa. Missing means unresolved, and the caller gets zero rather than a guess.
 func _cell_p(c: int) -> float:
-	if c < 0 or _f._pressure.size() != _f._cell_count:
+	if c < 0:
 		return 0.0
-	return maxf(_f._pressure[c], 0.0)
+	return maxf(_f._mirrors.at("pressure", c), 0.0)
