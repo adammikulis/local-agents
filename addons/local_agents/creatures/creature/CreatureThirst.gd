@@ -11,7 +11,8 @@ static func handle_thirst(c, pos: Vector3, delta: float) -> String:
 		return ""
 	if c.hydration >= c.max_hydration * THIRSTY_FRACTION:
 		return ""
-	if c._material.is_water_at(pos):
+	# Wet ground is everywhere on a rained-on world, so while rain is faked there is always a drink here.
+	if c._material.is_water_at(pos) or LAFakes.stands_in("drinking_water"):
 		drink(c, pos, delta)
 		return "drink"
 	c._water_search_cd -= delta
@@ -33,6 +34,8 @@ static func drink(c, pos: Vector3, delta: float) -> float:
 	if c._material == null or not c._material.has_method("drink_water"):
 		return 0.0
 	var got: float = c._material.drink_water(pos, want)
+	if got <= 0.0:
+		got = LAFakes.draw("drinking_water", want)
 	c.hydration = minf(c.max_hydration, c.hydration + got)
 	return got
 

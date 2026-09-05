@@ -434,7 +434,7 @@ func _physics_process(delta: float) -> void:
 	_throw_cd -= delta
 	# Night perception: nocturnal species gain range after dark, diurnal ones lose it.
 	_sense_mult = 1.0
-	if _ecology != null and _ecology.has_method("is_night_at") and _ecology.is_night_at(global_position):
+	if _ecology != null and _ecology.has_method("has_sun") and _ecology.has_sun() and _ecology.is_night_at(global_position):
 		_sense_mult = 1.4 if nocturnal else 0.7
 	LACreatureDigestion.ambient_graze(self, global_position, delta)
 	# Digestion: the gut converts buffered food into energy (+ pending feces) this frame — run BEFORE the
@@ -654,7 +654,7 @@ func _physics_process(delta: float) -> void:
 
 
 func _rest_period() -> bool:
-	if _ecology == null or not _ecology.has_method("is_night_at"):
+	if _ecology == null or not _ecology.has_method("has_sun") or not _ecology.has_sun():
 		return false
 	return _ecology.is_night_at(global_position) != nocturnal
 

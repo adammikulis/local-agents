@@ -95,6 +95,8 @@ static func tick(c, pos: Vector3, delta: float) -> bool:
 		o2 = maxf(breathable_at(c, pos), 0.0)
 		if o2 < LACreatureMetabolism.BREATHE_MIN_O2 and float(c._breath) > 0.0:
 			o2 = LAMaterialField3D.O2_AMBIENT   # drawing on the held breath
+		if o2 <= 0.0 and LAFakes.stands_in("breathable_o2"):
+			o2 = LAMaterialField3D.O2_AMBIENT   # the faked air is ambient air
 	var capacity: float = RESP_K * area * gain * O2_UPTAKE_K * o2 * band * delta * evo
 	# What it actually burns.
 	var want: float = capacity * exertion
@@ -103,6 +105,8 @@ static func tick(c, pos: Vector3, delta: float) -> bool:
 	var extent: float = want
 	if c._material != null:
 		extent = c._material.respire_at(pos, want)
+		if extent <= 0.0:
+			extent = LAFakes.draw("breathable_o2", want)
 	c.energy -= extent
 	c._resp_rate = extent / maxf(delta * evo, 1e-6)
 	c._resp_capacity = capacity / maxf(delta * evo, 1e-6)
@@ -128,7 +132,7 @@ static func breathable_at(c, pos: Vector3) -> float:
 	var up: Vector3 = c.terrain.up_at(pos) if c.terrain != null and c.terrain.has_method("up_at") else Vector3.UP
 	var head: Vector3 = pos + up * c.size
 	if c.breathes == "water":
-		return LAMaterialField3D.O2_AMBIENT if c._material.is_submerged_at(head.x, head.y, head.z) else 0.0
+		return c._material.o2_at(head.x, head.y, head.z) if c._material.is_submerged_at(head.x, head.y, head.z) else 0.0
 	return c._material.breathable_o2_at(head.x, head.y, head.z)
 
 
