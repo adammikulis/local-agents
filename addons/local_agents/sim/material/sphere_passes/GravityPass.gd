@@ -71,13 +71,11 @@ var _origin: Vector3 = Vector3.ZERO
 
 func _buffers(cc: int) -> Dictionary:
 	var g: int = maxi(int(ceil(float(cc) / float(GROUP))), 1)
-	# PHI is StateDerivePass's declaration: it weighs a cell's potential energy at rungs below this pass.
+	# PHI and the two vertical tables are StateDerivePass's declarations: it reads them below this rung.
 	return {
 		DENSITY: maxi(cc, 1),
 		FLAGS: maxi(cc, 1),
 		MOMENTS: MOMENT_SLOTS,
-		VERT_UP: maxi(cc, 1),
-		VERT_DOWN: maxi(cc, 1),
 		PARTIALS: g * PART_STRIDE}
 
 

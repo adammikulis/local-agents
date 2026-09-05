@@ -107,6 +107,11 @@
 #define LA_BIND_STRIKE              101
 #define LA_BIND_SW_SPACE            102
 #define LA_BIND_RAD_RESIDUAL        103
+#define LA_BIND_R_FRAC              163
+#define LA_BIND_SURFACE_CLASS       164
+#define LA_BIND_MELT_BODY           165
+#define LA_BIND_ERUPT               166
+#define LA_BIND_CYCLONE             167
 #define LA_BIND_GRAVITY             104
 #define LA_BIND_GRAV_PHI            105
 #define LA_BIND_GRAV_REF            106

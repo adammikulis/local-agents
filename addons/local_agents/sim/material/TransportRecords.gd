@@ -114,6 +114,10 @@ static func lists() -> Array:
 		# STRIKE gives a bolt its position. Built before the records run, so the list carries the
 		# previous step's strikes.
 		{"label": "strike", "prim": "strike", "emit_idx": true},
+		# WHERE the derive's detect phase found melt standing in the open, and where it found a closed
+		# warm-core low. Both are written this step, before this pass runs.
+		{"label": "erupt", "prim": "erupt", "emit_idx": true},
+		{"label": "cyclone", "prim": "cyclone", "emit_idx": true},
 	]
 
 

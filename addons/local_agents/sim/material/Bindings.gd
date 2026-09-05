@@ -27,6 +27,8 @@ const SLOT: Dictionary = {
 	"mom_orphan": 91, "nonfinite": 92, "unconverged": 93, "fire": 94, "discharge": 95, "rad_absorbed": 96,
 	"rad_emitted": 97, "rad_w_m3": 98, "radiogenic": 99, "col_e": 100, "strike": 101, "sw_space": 102,
 	"rad_residual": 103,
+	# what a cell's NEIGHBOURS make of it: the derive's detect phase, off state its own phase settled
+	"r_frac": 163, "surface_class": 164, "melt_body": 165, "erupt": 166, "cyclone": 167,
 	# the gravity solve
 	"gravity": 104, "grav_phi": 105, "grav_ref": 106, "grav_density": 107, "grav_cellflag": 108,
 	"grav_moments": 109, "grav_partials": 110, "grav_props": 111,
@@ -85,7 +87,9 @@ const IN_KERNEL: Dictionary = {
 		"reduce_src", "reduce_aux", "reduce_aux2", "reduce_ref", "reduce_gate", "reduce_gate_aux",
 		"reduce_partials"],
 	"stack_selftest.glsl": ["stack_probe"],
-	"state_derive.glsl": ["pos", "cell_edge", "h2o", "silicate", "carbonate", "silica", "o2", "co2", "n2",
+	"state_derive.glsl": ["nbr", "slot_off", "face_partner", "vert_up", "vert_down",
+		"r_frac", "surface_class", "melt_body", "erupt", "cyclone",
+		"pos", "cell_edge", "h2o", "silicate", "carbonate", "silica", "o2", "co2", "n2",
 		"biomass", "fungus", "detritus", "fuel", "org_h", "org_o", "fert", "metal", "olivine", "pyroxene",
 		"plagioclase", "halite", "apatite", "h2", "co", "so2", "h2s", "ch4", "h2o_pore", "e_j_m3", "e_lith_j_m3",
 		"mom_x", "mom_y", "mom_z", "cement", "regolith", "grain", "temp", "temp_lith", "conductivity",

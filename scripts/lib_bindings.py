@@ -180,7 +180,8 @@ def sim_classes():
 
 SET_FOR = re.compile(r'LABindings\.set_for\(\s*"([\w.]+)"\s*,\s*\w+\s*,\s*(\{|\w+)')
 VAR_DICT = re.compile(r"^\s*var\s+%s\s*:\s*Dictionary\s*=\s*\{")
-USET_INT = re.compile(r"\[\s*(\d+)\s*,")
+# A set entry's second element is an RID expression: `[0, 0]` in an offset array is not one.
+USET_INT = re.compile(r"\[\s*(\d+)\s*,(?!\s*\d)")
 
 
 def _braced(src, start):

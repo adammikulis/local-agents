@@ -102,7 +102,7 @@ static func emit_population_trace(w, frame: int) -> void:
 	var ice_c: int = int(_num(snap, "ice_cells"))
 	var sea_ice: int = int(_num(snap, "sea_ice_cells"))
 	var cloud_cover: float = _num(snap, "cloud_cover")
-	var open_sea_t: float = _num(snap, "open_sea_temp")
+	var open_sea_t: float = _num(snap, "open_sea_temp_mean")
 	print("POP_TRACE={\"frame\":%d,\"counts\":%s,\"temp_mean\":%.1f,\"surf_mean\":%.1f,\"surf_max\":%.1f,\"t_eq\":%.1f,\"t_pole\":%.1f,\"rab_e\":%.2f,\"rab_gut\":%.2f,\"rab_bio\":%.4f,\"t_min\":%.1f,\"t_max\":%.1f,\"snow\":%d,\"ice\":%d,\"sea_ice\":%d,\"cloud_cover\":%.3f,\"sea_t\":%.1f,\"charge_peak\":%.2f,\"bolts\":%d,\"moisture\":%.0f,\"cloud_cells\":%d,\"deaths\":%s}" % [frame, JSON.stringify(counts), temp_mean, surf_mean, surf_max, t_eq, t_pole, rab_e, rab_g, rab_b, t_min, t_max, snow_c, ice_c, sea_ice, cloud_cover, open_sea_t, charge_peak, bolts, rain, clouds, JSON.stringify(deaths)])
 
 
@@ -333,7 +333,6 @@ static func _collect_hud(n: Node, frame_area: float, out: Array[Rect2]) -> void:
 	var c: Control = n as Control
 	if c != null and c.is_visible_in_tree():
 		var r: Rect2 = c.get_global_rect()
-		print("HUDRECT=%s %s %s" % [n.get_path(), n.get_class(), r])   # PROBE
 		if r.size.x * r.size.y < HUD_MAX_FRAME_FRAC * frame_area:
 			out.append(r)
 	for ch in n.get_children():
@@ -354,6 +353,14 @@ static func _ground_ahead(w, cam: Camera3D, fwd: Vector3) -> float:
 	if not bool(hit.get("hit", false)):
 		return -1.0
 	return cam.global_position.distance_to(hit["position"])
+
+
+## Stand the eye at one pose of the shot protocol: metres over the framed site's ground, degrees from
+## the horizon (negative looks down), degrees around the site from the framing axis.
+static func shot_pose(w, alt_m: float, pitch_deg: float, yaw_deg: float) -> void:
+	var cam: Camera3D = w._camera
+	if cam != null and cam.has_method("place_pose"):
+		cam.call("place_pose", alt_m, pitch_deg, yaw_deg)
 
 
 ## THE PICTURE IS WORTH TAKING once the ground under the camera is drawn at least as finely as the camera

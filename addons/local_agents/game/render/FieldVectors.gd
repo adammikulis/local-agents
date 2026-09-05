@@ -78,7 +78,6 @@ func set_source(want: String) -> void:
 		if pick == SOURCE_OFF or not has_source(pick):
 			print("FIELD_VECTORS_ABSENT=%s" % JSON.stringify(
 				{"source": "any" if want == SOURCE_UNSET else want, "rung": LAProcessSet.active()}))
-			push_error("this world's processes produce no vector field to draw")
 			pick = SOURCE_OFF
 		source = pick
 	_apply_source()

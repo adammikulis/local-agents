@@ -31,6 +31,15 @@ const PROP_CONDENSED: int = 11
 ## Push-constant slots for distinct radiogenic trace mixes, re-evaluated at the run's epoch per step.
 const RAD_GROUPS: int = 4
 
+## state_derive.glsl's Params. LAFieldDriver::run_transport writes the restate's three words at
+## PC_BYTES-12, -8 and -4, so `restate`, `args_slot` and `act_base` stay the last three.
+const PC_BYTES: int = 96
+const PC_LITHIFY: int = 76
+const PC_DETECT: int = 80
+
+## Detector thresholds appended after the channel rows of `props` — state_derive.glsl DET_*.
+const DET_SLOTS: int = 5
+
 var _pipe: RID = RID()
 var _set: RID = RID()
 var _fresh_h_per_c: float = 0.0
@@ -51,7 +60,9 @@ func _buffers(cc: int) -> Dictionary:
 		"bodyf_x": cc, "bodyf_y": cc, "bodyf_z": cc,
 		"k_cond": {"n": cc, "ghosts": true}, "gas_r": {"n": cc, "ghosts": true},
 		"gas_gamma": {"n": cc, "ghosts": true}, "mach": cc, "g_rest": {"n": cc * 3, "ghosts": true}, "cap_lith": {"n": cc, "ghosts": true}, "lattice_frac": {"n": cc, "ghosts": true},
-		"rad_w_m3": {"n": cc, "ghosts": true}, "ke_j_m3": cc, "pe_j_m3": cc, "grav_phi": {"n": cc, "ghosts": true}, "grav_ref": {"n": cc, "ghosts": true}, "lithic_frac": {"n": cc, "ghosts": true}, "lithic_kg": {"n": cc, "ghosts": true}})
+		"rad_w_m3": {"n": cc, "ghosts": true}, "ke_j_m3": cc, "pe_j_m3": cc, "grav_phi": {"n": cc, "ghosts": true}, "grav_ref": {"n": cc, "ghosts": true}, "lithic_frac": {"n": cc, "ghosts": true}, "lithic_kg": {"n": cc, "ghosts": true},
+		"r_frac": cc, "surface_class": cc, "melt_body": cc, "erupt": cc, "cyclone": cc,
+		"vert_up": cc, "vert_down": cc})
 
 
 func _setup(bufs: Dictionary, _cc: int) -> void:
@@ -82,8 +93,8 @@ func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: i
 	var w: Vector3 = ctx.get("spin", Vector3.ZERO) * float(ctx.get("spin_rate_rad_s", 0.0))
 	var centre: Vector3 = ctx.get("centre", Vector3.ZERO)
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(92)
-	pc.encode_u32(88, 1 if LAProcessSet.has_record("derive", "lithify") else 0)
+	pc.resize(PC_BYTES)
+	pc.encode_u32(PC_LITHIFY, 1 if LAProcessSet.has_record("derive", "lithify") else 0)
 	pc.encode_u32(0, cc)
 	pc.encode_float(4, LAMaterialFieldSphereStep3D.real_seconds_per_step())
 	pc.encode_float(8, w.x)
@@ -109,8 +120,12 @@ func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: i
 	# NO SOLVER, NO POTENTIAL: a world with no gravity pass has a zero potential field, and the weight it
 	# would be read at is never guessed. GravityPass publishes which of its two sources wrote it.
 	pc.encode_float(72, float(ctx.get("gravity_self", 0.0)))
-	_driver.run(cl, _pipe, [_set], [pc], PackedInt32Array([groups]), [RID()],
-		PackedInt32Array([0]), false)
+	# THE DETECT PHASE runs second, behind a barrier: what a cell's NEIGHBOURS make of it, off the state
+	# the phase above settled. Reading a neighbour inside the derive would read a value being written.
+	var pc_detect: PackedByteArray = pc.duplicate()
+	pc_detect.encode_u32(PC_DETECT, 1)
+	_driver.run(cl, _pipe, [_set], [pc, pc_detect], PackedInt32Array([groups, groups]),
+		[RID(), RID()], PackedInt32Array([0, 0]), true)
 	# THE SAME SOLVE, HANDED TO THE SUBSTEP LOOP. One owner of the equation of state: transport dispatches
 	# this pipeline again over its active list, and the driver writes the list slot into the block.
 	ctx["restate"] = {"pipe": _pipe, "set": _set, "pc": pc, "total": cc + ghost_count}
@@ -125,7 +140,7 @@ func _props() -> PackedFloat32Array:
 	if molar.size() != channels.size() or full.size() != channels.size():
 		return PackedFloat32Array()
 	var out: PackedFloat32Array = PackedFloat32Array()
-	out.resize(channels.size() * PROP_STRIDE)
+	out.resize(channels.size() * PROP_STRIDE + DET_SLOTS)
 	var rows: Dictionary = LAChannels.rows()
 	var table: Dictionary = LASubstances.table()
 	for i in channels.size():
@@ -165,6 +180,19 @@ func _props() -> PackedFloat32Array:
 		out[base + PROP_TREF] = float(s.get("density_ref_t_c", 0.0))
 		out[base + PROP_LITHIC] = 1.0 if bool(row.get("lithic", false)) or bool(row.get("lattice", false)) else 0.0
 		out[base + PROP_RAD_GROUP] = float(_rad_group(s.get("traces", {})))
+	# The amounts the detect phase compares against, each read back from its ONE declaration, so the
+	# kernel and the row that counts its cells ask the same question.
+	var body: float = float(LAReduceRecords.row("lava_hot").get("threshold", NAN))
+	if is_nan(body):
+		push_error("StateDerivePass: LAReduceRecords declares no \"lava_hot\" threshold, so the melt "
+			+ "body has no depth and its interior/rind split would be taken against a guess.")
+		return PackedFloat32Array()
+	var det: int = channels.size() * PROP_STRIDE
+	out[det] = LAMaterialField3D.MIN_MASS
+	out[det + 1] = LAMaterialField3D.SNOW_PRESENT
+	out[det + 2] = body
+	out[det + 3] = LAMaterialFieldQueries3D.TUBE_MELT_NEAR_ZERO
+	out[det + 4] = LAMaterialFieldQueries3D.MOLTEN_MIN
 	return out
 
 
