@@ -33,10 +33,12 @@ static func hydration_capacity(config: Dictionary) -> float:
 	return live_mass(config) * LETHAL_WATER_DEFICIT_FRAC
 
 
-## Water turnover per second.
-const WATER_PER_CAPACITY: float = 1.5
+## A mammal cycles about a tenth of its body mass in water a day (Nagy & Peterson 1988) and dies having
+## lost LETHAL_WATER_DEFICIT_FRAC of it, so a full store is that fraction over this turnover, in seconds.
+const WATER_TURNOVER_PER_DAY: float = 0.1
+const SECONDS_PER_DAY: float = LAPhysical.SECONDS_PER_YEAR / 365.25
 static func thirst_rate(c) -> float:
-	return WATER_PER_CAPACITY * LACreatureRespiration.capacity_rate(c)
+	return float(c.max_hydration) * WATER_TURNOVER_PER_DAY / (LETHAL_WATER_DEFICIT_FRAC * SECONDS_PER_DAY)
 
 
 const BITE_OVER_CAPACITY: float = 12.0   # a feeding animal ingests up to this multiple of its aerobic capacity
@@ -124,6 +126,7 @@ static func size_to_age(c) -> void:
 	c.energy = c.max_energy
 	c.max_hydration = hydration_capacity(c.config) * f
 	c.hydration = c.max_hydration
+	c.thirst_rate = thirst_rate(c)
 	c.food_value = body_mass(c)
 
 
