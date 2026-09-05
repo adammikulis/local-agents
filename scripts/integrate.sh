@@ -128,6 +128,17 @@ if [ "$(cat "$LANE_WT/$LANE_BIN_REL/SOURCE_HASH" 2>/dev/null || echo "")" != "$(
 	"$LANE_WT/scripts/godot_import.sh" "$LANE_WT" || true
 fi
 
+# A TREE THAT DOES NOT PARSE IS REFUSED BEFORE ANY GATE RUNS: a mangled merge shows up as a parse error
+# in seconds, not as a dozen unrunnable GPU gates after a long lint.
+if ! "$LANE_WT/scripts/editor_scan.sh" --path "$LANE_WT" >/dev/null 2>&1; then
+	echo "integrate: the lane's editor scan is not clean (a parse error, usually a bad merge). $DEV is untouched." >&2
+	"$LANE_WT/scripts/editor_scan.sh" --path "$LANE_WT" 2>&1 | rg -N -e 'Parse Error|SCRIPT ERROR|error' | head -12 | sed 's/^/           /' >&2
+	exit 1
+fi
+if git -C "$LANE_WT" grep -q -e '^<<<<<<< ' -e '^>>>>>>> ' -- ':!*.md' 2>/dev/null; then
+	echo "integrate: the lane's tree carries conflict markers. $DEV is untouched." >&2
+	exit 1
+fi
 echo "integrate: gates, on the tree that will land" >&2
 # THE LANE'S OWN harness: $SCRIPT_DIR/agent_harness.sh computes its repo root from its own location, so it
 # would lint the PRIMARY no matter what the cwd is. cd is not enough; the path has to be the lane's.
@@ -136,7 +147,7 @@ LANE_LINT="$LANE_WT/scripts/agent_harness.sh"
 # A VIOLATION refuses the landing. A gate that COULD NOT RUN examined nothing, and while the substrate is
 # declaredly unstable every GPU gate is in that state, so that count is ratcheted instead: it may fall and
 # may not rise, and it reaches zero when docs/PHYSICS_TODO.md E does.
-LINT_OUT="$(cd "$LANE_WT" && LA_CEILING_STRICT=1 LA_INTEGRATE_BRANCH="$BRANCH" LA_INTEGRATE_SOURCE="$BRANCH" \
+LINT_OUT="$(cd "$LANE_WT" && LA_CEILING_STRICT=1 LA_LOCK_PRIORITY=1 LA_INTEGRATE_BRANCH="$BRANCH" LA_INTEGRATE_SOURCE="$BRANCH" \
 	"$LANE_LINT" lint 2>&1)"
 LINT_RC=$?
 if [ "$LINT_RC" -ne 0 ]; then
