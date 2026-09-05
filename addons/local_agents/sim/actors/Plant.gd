@@ -306,8 +306,7 @@ func _uptake(want_food: float) -> void:
 		return
 	var want_mass: float = want_food * BIOMASS_PER_FOOD
 	# Nothing greens the ground until photosynthesis is in the world, so the reserve comes from the fake,
-	# which holds the loan open until the plant dies and hands it back. There is no second source: the
-	# field's take_biomass queues its transfer to no cell at all, which destroys the mass it moves.
+	# which holds the loan open until the plant dies and hands it back.
 	var got_mass: float = LAFakes.draw("plant_carbon", want_mass)
 	if got_mass <= 0.0:
 		return

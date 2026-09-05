@@ -109,6 +109,14 @@ marker = "^check_fakes: OK"
 mutation = "perl -0pi -e 's/LAFakes\\.stands_in\\(\"recruitment_rate\"\\)/LAFakes.stands_in(\"undeclared_stand_in\")/' addons/local_agents/sim/ecology/EcologyBreeding.gd"
 
 [[gate]]
+name = "check_biota_books"
+script = "scripts/check_biota_books.sh"
+kind = "gpu"
+marker = "^check_biota_books: OK"
+mutation = "perl -0pi -e 's/LAFakes\\.draw\\(\"founding_stock\", mass\\)/mass/' addons/local_agents/sim/material/MaterialFieldBiota3D.gd"
+needs = ["import"]
+
+[[gate]]
 name = "check_life_demo"
 script = "scripts/check_life_demo.sh"
 kind = "gpu"

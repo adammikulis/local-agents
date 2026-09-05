@@ -133,10 +133,8 @@ static func _kill_and_eat(c, prey: Node3D) -> void:
 		meat = float(prey.draw_body_mass(room))
 	elif prey != null and "food_value" in prey:
 		# A prey actor with no body ledger (a node from outside the creature library): take what it declares it
-		# is worth, once, and count it as NODE intake so it is never confused with mass drawn from the field.
+		# is worth, once.
 		meat = minf(room, float(prey.food_value))
-		if c._material != null and c._material.has_method("note_biota_node_intake"):
-			c._material.note_biota_node_intake(meat)
 	if meat <= 0.0:
 		# Nothing left on the bone — still kill it (a predator does not un-attack), but eat nothing.
 		if prey != null and prey.has_method("die"):
@@ -236,10 +234,6 @@ static func _try_eat_food(c, pos: Vector3) -> bool:
 			(best as Node3D).queue_free()                                       # no partial-bite contract: all of it
 	if gained <= 0.0:
 		return false
-	# Plant + carcass NODES are not field channels, so their mass is counted separately and never merged with
-	# what was drawn from the substrate (see LAMaterialFieldBiota3D's carbon-boundary note).
-	if c._material != null and c._material.has_method("note_biota_node_intake"):
-		c._material.note_biota_node_intake(gained)
 	# The bite fills the GUT (biomass) instead of crediting energy directly — energy rises only as it digests.
 	LACreatureDigestion.ingest(c, gained, profile)
 	# TOXIC bite: a poisonous plant still fed the gut, but it also HARMS. Route the poison through the ordinary

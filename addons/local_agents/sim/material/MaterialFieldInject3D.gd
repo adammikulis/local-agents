@@ -80,24 +80,6 @@ func _apply_h(cells: PackedInt32Array, dh: float) -> void:
 	if dh > 0.0 and _f._gpu != null:
 		_f._gpu.request_channel("fire")
 
-# --- Organic matter: the seam between the field's carbon channels and the actors ----------------------------
-const ORGANIC_TAKE_FRAC: float = 0.5
-
-func take_biomass(world_pos: Vector3, want: float) -> float:
-	if want <= 0.0 or not _device_ready():
-		return 0.0
-	var c: int = _f.world_to_cell(world_pos)
-	if c < 0 or c >= _f._cell_count:
-		return 0.0
-	var avail: float = _f._mirrors.at("biomass", c) * ORGANIC_TAKE_FRAC
-	if avail <= 0.0:
-		return 0.0
-	var take: float = minf(want, avail)
-	queue.transfer("biomass", PackedInt32Array([c]), PackedFloat32Array([take]),
-		"biomass", PackedInt32Array([-1]))
-	return take
-
-
 ## Impact ejecta landing: debris the parcel carried out of `src_cell` arrives at `world_pos`. One conserving
 ## move of one channel between two cells — the flight is latency, not a source of matter.
 func land_ejecta(src_cell: int, world_pos: Vector3, mass: float) -> void:
@@ -128,18 +110,6 @@ func _uncement(cells: PackedInt32Array) -> void:
 	if cells.size() == 0:
 		return
 	queue.discard("cement", cells)
-
-
-## Hand mass an actor was holding back to the field as DEAD ORGANIC MATTER at `world_pos` — an uprooted plant,
-## a shed leaf. The decomposer loop (fungus → CO₂ + fertility) picks it up from there, which is what closes
-## the circle: matter an actor took out of the biosphere re-enters it instead of disappearing with the node.
-func return_detritus(world_pos: Vector3, amount: float) -> void:
-	if amount <= 0.0 or not _device_ready():
-		return
-	var c: int = _f.world_to_cell(world_pos)
-	if c < 0 or c >= _f._cell_count:
-		return
-	queue.add("detritus", PackedInt32Array([c]), PackedFloat32Array([amount]))
 
 
 ## Packed arrays are copy-on-write VALUE types in GDScript — an in-place helper would scale a copy and leave
