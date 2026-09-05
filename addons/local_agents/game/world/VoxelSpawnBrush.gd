@@ -2,8 +2,6 @@ class_name LAVoxelSpawnBrush
 extends Node3D
 
 
-const MeteorScript: GDScript = preload("res://addons/local_agents/sim/actors/Meteor.gd")
-
 const BRUSH_MIN: float = 1.0
 const BRUSH_MAX: float = 28.0
 const BRUSH_STEP: float = 1.5
@@ -74,8 +72,20 @@ func _meteor_size_scale() -> float:
 	return 0.5 + _brush_radius / 10.0
 
 
+# A world that cannot answer for a rock's fall, its impact heat or its crater is told so at the asking.
+func _meteor_refused() -> bool:
+	if LAMeteorImpacts.offered():
+		return false
+	if _hud != null:
+		_hud.set_status("No meteor here: this world has no %s."
+			% ", ".join(LAWorldOffers.impacts_missing()))
+	return true
+
+
 # RMB entry point: resolve the terrain point under the cursor and paint the armed kind there.
 func place_armed(screen_pos: Vector2) -> void:
+	if _armed_kind == "meteor" and _meteor_refused():
+		return
 	var point: Vector3 = _terrain_point(screen_pos)
 	if not is_finite(point.x):
 		# Meteors can be flung at EMPTY SPACE — aim along the camera ray so you can put one into orbit, sling it
@@ -102,12 +112,17 @@ func _terrain_point(screen_pos: Vector2) -> Vector3:
 # Apply the armed kind across the brush disk: one placement at the centre for a pinpoint brush,
 # else a size-scaled scatter of placements. General over all kinds.
 func _paint_brush(center: Vector3) -> void:
+	var placed: bool = false
 	if _brush_radius <= BRUSH_MIN + 0.01:
-		_apply_at(center)
+		placed = _apply_at(center)
 	else:
 		var n: int = clampi(int(round(_brush_radius * 0.6)), 1, 12)
 		for i in n:
-			_apply_at(_scatter_point(center))
+			placed = _apply_at(_scatter_point(center)) or placed
+	# Nothing was placed: no sound and no puff. A flourish over an empty spot is the display claiming a
+	# spawn that never happened.
+	if not placed:
+		return
 	if _audio != null:
 		_audio.play_sfx("spawn", center)
 	_spawn_puff(center, _kind_color(_armed_kind))
@@ -129,21 +144,22 @@ func _scatter_point(center: Vector3) -> Vector3:
 
 
 # The single-point action for the armed kind (no puff/audio — the brush handles those once).
-func _apply_at(point: Vector3) -> void:
+# False when the world refused it and nothing was placed.
+func _apply_at(point: Vector3) -> bool:
 	if _armed_kind == "meteor":
-		var meteor: MeteorScript = MeteorScript.new()
-		_actors_root.add_child(meteor)
-		meteor.setup(_terrain, _ecology)
 		# Launch from over the user's head, streaking toward the clicked point. The brush radius sizes the
 		# rock (Ctrl + wheel grows it), so a bigger brush lands a bigger, more cratering meteor.
-		meteor.launch(point, _camera.global_position, _meteor_size_scale())
+		if _meteor_refused() or not LAMeteorImpacts.arrive(_actors_root, _terrain, _ecology, point,
+				_camera.global_position, _meteor_size_scale()):
+			return false
 		_world.set_destruction(1.0)
 		if _hud != null:
 			_hud.set_status("Meteor inbound!")
-	else:
-		_ecology.spawn(_armed_kind, point)
-		if _hud != null:
-			_hud.set_status("Spawned %s." % _armed_kind)
+		return true
+	_ecology.spawn(_armed_kind, point)
+	if _hud != null:
+		_hud.set_status("Spawned %s." % _armed_kind)
+	return true
 
 
 # Continue a paint stroke as the cursor drags: re-paint once the brush has moved far enough that

@@ -256,6 +256,10 @@ func demo_shot_ready() -> bool:
 	return LAVoxelHarness.shot_ready(self)
 
 
+func demo_shot_pose(alt_m: float, pitch_deg: float, yaw_deg: float) -> void:
+	LAVoxelHarness.shot_pose(self, alt_m, pitch_deg, yaw_deg)
+
+
 func demo_report() -> Dictionary:
 	var report: Dictionary = LAVoxelHarness.build_report(self)
 	report["ui_nodes"] = LAVoxelHarness.emit_presentation_census(get_tree().root)
