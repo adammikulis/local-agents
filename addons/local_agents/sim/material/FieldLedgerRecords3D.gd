@@ -1,7 +1,7 @@
 class_name LAFieldLedgerRecords
 extends RefCounted
 
-## Which channels each conserved substance is made of. Data for LAMaterialFieldLedger3D; no state, no walk.
+## Which channels each conserved substance is made of. The one declaration LAFieldLedger reads.
 
 const BalanceScript: GDScript = preload("res://addons/local_agents/sim/material/reactions/ReactionBalance.gd")
 
@@ -45,12 +45,27 @@ static func elements_of(by_channel: Dictionary) -> Dictionary:
 
 
 
-## The same book restricted to the lithosphere channels.
-static func lith_elements(by_channel: Dictionary) -> Dictionary:
-	var only: Dictionary = {}
-	for ch in BalanceScript.lithosphere_channels():
-		only[ch] = float(by_channel.get(ch, 0.0))
-	return elements_of(only)
+## Everything LAFieldLedger needs to keep the books: the groups above, each channel's composition off the
+## same balance the load-time gate checks, and the one spelling of a boundary key. Uploaded once.
+static func tables() -> Dictionary:
+	var composition: Dictionary = {}
+	var substance: Dictionary = {}
+	var rows: Dictionary = LAChannels.rows()
+	for ch in rows:
+		composition[ch] = BalanceScript.channel_elements(String(ch))
+		substance[ch] = String(Dictionary(rows[ch]).get("substance", ""))
+	return {
+		"amounts": LAReduceRecords.AMOUNTS,
+		"groups": {"h2o": H2O, "mineral": MINERAL, "element": ELEMENT, "carbon": CARBON,
+			"carbon_closed": CARBON_CLOSED, "oxidant": OXIDANT},
+		"lith_channels": BalanceScript.lithosphere_channels(),
+		"composition": composition,
+		"substance": substance,
+		"bnd_amount": LAReduceBoundaryRows.BOOKED_PREFIX,
+		"bnd_heat": LAReduceBoundaryRows.HEAT_PREFIX,
+		"bnd_signed": LAReduceBoundaryRows.BOOKED_SIGNED,
+		"dt_s": LAMaterialFieldSphereStep3D.real_seconds_per_step(),
+	}
 
 
 ## Sum a named subset out of a per-channel amount map.
