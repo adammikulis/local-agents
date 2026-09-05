@@ -357,6 +357,13 @@ kind = "text"
 marker = "^check_gate_fixtures: OK"
 
 [[gate]]
+name = "check_gate_executable"
+script = "scripts/check_gate_executable.sh"
+kind = "text"
+marker = "^check_gate_executable: OK"
+mutation = "git update-index --chmod=-x scripts/check_stack_balance.sh"
+
+[[gate]]
 name = "check_doc_claims"
 script = "scripts/check_doc_claims.sh"
 kind = "text"

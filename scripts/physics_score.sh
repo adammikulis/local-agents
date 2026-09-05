@@ -117,7 +117,7 @@ else:
     rows = []
     for name, now_k, first_k in [
             ("carbon (mol)", "element_C_total", "element_C_total_first"),
-            ("h2o", "h2o_closed_total", "h2o_first"),
+            ("h2o", "h2o_total", "h2o_first"),
             ("o2", "o2_total", "o2_first"),
             ("oxidant", "oxidant_total", "oxidant_first"),
             ("nitrogen", "nitrogen_all", "nitrogen_first"),
@@ -283,7 +283,7 @@ def load_report(path):
             ln = x[11:]
     return json.loads(ln) if ln else None
 
-CONSERVED = ("h2o_closed_total", "element_C_total", "mineral_total", "o2_total", "oxidant_total",
+CONSERVED = ("h2o_total", "element_C_total", "mineral_total", "o2_total", "oxidant_total",
              "nitrogen_all")
 def worst_rel(a, b):
     worst = 0.0
