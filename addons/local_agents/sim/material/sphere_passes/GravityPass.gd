@@ -32,7 +32,6 @@ const PRE_MODES: Array = [MODE_FLAGS, MODE_DENSITY, MODE_MOMENTS, MODE_SEED]
 const POST_MODES: Array = [MODE_GRADIENT, MODE_VERT_UP, MODE_VERT_DOWN, MODE_VERT_DOWN_KEY, MODE_FIELD_STATS]
 
 const PHI: String = "grav_phi"
-const REF: String = "grav_ref"
 const DENSITY: String = "grav_density"
 const FLAGS: String = "grav_cellflag"
 const MOMENTS: String = "grav_moments"

@@ -211,7 +211,6 @@ const AIR_MASS_HORIZON: float = 38.0
 const LIGHTNING_FLASH_J: float = 1.0e9
 
 const LATENT_HEAT_FUSION_J_KG: float = 3.337e5
-const LATENT_HEAT_SUBLIMATION_J_KG: float = 2.834e6
 
 ## Basalt enthalpy of crystallisation, J/kg (Lange, Cashman & Navrotsky 1994, CMP 118:169).
 const BASALT_LATENT_HEAT_CRYSTALLISATION_J_KG: float = 4.0e5
@@ -495,20 +494,12 @@ const SOLAR_EFFECTIVE_TEMPERATURE_K: float = 5772.0
 const RHEOLOGICAL_LOCKUP_CRYSTAL_FRAC: float = 0.6
 const RHEOLOGICAL_MOBILE_CRYSTAL_FRAC: float = 0.4
 
-# Dynamic viscosity, Pa s. Kestin, Sokolov & Wakeham 1978, JPCRD 7:941 (water);
-# Kadoya, Matsunaga & Nagashima 1985, ibid. 14:947 (air).
+## Dynamic viscosity, Pa s. Kestin, Sokolov & Wakeham 1978, JPCRD 7:941 (water);
+## Kadoya, Matsunaga & Nagashima 1985, ibid. 14:947 (air).
 const WATER_DYNAMIC_VISCOSITY_PA_S: float = 1.002e-3    # liquid water at 20 C
 const AIR_DYNAMIC_VISCOSITY_PA_S: float = 1.81e-5       # dry air at 15 C, 1 atm
-## Sutherland's law for air, mu(T) = mu_ref (T_ref + S)/(T + S) (T/T_ref)^1.5 (Sutherland 1893).
-const AIR_VISCOSITY_REF_T_C: float = 15.0
-const AIR_VISCOSITY_SUTHERLAND_K: float = 110.4
-## Liquid water, the Vogel form on the measured reference: mu = mu_ref 10^(B/(T-C) - B/(T_ref-C)),
-## T in K (Seeton 2006, Tribol. Lett. 22:67).
-const WATER_VISCOSITY_REF_T_C: float = 20.0
-const WATER_VISCOSITY_VOGEL_B_K: float = 247.8
-const WATER_VISCOSITY_VOGEL_C_K: float = 140.0
-## Drag coefficient of a natural mineral grain, the settling law's large-grain limit (Ferguson & Church
-## 2004, J. Sediment. Res. 74:933, their C2 for natural sands).
+## Drag coefficient of a natural mineral grain, the settling law's large-grain limit, C2 for natural
+## sands (Ferguson & Church 2004, J. Sediment. Res. 74:933).
 const GRAIN_DRAG_COEFF: float = 1.0
 ## Cloud droplet effective radius, m, marine stratus (Han, Rossow & Lacis 1994, J. Climate 7:465), and
 ## its asymmetry parameter at solar wavelengths (Slingo 1989, J. Atmos. Sci. 46:1419).
