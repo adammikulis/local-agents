@@ -61,15 +61,19 @@ public:
 	// neither is a point, and a point has no drag. Returns the id state() and release() take.
 	static int drop(const Vector3 &p_pos, const Vector3 &p_vel, double p_mass_kg, double p_radius_m);
 	static void release(int p_id);
-	// {position, velocity, speed, landed, fall_time_s, drag_heat_j, cell, from, g_release, height_m}.
-	// Empty for an unknown id.
+	// {position, velocity, speed, landed, fall_time_s, drag_heat_j, sub_steps, cell, from, g_release,
+	// height_m}. Empty for an unknown id.
 	static Dictionary state(int p_id);
 	static int live_count();
 	// Advance every live body by p_dt_s and return the rows that landed this step:
-	// {id, position, speed, time, cell}. A landed body stays readable until released.
+	// {id, position, speed, time, cell, sub_steps}. A landed body stays readable until released.
+	// EACH BODY TAKES ITS OWN SUB-STEPS, one length scale L per stride -- the cell edge inside the box,
+	// the seeded air column's scale height outside it. Velocity Verlet on the gravity, the drag closed
+	// form over the same stride, Lie-Trotter between them: first order in the stride, and the path
+	// integral of rho a rectangle rule of relative error L over the density scale height.
 	static Array step(double p_dt_s);
-	// Joules the drag took out of the live bodies this step, as {id, cell, joules, position} rows, so the
-	// caller can put that energy back into the medium it came out of.
+	// Joules the drag took out of the live bodies this step, one row per CELL it passed through,
+	// {id, cell, joules, position}, so the caller can put that energy back where it came from.
 	static Array drag_work();
 	static void clear();
 
