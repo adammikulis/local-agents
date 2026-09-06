@@ -134,13 +134,10 @@ func _is_veg_kind(kind: String) -> bool:
 	return kind == "plant" or kind == "tree" or _is_plant_kind(kind)
 
 
-# The config an LAPlant is built from: the fast hardcoded default for the generic "plant", else the species
-# DATA file for a flagged vegetation kind (flowers/shrubs carry their own colour/nectar/pop_cap).
+# The row an LAPlant is built from: the generic "plant"'s authored default, else the species DATA file
+# for a flagged vegetation kind. A kind with no row is built from LAPlant's own declared properties.
 func _veg_config(kind: String) -> Dictionary:
-	if kind == "plant":
-		return _plant_config()
-	var cfg: Dictionary = _species_config(kind)
-	return cfg if not cfg.is_empty() else _plant_config()
+	return _plant_config() if kind == "plant" else _species_config(kind)
 
 
 func setup(_terrain, _actors_root: Node3D) -> void:
@@ -230,9 +227,9 @@ func vegetation_report() -> Dictionary:
 
 
 ## Every stand-in this world is running on and what each has made, so a reader of the report never
-## mistakes a faked leg for a simulated one.
+## mistakes a faked leg for a simulated one, and the state every record is switched to.
 func fakes_report() -> Dictionary:
-	return {"fakes": LAFakes.report()}
+	return {"fakes": LAFakes.report(), "fake_states": LAFakes.states()}
 
 
 ## °C. Growing-degree-day base: below it a temperate plant accumulates no degree-days and makes no growth.

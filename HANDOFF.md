@@ -8,8 +8,9 @@ DIAGNOSIS** (`scripts/check_doc_prose.sh`). **THE LIST IS ORDERED BY WHAT IS UPS
 MAINTAINER CAN SEE OR HEAR**: a run shows only what its rung contains; a rung is built only after the
 demo below it (a scene plus a `LocalAgentDemoEntry` in `addons/local_agents/examples/demos/`) is
 approved. Rung 0 is approved. A process the world contains switches off and on mid-run through
-`LAAblate`, one registry for modules and physics. A fake is a record in `sim/LAFakes.gd` naming the
-rung whose landing deletes it (`scripts/check_fakes.sh`).
+`LAAblate`, one registry for modules, physics and stand-ins. A fake is a record in `sim/LAFakes.gd`
+naming the rung whose landing makes its `real` state the default; every record switches off, fake or
+real (`--ablate=<name>:off|fake|real`, `scripts/check_fakes.sh`, `scripts/check_fakes_states.sh`).
 
 ---
 
@@ -85,7 +86,7 @@ footprint is half wet.
 
 ## 9. THE SURFACE IS STILL: EVERY WEATHER-SHAPED STAND-IN IS ABSENT RATHER THAN FAKED
 
-`docs/FAKES.md` carries what creatures need and nothing the surface shows: `wind_field` (deleted by
+`docs/FAKES.md` carries what creatures need and nothing the surface shows: `wind_field` (real at
 ACOUSTIC), `rain` (WATER), `streams` (ADVECT), `diurnal_heat` (RADIATION), each read through the query
 the real row will answer, offered in the HUD as a stand-in.
 
@@ -174,8 +175,8 @@ finds a draw cap read off the graphics preset and a MultiMesh built under `sim/`
 `scripts/agent_harness.sh sim --rung=N --frames 20` runs a world holding only the processes up to rung N;
 `scripts/agent_harness.sh ladder` names the first red rung; `scripts/shoot_demo.sh <scene> [outdir]`
 renders the poses `--shots=alt:pitch:yaw;...` declares (look at the PNGs); `--ablate=name[@step]` switches
-one off (`+name@step` back on), process or module alike, and `--ablate-sweep=N` measures its frame
-cost. A lane runs `LA_NO_GPU=1 scripts/agent_harness.sh lint`
+one off (`+name@step` back on), process or module alike, `--ablate=name:off|fake|real` puts a stand-in in
+one of its three states, and `--ablate-sweep=N` measures its frame cost. A lane runs `LA_NO_GPU=1 scripts/agent_harness.sh lint`
 plus its own gates; the full lint is `scripts/integrate.sh`'s, one landing at a time, and a source-file
 merge conflict is resolved by hand. Worktrees come from `scripts/new_worktree.sh`; without its kernel
 import the GPU field is dead and the report looks fine. Mutation-test every gate you write, both ways.
