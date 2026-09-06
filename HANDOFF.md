@@ -95,16 +95,14 @@ the real row will answer, offered in the HUD as a stand-in.
 Reading: `dispatch_slab` in `GravityPass.gd` issues `MODE_FIELD_STATS` without the `MODE_MOMENTS` sweep
 that `PRE_MODES` runs before it.
 
-## 11. A FREE BODY IS INTEGRATED AT THE FIELD'S STEP, AND IMPACTORS ARE SIZED BY AN INVENTED DRAW
+## 11. A FALL IS OVER BETWEEN TWO RENDERED FRAMES, AND ONE DRAG COEFFICIENT SERVES EVERY SPEED
 
-`LABallistics::step(dt_s)` takes the whole of `SIM_SECONDS_PER_STEP` in one go, so a body crossing the
-atmosphere rams it at one density for the whole crossing. `scripts/shoot_demo.sh
-addons/local_agents/examples/SliceRung1Demo.tscn <dir>` photographs a test mass already landed: the
-world advances 43.2 simulated seconds per rendered frame, so a two-kilometre fall is over between two
-frames and nothing is seen falling. `rg -n "randf_range\(0.55" addons/local_agents/sim/actors/Meteor.gd`
-finds the impactor size drawn from an invented range (the measured law: Brown et al. 2002,
-N(>E) ∝ E^-0.9, a cited chondrite density). `LAMeteorImpacts.arrive()` counts a rock `launch()` refused.
-`SPHERE_CD` in `LABallistics.cpp` is the hypersonic limit at every Re.
+`scripts/shoot_demo.sh addons/local_agents/examples/SliceRung1Demo.tscn <dir>` photographs a test mass
+already landed: the world advances 43.2 simulated seconds per rendered frame, so a two-kilometre fall is
+over between two frames and nothing is seen falling. `SPHERE_CD` in `LABallistics.cpp` is the hypersonic
+limit at every Reynolds and Mach number, so a body the air has already slowed is over-braked
+(`newtonian_sphere_drag` in `docs/APPROXIMATIONS.md`).
+Reading: `stride_m` in `LABallistics.cpp` reads no sound speed and no viscosity.
 
 ## 12. A THROWN BODY FALLS UNDER THE ENGINE'S GRAVITY, NOT THE FIELD'S
 
@@ -180,7 +178,8 @@ finds a draw cap read off the graphics preset and a MultiMesh built under `sim/`
 `scripts/agent_harness.sh sim --rung=N --frames 20` runs a world holding only the processes up to rung N;
 `scripts/agent_harness.sh ladder` names the first red rung; `scripts/shoot_demo.sh <scene> [outdir]`
 renders the poses `--shots=alt:pitch:yaw;...` declares (look at the PNGs); `--ablate=name[@step]` switches
-one off (`+name@step` back on), process or module alike, and `--ablate-sweep=N` measures its frame cost. A lane runs `LA_NO_GPU=1 scripts/agent_harness.sh lint`
+one off (`+name@step` back on), process or module alike, and `--ablate-sweep=N` measures its frame
+cost. A lane runs `LA_NO_GPU=1 scripts/agent_harness.sh lint`
 plus its own gates; the full lint is `scripts/integrate.sh`'s, one landing at a time, and a source-file
 merge conflict is resolved by hand. Worktrees come from `scripts/new_worktree.sh`; without its kernel
 import the GPU field is dead and the report looks fine. Mutation-test every gate you write, both ways.
