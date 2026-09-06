@@ -154,6 +154,14 @@ mutation = "perl -0pi -e 's/LAFakes\\.draw\\(\"plant_carbon\", want_mass\\)/0.0/
 needs = ["import"]
 
 [[gate]]
+name = "check_creature_energy"
+script = "scripts/check_creature_energy.sh"
+kind = "gpu"
+marker = "^check_creature_energy: OK"
+mutation = "perl -0pi -e 's/const DRY_CARBON_FRAC: float = 0\\.45/const DRY_CARBON_FRAC: float = 0.45e-4/' addons/local_agents/creatures/creature/CreatureBodyMass.gd"
+needs = ["import"]
+
+[[gate]]
 name = "check_public_surface"
 script = "scripts/check_public_surface.sh"
 kind = "text"
@@ -815,3 +823,18 @@ script = "scripts/check_snapshot_roundtrip.sh"
 kind = "gpu"
 marker = "^check_snapshot_roundtrip: OK"
 mutation = "python3 -c \"p='addons/local_agents/sim/material/MaterialFieldSnapshot3D.gd'; s=open(p).read(); open(p,'w').write(s.replace('LAMaterialSphereGPU3D.channels() + LAMaterialSphereGPU3D.SEED_PRODUCTS', 'LAMaterialSphereGPU3D.channels()'))\""
+
+[[gate]]
+name = "check_atmosphere_mass"
+script = "scripts/check_atmosphere_mass.sh"
+kind = "gpu"
+needs = ["import"]
+marker = "^check_atmosphere_mass: OK"
+mutation = "python3 -c \"p='scripts/check_atmosphere_mass.sh'; s=open(p).read(); open(p,'w').write(s.replace('k = m * mm;', 'k = 4 * m * mm;'))\""
+
+[[gate]]
+name = "check_gate_registered"
+script = "scripts/check_gate_registered.sh"
+kind = "text"
+marker = "^check_gate_registered: OK"
+mutation = "printf '#!/usr/bin/env bash\\nexit 0\\n' > scripts/check_mutant_orphan.sh"

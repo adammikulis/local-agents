@@ -46,14 +46,15 @@ three-vector declared `{"n": cc * 3, "ghosts": true}` is `cc * 3 + ng` long.
 `LABodySystem.cpp` (Gleick 1996) count the surface ocean and continental groundwater only, and
 `REGOLITH_SURFACE_POROSITY`/`COMPACTION_LENGTH_M` (Athy 1930, shales) are applied to basalt and basement.
 
-## 5. A SKY CELL HOLDS MORE GAS THAN STANDS IN IT
+## 5. THE PLANET CARRIES LESS AIR THAN IT WAS GIVEN, AND A BOX CANNOT WEIGH ITS OWN SHARE
 
-`scripts/check_body_measured.sh` is red: `body_mass_by_channel` puts the whole excess over the declared
-body mass in `co2` and `n2`, and the excess scales with the box. `scripts/check_atmosphere_mass.sh` is in
-no `[[gate]]` row, and its rung-2 arm compares one slab against the whole planet's inventory.
-`rg -n "r_sea \+ 1.0e7" addons/local_agents/gdextensions/localagents/src/LAFieldLithostaticSeed.cpp`
-finds the datum's shell integral cut at a chosen radius, where the exobase is the radius the gas leaves.
-Reading: `shape_atmosphere` in `LAFieldLithostaticSeed.cpp` gives each cell `Π_a sinh(x_a)/x_a`.
+`scripts/check_atmosphere_mass.sh` prints a seeded nitrogen below the declared inventory, and its test is
+one-sided because the deficit is not the seed's: `scripts/sim_run.sh --body --rung 2 --frames 2 --report
+nitrogen_all,body_seed_atmosphere_n2_kg`. The same gate cannot read a slab, because a box's footprint on
+the sphere is not a rectangle: `scripts/sim_run.sh --slice --rung 2 --frames 2 --report nitrogen_all`
+reads a box whose long axis is the world axis nearest the local vertical, not the vertical itself.
+Reading: `solid_of` in `LAPlanetTables.cpp` calls a cell solid at half rock, and `shape_atmosphere`
+floods `sky` only through cells whose `solid[c] == 0`.
 
 ## 6. THE CRUST HAS TWO REPRESENTATIONS, AND THE SEA IS A SPHERE AT ONE RADIUS
 
@@ -111,11 +112,6 @@ live gravity switch never reaches a flung or dying creature; `impulse.length() >
 is an invented threshold. The design: kinematic until thrown; then a Jolt `RigidBody3D` with
 `gravity_scale = 0` pushed each tick by `m·g(pos)` from `LABallistics.g_at` plus the seeded air's drag
 (bound, not copied), the impulse from the overpressure in its cell, kinematic again when asleep.
-
-## 13. A BODY'S MASS, CARBON, ENERGY AND RATES ARE NOT IN REAL UNITS
-
-`rg -n "MASS_UNIT_SCALE|TISSUE_PER_KG|RESP_K" addons/local_agents/creatures` finds a scale factor with
-no referent spent as mol/m³ of a cell. The species mass is the one input; the rest derives (Kleiber).
 
 ## 14. NOT EXAMINED UNTIL THE RUNG-2 DEMO IS APPROVED — rung 3
 

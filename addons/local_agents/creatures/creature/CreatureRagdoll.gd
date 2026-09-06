@@ -134,7 +134,7 @@ static func _become_carcass(c) -> void:
 	c._dead = true
 	# The body is the carcass. Draw the whole live mass OUT of the animal's own accounts as we do it, so the
 	# mass exists in exactly one place and a predator that already took a bite finds correspondingly less meat.
-	c._carrion = LACreatureBodyMass.draw(c, LACreatureBodyMass.body_mass(c))
+	c._carrion = LACreatureBodyMass.draw(c, LACreatureBodyMass.body_carbon(c))
 	c._carrion_initial = c._carrion           # what it weighed when it died — the denominator for rot + shrink
 	c._decay_age = 0.0
 	c.remove_from_group(c._species_group(c.species))
