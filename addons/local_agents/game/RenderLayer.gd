@@ -125,9 +125,14 @@ func _build_world_visuals() -> void:
 	# Hot ground glows — the live per-cell temperature as a 3D texture over the field box.
 	_heat_tex.setup(material, terrain)
 
+	# The simulated box where it meets the world: ground edges on the relief, corner pillars fading up.
+	var outline: LAFieldBoxOutline = LAFieldBoxOutline.build(material, terrain, _camera, body)
+	add_child(outline)
+
 	for pair in [["terrain", terrain.terrain_node()], ["camera", _camera], ["sky", _sky_ctrl], ["vegetation", _veg_renderer],
 			["water_particles", _water], ["water_surface", _water_surface],
-			["vectors", _vectors], ["heat_texture", _heat_tex], ["test_masses", _test_masses]]:
+			["vectors", _vectors], ["heat_texture", _heat_tex], ["test_masses", _test_masses],
+			["box_outline", outline]]:
 		LAAblate.adopt(pair[0], pair[1])
 	# Effects density onto the atmosphere particles.
 	_sim.settings_applier().bind(_world, terrain, _water)

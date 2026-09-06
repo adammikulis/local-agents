@@ -1,0 +1,224 @@
+#!/usr/bin/env bash
+# THE SIMULATED BOX IS IN THE PICTURE, AND ONLY WHERE THE BOX IS. The rung-1 slice is photographed twice
+# from one pose, once with the outline drawn and once with it ablated, and the two frames are compared
+# against the polyline the renderer published: the ground perimeter differs, the rest of the frame does
+# not, and each corner pillar has faded under its own declared floor by the fade height.
+# EXIT 0 the box is drawn where the box is · 1 it is not · 2 the gate could not run.
+set -uo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+. "$ROOT/scripts/lib_require.sh"
+. "$ROOT/scripts/lib_godot.sh"
+. "$ROOT/scripts/lib_capture.sh"
+la_examined "$(basename "$0")" || exit $?
+require_tool python3
+
+SCENE="addons/local_agents/examples/SliceRung1Demo.tscn"
+[ -f "$ROOT/$SCENE" ] || { echo "check_box_outline: no scene at $SCENE" >&2; exit 2; }
+POSE="${LA_BOX_OUTLINE_POSE:-10000:-60:0}"
+SIZE="${LA_BOX_OUTLINE_SIZE:-1280x800}"
+# THE FRAME IS THE WORLD, NOT THE INTERFACE: every panel is dropped, and so is every module that moves
+# on its own -- a marching arrow stripe, a drifting droplet and a falling probe differ between two
+# launches wherever they stand, and the difference this gate reads must be the outline's.
+STILL="vectors,water_particles,test_masses"
+PANELS="hud,game_hud,progression,time_control,audio,debug,brush,interaction,companion,thought_panel"
+PANELS="$PANELS,tutorial,vector_legend"
+
+DIR="$(mktemp -d "${TMPDIR:-/tmp}/la_box_outline.XXXXXX")"
+trap 'rm -rf "$DIR"' EXIT INT TERM
+
+shoot() {  # <name> <ablations>
+	LA_RUN_TIMEOUT="${LA_BOX_OUTLINE_TIMEOUT:-110}" "$ROOT/scripts/run_sim_offscreen.sh" --path "$ROOT" \
+		"$SCENE" -- --sandbox "--shoot=$DIR/$1.png" "--shots=$POSE" --local-hour=12 \
+		--shoot-frames=150 "--shoot-size=$SIZE" "--ablate=$2" > "$DIR/$1.log" 2>&1
+	echo $?
+}
+
+on_rc="$(shoot on "$STILL,$PANELS")"
+off_rc="$(shoot off "$STILL,$PANELS,box_outline")"
+
+for a in on off; do
+	if grep -qE 'SHADER ERROR|Shader compilation failed' "$DIR/$a.log"; then
+		echo "check_box_outline: the $a arm refused a shader, so its frame is of a broken renderer." >&2
+		grep -m4 -E 'SHADER ERROR|Shader compilation failed|\.gdshader' "$DIR/$a.log" >&2
+		exit 2
+	fi
+done
+
+python3 - "$DIR" "$on_rc" "$off_rc" <<'PY'
+import json, os, sys
+
+try:
+    from PIL import Image, ImageChops, ImageDraw
+except ImportError:
+    print("check_box_outline: python3 has no PIL, so no picture can be read. A gate that cannot run "
+          "FAILS.", file=sys.stderr)
+    sys.exit(2)
+
+d, on_rc, off_rc = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+
+# 8-bit steps a glow must clear to be in the picture at all. Below this two frames of the same world
+# differ by their own rounding.
+MIN_DIFF = 8
+# A pixel this many drawn girths from every point of the outline is not on the outline.
+FAR = 6.0
+# What must be lit along the perimeter, and what may differ away from it.
+GROUND_LIT = 0.6
+FAR_HOT = 0.005
+
+
+def log(name):
+    return open(os.path.join(d, name + ".log"), errors="replace").read()
+
+
+def shot_path(text):
+    for line in text.splitlines():
+        if line.startswith("SHOT_SAVED="):
+            return line[len("SHOT_SAVED="):].split()[0]
+    return None
+
+
+on_log, off_log = log("on"), log("off")
+if on_rc != 0 or off_rc != 0:
+    print("check_box_outline: the arms exited %d and %d, so no pair of frames was taken."
+          % (on_rc, off_rc), file=sys.stderr)
+    print("\n".join(on_log.splitlines()[-20:]), file=sys.stderr)
+    sys.exit(2)
+if "BOX_OUTLINE_ABSENT=" in on_log:
+    print("check_box_outline: the body reported no surface under the box footprint, so the ground line "
+          "was never laid.", file=sys.stderr)
+    sys.exit(2)
+
+# THE LAST READING BEFORE THE SHUTTER: the eye is standing still by then, so the geometry it published
+# is the geometry the photograph caught.
+pub = None
+for line in on_log.splitlines():
+    if line.startswith("BOX_OUTLINE="):
+        pub = json.loads(line[len("BOX_OUTLINE="):])
+    elif line.startswith("SHOT_SAVED=") and pub is not None:
+        break
+if pub is None:
+    print("check_box_outline: the drawn arm published no BOX_OUTLINE line, so nothing says where the "
+          "box stands in the frame.", file=sys.stderr)
+    sys.exit(2)
+
+fails = []
+# THE ABLATION IS REAL: --ablate=box_outline stops the module, so the dark arm publishes nothing.
+if "BOX_OUTLINE=" in off_log:
+    fails.append("--ablate=box_outline left the outline running: the dark arm published its geometry")
+
+pa, pb = shot_path(on_log), shot_path(off_log)
+if pa is None or pb is None:
+    print("check_box_outline: an arm published no shot, so nothing was photographed.", file=sys.stderr)
+    sys.exit(2)
+a = Image.open(pa).convert("RGB")
+b = Image.open(pb).convert("RGB")
+if a.size != b.size:
+    print("check_box_outline: the frames are %s and %s, so they are not the same picture."
+          % (a.size, b.size), file=sys.stderr)
+    sys.exit(2)
+w, h = a.size
+if [int(v) for v in pub["size"]] != [w, h]:
+    print("check_box_outline: the outline was projected into a %s frame and the picture is %dx%d, so "
+          "the polyline names other pixels." % (pub["size"], w, h), file=sys.stderr)
+    sys.exit(2)
+# THE DIFFERENCE, PER PIXEL: the largest channel step between the two frames.
+ch = ImageChops.difference(a, b).split()
+mx = ImageChops.lighter(ImageChops.lighter(ch[0], ch[1]), ch[2])
+
+thick = max(2.0, float(pub["thick_px"]))
+# A DISC ONE GIRTH ACROSS: the published point is where the line's centre runs, and the pixel carrying
+# it is within the line's own drawn thickness of that.
+rad = int(round(thick)) + 2
+
+
+def disc_max(px, py):
+    x0, y0 = int(round(px)), int(round(py))
+    box = (max(x0 - rad, 0), max(y0 - rad, 0), min(x0 + rad + 1, w), min(y0 + rad + 1, h))
+    if box[2] <= box[0] or box[3] <= box[1]:
+        return 0
+    return mx.crop(box).getextrema()[1]
+
+
+def in_frame(p):
+    return 0 <= p[0] < w and 0 <= p[1] < h
+
+
+# THE DRAWN LINE, IN PIXELS: every published run walked pair by pair. A pair with a vertex behind the
+# eye joins nothing, and the piece between two vertices is filled in so the mask follows the line and
+# not a string of beads.
+segments = []
+for run in pub["ground"]:
+    for i in range(len(run) - 1):
+        if run[i] is not None and run[i + 1] is not None:
+            segments.append((run[i], run[i + 1]))
+for pil in pub["pillars"]:
+    segments.append((pil["low"], pil["top"]))
+if not segments:
+    print("check_box_outline: none of the outline's vertices stand in front of the eye, so the pose "
+          "does not look at the box.", file=sys.stderr)
+    sys.exit(2)
+
+ground_pts = [p for run in pub["ground"] for p in run if p is not None and in_frame(p)]
+if len(ground_pts) < 8:
+    print("check_box_outline: only %d of the ground line's points stand in the frame, so the pose does "
+          "not look at the box." % len(ground_pts), file=sys.stderr)
+    sys.exit(2)
+
+lit = [disc_max(p[0], p[1]) for p in ground_pts]
+hit = sum(1 for v in lit if v >= MIN_DIFF)
+frac = hit / float(len(lit))
+if frac < GROUND_LIT:
+    fails.append("only %d of %d points on the ground perimeter differ between the two frames (%.0f%%): "
+                 "the box's edges are not on the ground" % (hit, len(lit), 100.0 * frac))
+
+# NOT ELSEWHERE. The drawn polyline is stroked FAR girths wide; a pixel outside that stroke is off the
+# box, and the frame there is the same frame twice.
+reach = int(round(FAR * thick)) + rad
+mask = Image.new("L", (w, h), 0)
+pen = ImageDraw.Draw(mask)
+for p, q in segments:
+    pen.line([tuple(p), tuple(q)], fill=255, width=2 * reach + 1)
+    for e in (p, q):
+        pen.ellipse([e[0] - reach, e[1] - reach, e[0] + reach, e[1] + reach], fill=255)
+far_total = mask.histogram()[0]
+if far_total < w * h // 10:
+    print("check_box_outline: the outline's neighbourhood covers all but %d pixels of the frame, so "
+          "'not elsewhere' asks nothing." % far_total, file=sys.stderr)
+    sys.exit(2)
+hot = mx.point(lambda v: 255 if v >= MIN_DIFF else 0)
+far_hot = ImageChops.subtract(hot, mask).histogram()[255]
+far_frac = far_hot / float(far_total)
+if far_frac > FAR_HOT:
+    fails.append("%.2f%% of the frame away from the box differs between the two arms: the outline is "
+                 "drawing somewhere the box is not" % (100.0 * far_frac))
+
+# THE PILLARS FADE. Each is lit near the ground and, at the fade height, under the floor the renderer
+# itself declared -- as a fraction of its own lit end, so this is a test of the fade, not of a brightness.
+floor = float(pub["fade_floor"])
+pillars = [p for p in pub["pillars"] if in_frame(p["low"]) and in_frame(p["top"])]
+if len(pillars) < 2:
+    print("check_box_outline: %d corner pillars stand in the frame, so the fade cannot be read."
+          % len(pillars), file=sys.stderr)
+    sys.exit(2)
+reads = []
+for p in pillars:
+    low = disc_max(p["low"][0], p["low"][1])
+    top = disc_max(p["top"][0], p["top"][1])
+    reads.append((low, top))
+    if low < MIN_DIFF:
+        fails.append("a corner pillar is not drawn at its foot (%d of 255), so its fade is a fade of "
+                     "nothing" % low)
+    elif top > floor * low or top >= MIN_DIFF:
+        fails.append("a corner pillar still reads %d of 255 at the fade height against %d at its foot: "
+                     "over the declared floor of %.3f, or still in the picture at all"
+                     % (top, low, floor))
+
+print('BOX_OUTLINE_SHOT={"ground_lit":%.3f,"far_hot":%.5f,"pillars":%s,"thick_px":%.2f,"fade_m":%.0f}'
+      % (frac, far_frac, json.dumps(reads), thick, float(pub["fade_m"])))
+if fails:
+    for f in fails:
+        print("  " + f, file=sys.stderr)
+    print("check_box_outline: FAIL (%d)" % len(fails))
+    sys.exit(1)
+print("check_box_outline: OK")
+PY
