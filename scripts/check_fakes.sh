@@ -111,7 +111,7 @@ for dirpath, _, names in os.walk(os.path.join(root, "addons/local_agents")):
             continue
         path = os.path.join(dirpath, fn)
         text = open(path, errors="replace").read()
-        for m in re.finditer(r'LAFakes\.(?:stands_in|state|draw|give_back|held|capped)\([^)]*?"([a-z0-9_]+)"', text):
+        for m in re.finditer(r'LAFakes\.(?:stands_in|draw|give_back|capped)\([^)]*?"([a-z0-9_]+)"', text):
             used.setdefault(m.group(1), set()).add(os.path.relpath(path, root))
 for name, where in sorted(used.items()):
     if name not in declared:

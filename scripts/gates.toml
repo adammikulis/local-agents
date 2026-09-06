@@ -142,7 +142,7 @@ name = "check_fakes_states"
 script = "scripts/check_fakes_states.sh"
 kind = "gpu"
 marker = "^check_fakes_states: OK"
-mutation = "perl -0pi -e 's/return state\\(name\\) == LAAblate\\.state_fake\\(\\)/return true/' addons/local_agents/sim/LAFakes.gd"
+mutation = "perl -0pi -e 's/return LAAblate\\.state_of\\(name\\) == LAAblate\\.state_fake\\(\\)/return true/' addons/local_agents/sim/LAFakes.gd"
 needs = ["import"]
 
 [[gate]]

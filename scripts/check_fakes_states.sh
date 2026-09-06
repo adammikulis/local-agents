@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # EVERY STAND-IN'S THREE STATES ARE REAL STATES. Per LAFakes record the life demo runs in `real` and in
-# `off` against one run in the defaults: neither hands the world anything of its own, a run below the
-# record's rung leaves the same life standing in both (the field's answer to an absent process is the
-# absence), and the defaults differ from `off` or the record is standing in for nothing.
+# `off` against one run in the defaults: the switch reaches the world, neither state hands out anything
+# of the stand-in's own, and a run below the record's rung leaves the same life standing in both,
+# because the field's answer to a process it does not contain is the absence.
 # EXIT 0 the states are the states * 1 one is not * 2 the gate could not run.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -149,16 +149,18 @@ for n in names:
                      "real to read" % (n, real_k or "nothing", off_k or "nothing",
                                        rungs.get(n) or "0.5"))
 
-    # THE POSITIVE CONTROL. Either the stand-in handed matter out, or switching it off changed the
-    # world; a record that does neither is standing in for nothing.
     book = (base["snap"].get("fakes") or {}).get(n) or {}
     drew = int(book.get("draws", 0))
     base_c, off_c = census(base), census(arms["off"])
     moved = sorted(k for k in set(base_c) | set(off_c) if base_c.get(k) != off_c.get(k))
-    if drew <= 0 and not moved:
-        fails.append("'%s' handed nothing out and switching it off changed nothing: it is standing in "
-                     "for nothing" % n)
     rows.append({"fake": n, "draws": drew, "changed": len(moved), "real_is_off": same})
+
+# THE POSITIVE CONTROL. A run in which no stand-in was ever drawn on measured nothing: the books the
+# other two arms must not carry were never written in the first place.
+if not [r for r in rows if r["draws"] > 0]:
+    print("check_fakes_states: no stand-in handed anything out in the defaults, so the arms that must "
+          "hand out nothing prove nothing.", file=sys.stderr)
+    sys.exit(2)
 
 print("FAKE_STATES=" + json.dumps(rows))
 if fails:

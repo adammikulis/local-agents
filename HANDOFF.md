@@ -114,6 +114,14 @@ is an invented threshold. The design: kinematic until thrown; then a Jolt `Rigid
 `gravity_scale = 0` pushed each tick by `m·g(pos)` from `LABallistics.g_at` plus the seeded air's drag
 (bound, not copied), the impulse from the overpressure in its cell, kinematic again when asleep.
 
+## 13. THE LIFE DEMO'S ANIMALS BURN WHERE THEY STAND
+
+`LA_LIFE_LOG=/tmp/life.log scripts/check_life_demo.sh` then
+`grep -o '"death/burned":[0-9]*' /tmp/life.log` reads the run's dominant death cause in a rung-1 box
+that contains no combustion process.
+Reading: `tick_environment` in `CreatureMetabolism.gd` calls `_combust()` whenever
+`c._material.temp_at(pos) >= COMBUST_TEMP`.
+
 ## 14. NOT EXAMINED UNTIL THE RUNG-2 DEMO IS APPROVED — rung 3
 
 - `scripts/check_bench_shock_tube.sh`: at a 10:1 Sod jump the rarefaction head stands outside the bound
