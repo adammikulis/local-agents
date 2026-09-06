@@ -119,10 +119,7 @@ static func _on_settled(c) -> void:
 			c.global_position = surf2 + up_out2 * c.size
 	var yaw: float = c.global_rotation.y
 	c.global_rotation = Vector3(0.0, yaw, 0.0)
-	# A hard landing frightens the creature and rattles neighbours (same stimulus a thrown body makes).
 	c.add_fear(c.global_position, 1.5)
-	if c._ecology != null and c._ecology.has_method("broadcast_scare"):
-		c._ecology.broadcast_scare(c.global_position, 8.0, 0.9)
 
 
 static func _dismiss_shadow(c) -> void:

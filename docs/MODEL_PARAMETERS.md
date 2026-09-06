@@ -15,7 +15,7 @@ question, which nothing could previously ask: should this be a number at all, an
 Every row names what would have to exist for the number to stop being needed. A row that never acquires
 that field is a value nobody intends to fix.
 
-**MAX_DECLARED: 220**
+**MAX_DECLARED: 219**
 
 The gate fails if the table grows past that ceiling. To add a number, derive it, bind it, or raise the
 ceiling in the same commit and argue for it in the message. When the count drops, lower the ceiling to bank
@@ -139,7 +139,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/streamer/StreamerOverlay.gd` | `FEED_MAX` | 4 | presentation or diagnostic buffer length, not physics | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/sim/actors/Meteor.gd` | `TRANSIENT_DEPTH_PER_DIAMETER` | 1.0 / 3.0 | the observed depth-to-diameter ratio of a transient impact cavity (Melosh 1989, ch. 7), a measured shape of craters rather than a property of matter | a solved excavation flow, which produces the cavity shape instead of asserting it |
 | `addons/local_agents/sim/material/MaterialEjecta3D.gd` | `EJECTION_ANGLE_RAD` | PI / 4.0 | the ejection angle crater ejecta clusters at (Melosh 1989, ch. 5) | the Maxwell Z-model, which gives each parcel its own angle from its launch position |
-| `addons/local_agents/sim/actors/Meteor.gd` | `BODY_RADIUS` | 1.4 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Meteor.gd` | `FX_LINGER` | 1.8 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Nest.gd` | `IDLE_TIMEOUT` | 120.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Nest.gd` | `DISREPAIR_START` | 60.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
