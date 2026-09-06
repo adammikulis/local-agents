@@ -21,7 +21,6 @@ constexpr double kInf = std::numeric_limits<double>::infinity();
 // Doubling steps to bracket the far end past the last boundary, and Illinois iterations on the bracket.
 constexpr int kBracketDoublings = 64;
 constexpr int kSolveIterations = 120;
-constexpr double kBracketSpanC = 100.0;
 
 double prop(const String &p_id, const char *p_key, double p_default) {
 	const Dictionary entry = LASubstances::table().get(p_id, Dictionary());
@@ -203,8 +202,9 @@ Dictionary LAMixtureEnthalpy::state(const Dictionary &p_masses, double p_room_m3
 		h_lo = top;
 	}
 	if (!std::isfinite(hi)) {
-		// Past the last boundary the curve only rises, so doubling the span always finds the far end.
-		double span = kBracketSpanC;
+		// Past the last boundary the curve only rises, so doubling the span always finds the far end;
+		// the first span is one ice-point interval, K.
+		double span = la_physical("KELVIN_OFFSET");
 		for (int i = 0; i < kBracketDoublings; i++) {
 			hi = lo + span;
 			if (enthalpy_at(p_masses, p_room_m3, hi, p_p_pa) >= p_h_total_j) {

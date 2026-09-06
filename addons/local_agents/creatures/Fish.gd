@@ -169,11 +169,9 @@ func setup(_terrain, _mat_field, _config: Dictionary) -> void:
 	_heading = Vector3(rng.randf() * 2.0 - 1.0, 0.0, rng.randf() * 2.0 - 1.0).normalized()
 	if _heading == Vector3.ZERO:
 		_heading = Vector3.FORWARD
-	# A BODY APPEARED: register its mass with the field's biota ledger (swimmers are always spawner-made —
-	# there is no aquatic gestation path — so this is never a birth being double-counted).
+	# A BODY APPEARED: book its mass against the field's biota stock.
 	if material != null and material.has_method("note_biota_spawn"):
-		material.note_biota_spawn(LACreatureBodyMass.body_mass(self),
-			int(Engine.get_physics_frames()) <= LACreatureBodyMass.FOUNDING_FRAMES)
+		material.note_biota_spawn(LACreatureBodyMass.body_mass(self))
 
 
 func set_ecology(e) -> void:
@@ -752,8 +750,6 @@ func _eat_prey(prey: Node3D) -> void:
 		meat = float(prey.draw_body_mass(room))
 	elif "food_value" in prey:
 		meat = minf(room, float(prey.get("food_value")))
-		if material != null and material.has_method("note_biota_node_intake"):
-			material.note_biota_node_intake(meat)
 	energy = minf(max_energy, energy + meat)
 	LASimReport.event("predation", {"species": species, "prey": prey_species})
 	if prey.has_method("die"):

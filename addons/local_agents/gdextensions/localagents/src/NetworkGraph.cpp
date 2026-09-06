@@ -15,8 +15,6 @@
 using namespace godot;
 
 namespace {
-constexpr float kEpsilon = 1e-8f;
-
 std::vector<float> to_std_vector(const PackedFloat32Array &array) {
     std::vector<float> values;
     values.resize(array.size());
@@ -223,7 +221,7 @@ void NetworkGraph::load_embeddings() {
         }
         record.values.resize(dim);
         std::memcpy(record.values.data(), blob, bytes);
-        if (record.norm < kEpsilon) {
+        if (record.norm <= 0.0f) {
             record.norm = compute_norm(record.values);
         }
         if (embedding_dim_ == 0) {
@@ -603,7 +601,7 @@ int64_t NetworkGraph::add_embedding(int64_t node_id, const PackedFloat32Array &v
 
     std::vector<float> values = to_std_vector(vector);
     float norm = compute_norm(values);
-    if (norm < kEpsilon) {
+    if (norm <= 0.0f) {
         UtilityFunctions::push_error("NetworkGraph::add_embedding - zero norm vector");
         return -1;
     }
@@ -683,7 +681,7 @@ TypedArray<Dictionary> NetworkGraph::search_embeddings(const PackedFloat32Array 
     }
 
     float norm = compute_norm(needle);
-    if (norm < kEpsilon) {
+    if (norm <= 0.0f) {
         UtilityFunctions::push_error("NetworkGraph::search_embeddings - zero norm query");
         return results;
     }
@@ -740,7 +738,10 @@ double NetworkGraph::cosine_distance(const std::vector<float> &a, float norm_a, 
     for (size_t i = 0; i < n; ++i) {
         dot += a[i] * b[i];
     }
-    float denom = std::max(norm_a * norm_b, kEpsilon);
+    const float denom = norm_a * norm_b;
+    if (denom <= 0.0f) {
+        return 1.0f;
+    }
     float cosine = dot / denom;
     cosine = std::max(-1.0f, std::min(1.0f, cosine));
     return 1.0f - cosine;

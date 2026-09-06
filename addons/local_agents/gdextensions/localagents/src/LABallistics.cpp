@@ -78,10 +78,10 @@ double big_g() {
 	return g;
 }
 
-// Drag coefficient of a sphere in the Newtonian (hypersonic) limit: the surface integral of Cp = 2 sin^2
-// theta over the forward hemisphere, which is 1 for a sphere with no free parameter.
+// Drag coefficient of a sphere in the Newtonian (hypersonic) limit: Cp = 2 cos^2 phi from the
+// stagnation point, integrated over the forward hemisphere, 2 * 2 * int_0^{pi/2} cos^3 sin dphi.
 // LA_APPROX: newtonian_sphere_drag
-const double SPHERE_CD = 1.0;
+const double SPHERE_CD = 2.0 * 2.0 * (1.0 / 4.0);
 
 
 // The pull of one point mass, with Newton's shell theorem inside it: only the enclosed mass pulls, so the

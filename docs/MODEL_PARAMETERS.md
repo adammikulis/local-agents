@@ -15,7 +15,7 @@ question, which nothing could previously ask: should this be a number at all, an
 Every row names what would have to exist for the number to stop being needed. A row that never acquires
 that field is a value nobody intends to fix.
 
-**MAX_DECLARED: 232**
+**MAX_DECLARED: 224**
 
 The gate fails if the table grows past that ceiling. To add a number, derive it, bind it, or raise the
 ceiling in the same commit and argue for it in the message. When the count drops, lower the ceiling to bank
@@ -208,7 +208,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/events/LAEventTracker.gd` | `SAMPLE_INTERVAL` | 1.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/events/LAEventTracker.gd` | `RECENT_MAX` | 32 | presentation or diagnostic buffer length, not physics | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/sim/material/MaterialFieldInject3D.gd` | `CRATER_WATCH_MAX` | 256 | a telemetry list's length, not a physical quantity | not owed: a diagnostic may size its own buffer |
-| `addons/local_agents/sim/material/MaterialFieldInject3D.gd` | `ORGANIC_TAKE_FRAC` | 0.5 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/MaterialFieldClimateSwing3D.gd` | `STATIONS_PER_BAND` | 8 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldClimateSwing3D.gd` | `LONG_DAYS` | 8 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldClimateSwing3D.gd` | `SITE_RETRY_FRAMES` | 60 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -272,7 +271,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MaterialFieldAtmos3D.gd` | `FOG_LO_ALT` | 0.0 | a renderer band radius, not a measured fog base | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldBiota3D.gd` | `GROUND_SEARCH` | 6 | a march bound, not a physical quantity | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldChannels3D.gd` | `HEAD_REACH` | 4 | a march bound, not a physical quantity | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialFieldBiota3D.gd` | `BITE_TAKE_FRAC` | 0.35 | per-step k, so it is a rate only at one timestep | Stage 2: params.dt is read, rates become per second |
 | `addons/local_agents/sim/material/MaterialFieldBiota3D.gd` | `HEAT_RADIUS` | 0.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialEjecta3D.gd` | `PARCELS_PER_EJECT` | 6 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/game/render/WaterParticles.gd` | `MAX_PARTICLES` | 12000 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -307,7 +305,3 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/kernels3d/cellvol.glsli` | `LA_FLOAT_EPS` | 1.1920929e-7 | float32's own epsilon: a band whose volume is below this share of its cube has a top no float32 depth can tell from its ground, so it is no band; a fact about the machine word, not about matter | a wider float, or a band solved in the cube's own integer depth |
 | `addons/local_agents/sim/material/kernels3d/band.glsli` | `LA_BAND_EPS` | 1.0e-4 | the share of the vertical below which a cube axis counts as parallel to the free surface and the band integral drops that dimension; a DISCRETISATION guard on a formula that divides by that share, not a property of matter | an integral written in the form that is finite at zero, which needs no branch |
 | `addons/local_agents/sim/material/sphere_passes/ActiveCells.gd` | `QUIET_SUBSTEPS` | 2 | substeps a crossing is remembered: the one it landed on and the next, because the counter ages before the rows run; structural, not a dial | a wake that carries the arrival itself rather than a counter, at which point there is no window to size |
-| `addons/local_agents/gdextensions/localagents/src/NetworkGraph.cpp` | `kEpsilon` | 1e-8f | numerical guard on a zero-length edge weight in the agent graph | a graph that refuses a zero-length edge instead of dividing by one |
-| `addons/local_agents/gdextensions/localagents/src/LAFieldLithostaticSeed.cpp` | `dr` | 100.0 | radial step of the lithostatic integration, m; a DISCRETISATION of the column, not a property of rock | a step that follows the column's own scale height |
-| `addons/local_agents/gdextensions/localagents/src/LAMixtureEnthalpy.cpp` | `kBracketSpanC` | 100.0 | half-width in C of the bracket the temperature root solve opens; a solver setting, chosen not derived | a bracket taken from the mixture's own enthalpy bounds |
-| `addons/local_agents/gdextensions/localagents/src/LABallistics.cpp` | `SPHERE_CD` | 1.0 | drag coefficient of a sphere, chosen not derived and applied at every Reynolds number | a drag law that follows from the Reynolds number the parcel is actually at |
