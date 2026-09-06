@@ -22,6 +22,7 @@ std::vector<Property> all_properties() {
 	add_reaction_properties(out);
 	add_probe_properties(out);
 	add_sparse_properties(out);
+	add_mesh_properties(out);
 	return out;
 }
 

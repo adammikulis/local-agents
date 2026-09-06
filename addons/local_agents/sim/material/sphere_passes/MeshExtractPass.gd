@@ -5,9 +5,6 @@ extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/mesh_extract.glsl"
 
-## Set to examine every seam: an extra dispatch counts shared corners two cells disagree about.
-const SEAM_CHECK_ENV: String = "LA_MESH_CHECK"
-
 var _pipe: RID = RID()
 var _set: RID = RID()
 var _bufs: Dictionary = {}
@@ -18,8 +15,9 @@ var indices: PackedInt32Array = PackedInt32Array()
 
 
 func _buffers(cc: int) -> Dictionary:
-	# Four vertices and six indices per cell: a cell contributes at most one quad, so nothing overruns.
-	return {"mesh_count": 4, "mesh_vert": cc * 12, "mesh_attr": cc * 12, "mesh_index": cc * 6}
+	# One vertex per cell and its umbrella: at most fifteen triangles, so nothing overruns.
+	return {"mesh_count": 4, "mesh_slot": cc, "mesh_vert": cc * 3, "mesh_attr": cc * 3,
+		"mesh_index": cc * 45}
 
 
 func _setup(bufs: Dictionary, _cc: int) -> void:
@@ -38,20 +36,17 @@ func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: i
 	# height in this mesh has. The box's own corner is the farthest cell from the centre.
 	var step: float = _float32_step((grid_origin - centre).length()
 		+ float(maxi(maxi(grid_dims.x, grid_dims.y), grid_dims.z)) * grid_cell_size)
-	# The counters are zeroed, the cells walked, then the seams examined off what the walk read.
-	var sets: Array = [_set, _set]
-	var pcs: Array = [_push(cc, centre, full, step, 1), _push(cc, centre, full, step, 0)]
+	# The slots are cleared, a vertex placed per surface cell, then the vertices joined off the slots the
+	# placing wrote. Each dispatch reads what the one before it published, so they run behind barriers.
+	var sets: Array = [_set, _set, _set]
+	var pcs: Array = [_push(cc, centre, full, step, 1), _push(cc, centre, full, step, 0),
+		_push(cc, centre, full, step, 2)]
 	var gs: PackedInt32Array = PackedInt32Array()
-	gs.append(1)
-	gs.append(groups)
-	if OS.get_environment(SEAM_CHECK_ENV) != "":
-		sets.append(_set)
-		pcs.append(_push(cc, centre, full, step, 2))
+	for _i in 3:
 		gs.append(groups)
-	var rids: Array = []
+	var rids: Array = [RID(), RID(), RID()]
 	var offs: PackedInt32Array = PackedInt32Array()
-	for _i in sets.size():
-		rids.append(RID())
+	for _i in 3:
 		offs.append(0)
 	_driver.run(cl, _pipe, sets, pcs, gs, rids, offs, true)
 
@@ -84,10 +79,7 @@ func _drain(rd: RenderingDevice) -> Dictionary:
 	var counts: PackedInt32Array = rd.buffer_get_data(_bufs["mesh_count"], 0, 16).to_int32_array()
 	if counts.size() < 4:
 		return {}
-	var out: Dictionary = {"water_surface_quads": counts[0] / 4}
-	if OS.get_environment(SEAM_CHECK_ENV) != "":
-		out["mesh_seam_breaks"] = counts[2]
-		out["mesh_seams"] = counts[3]
+	var out: Dictionary = {"water_surface_verts": counts[0], "water_surface_tris": counts[1] / 3}
 	if counts[0] <= 0 or counts[1] <= 0:
 		return out
 	verts = rd.buffer_get_data(_bufs["mesh_vert"], 0, counts[0] * 3 * 4).to_float32_array()

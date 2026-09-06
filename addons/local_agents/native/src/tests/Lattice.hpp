@@ -25,9 +25,16 @@ struct Lattice {
 
 	static Lattice box(uint32_t nx, uint32_t ny, uint32_t nz, float edge_m, float ox, float oy,
 			float oz);
+	// The same box with the half at x < nx/2 split once, so a coarse cell meets FOUR fine ones across
+	// the seam and a kernel that walks faces meets a real 2:1 boundary. Slots are still march.glsli's,
+	// and the split is lateral only, so vert_up stays one relation.
+	static Lattice graded_x(uint32_t nx, uint32_t ny, uint32_t nz, float edge_m, float ox, float oy,
+			float oz);
+	// Leaves are not a dense box any more: the cell count is what the build produced.
+	uint32_t leaves = 0;
 
-	uint32_t cells() const { return nx * ny * nz; }
-	uint32_t faces() const { return cells() * 6u; }
+	uint32_t cells() const { return leaves != 0u ? leaves : nx * ny * nz; }
+	uint32_t faces() const { return uint32_t(nbr.size()); }
 	uint32_t index(uint32_t x, uint32_t y, uint32_t z) const { return (x * ny + y) * nz + z; }
 	// The cell one step along slot d, or -1 past the box.
 	int32_t step(uint32_t c, uint32_t d) const { return nbr[c * 6u + d]; }

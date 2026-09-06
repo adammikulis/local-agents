@@ -56,7 +56,7 @@ const SLOT: Dictionary = {
 	# water_rho is kg/m^3 the cell's own liquid water stands at
 	"stack_probe": 161, "enthalpy_probe": 162, "water_rho": 173,
 	# the mesh detector's output: the surface it extracts, and the counters that claim room in it
-	"mesh_count": 174, "mesh_vert": 175, "mesh_attr": 176, "mesh_index": 177
+	"mesh_count": 174, "mesh_vert": 175, "mesh_attr": 176, "mesh_index": 177, "mesh_slot": 178
 }
 
 ## The slots each kernel's translation unit declares, its includes with it. A pass binds this
@@ -83,7 +83,8 @@ const IN_KERNEL: Dictionary = {
 		"co", "so2", "h2s", "ch4", "h2o_pore", "gravity", "grav_phi", "grav_ref", "grav_density",
 		"grav_cellflag", "grav_moments", "grav_partials", "grav_props"],
 	"mesh_extract.glsl": ["nbr", "pos", "slot_off", "face_partner", "cell_edge", "ground_d", "vert_up",
-		"solid", "h2o", "h2o_liquid", "mesh_count", "mesh_vert", "mesh_attr", "mesh_index"],
+		"vert_down", "solid", "h2o", "h2o_liquid", "mesh_count", "mesh_slot", "mesh_vert", "mesh_attr",
+		"mesh_index"],
 	"pressure.glsl": ["vert_up", "cell_edge", "solid", "pressure", "rho_bulk", "g_rest"],
 	"reactions_sphere3d.glsl": ["vert_up", "vert_down", "cell_edge", "h2o", "silicate", "carbonate",
 		"silica", "o2", "co2", "n2", "biomass", "fungus", "detritus", "fuel", "org_h", "org_o", "fert",

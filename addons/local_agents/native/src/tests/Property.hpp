@@ -41,5 +41,6 @@ void add_pressure_properties(std::vector<Property> &out);
 void add_reaction_properties(std::vector<Property> &out);
 void add_probe_properties(std::vector<Property> &out);
 void add_sparse_properties(std::vector<Property> &out);
+void add_mesh_properties(std::vector<Property> &out);
 
 } // namespace lasim

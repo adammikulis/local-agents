@@ -562,16 +562,16 @@ void main() {
 	float nf = 0.0;
 	// GEOMETRY AND THE PER-STEP BOOKS: neither moves inside a step.
 	if (params.restate == 0u) {
-		// GEOPOTENTIAL HEIGHT over the body's mean crust radius, m: the solved potential's own datum,
-		// which is what the U.S. Standard Atmosphere 1976 tabulates its layers against. GM comes off the
-		// monopole the gravity solve published, so nothing here is declared. NaN with no solve.
+		// GEOPOTENTIAL HEIGHT over the mean crust radius, m, the altitude the U.S. Standard Atmosphere
+		// 1976 tabulates its layers against, and the radius as a share of that. GM off the solve's own
+		// monopole. A world with no solve has no potential, and neither reading is written.
 		float gm = -grav_ref[g] * r_len;
-		float phi_ref = -gm / max(params.crust_radius_m, 1.0);
-		float g_ref = gm / max(params.crust_radius_m * params.crust_radius_m, 1.0);
-		alt[g] = (params.crust_radius_m > 0.0 && g_ref > 0.0)
-			? (grav_phi[g] + grav_ref[g] - phi_ref) / g_ref : uintBitsToFloat(0x7FC00000u);
-		r_frac[g] = (params.crust_radius_m > 0.0) ? r_len / params.crust_radius_m
-			: uintBitsToFloat(0x7FC00000u);
+		if (params.crust_radius_m > 0.0 && gm > 0.0) {
+			float phi_ref = -gm / params.crust_radius_m;
+			float g_ref = gm / (params.crust_radius_m * params.crust_radius_m);
+			alt[g] = (grav_phi[g] + grav_ref[g] - phi_ref) / g_ref;
+			r_frac[g] = r_len / params.crust_radius_m;
+		}
 		g_rest[g * 3u] = g_eff.x;
 		g_rest[g * 3u + 1u] = g_eff.y;
 		g_rest[g * 3u + 2u] = g_eff.z;

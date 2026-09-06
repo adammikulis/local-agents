@@ -179,7 +179,9 @@ World load(Rig &rig, Rng &rng) {
 	put(LA_BIND_MOM_X, 0.1f, 10.0f);
 	put(LA_BIND_MOM_Y, 0.1f, 10.0f);
 	put(LA_BIND_MOM_Z, 0.1f, 10.0f);
-	put(LA_BIND_GRAV_REF, 1.0e4f, 1.0e6f);
+	// The monopole potential -GM/r: a well, so it is NEGATIVE, and the body has a mass.
+	for (uint32_t i = 0; i < n; ++i) { v[i] = -rng.decades(1.0e4f, 1.0e6f); }
+	rig.put(LA_BIND_GRAV_REF, v);
 	rig.zero(LA_BIND_GRAV_PHI);
 	// NO LATTICE: the cell's matter is all fluid, so the reservoir the round trip reads is the whole cell.
 	rig.zero(LA_BIND_CEMENT);
@@ -189,7 +191,7 @@ World load(Rig &rig, Rng &rng) {
 	rig.zero(LA_BIND_LEVEL_IDX);
 	rig.zero(LA_BIND_LEVEL_ARGS);
 
-	// A body that spins and carries a sea shell, so latitude and altitude are geometry and not absences.
+	// A body that spins and has a solved potential, so latitude and altitude are geometry, not absences.
 	std::vector<float> grav(size_t(n) * 3u, 0.0f);
 	for (uint32_t i = 0; i < n; ++i) { grav[i * 3u + 1u] = -9.80665f; }
 	rig.put(LA_BIND_GRAVITY, grav);

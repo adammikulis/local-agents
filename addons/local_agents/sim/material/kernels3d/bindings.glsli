@@ -181,5 +181,6 @@
 #define LA_BIND_MESH_VERT           175
 #define LA_BIND_MESH_ATTR           176
 #define LA_BIND_MESH_INDEX          177
+#define LA_BIND_MESH_SLOT           178
 
 #endif

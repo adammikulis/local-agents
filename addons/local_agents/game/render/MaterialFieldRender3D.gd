@@ -106,9 +106,12 @@ func _rebuild(_radial: Vector3) -> void:
 	verts.resize(n)
 	normals.resize(n)
 	colors.resize(n)
+	var basis_inv: Basis = global_transform.basis.inverse()
 	for i in n:
-		verts[i] = inv_xform * Vector3(det.verts[i * 3], det.verts[i * 3 + 1], det.verts[i * 3 + 2])
-		normals[i] = Vector3.UP                      # placeholder; VoxelWater.gdshader recomputes NORMAL
+		var w: Vector3 = Vector3(det.verts[i * 3], det.verts[i * 3 + 1], det.verts[i * 3 + 2])
+		verts[i] = inv_xform * w
+		# The vertex stands on the body's own radial, so that is the sheet's normal there.
+		normals[i] = (basis_inv * (w - _center)).normalized()
 		colors[i] = Color(0.5, 0.5, 0.0, 0.0)
 	var arrays: Array = []
 	arrays.resize(Mesh.ARRAY_MAX)

@@ -56,7 +56,8 @@ add_executable(lasim
     src/tests/PropPressure.cpp
     src/tests/PropReactions.cpp
     src/tests/PropProbes.cpp
-    src/tests/PropSparse.cpp)
+    src/tests/PropSparse.cpp
+    src/tests/PropMesh.cpp)
 # bindings.glsli and generated.glsli are #include'd as C++ by the property tests: one table, both sides.
 target_include_directories(lasim PRIVATE include src "${LA_KERNEL_DIR}")
 target_link_libraries(lasim PRIVATE la_device)
