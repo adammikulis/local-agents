@@ -1,5 +1,8 @@
 #include "LAFieldDriver.hpp"
 
+#include "LAProcessSet.hpp"
+
+#include <godot_cpp/classes/script.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
 
@@ -112,6 +115,35 @@ void LAFieldDriver::run(int64_t p_cl, const RID &p_pipe, const Array &p_usets, c
 	}
 }
 
+// A pass's own record label: the file its script lives in, which is what the ladder names it by.
+static String pass_label(Object *p_pass) {
+	const Ref<Script> scr = p_pass->get_script();
+	return scr.is_valid() ? scr->get_path().get_file() : String();
+}
+
+static bool pass_live(Object *p_pass) {
+	return LAProcessSet::is_active("pass", pass_label(p_pass), LAProcessSet::ANY);
+}
+
+void LAFieldDriver::pre_step(const Array &p_passes, const Dictionary &p_ctx, int p_cc, int p_groups) {
+	for (int i = 0; i < p_passes.size(); ++i) {
+		Object *p = p_passes[i];
+		if (p != nullptr && p->has_method("pre_step") && pass_live(p)) {
+			p->call("pre_step", _rd, p_ctx, p_cc, p_groups);
+		}
+	}
+}
+
+bool LAFieldDriver::moves_state(const Array &p_passes) const {
+	for (int i = 0; i < p_passes.size(); ++i) {
+		Object *p = p_passes[i];
+		if (p != nullptr && (bool)p->get("MOVES_STATE") && pass_live(p)) {
+			return true;
+		}
+	}
+	return LAProcessSet::is_active("derive", "lithify", LAProcessSet::ANY);
+}
+
 void LAFieldDriver::step(const Array &p_passes, const PackedStringArray &p_names,
 		const Dictionary &p_ctx, int p_cc, int p_groups, const Callable &p_probe) {
 	if (_rd == nullptr) {
@@ -126,6 +158,19 @@ void LAFieldDriver::step(const Array &p_passes, const PackedStringArray &p_names
 		if (p == nullptr) {
 			continue;
 		}
+		// A PASS OUTSIDE THE SET WAS NEVER LOADED; ONE SWITCHED OFF KEEPS ITS BUFFERS AND DOES NOTHING
+		// TO THEM. What it published is no longer true, so it is told once, on the way down.
+		const String label = pass_label(p);
+		if (!pass_live(p)) {
+			if (!_off_last.has(label)) {
+				_off_last[label] = true;
+				if (p->has_method("switched_off")) {
+					p->call("switched_off", _rd);
+				}
+			}
+			continue;
+		}
+		_off_last.erase(label);
 		const int64_t cl = _rd->compute_list_begin();
 		p->call("dispatch", _rd, cl, p_ctx, p_cc, p_groups);
 		_rd->compute_list_end();
@@ -149,6 +194,7 @@ void LAFieldDriver::setup_transport(const Dictionary &p_plan) {
 	_row_sets = p_plan.get("row_sets", Array());
 	_row_group = p_plan.get("row_group", PackedInt32Array());
 	_row_radiate = p_plan.get("row_radiate", PackedInt32Array());
+	_rows = p_plan.get("rows", Array());
 	_groups = p_plan.get("groups", Array());
 	_args = plan_rid(p_plan, "args");
 	_wake_args = plan_rid(p_plan, "wake_args");
@@ -161,6 +207,11 @@ void LAFieldDriver::setup_transport(const Dictionary &p_plan) {
 	_level_off = plan_int(p_plan, "level_off", 0);
 	_k_off = plan_int(p_plan, "k_off", 0);
 	_n_off = plan_int(p_plan, "n_off", 0);
+}
+
+// A record with no entry in the mask is live: a plan that declares none is a plan with no switches.
+bool LAFieldDriver::_live(int p_row) const {
+	return p_row >= _row_live.size() || _row_live[p_row] != 0;
 }
 
 int LAFieldDriver::_args_offset(int p_group, int p_bin) const {
@@ -288,6 +339,9 @@ void LAFieldDriver::_run_slot(int64_t p_cl, int p_row, const Array &p_pc_rows, i
 // those faces back into the cells. Nothing between the two touches them.
 void LAFieldDriver::_run_row(int64_t p_cl, int p_row, const Array &p_pc_rows, int p_level, int p_k,
 		int p_n) {
+	if (!_live(p_row)) {
+		return;
+	}
 	_run_slot(p_cl, p_row, p_pc_rows, SLOT_OUTFLOW, p_level, p_k, p_n);
 	_run_slot(p_cl, p_row, p_pc_rows, SLOT_GATHER, p_level, p_k, p_n);
 	if (p_row < _row_radiate.size() && _row_radiate[p_row] != 0) {
@@ -309,6 +363,12 @@ int64_t LAFieldDriver::run_transport(int64_t p_cl, const PackedInt32Array &p_pea
 		int p_seed_workgroups, int p_list_workgroups, const Dictionary &p_restate) {
 	if (_rd == nullptr || !_pipe.is_valid()) {
 		return p_cl;
+	}
+	_row_live.resize(_rows.size());
+	for (int i = 0; i < _rows.size(); ++i) {
+		const Dictionary row = _rows[i];
+		_row_live.set(i, LAProcessSet::is_active("transport", row.get("label", String()),
+				LAProcessSet::ANY) ? 1 : 0);
 	}
 	_eos_pipe = plan_rid(p_restate, "pipe");
 	_eos_set = plan_rid(p_restate, "set");
@@ -383,7 +443,9 @@ int64_t LAFieldDriver::run_transport(int64_t p_cl, const PackedInt32Array &p_pea
 			_run_slot(cl, first, p_pc_rows, SLOT_FACE, lk, k, n);
 			// THE PRESSURE AND THE BODY IMPULSE NEXT, on the mass the faces were solved over, so what
 			// the records then move carries its share of the momentum and leaves none behind.
-			_run_slot(cl, last, p_pc_rows, SLOT_MOMENTUM, lk, k, n);
+			if (_live(last)) {
+				_run_slot(cl, last, p_pc_rows, SLOT_MOMENTUM, lk, k, n);
+			}
 			for (int i = 0; i < group.size(); ++i) {
 				_run_row(cl, group[i], p_pc_rows, lk, k, n);
 				// THE COARSEST SUBSTEP WALKS EVERY CELL: one record of it is the most a submit may hold,
@@ -458,6 +520,9 @@ void LAFieldDriver::_bind_methods() {
 			&LAFieldDriver::run);
 	ClassDB::bind_method(D_METHOD("step", "passes", "names", "ctx", "cell_count", "groups", "probe"),
 			&LAFieldDriver::step);
+	ClassDB::bind_method(D_METHOD("pre_step", "passes", "ctx", "cc", "groups"),
+			&LAFieldDriver::pre_step);
+	ClassDB::bind_method(D_METHOD("moves_state", "passes"), &LAFieldDriver::moves_state);
 	ClassDB::bind_method(D_METHOD("setup_transport", "plan"), &LAFieldDriver::setup_transport);
 	ClassDB::bind_method(D_METHOD("run_transport", "compute_list", "peaks", "pc_rows", "pc_grain",
 								  "pc_lists", "seed_workgroups", "list_workgroups", "restate"),

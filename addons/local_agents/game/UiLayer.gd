@@ -73,6 +73,9 @@ func build(world: Node, sim: LASimulation, render: LARenderLayer, input: LAVoxel
 			["companion", _companion], ["thought_panel", _thought_panel], ["tutorial", _tutorial],
 			["vector_legend", _vector_legend]]:
 		LAAblate.adopt(pair[0], pair[1])
+	# THE SWITCHES, built last: every module has been adopted, so the list is the whole of what this run
+	# can turn off. The panel is not itself adopted — a switch that switches itself off cannot come back.
+	_build_switches()
 
 	# The input controller parses the command line in every run; its Esc menu and view-controls bar are
 	# Controls, and they hang here so no presentation node lives on the simulation side.
@@ -84,6 +87,22 @@ func build(world: Node, sim: LASimulation, render: LARenderLayer, input: LAVoxel
 		sim.phenomena_markers().set_presentation(_audio)
 	if sim.spawn_controller() != null and sim.spawn_controller().has_method("set_presentation"):
 		sim.spawn_controller().set_presentation(camera, _hud)
+
+
+## The live switch list: one CanvasLayer of its own, so nothing else's visibility decides whether the
+## maintainer can reach a process mid-run.
+func _build_switches() -> void:
+	var layer: CanvasLayer = CanvasLayer.new()
+	layer.name = "Switches"
+	var panel: PanelContainer = PanelContainer.new()
+	panel.position = Vector2(12.0, 140.0)
+	var margin: MarginContainer = MarginContainer.new()
+	for side in ["left", "right", "top", "bottom"]:
+		margin.add_theme_constant_override("margin_" + String(side), 8)
+	margin.add_child(LASwitchPanel.new())
+	panel.add_child(margin)
+	layer.add_child(panel)
+	add_child(layer)
 
 
 func step(delta: float) -> void:

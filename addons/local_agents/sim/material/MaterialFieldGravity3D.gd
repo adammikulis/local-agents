@@ -10,20 +10,21 @@ const PASS_FILE: String = "GravityPass.gd"
 
 var _f = null
 var _pass = null
+var _switched_off: bool = false     # the last step ran with gravity switched off
 
 
 func setup(field) -> void:
 	_f = field
 
 
-## Every SOLVE_EVERY steps the potential is re-solved from the mass that moved, warm-started.
+## Every SOLVE_EVERY steps the potential is re-solved from the mass that moved, warm-started. With the
+## switch off nothing is solved, and the pass zeroes what it published; the first step back re-solves.
 func solve_step(step_index: int) -> void:
-	if step_index % _pass_script().SOLVE_EVERY == 0:
+	_bind()
+	var on: bool = _pass != null and LAProcessSet.is_active("pass", PASS_FILE)
+	if on and (_switched_off or step_index % _pass.SOLVE_EVERY == 0):
 		solve()
-
-
-func _pass_script() -> GDScript:
-	return load("res://addons/local_agents/sim/material/sphere_passes/" + PASS_FILE)
+	_switched_off = not on
 
 
 ## GravityPass alone, CONVERGED. Its own ctx: no dt is consumed, no step index moves.
@@ -101,7 +102,8 @@ func _bind() -> void:
 
 
 
-## The drained gravity mirror, flat cell*3, m/s^2. Empty before the first drain.
+## The drained gravity mirror, flat cell*3, m/s^2. Empty before the first drain, and zero once the pass
+## has been switched off — this is what LABallistics and every CPU vertical walk read.
 func mirror() -> PackedFloat32Array:
 	_bind()
 	return _pass.mirror() if _pass != null else PackedFloat32Array()

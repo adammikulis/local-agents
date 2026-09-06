@@ -51,6 +51,22 @@ public:
 	static bool has_record(const String &p_kind, const String &p_label, int p_rung);
 	static Array live_rungs();
 
+	// THE LIVE MASK, over the declared set. A process this world contains may be switched off and on at
+	// any step; one the world lacks has no entry and no switch. `has_record` keeps answering "declared";
+	// `is_active` answers "declared AND switched on", and is what every dispatcher reads.
+	static String process_name(const String &p_kind, const String &p_label);
+	static PackedStringArray process_names(int p_rung);
+	static Dictionary process_entry(const String &p_name);
+	static bool set_live(const String &p_name, bool p_on);
+	static bool is_active(const String &p_kind, const String &p_label, int p_rung);
+	// The switch alone. Absence of a process is not the same statement as its switch being off, so a
+	// reader that must tell them apart asks this.
+	static bool is_switched_on(const String &p_kind, const String &p_label);
+	static Dictionary live_mask();
+	// The field step a toggle from here on takes effect at, and whether one has since the last ask.
+	static void note_step(int p_step);
+	static bool take_toggled();
+
 	static PackedStringArray pass_paths(const PackedStringArray &p_all_paths, int p_rung);
 	static Array transport_rows(int p_rung);
 	static Array reduce_rows(int p_rung);
