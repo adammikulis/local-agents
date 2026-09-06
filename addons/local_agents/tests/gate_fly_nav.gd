@@ -1,9 +1,6 @@
 extends SceneTree
 
-## A DRONE FLIES; IT DOES NOT TELEPORT. The rig is driven with a synthetic stick and asked four things:
-## no frame changes its speed faster than the response time constant allows, its cruise speed at a
-## declared height lands in the band that height deserves, a released stick coasts to rest inside five
-## time constants, and one press of the framing turns it onto the simulated box and fits the footprint.
+## The probe scripts/check_fly_nav.sh reads. Each arm below is one claim about the rig's motion.
 
 const R_M: float = 6.371e6
 const M_KG: float = 5.972e24

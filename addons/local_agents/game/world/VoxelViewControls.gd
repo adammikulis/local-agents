@@ -112,10 +112,10 @@ func _build_ui() -> void:
 	_alt_label = Label.new()
 	_alt_label.text = "alt n/a"
 	_alt_label.add_theme_color_override("font_color", Color(0.72, 0.80, 0.92))
-	_alt_label.custom_minimum_size = Vector2(104.0, 0.0)
+	_alt_label.custom_minimum_size = Vector2(190.0, 0.0)
 	_alt_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_alt_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_alt_label.tooltip_text = "Camera height above the ground beneath it"
+	_alt_label.tooltip_text = "Camera height above the ground beneath it, and in flight its cruise speed"
 	box.add_child(_alt_label)
 
 	# Geosync / Solar tooltips (which fold in the campaign-lock state) are set by _apply_locks() below.
@@ -139,7 +139,18 @@ func _process(_delta: float) -> void:
 	var alt: float = NAN
 	if _body.has_method("altitude_at"):
 		alt = _body.altitude_at(_camera.global_position)
-	_alt_label.text = "alt %s" % _format_alt(alt)
+	var text: String = "alt %s" % _format_alt(alt)
+	# THE WHEEL SETS THE CRUISE SPEED, so in flight the bar says what it is set to. A dial with no
+	# readout is a dial the player cannot see move.
+	if _camera.has_method("is_fly") and _camera.is_fly() and _camera.has_method("fly_speed"):
+		text += "  %s" % _format_speed(_camera.fly_speed(false))
+	_alt_label.text = text
+
+
+func _format_speed(v: float) -> String:
+	if v >= 1000.0:
+		return "%.1f km/s" % (v / 1000.0)
+	return "%d m/s" % roundi(v)
 
 
 func _format_alt(alt: float) -> String:
