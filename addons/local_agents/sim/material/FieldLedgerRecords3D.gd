@@ -60,7 +60,7 @@ static func tables() -> Dictionary:
 		"bnd_amount": LAReduceBoundaryRows.BOOKED_PREFIX,
 		"bnd_heat": LAReduceBoundaryRows.HEAT_PREFIX,
 		"bnd_signed": LAReduceBoundaryRows.BOOKED_SIGNED,
-		"dt_s": LAMaterialFieldSphereStep3D.real_seconds_per_step(),
+		"dt_s": LAMaterialFieldSphereStep3D.seconds_per_step(),
 	}
 
 

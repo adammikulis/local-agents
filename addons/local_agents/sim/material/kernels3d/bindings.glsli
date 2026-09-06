@@ -121,10 +121,9 @@
 #define LA_BIND_GRAV_PARTIALS       110
 #define LA_BIND_GRAV_PROPS          111
 #define LA_BIND_DERIVE_PROPS        112
-#define LA_BIND_TLEVEL              113
-#define LA_BIND_LEVEL_IDX           114
-#define LA_BIND_LEVEL_ARGS          115
-#define LA_BIND_LEVEL_PEAK          116
+#define LA_BIND_ACT_IDX             113
+#define LA_BIND_ACT_ARGS            114
+#define LA_BIND_STEP_DT             115
 #define LA_BIND_ACT_QUIET           117
 #define LA_BIND_ACT_CLAIM           118
 #define LA_BIND_ACT_QUEUE           119
@@ -177,5 +176,10 @@
 #define LA_BIND_STACK_PROBE         161
 #define LA_BIND_ENTHALPY_PROBE      162
 #define LA_BIND_WATER_RHO           173
+#define LA_BIND_HZ_P                174
+#define LA_BIND_HZ_COMP             175
+#define LA_BIND_HZ_RHS              176
+#define LA_BIND_HZ_FLUX             177
+#define LA_BIND_HZ_COND             178
 
 #endif

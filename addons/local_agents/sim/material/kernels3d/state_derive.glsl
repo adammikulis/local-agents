@@ -132,9 +132,9 @@ layout(set = 0, binding = LA_BIND_H_SILICATE, std430) restrict writeonly buffer 
 layout(set = 0, binding = LA_BIND_H_SENSIBLE, std430) restrict writeonly buffer HSensible { float h_sensible[]; };
 layout(set = 0, binding = LA_BIND_CAP_SENSIBLE, std430) restrict writeonly buffer CapSensible { float cap_sensible[]; };
 
-// The active list the transport substep walks, sorted by level. LATemporalLevels.SLOTS: 4 offset, 6 suffix.
-layout(set = 0, binding = LA_BIND_LEVEL_IDX, std430) restrict readonly buffer LevelIdx { uint level_idx[]; };
-layout(set = 0, binding = LA_BIND_LEVEL_ARGS, std430) restrict readonly buffer LevelArgs { uint level_args[]; };
+// The active list the transport step walks. LAActiveCells.SLOTS: 4 offset, 6 the count listed.
+layout(set = 0, binding = LA_BIND_ACT_IDX, std430) restrict readonly buffer ActIdx { uint act_idx[]; };
+layout(set = 0, binding = LA_BIND_ACT_ARGS, std430) restrict readonly buffer ActArgs { uint act_args[]; };
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
@@ -160,8 +160,8 @@ layout(push_constant, std430) uniform Params {
 	uint detect;            // 1 = the detect phase: only the neighbour classes, off settled state
 	// THE LAST THREE WORDS ARE THE RESTATE'S OWN: LAFieldDriver::run_transport writes them at
 	// size-12, size-8 and size-4, so nothing may be appended after them.
-	uint restate;           // 0 = the field step's derive; 1 = the transport substep's restate
-	uint args_slot;         // where this substep's level args start, in words
+	uint restate;           // 0 = the field step's derive; 1 = the transport step's restate
+	uint args_slot;         // where this group's active-list args start, in words
 	uint act_base;          // where this row group's sorted list starts, in cells
 } params;
 
@@ -534,13 +534,13 @@ void main() {
 		}
 		return;
 	}
-	// THE SAME SOLVE INSIDE THE SUBSTEP: what the substep moved is at a new pressure before the next face
+	// THE SAME SOLVE INSIDE THE STEP: what the step moved is at a new pressure before the next face
 	// reads one.
 	if (params.restate != 0u) {
-		if (g >= level_args[params.args_slot + 6u]) {
+		if (g >= act_args[params.args_slot + 6u]) {
 			return;
 		}
-		g = level_idx[params.act_base + level_args[params.args_slot + 4u] + g];
+		g = act_idx[params.act_base + act_args[params.args_slot + 4u] + g];
 	}
 	if (g >= params.cell_count) {
 		return;

@@ -3,8 +3,8 @@
 
 #include "bindings.glsli"
 
-// ONE CONSERVATIVE FACE FLUX. Every face states one interface pressure and velocity, solved once from
-// the pair; mass, momentum, enthalpy and charge ride it, and a column in balance produces zero flux.
+// ONE CONSERVATIVE FACE FLUX: mass, momentum, enthalpy and charge ride one interface velocity, and a
+// column in balance produces zero flux.
 
 #include "cellvol.glsli"
 #include "neighbours.glsli"
@@ -36,7 +36,7 @@ layout(set = 0, binding = LA_BIND_FLUX_FPW_STAR, std430) restrict buffer FacePW 
 // Depth of the ground under the cell's fluid below its centre, m, along its own vertical: the seeded
 // shape, until something moves rock.
 layout(set = 0, binding = LA_BIND_GROUND_D, std430) restrict readonly buffer GroundD { float ground_d[]; };
-// The free surface each cell solved this substep, depth below its centre, m.
+// The free surface each cell solved this step, depth below its centre, m.
 layout(set = 0, binding = LA_BIND_FLUX_W_TOP, std430) restrict buffer WaterTop { float w_top[]; };
 // Charge rides the mass, exactly as enthalpy does: it is carried, never created by a move.
 layout(set = 0, binding = LA_BIND_CHARGE, std430) buffer Charge { float charge[]; };
@@ -123,6 +123,11 @@ layout(set = 0, binding = LA_BIND_FLUX_NU_T, std430) restrict buffer NuT { float
 layout(set = 0, binding = LA_BIND_FLUX_X_AMT, std430) restrict buffer XAmt { float x_amt[]; };
 layout(set = 0, binding = LA_BIND_FLUX_X_H, std430) restrict buffer XH { float x_h[]; };
 layout(set = 0, binding = LA_BIND_FLUX_X_Q, std430) restrict buffer XQ { float x_q[]; };
+layout(set = 0, binding = LA_BIND_HZ_P, std430) restrict readonly buffer HzP { float hz_p[]; };
+// What pressure_helmholtz.glsl assembles its row from: kg/Pa, kg/s and m.
+layout(set = 0, binding = LA_BIND_HZ_COMP, std430) restrict buffer HzComp { float hz_comp[]; };
+layout(set = 0, binding = LA_BIND_HZ_FLUX, std430) restrict buffer HzFlux { float hz_flux[]; };
+layout(set = 0, binding = LA_BIND_HZ_COND, std430) restrict buffer HzCond { float hz_cond[]; };
 // The mixture's own sound speed, m/s, off the layer each face presents.
 layout(set = 0, binding = LA_BIND_GAS_R, std430) restrict readonly buffer GasR { float gas_r[]; };
 layout(set = 0, binding = LA_BIND_GAS_GAMMA, std430) restrict readonly buffer GasGamma { float gas_gamma[]; };
@@ -162,33 +167,24 @@ layout(push_constant, std430) uniform Params {
 	float repose_tan;     // 0 = a fluid, which levels freely
 	float density;        // kg/m^3 of the substance this record carries
 	float max_fill;       // mol/m^3 at which a cell is full of it; +inf for a row carrying no matter
-	float fluid_rho;      // kg/m^3 of the fluid the row moves THROUGH
-	float fluid_visc;     // Pa s of that fluid
 	float grain_d;        // m, the row's own grain diameter where the cell declares none
 	float sun_x;          // world-space vector toward the sun; its LENGTH carries relative insolation
 	float sun_y;
 	float sun_z;
-	float rho_water;      // LAPhysical.WATER_DENSITY_KG_M3
-	float mu_water;       // LAPhysical.WATER_DYNAMIC_VISCOSITY_PA_S
-	float rho_air;        // LAPhysical.AIR_DENSITY_KG_M3
-	float mu_air;         // LAPhysical.AIR_DYNAMIC_VISCOSITY_PA_S
 	// J/m^3/K a unit of fill adds to the sensible entry; 0 for a substance on its own phase ladder.
 	float sub_cap_j_m3k;
 	uint total_count;     // interior cells plus ghost tail cells
 	float xuv_w_m2;       // XUV irradiance AT THIS BODY, W/m^2 — LAW_ESCAPE's driver
-	uint level;           // the coarsest temporal level advancing on this substep; PEAK: the group slot
-	uint substep_k;       // this substep's index on the finest level's axis
-	uint substep_n;       // substeps the finest level takes across the field step, 2^levels
 	uint act_group;       // the row group whose activity counter and cell list this dispatch walks
 	uint act_group2;      // a second group this row's crossings wake; ACT_NO_GROUP for none
 	float phi_datum;      // J/kg: la_phi's zero against infinity
 	float grav_self;      // share of rho*phi that is the cell's own potential energy: 0.5 self-gravitating, 1 in a body's field
 } params;
 
-// The seconds THIS invocation integrates. A cell's own is dt/2^tlevel.
+// The seconds THIS invocation integrates: one field step, at the Courant number below.
 float la_dt;
 
-// FluxPass's PASS_* tags. 3-5 and 9-17 belong to active_levels.glsli; anything else is the apply.
+// FluxPass's PASS_* tags. 3-5 and 12-19 belong to active_cells.glsli; anything else is the apply.
 const uint PASS_FLUX = 0u;
 const uint PASS_GRAIN = 2u;
 const uint PASS_SW = 6u;
@@ -197,7 +193,7 @@ const uint PASS_MOMENTUM = 8u;
 
 #include "march.glsli"
 #include "closures.glsli"
-#include "active_levels.glsli"
+#include "active_cells.glsli"
 #include "transport_radiate.glsli"
 
 
@@ -295,8 +291,8 @@ float drift_at(uint c, uint n, uint d, float dist) {
 	return 0.0;
 }
 
-// The DIFFUSIVE crossing per face area this substep, out of `c`: eddy mixing homogenises the MIXING
-// RATIO, relaxed over the substep at the rate the pair's masses set.
+// The DIFFUSIVE crossing per face area this step, out of `c`: eddy mixing homogenises the MIXING
+// RATIO, relaxed over the step at the rate the pair's masses set.
 float diffusive_at(uint c, uint n, float dist, float open) {
 	if (params.law == LAW_EDDY) {
 		// The FLUID each side holds: the bulk less its lithic grains, which do not mix with a gas.
@@ -337,12 +333,37 @@ float diffusive_at(uint c, uint n, float dist, float open) {
 
 
 
-// PASS_FACE: one interface pressure and one interface velocity per face, from the two cells' own
-// hydrostatic reconstructions. A column in balance presents the same pressure from both sides, so the
-// velocity is zero and every cell keeps exactly its own weight.
+// Linear interpolation weight toward c across a face: the share of the centre distance on n's side.
+float face_w(uint c, uint n) {
+	float ec = cell_edge[c];
+	float en = cell_edge[n];
+	return (ec + en) > 0.0 ? en / (ec + en) : 0.5;
+}
+
+// Acoustic compliance, kg/Pa, over the Reuss average of the phases' bulk moduli (Wood 1930).
+float acoustic_compliance(uint c) {
+	float e = cell_edge[c];
+	float v = e * e * e;
+	float rho = rho_fluid(c);
+	if (v <= 0.0 || rho <= 0.0 || solid[c] != 0.0 || collisionless(c)) {
+		return 0.0;
+	}
+	float f_w = water_vol_frac(c);
+	float f_s = clamp(max(lithic_frac[c], 0.0), 0.0, 1.0);
+	float f_g = max(1.0 - f_w - f_s, 0.0);
+	float k_gas = gas_gamma[c] * max(pressure[c], 0.0);
+	float k_w = max(k_cond[c], 0.0);
+	float compress = (k_gas > 0.0 ? f_g / k_gas : 0.0) + (k_w > 0.0 ? f_w / k_w : 0.0);
+	return compress > 0.0 ? v * rho * compress : 0.0;
+}
+
+// LA_APPROX: implicit_acoustics
+// PASS_FACE: one shared pressure and one predicted velocity per band per face, off the two cells'
+// own hydrostatic reconstructions and this step's body impulse.
 void face_states(uint c) {
 	nu_t[c] = 0.0;
 	w_top[c] = 1.0e30;
+	hz_comp[c] = 0.0;
 	uint f_lo = la_face_lo(c);
 	uint f_hi = la_face_hi(c);
 	for (uint f = f_lo; f < f_hi; ++f) {
@@ -350,94 +371,78 @@ void face_states(uint c) {
 		fp_star[f] = 0.0;
 		face_uw[f] = 0.0;
 		fpw_star[f] = 0.0;
+		hz_flux[f] = 0.0;
+		hz_cond[f] = 0.0;
 	}
 	if (solid[c] != 0.0 || collisionless(c)) {
 		return;   // rock's pressure is PressurePass's column; a collisionless cell holds no fluid
 	}
 	nu_t[c] = eddy_viscosity(c);
+	hz_comp[c] = acoustic_compliance(c);
 	float top_c = water_top(c);
 	w_top[c] = top_c;
+	float rho_c = rho_fluid(c);
+	// The velocity increment this step's body impulse gives the cell, m/s.
+	vec3 acc_c = rho_c > 0.0 ? vec3(bodyf_x[c], bodyf_y[c], bodyf_z[c]) / rho_c : vec3(0.0);
 
 	for (uint f = f_lo; f < f_hi; ++f) {
 		uint d = la_face_slot(c, f);
 		float pc = face_p(c, d);
-		float zc = impedance(c, d);
 		vec3 wc = water_face(c, d, top_c);
+		fp_star[f] = pc;
 		fpw_star[f] = wc.z;
 		int inb = nbr[f];
 		if (inb < 0) {
 			inb = ghost[f];
 		}
-		// A FACE ONTO SPACE meets vacuum: the exact rarefaction puts the SONIC state at the face.
+		float area = la_face_area(c, inb);
+		float dist = la_face_dist(c, inb);
+		// Vacuum: the exact rarefaction puts the SONIC state at the face, and the outside holds no
+		// acoustic pressure, so the solve sees a Dirichlet zero across it.
 		if (inb == GHOST_SPACE) {
 			vec2 sonic = la_sonic_vacuum(pc, face_c(c, d), dot(vel_at(c), face_normal(d)), gas_gamma[c]);
 			fp_star[f] = sonic.y;
 			face_u[f] = sonic.x;
+			float gs = max(1.0 - wc.x - wc.y, 0.0);
+			hz_flux[f] = area * gs * face_layer(c, d).x * sonic.x;
+			hz_cond[f] = dist > 0.0 ? area * gs / dist : 0.0;
 			continue;
 		}
 		// A WALL STILL PUSHES: matter crosses neither a shut box edge nor rock, pressure does.
 		// Beyond the exobase there is no fluid to push back: what goes up on a ballistic path comes down.
-		if (inb < 0 || solid[uint(inb)] != 0.0 || collisionless(uint(inb))) {
-			fp_star[f] = pc;
+		if (inb < 0 || solid[uint(inb)] != 0.0 || collisionless(uint(inb)) || !listed(uint(inb))) {
 			continue;
 		}
 		uint n = uint(inb);
-		// A neighbour coarser than this substep, or not in its list, is not stepping now: its wall
-		// stands, nothing crosses.
-		if (tlevel[n] < params.level || !listed(n)) {
-			fp_star[f] = pc;
-			continue;
-		}
 		uint dn = opposite_slot(d);
 		float pn = face_p(n, dn);
-		float zn = impedance(n, dn);
-		// CANONICAL ORIENTATION, the lower cell index left: both sides evaluate the same expression on
-		// the same operands, so the interface velocity one side reads is the exact negation of the other's.
-		bool c_lo = c < n;
-		vec3 nrm = c_lo ? face_normal(d) : face_normal(dn);
-		float u_l = dot(vel_at(c_lo ? c : n), nrm);
-		float u_r = dot(vel_at(c_lo ? n : c), nrm);
-		{
-			float p_l = c_lo ? pc : pn;
-			float p_r = c_lo ? pn : pc;
-			float z_l = c_lo ? zc : zn;
-			float z_r = c_lo ? zn : zc;
-			float zs = z_l + z_r;
-			if (z_l > 0.0 && z_r > 0.0) {
-				// LA_APPROX: acoustic_face_pressure
-				fp_star[f] = (z_r * p_l + z_l * p_r + z_l * z_r * (u_l - u_r)) / zs;
-				float us = (z_l * u_l + z_r * u_r + (p_l - p_r)) / zs;
-				face_u[f] = c_lo ? us : -us;
-			} else if (zs > 0.0) {
-				bool own = zc > 0.0;
-				uint src = own ? c : n;
-				uint sd = own ? d : dn;
-				vec2 sonic = la_sonic_vacuum(face_p(src, sd), face_c(src, sd), dot(vel_at(src), face_normal(sd)), gas_gamma[src]);
-				fp_star[f] = sonic.y;
-				face_u[f] = own ? sonic.x : -sonic.x;
-			}
-		}
-		// THE WATER PAIR, where both sides are wet at this face: the two bands' own pressures and
-		// impedances in the same linearised solve; coinciding free surfaces state one pressure.
 		vec3 wn = water_face(n, dn, water_top(n));
-		if (wc.x > 0.0 && wn.x > 0.0) {
-			float zwc = water_z(c);
-			float zwn = water_z(n);
-			float p_l = c_lo ? wc.z : wn.z;
-			float p_r = c_lo ? wn.z : wc.z;
-			float z_l = c_lo ? zwc : zwn;
-			float z_r = c_lo ? zwn : zwc;
-			float zs = z_l + z_r;
-			if (zs > 0.0) {
-				fpw_star[f] = (z_r * p_l + z_l * p_r + z_l * z_r * (u_l - u_r)) / zs;
-				float us = (z_l * u_l + z_r * u_r + (p_l - p_r)) / zs;
-				face_uw[f] = c_lo ? us : -us;
-			}
-		}
+		// ONE SHARE PER BAND PER FACE, read the same from both sides: a band crosses only where both
+		// cells present it.
+		float wet = min(wc.x, wn.x);
+		float gas = min(max(1.0 - wc.x - wc.y, 0.0), max(1.0 - wn.x - wn.y, 0.0));
+		// Each side's own reconstruction interpolated to the face: equal from both sides in balance.
+		float w_c = face_w(c, n);
+		fp_star[f] = w_c * pc + (1.0 - w_c) * pn;
+		fpw_star[f] = w_c * wc.z + (1.0 - w_c) * wn.z;
+		vec3 nrm = face_normal(d);
+		float rho_n = rho_fluid(n);
+		vec3 acc_n = rho_n > 0.0 ? vec3(bodyf_x[n], bodyf_y[n], bodyf_z[n]) / rho_n : vec3(0.0);
+		// The pair's own velocity plus this step's body impulse, interpolated onto the face.
+		float u_mean = dot(w_c * (vel_at(c) + acc_c) + (1.0 - w_c) * (vel_at(n) + acc_n), nrm);
+		float rho_g = 0.5 * (face_layer(c, d).x + face_layer(n, dn).x);
+		float rho_w = 0.5 * (water_rho[c] + water_rho[n]);
+		// THE IMBALANCE ACCELERATES THE BAND over the step, each band against its own density.
+		float dpg = pn - pc;
+		float dpw = wn.z - wc.z;
+		face_u[f] = u_mean - (rho_g > 0.0 && dist > 0.0 ? params.dt_s * dpg / (dist * rho_g) : 0.0);
+		face_uw[f] = u_mean - (rho_w > 0.0 && dist > 0.0 ? params.dt_s * dpw / (dist * rho_w) : 0.0);
+		// kg/s through the face, and what one pascal of acoustic difference takes back; the density
+		// cancels, so one coefficient serves both bands.
+		hz_flux[f] = area * (gas * rho_g * face_u[f] + wet * rho_w * face_uw[f]);
+		hz_cond[f] = dist > 0.0 ? area * (gas + wet) / dist : 0.0;
 	}
 }
-
-
 
 
 // PASS_FLUX: what this record sends through each of `c`'s own faces, positive OUT. Every face is
@@ -459,7 +464,6 @@ void row_flux(uint c) {
 	float open_c = 1.0 - clamp(resist[c], 0.0, 1.0);
 	bool carries = params.density > 0.0;
 	bool rides = params.mode == MODE_ADVECT || params.mode == MODE_BOTH;
-	uint lv_c = tlevel[c];
 	for (uint f = f_lo; f < f_hi; ++f) {
 		uint d = la_face_slot(c, f);
 		int inb = nbr[f];
@@ -472,7 +476,7 @@ void row_flux(uint c) {
 				continue;
 			}
 			float tail = 0.0;
-			float cross = row_amount(c) * escape_speed(c, d, tail) * open_c * la_level_dt(lv_c)
+			float cross = row_amount(c) * escape_speed(c, d, tail) * open_c * la_dt
 				* la_face_div(c, nbr[f]);
 			if (cross <= 0.0) {
 				continue;
@@ -484,7 +488,6 @@ void row_flux(uint c) {
 		}
 		bool water_row = (params.flags & TF_WATER) != 0u;
 		if (inb == GHOST_SPACE && rides && carries && awake(c) && !water_row) {
-			la_dt = la_level_dt(lv_c);
 			float u_out = max(face_u[f], 0.0);
 			float cross_mean = row_amount(c) * u_out * open_c * la_dt * la_face_div(c, nbr[f]);
 			float f_face = face_gas_factor(c, d);
@@ -505,15 +508,13 @@ void row_flux(uint c) {
 			continue;
 		}
 		// A face runs on the COARSER of the pair's clocks, and a sleeping pair moves nothing.
-		if (tlevel[n] < params.level || !listed(n) || (!awake(c) && !awake(n))) {
+		if (!listed(n) || (!awake(c) && !awake(n))) {
 			continue;
 		}
 		float dist_f = la_face_dist(c, inb);
 		float div_f = la_face_div(c, inb);
-		// LA_APPROX: level_seam_coarse_clock
-		// ONE OPENNESS AND ONE CLOCK PER FACE, read the same by both sides: the harder resistance, the coarser clock.
+		// ONE OPENNESS PER FACE, read the same by both sides: the harder resistance of the pair.
 		float open = min(open_c, 1.0 - clamp(resist[n], 0.0, 1.0));
-		la_dt = la_level_dt(min(lv_c, tlevel[n]));
 		float u = rides ? (water_row ? face_uw[f] : face_u[f]) : 0.0;
 		u += drift_at(c, n, d, dist_f);
 		float cross_adv = 0.0;
@@ -672,8 +673,7 @@ void row_apply(uint c) {
 		}
 	}
 	// LA_APPROX: boundary_relaxation_zone
-	bool last = params.substep_k + (params.substep_n >> tlevel[c]) >= params.substep_n;
-	if ((params.flags & TF_RELAX) != 0u && last && rim_w[c] > 0.0) {
+	if ((params.flags & TF_RELAX) != 0u && rim_w[c] > 0.0) {
 		int rg = rim_ghost[c];
 		if (rg >= int(params.cell_count) && rg < int(params.total_count)) {
 			uint rgu = uint(rg);
@@ -704,7 +704,7 @@ void row_apply(uint c) {
 			}
 		}
 	}
-	// PROPAGATION: the bubble grows one cell per substep, as fast as anything in it travels.
+	// PROPAGATION: the bubble grows one cell per step, as fast as anything in it travels.
 	if (d_amt != 0.0) {
 		quiet[act_base() + c] = 0u;
 		if (params.act_group2 != ACT_NO_GROUP) {
@@ -721,9 +721,23 @@ void row_apply(uint c) {
 }
 
 
-// PASS_MOMENTUM: the pressure the faces state, the viscous stress between the pair, and this
-// substep's share of the body impulse. At rest the first is exactly the cell's own weight and the
-// third is exactly minus it, so a column in balance stays in it.
+// The acoustic pressure at a face, Pa: the cell's own where nothing pushes back, vacuum's zero at
+// a face onto space, so a uniform correction over a closed cell is exactly no force.
+float face_hz(uint c, int inb, uint f) {
+	if (inb == GHOST_SPACE) {
+		return 0.0;
+	}
+	if (inb < 0 || solid[uint(inb)] != 0.0 || collisionless(uint(inb)) || !listed(uint(inb))) {
+		return hz_p[c];
+	}
+	uint n = uint(inb);
+	float w_c = face_w(c, n);
+	return w_c * hz_p[c] + (1.0 - w_c) * hz_p[n];
+}
+
+
+// PASS_MOMENTUM: the face pressures, the solved acoustic pressure on them, the viscous stress and
+// this step's body impulse. At rest each is zero or cancels, so a column in balance stays in it.
 void move_momentum(uint c) {
 	if (solid[c] != 0.0 || collisionless(c)) {
 		return;   // locked matter holds no bulk momentum, and a collisionless cell is no fluid
@@ -738,13 +752,14 @@ void move_momentum(uint c) {
 			inb = ghost[f];
 		}
 		float div_f = la_face_div(c, inb);
-		// WHAT THE FACE STATES OVER WHAT THIS CELL'S OWN STACK STATES THERE: the six faces integrate to
-		// the cell's weight, so only the DEPARTURE is a net force, each layer's over the share of the
-		// face it wets; the ground strip is a wall.
+		float dist = la_face_dist(c, inb);
+		// The six faces integrate to the cell's weight, so only the DEPARTURE is a net force, each
+		// layer's over the share of the face it wets; the ground strip is a wall.
 		vec3 wf = water_face(c, d, w_top[c]);
 		float gas_share = max(1.0 - wf.x - wf.y, 0.0);
-		vec3 push = -((fp_star[f] - face_p(c, d)) * gas_share + (fpw_star[f] - wf.z) * wf.x)
-			* face_normal(d) * div_f * la_dt;
+		float dp_hz = face_hz(c, inb, f) - hz_p[c];
+		vec3 push = -((fp_star[f] - face_p(c, d)) * gas_share + (fpw_star[f] - wf.z) * wf.x
+			+ dp_hz * (gas_share + wf.x)) * face_normal(d) * div_f * la_dt;
 		dm += push;
 		// A wall's push and a space face's loss are what the box exchanged with the outside.
 		if (inb < 0 || uint(inb) >= params.cell_count) {
@@ -756,37 +771,41 @@ void move_momentum(uint c) {
 			continue;
 		}
 		uint n = uint(inb);
-		if (solid[n] != 0.0 || collisionless(n) || tlevel[n] < params.level || !listed(n)) {
+		if (solid[n] != 0.0 || collisionless(n) || !listed(n)) {
 			continue;
 		}
-		// VISCOSITY DIFFUSES VELOCITY: mu grad(v) across the face, one viscosity for the pair, integrated
-		// EXACTLY over the substep: the pair's velocity difference decays at the rate the two masses set,
-		// so a thin cell beside a dense one relaxes onto it instead of overshooting.
+		// The projection corrects the face too: the records move the mass continuity just closed on.
+		if (dist > 0.0) {
+			uint dn = opposite_slot(d);
+			float rho_g = 0.5 * (face_layer(c, d).x + face_layer(n, dn).x);
+			float rho_w = 0.5 * (water_rho[c] + water_rho[n]);
+			float grad = (hz_p[n] - hz_p[c]) / dist;
+			if (rho_g > 0.0) { face_u[f] -= la_dt * grad / rho_g; }
+			if (rho_w > 0.0) { face_uw[f] -= la_dt * grad / rho_w; }
+		}
+		// mu grad(v) across the face, one viscosity for the pair, integrated EXACTLY over the step: the
+		// velocity difference decays at the rate the two masses set.
 		float nu = n < params.cell_count ? 0.5 * (nu_t[c] + nu_t[n]) : nu_t[c];
 		float rc = rho_fluid(c);
 		float rn = rho_fluid(n);
 		float mu = 0.5 * (rc + rn) * nu;
-		float dt_f = la_level_dt(min(tlevel[c], tlevel[n]));
-		float dist = la_face_dist(c, inb);
 		float k_c = mu * div_f / dist;
 		float k_n = mu * la_face_div(n, int(c)) / dist;
 		float rate = (rc > 0.0 ? k_c / rc : 0.0) + (rn > 0.0 ? k_n / rn : 0.0);
-		float t_eff = rate * dt_f > 1.0e-6 ? (1.0 - exp(-rate * dt_f)) / rate : dt_f;
+		float t_eff = rate * la_dt > 1.0e-6 ? (1.0 - exp(-rate * la_dt)) / rate : la_dt;
 		dm += k_c * (vel_at(n) - vel_at(c)) * t_eff;
 	}
-	// This substep's share of the body impulse the stack does not already carry: state_derive booked
-	// the weight leg out of it wherever the cell's own faces state one.
-	float sf = exp2(-float(tlevel[c]));
+	// The body impulse the stack does not already carry; state_derive booked the weight leg out.
 	vec3 v_old = vel_at(c);
-	mom_x[c] += dm.x + bodyf_x[c] * sf;
-	mom_y[c] += dm.y + bodyf_y[c] * sf;
-	mom_z[c] += dm.z + bodyf_z[c] * sf;
-	// v = p/rho off the momentum this pass settled, so the next substep's faces read the new field.
+	mom_x[c] += dm.x + bodyf_x[c];
+	mom_y[c] += dm.y + bodyf_y[c];
+	mom_z[c] += dm.z + bodyf_z[c];
+	// v = p/rho off the momentum this pass settled, so the records read the new field.
 	float rb = rho_fluid(c);
 	vec3 v = rb > 0.0 ? vec3(mom_x[c], mom_y[c], mom_z[c]) / rb : vec3(0.0);
 	// The pressure's work on the cell's motion comes out of e; the weight's share is the potential book's.
 	vec3 gv = g_at(c);
-	vec3 fg = (max(pressure[c], 0.0) > 0.0 && length(gv) > 0.0) ? rb * gv * la_level_dt(tlevel[c]) : vec3(0.0);
+	vec3 fg = (max(pressure[c], 0.0) > 0.0 && length(gv) > 0.0) ? rb * gv * la_dt : vec3(0.0);
 	e[c] -= dot(0.5 * (v_old + v), dm - fg);
 	vel_x[c] = v.x;
 	vel_y[c] = v.y;
@@ -856,29 +875,22 @@ void grain_state(uint g) {
 
 
 
-// The Courant number per substep the face solve, momentum close and record moves stay stable
-// under as a SEQUENCE, docs/MODEL_PARAMETERS.md.
-const float LA_COURANT_LIMIT = 0.5;
-
-// Substeps this record's stability asks of THIS cell, off the cell's own state: every face's outflow
-// summed, each at the layer standing at it, never the fastest face alone.
-float la_row_need(uint c) {
+// Seconds this record's stability affords this cell: the Courant number over every face's outflow
+// summed. The acoustic signal is absent — the Helmholtz solve carries it. INF where nothing binds.
+float la_row_dt(uint c) {
 	float L = cell_edge[c];
-	float dt = params.dt_s;
-	float need = 0.0;
-	if (no_matter(c) || collisionless(c)) {
-		return 0.0;   // nothing here moves, so nothing here asks for time
+	if (no_matter(c) || collisionless(c) || L <= 0.0) {
+		return 1.0 / 0.0;   // nothing here moves, so nothing here asks for time
 	}
+	float rate = 0.0;                      // 1/s: the fastest thing this row does to this cell
 	vec3 vc = vel_at(c);
-	float adv = abs(vc.x) + abs(vc.y) + abs(vc.z);
 	if ((params.flags & TF_VEL) != 0u && solid[c] == 0.0) {
-		float cw = h2o_water(c) > 0.0 ? water_c(c) : 0.0;
 		float f_w = water_vol_frac(c);
-		float top = cw > 0.0 ? water_top(c) : 1.0e30;
+		float top = f_w > 0.0 ? water_top(c) : 1.0e30;
 		float w = 0.0;
 		for (uint d = 0u; d < N_SLOTS; ++d) {
 			float vn = max(dot(vc, face_normal(d)), 0.0);
-			float gas = (vn + face_c(c, d)) * max(face_gas_factor(c, d), 1.0);
+			float gas = vn * max(face_gas_factor(c, d), 1.0);
 			// The band drains by the face's wet share over its own, and only through a face it can CROSS.
 			bool crossable = false;
 			for (uint f = la_slot_lo(c, d); f < la_slot_hi(c, d); ++f) {
@@ -891,22 +903,18 @@ float la_row_need(uint c) {
 					crossable = true;
 				}
 			}
-			float wet = (cw > 0.0 && crossable) ? water_face(c, d, top).x : 0.0;
-			float water = (vn + cw) * max(f_w > 0.0 ? wet / f_w : 0.0, 1.0);
+			float wet = (f_w > 0.0 && crossable) ? water_face(c, d, top).x : 0.0;
+			float water = vn * max(f_w > 0.0 ? wet / f_w : 0.0, 1.0);
 			w += max(gas, water);
 		}
-		need = w * dt / L;
+		rate = w / L;
 	}
 	float v = 0.0;
 	if (params.mode == MODE_ADVECT || params.mode == MODE_BOTH) {
-		v = adv;
+		v = abs(vc.x) + abs(vc.y) + abs(vc.z);
 	}
 	if ((params.flags & TF_SETTLE) != 0u) {
 		v += settling_speed_max(c);
-	}
-	if (params.law == LAW_SHALLOW || params.law == LAW_FILM) {
-		// The steepest slope a cell can present is one, so the closure's own speed is bounded by it.
-		v += length(g_at(c)) * dt;
 	}
 	if (params.law == LAW_ESCAPE) {
 		float tail = 0.0;
@@ -914,30 +922,33 @@ float la_row_need(uint c) {
 			v = max(v, escape_speed(c, d, tail));
 		}
 	}
-	need = max(need, v * dt / L);
-	// Eddy mixing relaxes each pair exactly and asks no step; conduction and charge still march.
+	rate = max(rate, v / L);
+	// Eddy mixing relaxes each pair exactly and asks no step; conduction still marches.
 	if (params.mode == MODE_CONDUCT) {
 		bool lattice_row = (params.flags & TF_LATTICE) != 0u;
 		float cap = lattice_row ? cap_lith[c] : cap_sensible[c];
 		if (cap > 0.0) {
-			need += 6.0 * max(aux[c], 0.0) / cap * dt / (L * L);
+			rate += 6.0 * max(aux[c], 0.0) / (cap * L * L);
 		}
 		// The ground exchange drains whichever reservoir is the smaller.
 		float vl = lattice_frac[c];
 		if (lattice_row && vl > 0.0 && vl < 1.0) {
 			float small = min(cap_lith[c] > 0.0 ? cap_lith[c] : 1.0e30, cap_sensible[c] > 0.0 ? cap_sensible[c] : 1.0e30);
 			if (small < 1.0e30) {
-				need += 2.0 * max(aux[c], 0.0) / (vl * small) * dt / (L * L);
+				rate += 2.0 * max(aux[c], 0.0) / (vl * small * L * L);
 			}
 		}
 	}
-	// NO SIGNAL CROSSES A CELL FASTER THAN LIGHT: a state asking for a shorter step is not a timestep.
-	return min(need / LA_COURANT_LIMIT, params.dt_s * C_LIGHT / L);
-}
-
-uint la_row_level(uint c) {
-	float need = la_row_need(c);
-	return need > 1.0 ? uint(ceil(log2(need))) : 0u;
+	float dt = rate > 0.0 ? LA_COURANT_LIMIT / rate : 1.0 / 0.0;
+	// A body released from rest crosses L in sqrt(2 L / |a|); the slope closures reach their own
+	// speed from the same acceleration.
+	float gm = length(g_at(c));
+	if (gm > 0.0 && (params.law == LAW_SHALLOW || params.law == LAW_FILM
+			|| (params.flags & TF_VEL) != 0u)) {
+		dt = min(dt, sqrt(2.0 * LA_COURANT_LIMIT * L / gm));
+	}
+	// NO SIGNAL CROSSES A CELL FASTER THAN LIGHT: a state asking for less is not a timestep.
+	return max(dt, L / C_LIGHT);
 }
 
 // A RECORD THE FIELD DOES NOT DRIVE CANNOT BE MEASURED ASLEEP BY THE FIELD. The escape law's push is
@@ -1032,24 +1043,19 @@ void main() {
 	uint gidx = gl_GlobalInvocationID.x;
 	la_dt = params.dt_s;
 	// pass_id is a push constant, so each branch here is uniform and APPEND's barriers are legal.
-	if (la_active_levels(gidx)) {
+	if (la_active_cells(gidx)) {
 		return;
 	}
-	// EVERY PASS PAST HERE WALKS THIS GROUP'S ACTIVE LIST, never the box: the list is sorted by level,
-	// so its suffix at params.level is exactly the cells moving on this substep. O(active), not O(cells).
-	if ((params.flags & TF_LEVEL) != 0u) {
-		uint b0 = args_base();
-		if (gidx >= level_args[b0 + params.level * LEVEL_SLOTS + 6u]) {
-			return;
-		}
-		gidx = level_idx[act_base() + level_args[b0 + params.level * LEVEL_SLOTS + 4u] + gidx];
+	// EVERY PASS PAST HERE WALKS THIS GROUP'S ACTIVE LIST, never the box. O(active), not O(cells).
+	if (gidx >= act_listed()) {
+		return;
 	}
+	gidx = act_idx[act_base() + gidx];
 	// A ghost tail cell holds a prescribed state: the interior cell beside it reads that state and
 	// states the face itself, so nothing here ever dispatches over one.
 	if (gidx >= params.cell_count) {
 		return;
 	}
-	la_dt = la_level_dt(tlevel[gidx]);
 	if (params.pass_id == PASS_FACE) {
 		face_states(gidx);
 		return;

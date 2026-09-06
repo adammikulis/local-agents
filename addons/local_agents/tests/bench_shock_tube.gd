@@ -44,7 +44,7 @@ func _arm(n: int, rho_r: float, p_r: float) -> Dictionary:
 	if derive == null or flux == null:
 		printerr("bench_shock_tube: " + rig.error)
 		return {}
-	rig.add_levels(flux.group_count())
+	rig.add_active_lists(flux.group_count())
 
 	var dt: float = _t_end() / float(STEPS)
 	var ctx: Dictionary = {"cell_size": cell, "centre": Vector3.ZERO, "spin": Vector3.ZERO,

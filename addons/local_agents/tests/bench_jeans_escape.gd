@@ -40,7 +40,7 @@ func _init() -> void:
 		printerr("bench_jeans_escape: " + rig.error)
 		quit(2)
 		return
-	rig.add_levels(p.group_count())
+	rig.add_active_lists(p.group_count())
 	if not rig.attach_boundary():
 		printerr("bench_jeans_escape: " + rig.error)
 		quit(2)

@@ -94,9 +94,6 @@ func _peak() -> Dictionary:
 		if n > 0:
 			nans[name] = n
 	out["nans"] = nans
-	var lv: PackedByteArray = _f._gpu.read_raw_bytes("tlevel")
-	if lv.size() >= (at + 1) * 4:
-		out["tlevel"] = lv.decode_s32(at * 4)
 	# The CPU-side seed arrays the device was handed, for the same cell.
 	for name in ["_surface_depth", "_rock_fraction", "_water_fraction"]:
 		var arr = _f.get(name)
@@ -161,7 +158,6 @@ func _faces(at: int) -> Array:
 	var cols: Dictionary = {}
 	for name in ["rho_bulk", "pressure", "temp", "solid", "vel_x", "vel_y", "vel_z", "mach", "gas_r", "cell_edge", "n2", "h2o"]:
 		cols[name] = _f._gpu.read_raw(String(name))
-	var lv: PackedByteArray = _f._gpu.read_raw_bytes("tlevel")
 	for d in 6:
 		var lo: int = off.decode_u32((at * 7 + d) * 4)
 		var hi: int = off.decode_u32((at * 7 + d + 1) * 4)
@@ -173,8 +169,6 @@ func _faces(at: int) -> Array:
 					var b: PackedFloat32Array = cols[name]
 					if b.size() > n:
 						row[name] = String.num(b[n])
-				if lv.size() >= (n + 1) * 4:
-					row["tlevel"] = lv.decode_s32(n * 4)
 			rows.append(row)
 	return rows
 

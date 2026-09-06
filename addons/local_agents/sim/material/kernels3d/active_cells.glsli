@@ -1,0 +1,260 @@
+// BUBBLES OF COMPUTE. The dispatch list every flux pass walks, and the step length its cells afford.
+// Include AFTER neighbours.glsli and the Params block; the kernel supplies `la_row_dt`.
+
+#ifndef LA_ACTIVE_CELLS_GLSLI
+#define LA_ACTIVE_CELLS_GLSLI
+
+// A detector list: the cells it found, and args slot 3 their count. No `restrict`:
+// a full-grid row binds one buffer into all three slots.
+layout(set = 0, binding = LA_BIND_ACTIVE_IDX, std430) buffer ActiveIdx { uint active_idx[]; };
+layout(set = 0, binding = LA_BIND_ACTIVE_ARGS, std430) buffer ActiveArgs { uint active_args[]; };
+// THE ACTIVE LIST, one per row group: the cells this step dispatches, and the args that dispatch them.
+layout(set = 0, binding = LA_BIND_ACT_IDX, std430) buffer ActIdx { uint act_idx[]; };
+layout(set = 0, binding = LA_BIND_ACT_ARGS, std430) buffer ActArgs { uint act_args[]; };
+// Per row group: the shortest step its cells afford, as the bit pattern of a positive float.
+layout(set = 0, binding = LA_BIND_STEP_DT, std430) buffer StepDt { uint step_dt[]; };
+// ACTIVITY: steps since matter last crossed a cell, one counter per row group.
+layout(set = 0, binding = LA_BIND_ACT_QUIET, std430) buffer Quiet { uint quiet[]; };
+// The compaction's dedup claim and its unsorted queue, one entry per cell.
+layout(set = 0, binding = LA_BIND_ACT_CLAIM, std430) buffer ActClaim { uint act_claim[]; };
+layout(set = 0, binding = LA_BIND_ACT_QUEUE, std430) buffer ActQueue { uint act_q[]; };
+// Cells another kernel changed, slot 3 of the args carrying their count.
+layout(set = 0, binding = LA_BIND_ACT_WAKE, std430) buffer WakeQueue { uint wake_q[]; };
+layout(set = 0, binding = LA_BIND_ACT_WAKE_ARGS, std430) buffer WakeArgs { uint wake_args[]; };
+
+// Seconds the cell's own explicit terms afford; defined by the kernel that includes this.
+float la_row_dt(uint c);
+// True where a row's push, not the field, keeps a cell awake; defined by the kernel.
+bool la_outside_driven(uint c);
+
+// ARG_SLOTS: FluxPass.Arg.SLOTS. GROUPS_X 0, COUNT 3, OFFSET 4, CURSOR 5, LISTED 6.
+const uint ARG_SLOTS = 8u;
+const uint ACT_NO_GROUP = ~0u;
+
+// FluxPass's PASS_* tags for the list and activity machinery.
+const uint PASS_LIST_RESET = 3u;
+const uint PASS_LIST_APPEND = 4u;
+const uint PASS_LIST_ARGS = 5u;
+const uint PASS_SCAN = 12u;
+const uint PASS_COMPACT = 13u;
+const uint PASS_STEP_DT = 14u;
+const uint PASS_ACT_AGE = 15u;
+const uint PASS_ACT_WAKE = 16u;
+const uint PASS_ACT_MARK = 17u;
+const uint PASS_ACT_WAKE_RESET = 18u;
+const uint PASS_ACT_SEED = 19u;
+
+// Where this dispatch's group starts in the per-cell activity counter and in its own args.
+uint act_base() { return params.act_group * params.total_count; }
+uint args_base() { return params.act_group * ARG_SLOTS; }
+
+// Matter crossed this cell recently enough that it may still donate.
+bool awake(uint c) { return quiet[act_base() + c] < ACT_QUIET_STEPS; }
+
+// THE CLAIM'S THREE STATES: 0 unlisted, 1 queued by this step's marking, 2 in this step's list.
+const uint CLAIM_LISTED = 2u;
+// A cell this step dispatches. A face crosses only between two of them, or the crossing would be
+// written from one side and the books would not close.
+bool listed(uint c) { return c < params.total_count && act_claim[c] == CLAIM_LISTED; }
+
+// The cells this group's list holds right now.
+uint act_listed() { return act_args[args_base() + 6u]; }
+
+
+// PASS_LIST_APPEND: compact the interior cells whose `drive` is positive into active_idx. A DETECTOR,
+// never a dispatch list: what the passes run over is the activity compaction below.
+shared uint s_list_n;
+shared uint s_list_base;
+
+void list_append(uint g) {
+	if (gl_LocalInvocationID.x == 0u) {
+		s_list_n = 0u;
+	}
+	memoryBarrierShared();
+	barrier();
+	bool keep = false;
+	if (g < params.cell_count) {
+		keep = drive[g] > 0.0 && solid[g] == 0.0;
+	}
+	uint slot_local = 0u;
+	if (keep) {
+		slot_local = atomicAdd(s_list_n, 1u);
+	}
+	memoryBarrierShared();
+	barrier();
+	if (gl_LocalInvocationID.x == 0u) {
+		s_list_base = atomicAdd(active_args[3], s_list_n);
+	}
+	memoryBarrierShared();
+	barrier();
+	if (keep) {
+		uint slot = s_list_base + slot_local;
+		if (slot < params.cell_count) {
+			active_idx[slot] = g;
+		}
+	}
+}
+
+
+// One cell into the compaction queue; a second claimant is dropped.
+void act_claim_append(uint n) {
+	// A cell listed LAST step is claimable again: only this step's own claim (1) dedups.
+	if (atomicExchange(act_claim[n], 1u) == 1u) {
+		return;
+	}
+	uint slot = atomicAdd(act_args[args_base() + 3u], 1u);
+	if (slot >= params.total_count) {
+		return;
+	}
+	act_q[slot] = n;
+}
+
+
+// AN AWAKE CELL'S EVERY NEIGHBOUR IS DISPATCHED, or the face it shares is written from one side only.
+void act_mark_ring(uint c) {
+	act_claim_append(c);
+	for (uint f = la_face_lo(c); f < la_face_hi(c); ++f) {
+		int nb = nbr[f];
+		if (nb < 0) { nb = ghost[f]; }
+		if (nb >= 0 && uint(nb) < params.total_count) {
+			act_claim_append(uint(nb));
+		}
+	}
+}
+
+
+// Every list and activity pass, in one branch on the push constant. Returns true when this dispatch
+// was one of them and the kernel's own passes must not run.
+bool la_active_cells(uint gidx) {
+	if (params.pass_id == PASS_LIST_RESET) {
+		if (gidx == 0u) {
+			active_args[1] = 1u;
+			active_args[2] = 1u;
+			active_args[3] = 0u;
+		}
+		return true;
+	}
+	if (params.pass_id == PASS_LIST_APPEND) {
+		list_append(gidx);
+		return true;
+	}
+	if (params.pass_id == PASS_LIST_ARGS) {
+		if (gidx == 0u) {
+			// One workgroup minimum: a zero-group indirect dispatch is not uniformly safe across backends.
+			active_args[0] = max(1u, (active_args[3] + 63u) / 64u);
+		}
+		return true;
+	}
+	// THE STEP THIS GROUP AFFORDS: the shortest any of its listed cells asks for, reduced in place.
+	// A positive float's bit pattern orders as the float does, so atomicMin over uint is atomicMin.
+	if (params.pass_id == PASS_STEP_DT) {
+		if (gidx < act_listed()) {
+			uint c = act_idx[act_base() + gidx];
+			if (c < params.cell_count) {
+				float dt = la_row_dt(c);
+				if (dt > 0.0) {
+					atomicMin(step_dt[params.act_group], floatBitsToUint(dt));
+				}
+			}
+		}
+		return true;
+	}
+	// ONE STEP OLDER. A cell whose counter reaches ACT_QUIET_STEPS has had nothing cross it and
+	// stops waking its ring; nothing reads its state either, which is why the books still close.
+	if (params.pass_id == PASS_ACT_AGE) {
+		if (gidx < act_listed()) {
+			uint c = act_idx[act_base() + gidx];
+			quiet[act_base() + c] = la_outside_driven(c) ? 0u : quiet[act_base() + c] + 1u;
+			act_claim[c] = 0u;   // last step's listing ends; the marking below reclaims
+		}
+		return true;
+	}
+	// EVERY CELL AWAKE AND EVERY CELL LISTED: a world nobody has stepped yet, and the only pass here
+	// that walks the box. `act_group` carries the GROUP COUNT on this pass alone.
+	if (params.pass_id == PASS_ACT_SEED) {
+		uint gc = params.act_group;
+		uint wide = max(1u, (params.total_count + 63u) / 64u);
+		if (gidx < params.total_count) {
+			wake_q[gidx] = gidx;
+			act_claim[gidx] = CLAIM_LISTED;
+			for (uint g = 0u; g < gc; ++g) {
+				act_idx[g * params.total_count + gidx] = gidx;
+				quiet[g * params.total_count + gidx] = 0u;
+			}
+		}
+		if (gidx < gc) {
+			uint b = gidx * ARG_SLOTS;
+			act_args[b] = wide;
+			act_args[b + 1u] = 1u;
+			act_args[b + 2u] = 1u;
+			act_args[b + 3u] = 0u;
+			act_args[b + 4u] = 0u;
+			act_args[b + 5u] = 0u;
+			act_args[b + 6u] = params.total_count;
+		}
+		if (gidx == 0u) {
+			wake_args[0] = wide;
+			wake_args[1] = 1u;
+			wake_args[2] = 1u;
+			wake_args[3] = params.total_count;
+		}
+		return true;
+	}
+	// What another kernel changed is awake wherever it sits, in the list or out of it.
+	if (params.pass_id == PASS_ACT_WAKE) {
+		if (gidx < wake_args[3]) {
+			uint c = wake_q[gidx];
+			if (c < params.total_count) {
+				quiet[act_base() + c] = 0u;
+				act_mark_ring(c);
+			}
+		}
+		return true;
+	}
+	if (params.pass_id == PASS_ACT_WAKE_RESET) {
+		if (gidx == 0u) {
+			wake_args[0] = 1u;
+			wake_args[1] = 1u;
+			wake_args[2] = 1u;
+			wake_args[3] = 0u;
+		}
+		return true;
+	}
+	// THE LIST, rebuilt every step: every awake cell, and every cell one face from one.
+	if (params.pass_id == PASS_ACT_MARK) {
+		if (gidx < act_listed()) {
+			uint c = act_idx[act_base() + gidx];
+			if (awake(c)) {
+				act_mark_ring(c);
+			}
+		}
+		return true;
+	}
+	if (params.pass_id == PASS_SCAN) {
+		if (gidx == 0u) {
+			uint b0 = args_base();
+			uint run = act_args[b0 + 3u];
+			act_args[b0 + 4u] = 0u;
+			act_args[b0 + 5u] = 0u;
+			act_args[b0 + 6u] = run;
+			act_args[b0] = max(1u, (run + 63u) / 64u);
+		}
+		return true;
+	}
+	if (params.pass_id == PASS_COMPACT) {
+		uint b0 = args_base();
+		// The count the scan just published; the queue's own cursor is cleared below.
+		if (gidx < act_args[b0 + 6u]) {
+			uint c = act_q[gidx];
+			act_claim[c] = CLAIM_LISTED;
+			act_idx[act_base() + gidx] = c;
+		}
+		if (gidx == 0u) {
+			act_args[b0 + 3u] = 0u;
+		}
+		return true;
+	}
+	return false;
+}
+
+#endif

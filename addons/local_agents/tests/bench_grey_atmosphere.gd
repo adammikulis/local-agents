@@ -101,7 +101,7 @@ func _build(ny: int, sun: Vector3) -> bool:
 	_flux = _rig.attach(FLUX_PATH)
 	if _derive == null or _flux == null:
 		return false
-	_rig.add_levels(_flux.group_count())
+	_rig.add_active_lists(_flux.group_count())
 	_cc = _rig.cell_count
 	var g_vec: PackedFloat32Array = _rig.filled(_cc * 3, 0.0)
 	for c in _cc:

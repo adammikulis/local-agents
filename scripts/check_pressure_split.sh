@@ -48,9 +48,10 @@ rg -qU 'fp_star\[f\] = pc;' "$TRANSPORT" || {
 	fail=1
 }
 
-# 4. And the Riemann correction that could read it is guarded by that same wall test.
-rg -qU 'if \(inb < 0 \|\| solid\[uint\(inb\)\] != 0\.0( \|\| collisionless\(uint\(inb\)\))?\) \{\s*\n\s*fp_star\[f\] = pc;' "$TRANSPORT" || {
-	echo "FAIL  flux.glsl's Riemann face pressure is no longer guarded by the wall test, so a" >&2
+# 4. And the shared face pressure that could read it is guarded by that same wall test: the wall
+#    branch continues, so nothing past it reads the neighbour at all.
+rg -qU 'if \(inb < 0 \|\| solid\[uint\(inb\)\] != 0\.0 \|\| collisionless\(uint\(inb\)\) \|\| !listed\(uint\(inb\)\)\) \{\s*\n\s*continue;' "$TRANSPORT" || {
+	echo "FAIL  flux.glsl's shared face pressure is no longer guarded by the wall test, so a" >&2
 	echo "      solid neighbour's lithostatic pressure can reach the momentum equation." >&2
 	fail=1
 }

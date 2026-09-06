@@ -30,6 +30,9 @@ public:
 	static double body_radius(int p_i);
 	// Standard gravitational parameter GM of one row, m^3/s^2. 0 for a row with no measured mass.
 	static double body_mu(int p_i);
+	// The largest |g| any declared body's monopole field reaches, m/s^2: GM/R^2 at its own surface,
+	// which is the maximum outside it and above every value inside it. 0 with no body.
+	static double max_surface_gravity();
 	// The row whose DIRECT pull is largest at a point; -1 when the system is empty.
 	static int dominant(const Vector3 &p_at);
 	// Circular-orbit speed about that row, m/s.

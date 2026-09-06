@@ -36,7 +36,7 @@ func _arm(n: int, dt_s: float, steps: int) -> Dictionary:
 	if derive == null or flux == null:
 		printerr("bench_heat_slab: " + rig.error)
 		return {}
-	rig.add_levels(flux.group_count())
+	rig.add_active_lists(flux.group_count())
 
 	# Solid rock, brim full: the slab is one material and the row crosses it as heat, not as matter.
 	rig.fill("silicate", LASubstances.full_mol_m3("silicate"))

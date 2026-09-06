@@ -224,6 +224,17 @@ double LABallistics::body_mu(int p_i) {
 	return tb().system[p_i].mu;
 }
 
+double LABallistics::max_surface_gravity() {
+	double g = 0.0;
+	for (size_t i = 0; i < tb().system.size(); ++i) {
+		const double r = tb().system[i].radius;
+		if (r > 0.0) {
+			g = std::max(g, tb().system[i].mu / (r * r));
+		}
+	}
+	return g;
+}
+
 int LABallistics::dominant(const Vector3 &p_at) {
 	const Dvec at(p_at);
 	int best = -1;
@@ -561,6 +572,8 @@ void LABallistics::_bind_methods() {
 	ClassDB::bind_static_method("LABallistics", D_METHOD("body_center", "i"), &LABallistics::body_center);
 	ClassDB::bind_static_method("LABallistics", D_METHOD("body_radius", "i"), &LABallistics::body_radius);
 	ClassDB::bind_static_method("LABallistics", D_METHOD("body_mu", "i"), &LABallistics::body_mu);
+	ClassDB::bind_static_method("LABallistics", D_METHOD("max_surface_gravity"),
+			&LABallistics::max_surface_gravity);
 	ClassDB::bind_static_method("LABallistics", D_METHOD("dominant", "at"), &LABallistics::dominant);
 	ClassDB::bind_static_method("LABallistics", D_METHOD("circular_speed", "at"), &LABallistics::circular_speed);
 	ClassDB::bind_static_method("LABallistics", D_METHOD("acceleration_at", "at", "exclude"),

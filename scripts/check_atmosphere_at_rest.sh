@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # AN ATMOSPHERE AT REST, IN BALANCE, STAYS AT REST. A one-cell-wide column on the declared body's radius,
 # every face shut, so its cell centres sit on the body axis and the solved gravity is exactly axial. The
-# bar is the run's own: frames times the substeps its finest temporal level takes, in machine epsilons.
+# bar is the run's own: one state rounding per frame, in machine epsilons.
 # The control arm opens the top face to SPACE, taking one cell's wall push away; it must read past it.
 # EXIT 0 at rest * 1 the seeded world moves itself * 2 could not run.
 
@@ -22,7 +22,7 @@ VENT_FRAMES="${LA_REST_VENT_FRAMES:-4}"
 column() {
 	LA_BOUNDARY_FACES="$1" "$ROOT/scripts/sim_run.sh" --path "$ROOT" --rung 3 \
 		--slice-box "0,surface,0,1,${CELLS},1,${CELL},${CELL}" --frames "${2:-$FRAMES}" \
-		--report mach_max,momentum_mass_kg,pressure_rest_rel,transport_levels,bnd_n2,energy_residual_rel,energy_held,energy_turnover_j,energy_stock,energy_stock_open 2>&1
+		--report mach_max,momentum_mass_kg,pressure_rest_rel,field_dt_s,bnd_n2,energy_residual_rel,energy_held,energy_turnover_j,energy_stock,energy_stock_open 2>&1
 }
 
 # `max` off one gauge line of sim_run's report; empty when the gauge is absent.
@@ -45,7 +45,7 @@ for ln in sys.stdin:
 
 numeric() { printf '%s' "$1" | rg -N -q -e '^[+-]?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$'; }
 
-# One arm's verdict inputs: "finite mach pressure_rest_rel levels". `finite` 0 means the field went
+# One arm's verdict inputs: "finite mach pressure_rest_rel dt". `finite` 0 means the field went
 # non-finite, the loudest form of NOT at rest, and carries no comparable numbers.
 measure() {
 	local out wind cel prel lv
@@ -53,7 +53,7 @@ measure() {
 	wind="$(reading mach_max "$out")"
 	cel="$(reading momentum_mass_kg "$out")"
 	prel="$(reading pressure_rest_rel "$out")"
-	lv="$(reading transport_levels "$out")"
+	lv="$(reading field_dt_s "$out")"
 	local left eres held turn ebar
 	left="$(reading bnd_n2 "$out")"
 	eres="$(reading energy_residual_rel "$out")"
@@ -69,10 +69,10 @@ measure() {
 	numeric "$turn" || turn=0
 	numeric "$stock" || stock=0
 	numeric "$sopen" || sopen=0
-	# float32's own rounding of the book: two readings of the held total, the rock's stock rounded once
-	# a frame, the air's once a substep, as a share of the joules that crossed.
-	ebar="$(awk -v h="$held" -v t="$turn" -v l="$lv" -v n="${2:-$FRAMES}" -v s="$stock" -v o="$sopen" \
-		'function a(x){return x < 0 ? -x : x} BEGIN{ e = 1.1920929e-7; if (t > 0) printf "%.12g", e * (2 * a(h) + n * a(s - o) + n * (2 ^ l) * a(o)) / t; else print -1 }')"
+	# float32's own rounding of the book: two readings of the held total, and each reservoir's stock
+	# rounded once a frame, as a share of the joules that crossed.
+	ebar="$(awk -v h="$held" -v t="$turn" -v n="${2:-$FRAMES}" -v s="$stock" -v o="$sopen" \
+		'function a(x){return x < 0 ? -x : x} BEGIN{ e = 1.1920929e-7; if (t > 0) printf "%.12g", e * (2 * a(h) + n * a(s - o) + n * a(o)) / t; else print -1 }')"
 	# The run's own guard says it first: a reduced row that went non-finite is refused as fiction, and
 	# sim_run then withholds every number. That IS the reading — the column did not stay at rest.
 	# A row the clock refuses because its own cells signal at light is the same reading by another name.
@@ -93,14 +93,14 @@ measure() {
 		return 1
 	fi
 	awk -v w="$wind" -v c="$cel" -v p="$prel" -v l="$lv" -v x="$left" -v e="${eres:-none}" -v b="$ebar" \
-		'BEGIN{printf "1 %.12g %.12g %d %.12g %s %.12g", w, p, l, x, e, b}'
+		'BEGIN{printf "1 %.12g %.12g %.12g %.12g %s %.12g", w, p, l, x, e, b}'
 }
 
-# True when this arm stayed at rest: finite, and both readings inside the arithmetic's own bar — the
-# substeps the run's own finest temporal level takes, over the frames it took, in machine epsilons.
+# True when this arm stayed at rest: finite, and both readings inside the arithmetic's own bar — one
+# state rounding per frame, over the frames it took, in machine epsilons.
 at_rest() {
-	awk -v f="$1" -v m="$2" -v p="$3" -v l="$4" -v n="$FRAMES" \
-		'BEGIN{b = n * (2 ^ l) * 1.1920929e-7; exit !(f == 1 && m <= b && p <= b)}'
+	awk -v f="$1" -v m="$2" -v p="$3" -v n="$FRAMES" \
+		'BEGIN{b = n * 1.1920929e-7; exit !(f == 1 && m <= b && p <= b)}'
 }
 
 rest="$(measure "shut,shut,shut,shut,shut,shut")" || {
@@ -110,12 +110,12 @@ rest="$(measure "shut,shut,shut,shut,shut,shut")" || {
 read -r REST_FIN REST_MACH REST_PREL REST_LV REST_LEFT REST_ERES REST_EBAR <<EOF
 $rest
 EOF
-echo "ATMOSPHERE_AT_REST={\"finite\":$REST_FIN,\"mach\":$REST_MACH,\"pressure_rest_rel\":$REST_PREL,\"levels\":$REST_LV}"
+echo "ATMOSPHERE_AT_REST={\"finite\":$REST_FIN,\"mach\":$REST_MACH,\"pressure_rest_rel\":$REST_PREL,\"field_dt_s\":$REST_LV}"
 
 # THE CONTROL ANSWERS THE QUESTION THE SEALED ARM LEFT OPEN, and only that one. A sealed column that
 # MOVED has already shown this instrument reads motion, so there is nothing for a vented arm to prove
 # and no engine to start for it. A sealed column at rest is the reading that needs a control.
-if at_rest "$REST_FIN" "$REST_MACH" "$REST_PREL" "$REST_LV"; then
+if at_rest "$REST_FIN" "$REST_MACH" "$REST_PREL"; then
 	vent="$(measure "shut,shut,shut,space,shut,shut" "$VENT_FRAMES")" || {
 		echo "check_atmosphere_at_rest: the vented control published no readings, so the gate has no control." >&2
 		exit 2
@@ -123,7 +123,7 @@ if at_rest "$REST_FIN" "$REST_MACH" "$REST_PREL" "$REST_LV"; then
 	read -r VENT_FIN VENT_MACH VENT_PREL VENT_LV VENT_LEFT VENT_ERES VENT_EBAR <<EOF
 $vent
 EOF
-	echo "ATMOSPHERE_VENTED={\"finite\":$VENT_FIN,\"gas_left\":$VENT_LEFT,\"energy_residual_rel\":$VENT_ERES,\"energy_bar\":$VENT_EBAR,\"levels\":$VENT_LV}"
+	echo "ATMOSPHERE_VENTED={\"finite\":$VENT_FIN,\"gas_left\":$VENT_LEFT,\"energy_residual_rel\":$VENT_ERES,\"energy_bar\":$VENT_EBAR,\"field_dt_s\":$VENT_LV}"
 	# THE CONTROL: gas leaves through the open face, and the energy book closes on what left — the
 	# residual over the turnover inside the book's own float32 rounding.
 	if ! awk -v l="$VENT_LEFT" 'BEGIN{exit !(l < 0)}'; then

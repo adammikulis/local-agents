@@ -43,6 +43,7 @@ set(SRC
     src/LABodySystem.cpp
     src/LAFieldCellMass.cpp
     src/LAGridGeometry.cpp
+    src/LAAcousticSolve.cpp
     src/LAGravitySolve.cpp
     src/LAFieldDriver.cpp
     src/LAFieldLedger.cpp

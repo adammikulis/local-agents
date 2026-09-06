@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# THE CELL LIST A ROW WALKS, in space and in time — ONE machine, one rig, one engine. It drives
-# FluxPass on sealed lines: across a seam between two clocks, where every matter channel holds
-# its total; settled, where the active count falls to nothing while the books still close; and with
-# one blob, which may not outrun one cell per substep nor lose a mole at the edge of its own bubble.
+# THE CELL LIST A ROW WALKS — ONE machine, one rig, one engine. It drives FluxPass on sealed lines:
+# across a 2:1 refinement seam, where every matter channel holds its total; settled, where the active
+# count falls to nothing while the books still close; and with one blob, which may not outrun one cell
+# per step nor lose a mole at the edge of its own bubble.
 # EXIT 0 clean · 1 a leak or it never emptied · 2 could not run.
 set -uo pipefail
 
@@ -32,8 +32,7 @@ const STEPS: int = 3
 const BLOB_MOL_M3: float = 500.0
 # Air at rest carrying its own sound speed, so the acoustic pair has real state to advance.
 const RHO_BULK: float = 1.225
-# The seam box: a stiff right half, whose own sound speed earns it a finer clock than the left's, and
-# matter crossing every face at a speed the clock is not the business of.
+# The seam box: a hot right half, and matter crossing every face.
 const SEAM_CELL: float = 2000.0
 const SEAM_P: float = 101325.0
 const SEAM_T: float = 15.0
@@ -93,7 +92,7 @@ func _total(bufs: Dictionary, key: String, vol: PackedFloat32Array) -> float:
 	return s
 
 
-## One field step of the transport pass alone: the peaks it reads, then every group's substeps.
+## One field step of the transport pass alone: the step it derives, then every group's crossings.
 func _step(p: RefCounted, ctx: Dictionary, cc: int) -> void:
 	var groups: int = int(ceil(float(cc) / 64.0))
 	p.pre_step(_rd, ctx, cc, groups)
@@ -104,11 +103,11 @@ func _step(p: RefCounted, ctx: Dictionary, cc: int) -> void:
 	_rd.sync()
 
 
-## Every buffer the pass declares, plus the temporal-level field StateDerivePass declares and this pass
+## Every buffer the pass declares, plus the active list StateDerivePass declares and this pass
 ## reads: without it every row refuses to move and the arms below measure a box nothing stepped.
 func _declared(p: RefCounted, cc: int, bufs: Dictionary, owned: Array[RID]) -> void:
 	var want: Dictionary = p._buffers(cc)
-	want.merge(LATemporalLevels.buffers(cc + int(p.ghost_count), int(p.group_count())))
+	want.merge(LAActiveCells.buffers(cc + int(p.ghost_count), int(p.group_count())))
 	for key in want:
 		var spec: Variant = want[key]
 		var n: int = int(spec["n"]) if spec is Dictionary else int(spec)
@@ -176,9 +175,8 @@ func _attach(bufs: Dictionary, owned: Array[RID]) -> RefCounted:
 	return p
 
 
-## THE SEAM BETWEEN TWO CLOCKS. A fast cell subdivides its own timestep while its quiet neighbour steps
-## once; the face between them runs on the coarser of the two, so both sides write the same flux on the
-## same substep. The sorted list they walk is the one the arms below hold to the moving cells.
+## THE 2:1 REFINEMENT SEAM. A coarse cell meets four finer ones across one slot; both sides evaluate
+## the face in one canonical orientation, so what one writes is the exact negation of the other's.
 func _seam() -> void:
 	var nx: int = 8
 	var grid: LAVoxelGrid = LAVoxelGrid.new()
@@ -218,13 +216,12 @@ func _seam() -> void:
 	p.face_count = grid.neighbours.size()
 	_declared(p, cc, bufs, owned)
 
-	# A shut box of moving matter: a gradient so there is something to carry, and a velocity step so the
-	# right half's own courant asks for a finer clock than the left half's.
+	# A shut box of moving matter: a gradient so there is something to carry, and a velocity step.
 	var h2o: PackedFloat32Array = PackedFloat32Array()
 	var o2: PackedFloat32Array = PackedFloat32Array()
 	var co2: PackedFloat32Array = PackedFloat32Array()
 	# A sheared momentum column beside the flow, so every row of the group leaves a NONZERO face flux:
-	# a stale one a coarse neighbour never wrote this substep is then visible as matter appearing.
+	# a stale one a coarse neighbour never wrote is then visible as matter appearing.
 	var temps: PackedFloat32Array = PackedFloat32Array()
 	var momz: PackedFloat32Array = PackedFloat32Array()
 	var velz: PackedFloat32Array = PackedFloat32Array()
@@ -263,28 +260,14 @@ func _seam() -> void:
 		"sun_dir": Vector3.ZERO, "dt_s": DT}
 	var groups: int = int(ceil(float(cc) / 64.0))
 	p.pre_step(_rd, ctx, cc, groups)
-	var peak: int = 0
-	var top: int = 0
-	for g in p._peaks.size():
-		if int(p._peaks[g]) > peak:
-			peak = int(p._peaks[g])
-			top = g
-	_expect(peak >= 1, "no row group asked for a finer clock than the field step, so the box never "
-		+ "reached two levels and this gate examined nothing.")
-	# POSITIVE CONTROL: the level field the real code builds has to hold more than one level, or the
-	# conservation below is a closed book over a box that never straddled a seam.
-	var lcl: int = _rd.compute_list_begin()
-	p.build_levels(lcl, top, cc, DT, Vector3.ZERO, peak)
-	_rd.compute_list_end()
-	_rd.submit()
-	_rd.sync()
-	var lv: PackedInt32Array = _rd.buffer_get_data(
-		bufs[LATemporalLevels.KEYS.level]).to_int32_array()
+	# POSITIVE CONTROL: the box has to hold two cell sizes, or the conservation below is a closed book
+	# over a box that never straddled a refinement seam at all.
+	var edges: PackedFloat32Array = _rd.buffer_get_data(bufs["cell_edge"]).to_float32_array()
 	var seen: Dictionary = {}
 	for c in cc:
-		seen[lv[c]] = true
-	_expect(seen.size() >= 2, "every cell landed on ONE level, so no face straddles two clocks and "
-		+ "this gate cannot see a seam at all.")
+		seen[edges[c]] = true
+	_expect(seen.size() >= 2, "every cell has the same edge, so no face straddles a 2:1 seam and this "
+		+ "gate cannot see one at all.")
 	var cl: int = _rd.compute_list_begin()
 	p.dispatch(_rd, cl, ctx, cc, groups)
 	_rd.compute_list_end()
@@ -296,7 +279,7 @@ func _seam() -> void:
 		var after: float = _total(bufs, name, vol)
 		var was: float = float(before[name])
 		_expect(absf(after - was) <= TOL * maxf(absf(was), 1.0),
-			"%s: a shut box held %s and now holds %s — the seam between two clocks is not conservative."
+			"%s: a shut box held %s and now holds %s — the 2:1 refinement seam is not conservative."
 			% [name, String.num_scientific(was), String.num_scientific(after)])
 	var ended: PackedFloat32Array = _rd.buffer_get_data(bufs["h2o"]).to_float32_array()
 	var moved: bool = false
@@ -383,7 +366,7 @@ func _init() -> void:
 		% [String.num_scientific(before), String.num_scientific(sum)]
 		+ "bubble was never gathered, because nothing there was awake to gather it.")
 	_expect(reach > 0, "the blob never moved, so a bounded bubble proves nothing.")
-	# ONE CELL PER SUBSTEP is the fastest anything travels, and this box takes one substep per step.
+	# ONE CELL PER STEP is the fastest anything travels.
 	_expect(reach <= STEPS, "the blob reached %d cells from where it was seeded in %d steps: matter "
 		% [reach, STEPS] + "outran its own signal speed.")
 	var bubble: int = int(pb._active_cells(_rd))
@@ -425,11 +408,11 @@ fi
 # --- arm four: THE SEEDED WORLD, which is the only box this rig cannot build ------------------------
 # It asks the shared lint arm for its own reading, so it starts no engine of its own.
 if la_cap_dir >/dev/null; then
-  out2="$(la_report active_cells,transport_levels 2>&1)"
+  out2="$(la_report active_cells,field_dt_s 2>&1)"
   rc2=$?
 else
   out2="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --frames "${LA_ACTIVE_FRAMES:-2}" \
-    --rung "${LA_ACTIVE_RUNG:-5}" --report active_cells,transport_levels 2>&1)"
+    --rung "${LA_ACTIVE_RUNG:-5}" --report active_cells,field_dt_s 2>&1)"
   rc2=$?
   case "$rc2" in 0|122|123|126) ;; *) out2="" ;; esac
 fi

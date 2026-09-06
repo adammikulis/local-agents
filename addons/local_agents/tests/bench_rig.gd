@@ -4,8 +4,6 @@ extends RefCounted
 ## and one dispatch of a real pass over it. The benchmark itself owns the state it uploads and the
 ## closed-form answer it is judged against; this file owns nothing physical.
 
-const TEMPORAL_PATH: String = "res://addons/local_agents/sim/material/sphere_passes/TemporalLevels.gd"
-
 var rd: RenderingDevice = null
 var grid: LAVoxelGrid = null
 var bufs: Dictionary = {}
@@ -149,10 +147,9 @@ func attach(script_path: String) -> RefCounted:
 	return p
 
 
-## The temporal-level buffers a transport rig gets from the derive when the derive is not in the world.
-func add_levels(group_count: int) -> void:
-	var levels: GDScript = load(TEMPORAL_PATH)
-	var want: Dictionary = levels.buffers(cell_count + ghost_count, group_count)
+## The active-list buffers a transport rig gets from the derive when the derive is not in the world.
+func add_active_lists(group_count: int) -> void:
+	var want: Dictionary = LAActiveCells.buffers(cell_count + ghost_count, group_count)
 	for key in want:
 		_allocate_spec(String(key), want[key])
 

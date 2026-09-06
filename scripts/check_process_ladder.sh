@@ -88,16 +88,16 @@ while IFS=$'\t' read -r tag name gates; do
   echo
   echo "=== rung $n $name ==="
   t0=$(date +%s)
-  arm="$(la_rung_report "$n" "$FRAMES" "step_ms,field_ms,transport_levels")"
+  arm="$(la_rung_report "$n" "$FRAMES" "step_ms,field_ms,field_dt_s")"
   arm_rc=$?
   t1=$(date +%s)
   wall=$((t1 - t0))
   printf '%s\trung %s %s (arm)\n' "$wall" "$n" "$name" >> "$LADDER_TIMING"
   step="$(la_rung_value "$arm" step_ms)"
   [ -n "$step" ] || step="$(la_rung_value "$arm" field_ms)"
-  levels="$(la_rung_value "$arm" transport_levels)"
+  levels="$(la_rung_value "$arm" field_dt_s)"
   # A rung with no transport publishes no level count; that is absent, never zero.
-  printf 'LADDER_RUNG={"rung":%s,"name":"%s","step_ms":%s,"wall_s":%d,"transport_levels":%s}\n' \
+  printf 'LADDER_RUNG={"rung":%s,"name":"%s","step_ms":%s,"wall_s":%d,"field_dt_s":%s}\n' \
     "$n" "$name" "${step:-null}" "$wall" "${levels:-null}"
   case "$arm_rc" in
     0) ;;

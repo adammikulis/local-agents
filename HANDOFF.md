@@ -98,11 +98,8 @@ the real row will answer, offered in the HUD as a stand-in.
 
 ## 11. A FREE BODY IS INTEGRATED AT THE FIELD'S STEP, AND IMPACTORS ARE SIZED BY AN INVENTED DRAW
 
-`LABallistics::step(dt_s)` takes the whole of `SIM_SECONDS_PER_STEP` in one go, so a body crossing the
-atmosphere rams it at one density for the whole crossing. `scripts/shoot_demo.sh
-addons/local_agents/examples/SliceRung1Demo.tscn <dir>` photographs a test mass already landed: the
-world advances 43.2 simulated seconds per rendered frame, so a two-kilometre fall is over between two
-frames and nothing is seen falling. `rg -n "randf_range\(0.55" addons/local_agents/sim/actors/Meteor.gd`
+`LABallistics::step(dt_s)` takes the whole field step in one go, so a body crossing the atmosphere rams
+it at one density for the whole crossing. `rg -n "randf_range\(0.55" addons/local_agents/sim/actors/Meteor.gd`
 finds the impactor size drawn from an invented range (the measured law: Brown et al. 2002,
 N(>E) ∝ E^-0.9, a cited chondrite density). `LAMeteorImpacts.arrive()` counts a rock `launch()` refused.
 `SPHERE_CD` in `LABallistics.cpp` is the hypersonic limit at every Re.
@@ -129,10 +126,6 @@ no referent spent as mol/m³ of a cell. The species mass is the one input; the r
   above its bar on a land column; its vent arm reads an energy residual near a tenth of the turnover.
 - `scripts/sim_run.sh --rung 3 --frames 3 --report nonfinite_cells,mach_max` refuses a water record at
   light speed by the second frame; `LA_PASS_PROBE=mach LA_PASS_PROBE_STEPS=1` names the cell.
-- Maintainer's decision, standing: the acoustic part of the momentum equation goes implicit (one
-  Helmholtz solve per field step on `gravity_poisson.glsl`'s operator shape), the step is derived from
-  the advective CFL, `SIM_SECONDS_PER_STEP` and the acoustic temporal levels are deleted; declared in
-  `docs/APPROXIMATIONS.md` when built.
 
 ## 15. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the rows above it and their books
 

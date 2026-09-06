@@ -1,8 +1,10 @@
+#include "LAAcousticSolve.hpp"
 #include "LAFieldDriver.hpp"
 
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -27,20 +29,6 @@ int plan_int(const Dictionary &d, const char *key, int fallback) {
 RID plan_rid(const Dictionary &d, const char *key) {
 	const RID r = d.get(key, RID());
 	return r;
-}
-
-// The coarsest level advancing on substep k of a 2^levels axis: level L steps when k is a multiple of
-// 2^(levels-L), so the coarsest is levels minus k's trailing zeros.
-int coarsest_at(int k, int levels) {
-	if (k <= 0) {
-		return 0;
-	}
-	int l = levels;
-	while (k > 0 && (k & 1) == 0) {
-		k >>= 1;
-		--l;
-	}
-	return l > 0 ? l : 0;
 }
 
 void put_u32(uint8_t *w, int off, uint32_t v) {
@@ -154,21 +142,27 @@ void LAFieldDriver::setup_transport(const Dictionary &p_plan) {
 	_wake_args = plan_rid(p_plan, "wake_args");
 	_grain_set = plan_rid(p_plan, "grain_set");
 	_list_sets = p_plan.get("list_sets", Array());
-	_queue_bin = plan_int(p_plan, "queue_bin", 0);
+	_hz_pipe = plan_rid(p_plan, "hz_pipe");
+	_hz_set = plan_rid(p_plan, "hz_set");
+	_hz_comp = plan_rid(p_plan, "hz_comp");
+	_hz_cond = plan_rid(p_plan, "hz_cond");
+	_hz_rhs = plan_rid(p_plan, "hz_rhs");
+	_hz_p = plan_rid(p_plan, "hz_p");
+	_slot_off = plan_rid(p_plan, "slot_off");
+	_nbr = plan_rid(p_plan, "nbr");
+	_cc = plan_int(p_plan, "cell_count", 0);
+	_hz_tol = p_plan.get("hz_tol", 0.0);
+	_hz_max_iter = plan_int(p_plan, "hz_max_iter", 0);
 	_slots = plan_int(p_plan, "slots", 0);
 	_group_count = plan_int(p_plan, "group_count", 1);
 	_flush_every = plan_int(p_plan, "flush_every", 4096);
-	_level_off = plan_int(p_plan, "level_off", 0);
-	_k_off = plan_int(p_plan, "k_off", 0);
-	_n_off = plan_int(p_plan, "n_off", 0);
 }
 
-int LAFieldDriver::_args_offset(int p_group, int p_bin) const {
-	return (p_group * (_queue_bin + 1) + p_bin) * _slots * 4;
+int LAFieldDriver::_args_offset(int p_group) const {
+	return p_group * _slots * 4;
 }
 
-const PackedByteArray &LAFieldDriver::_block(const Array &p_table, int p_slot, int p_level, int p_k,
-		int p_n) {
+const PackedByteArray &LAFieldDriver::_block(const Array &p_table, int p_slot) {
 	if (p_slot < 0 || p_slot >= p_table.size()) {
 		_scratch.resize(0);
 		return _scratch;
@@ -181,14 +175,7 @@ const PackedByteArray &LAFieldDriver::_block(const Array &p_table, int p_slot, i
 	if (_scratch.size() != src.size()) {
 		_scratch.resize(src.size());
 	}
-	uint8_t *w = _scratch.ptrw();
-	std::memcpy(w, src.ptr(), (size_t)src.size());
-	const int room = src.size() - 4;
-	if (_level_off <= room && _k_off <= room && _n_off <= room) {
-		put_u32(w, _level_off, (uint32_t)p_level);
-		put_u32(w, _k_off, (uint32_t)p_k);
-		put_u32(w, _n_off, (uint32_t)p_n);
-	}
+	std::memcpy(_scratch.ptrw(), src.ptr(), (size_t)src.size());
 	return _scratch;
 }
 
@@ -215,11 +202,11 @@ void LAFieldDriver::_fire(int64_t p_cl, const RID &p_uset, const PackedByteArray
 
 // THE MATTER THIS SUBSTEP MOVED IS AT A NEW PRESSURE. The derive's own kernel says what pressure, over
 // the same cells the substep walked, before the next substep's faces read one.
-void LAFieldDriver::_restate(int64_t p_cl, int p_group, int p_level) {
+void LAFieldDriver::_restate(int64_t p_cl, int p_group) {
 	if (!_eos_pipe.is_valid() || !_eos_set.is_valid() || _eos_pc.is_empty()) {
 		return;
 	}
-	const int offset = _args_offset(p_group, p_level);
+	const int offset = _args_offset(p_group);
 	uint8_t *w = _eos_pc.ptrw();
 	put_u32(w, _eos_slot_off, (uint32_t)(offset / 4));
 	put_u32(w, _eos_base_off, (uint32_t)(p_group * _eos_total));
@@ -227,52 +214,28 @@ void LAFieldDriver::_restate(int64_t p_cl, int p_group, int p_level) {
 }
 
 void LAFieldDriver::_act(int64_t p_cl, const RID &p_uset, const Array &p_table, int p_slot,
-		int p_group, int p_level, int p_bin) {
-	_fire(p_cl, p_uset, _block(p_table, p_slot, p_level, 0, 1), _args, _args_offset(p_group, p_bin));
+		int p_group) {
+	_fire(p_cl, p_uset, _block(p_table, p_slot), _args, _args_offset(p_group));
 }
 
 void LAFieldDriver::_rebuild_active(int64_t p_cl, const RID &p_uset, const Array &p_table,
-		int p_group, int p_level, bool p_take_wake) {
-	_act(p_cl, p_uset, p_table, SLOT_ACT_AGE, p_group, p_level, 0);
+		int p_group, bool p_take_wake) {
+	_act(p_cl, p_uset, p_table, SLOT_ACT_AGE, p_group);
 	if (p_take_wake) {
-		_fire(p_cl, p_uset, _block(p_table, SLOT_ACT_WAKE, p_level, 0, 1), _wake_args, 0);
+		_fire(p_cl, p_uset, _block(p_table, SLOT_ACT_WAKE), _wake_args, 0);
 	}
-	_act(p_cl, p_uset, p_table, SLOT_ACT_MARK, p_group, p_level, 0);
-	_fire(p_cl, p_uset, _block(p_table, SLOT_LEVEL_SCAN, p_level, 0, 1), RID(), 1);
-	_act(p_cl, p_uset, p_table, SLOT_LEVEL_SORT, p_group, p_level, _queue_bin);
+	_act(p_cl, p_uset, p_table, SLOT_ACT_MARK, p_group);
+	_fire(p_cl, p_uset, _block(p_table, SLOT_SCAN), RID(), 1);
+	_act(p_cl, p_uset, p_table, SLOT_COMPACT, p_group);
 }
 
-void LAFieldDriver::build_levels(int64_t p_cl, int p_group, const Array &p_pc_rows, int p_levels) {
-	if (_rd == nullptr || p_group < 0 || p_group >= _groups.size()) {
-		return;
-	}
-	const PackedInt32Array group = _groups[p_group];
-	if (group.is_empty()) {
-		return;
-	}
-	const int first = group[0];
-	const RID head = rid_at(_row_sets, first);
-	const Array head_pc = p_pc_rows[first];
-	_act(p_cl, head, head_pc, SLOT_LEVEL_RESET, p_group, 0, 0);
-	if (p_levels <= 0) {
-		return;
-	}
-	for (int i = 0; i < group.size(); ++i) {
-		const int gi = group[i];
-		_act(p_cl, rid_at(_row_sets, gi), p_pc_rows[gi], SLOT_LEVEL_SEED, p_group, 0, 0);
-	}
-	// One outward sweep: every neighbour of a listed cell takes at least that cell's level.
-	_act(p_cl, head, head_pc, SLOT_LEVEL_RELAX, p_group, 0, 0);
-}
-
-// ONE SLOT OF ONE RECORD, over its group's active cells at this level: what it costs is what moves.
-void LAFieldDriver::_run_slot(int64_t p_cl, int p_row, const Array &p_pc_rows, int p_slot,
-		int p_level, int p_k, int p_n) {
+// ONE SLOT OF ONE RECORD, over its group's active cells: what it costs is what moves.
+void LAFieldDriver::_run_slot(int64_t p_cl, int p_row, const Array &p_pc_rows, int p_slot) {
 	const RID uset = rid_at(_row_sets, p_row);
 	if (!uset.is_valid() || !_args.is_valid()) {
 		return;
 	}
-	const PackedByteArray &pc = _block(p_pc_rows[p_row], p_slot, p_level, p_k, p_n);
+	const PackedByteArray &pc = _block(p_pc_rows[p_row], p_slot);
 	if (pc.is_empty()) {
 		return;
 	}
@@ -280,19 +243,77 @@ void LAFieldDriver::_run_slot(int64_t p_cl, int p_row, const Array &p_pc_rows, i
 	_rd->compute_list_bind_compute_pipeline(p_cl, _pipe);
 	_rd->compute_list_bind_uniform_set(p_cl, uset, 0);
 	_rd->compute_list_set_push_constant(p_cl, pc, pc.size());
-	_rd->compute_list_dispatch_indirect(p_cl, _args, (uint32_t)_args_offset(group, p_level));
+	_rd->compute_list_dispatch_indirect(p_cl, _args, (uint32_t)_args_offset(group));
 	_rd->compute_list_add_barrier(p_cl);
 }
 
 // THE FLUX AND THE APPLY: the record writes what crosses each of its cells' own faces, then reads
 // those faces back into the cells. Nothing between the two touches them.
-void LAFieldDriver::_run_row(int64_t p_cl, int p_row, const Array &p_pc_rows, int p_level, int p_k,
-		int p_n) {
-	_run_slot(p_cl, p_row, p_pc_rows, SLOT_OUTFLOW, p_level, p_k, p_n);
-	_run_slot(p_cl, p_row, p_pc_rows, SLOT_GATHER, p_level, p_k, p_n);
+void LAFieldDriver::_run_row(int64_t p_cl, int p_row, const Array &p_pc_rows) {
+	_run_slot(p_cl, p_row, p_pc_rows, SLOT_OUTFLOW);
+	_run_slot(p_cl, p_row, p_pc_rows, SLOT_GATHER);
 	if (p_row < _row_radiate.size() && _row_radiate[p_row] != 0) {
-		_run_slot(p_cl, p_row, p_pc_rows, SLOT_SW, p_level, p_k, p_n);
+		_run_slot(p_cl, p_row, p_pc_rows, SLOT_SW);
 	}
+}
+
+// THE STEP'S ACOUSTIC PRESSURE, between the face predictor and the momentum close, with no compute
+// list recording: the extension converges the assembled Helmholtz and writes it back to the device.
+void LAFieldDriver::_solve_acoustic() {
+	_hz_residual = 0.0;
+	_hz_iterations = 0;
+	if (_rd == nullptr || _cc <= 0 || !_hz_p.is_valid() || !_slot_off.is_valid()) {
+		return;
+	}
+	const Dictionary r = LAAcousticSolve::solve_device(_rd, _slot_off, _nbr, _cc, _hz_comp, _hz_cond,
+			_hz_rhs, _hz_p, _hz_dt_s, _hz_tol, _hz_max_iter);
+	if (r.is_empty()) {
+		return;
+	}
+	_hz_residual = r["residual_rel"];
+	_hz_iterations = (int)(int64_t)r["iterations"];
+}
+
+double LAFieldDriver::step_seconds(const RID &p_dt_buf, const Array &p_pc_rows,
+		const Array &p_pc_grain, int p_seed_workgroups) {
+	const int n = _groups.size();
+	if (_rd == nullptr || !_pipe.is_valid() || !p_dt_buf.is_valid() || n <= 0) {
+		return std::numeric_limits<double>::infinity();
+	}
+	PackedByteArray unbounded;      // +INF: no cell has asked yet
+	unbounded.resize(n * 4);
+	for (int i = 0; i < n; ++i) {
+		put_u32(unbounded.ptrw(), i * 4, 0x7f800000u);
+	}
+	_rd->buffer_update(p_dt_buf, 0, n * 4, unbounded);
+	int64_t cl = _rd->compute_list_begin();
+	if (p_seed_workgroups > 0) {
+		_fire(cl, _grain_set, _block(p_pc_grain, SLOT_ACT_SEED), RID(), p_seed_workgroups);
+	}
+	for (int g = 0; g < n; ++g) {
+		const PackedInt32Array group = _groups[g];
+		for (int i = 0; i < group.size(); ++i) {
+			_run_slot(cl, group[i], p_pc_rows, SLOT_STEP_DT);
+		}
+	}
+	_rd->compute_list_end();
+	_rd->submit();
+	_rd->sync();
+	const PackedByteArray asked = _rd->buffer_get_data(p_dt_buf, 0, n * 4);
+	double dt = std::numeric_limits<double>::infinity();
+	for (int i = 0; i < n; ++i) {
+		float v = 0.0f;
+		std::memcpy(&v, asked.ptr() + i * 4, sizeof(float));
+		dt = std::min(dt, double(v));
+	}
+	return dt;
+}
+
+Dictionary LAFieldDriver::acoustic_reading() const {
+	Dictionary out;
+	out["residual_rel"] = _hz_residual;
+	out["iterations"] = _hz_iterations;
+	return out;
 }
 
 int64_t LAFieldDriver::_flush(int64_t p_cl) {
@@ -304,9 +325,9 @@ int64_t LAFieldDriver::_flush(int64_t p_cl) {
 	return _rd->compute_list_begin();
 }
 
-int64_t LAFieldDriver::run_transport(int64_t p_cl, const PackedInt32Array &p_peaks,
-		const Array &p_pc_rows, const Array &p_pc_grain, const Array &p_pc_lists,
-		int p_seed_workgroups, int p_list_workgroups, const Dictionary &p_restate) {
+int64_t LAFieldDriver::run_transport(int64_t p_cl, const Array &p_pc_rows, const Array &p_pc_grain,
+		const Array &p_pc_lists, int p_seed_workgroups, int p_list_workgroups,
+		const Dictionary &p_restate, const PackedByteArray &p_hz_pc) {
 	if (_rd == nullptr || !_pipe.is_valid()) {
 		return p_cl;
 	}
@@ -315,7 +336,7 @@ int64_t LAFieldDriver::run_transport(int64_t p_cl, const PackedInt32Array &p_pea
 	_eos_pc = p_restate.get("pc", PackedByteArray());
 	_eos_total = plan_int(p_restate, "total", 0);
 	// THE RESTATE'S OWN THREE WORDS ARE THE TAIL of the derive's block: the flag that says this solve is
-	// the substep's, the level-args slot it walks, and where its group's sorted list starts.
+	// the step's own restate, the args slot it walks, and where its group's list starts.
 	const int n = _eos_pc.size();
 	if (n < 12) {
 		_eos_pipe = RID();
@@ -328,7 +349,7 @@ int64_t LAFieldDriver::run_transport(int64_t p_cl, const PackedInt32Array &p_pea
 	_recorded = 0;
 	// THE LISTS, before anything reads one: every cell of a world nobody has stepped yet.
 	if (p_seed_workgroups > 0) {
-		_fire(cl, _grain_set, _block(p_pc_grain, SLOT_ACT_SEED, 0, 0, 1), RID(), p_seed_workgroups);
+		_fire(cl, _grain_set, _block(p_pc_grain, SLOT_ACT_SEED), RID(), p_seed_workgroups);
 	}
 	// THE DETECTOR LISTS: a detector looks everywhere, because a value it has never seen can sit anywhere.
 	for (int r = 0; r < _list_sets.size(); ++r) {
@@ -342,7 +363,7 @@ int64_t LAFieldDriver::run_transport(int64_t p_cl, const PackedInt32Array &p_pea
 		_rd->compute_list_bind_compute_pipeline(cl, _pipe);
 		_rd->compute_list_bind_uniform_set(cl, lset, 0);
 		for (int i = 0; i < 3; ++i) {
-			const PackedByteArray &pc = _block(table, slots[i], 0, 0, 1);
+			const PackedByteArray &pc = _block(table, slots[i]);
 			if (pc.is_empty()) {
 				continue;
 			}
@@ -354,54 +375,55 @@ int64_t LAFieldDriver::run_transport(int64_t p_cl, const PackedInt32Array &p_pea
 	// PROLOGUE: the suspension shares its silicate rows before anything donates.
 	if (_grain_set.is_valid()) {
 		const int gslot = _group_count - 1;
-		_act(cl, _grain_set, p_pc_grain, SLOT_LEVEL_RESET, gslot, 0, 0);
-		_rebuild_active(cl, _grain_set, p_pc_grain, gslot, 0, true);
-		_act(cl, _grain_set, p_pc_grain, SLOT_GRAIN, gslot, 0, 0);
+		_rebuild_active(cl, _grain_set, p_pc_grain, gslot, true);
+		_act(cl, _grain_set, p_pc_grain, SLOT_GRAIN, gslot);
 	}
-	// EACH GROUP ON ITS OWN TIME AXIS.
 	for (int g = 0; g < _groups.size(); ++g) {
 		const PackedInt32Array group = _groups[g];
 		if (group.is_empty()) {
 			continue;
 		}
-		const int levels = g < p_peaks.size() ? p_peaks[g] : 0;
-		if (levels < 0) {
-			continue;
-		}
-		build_levels(cl, g, p_pc_rows, levels);
-		const int n = 1 << levels;
 		const int last = group[group.size() - 1];
 		const int first = group[0];
 		const RID head = rid_at(_row_sets, first);
 		const Array head_pc = p_pc_rows[first];
-		for (int k = 0; k < n; ++k) {
-			const int lk = coarsest_at(k, levels);
-			// THE BUBBLE, one substep at a time.
-			_rebuild_active(cl, head, head_pc, g, lk, k == 0);
-			// EVERY FACE STATES ITSELF ONCE, before any record reads one: the pair's interface
-			// pressure and velocity, off the state this substep starts in.
-			_run_slot(cl, first, p_pc_rows, SLOT_FACE, lk, k, n);
-			// THE PRESSURE AND THE BODY IMPULSE NEXT, on the mass the faces were solved over, so what
-			// the records then move carries its share of the momentum and leaves none behind.
-			_run_slot(cl, last, p_pc_rows, SLOT_MOMENTUM, lk, k, n);
-			for (int i = 0; i < group.size(); ++i) {
-				_run_row(cl, group[i], p_pc_rows, lk, k, n);
-				// THE COARSEST SUBSTEP WALKS EVERY CELL: one record of it is the most a submit may hold,
-				// because the device's fence wait is finite and a whole-grid substep outran it.
-				if (lk == 0) {
-					cl = _flush(cl);
-				}
-			}
-			_restate(cl, g, lk);
-			_recorded += group.size() + 5;
-			if (_recorded > _flush_every) {
-				cl = _flush(cl);
-			}
+		// THE BUBBLE, rebuilt once a step.
+		_rebuild_active(cl, head, head_pc, g, true);
+		// EVERY FACE STATES ITSELF ONCE, before any record reads one: the pair's shared pressure and
+		// the velocity the predictor gives each band, off the state this step starts in.
+		_run_slot(cl, first, p_pc_rows, SLOT_FACE);
+		// THE ACOUSTIC PRESSURE, SOLVED, on the group that closes with momentum: assemble the rows on
+		// the device, then converge them outside any compute list before the close reads one.
+		const bool closes = !_block(p_pc_rows[last], SLOT_MOMENTUM).is_empty();
+		if (closes && _hz_pipe.is_valid() && _hz_set.is_valid() && p_hz_pc.size() >= 12) {
+			std::memcpy(&_hz_dt_s_f, p_hz_pc.ptr() + 8, sizeof(float));
+			_hz_dt_s = double(_hz_dt_s_f);
+			_fire_on(cl, _hz_pipe, _hz_set, p_hz_pc, _args, _args_offset(g));
+			_rd->compute_list_end();
+			_rd->submit();
+			_rd->sync();
+			_solve_acoustic();
+			cl = _rd->compute_list_begin();
+			_recorded = 0;
+		}
+		// THE PRESSURE AND THE BODY IMPULSE NEXT, on the mass the faces were solved over, so what
+		// the records then move carries its share of the momentum and leaves none behind.
+		_run_slot(cl, last, p_pc_rows, SLOT_MOMENTUM);
+		for (int i = 0; i < group.size(); ++i) {
+			_run_row(cl, group[i], p_pc_rows);
+			// ONE RECORD IS THE MOST A SUBMIT MAY HOLD: the device's fence wait is finite, and a
+			// whole-grid step in one submit outran it.
+			cl = _flush(cl);
+		}
+		_restate(cl, g);
+		_recorded += group.size() + 5;
+		if (_recorded > _flush_every) {
+			cl = _flush(cl);
 		}
 	}
 	// The wake queue is consumed; what the reactions write after this pass is next step's business.
 	if (_grain_set.is_valid()) {
-		_fire(cl, _grain_set, _block(p_pc_grain, SLOT_ACT_WAKE_RESET, 0, 0, 1), RID(), 1);
+		_fire(cl, _grain_set, _block(p_pc_grain, SLOT_ACT_WAKE_RESET), RID(), 1);
 	}
 	return cl;
 }
@@ -459,11 +481,12 @@ void LAFieldDriver::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("step", "passes", "names", "ctx", "cell_count", "groups", "probe"),
 			&LAFieldDriver::step);
 	ClassDB::bind_method(D_METHOD("setup_transport", "plan"), &LAFieldDriver::setup_transport);
-	ClassDB::bind_method(D_METHOD("run_transport", "compute_list", "peaks", "pc_rows", "pc_grain",
-								  "pc_lists", "seed_workgroups", "list_workgroups", "restate"),
+	ClassDB::bind_method(D_METHOD("run_transport", "compute_list", "pc_rows", "pc_grain",
+								  "pc_lists", "seed_workgroups", "list_workgroups", "restate", "hz_pc"),
 			&LAFieldDriver::run_transport);
-	ClassDB::bind_method(D_METHOD("build_levels", "compute_list", "group", "pc_rows", "levels"),
-			&LAFieldDriver::build_levels);
+	ClassDB::bind_method(D_METHOD("acoustic_reading"), &LAFieldDriver::acoustic_reading);
+	ClassDB::bind_method(D_METHOD("step_seconds", "dt_buf", "pc_rows", "pc_grain", "seed_workgroups"),
+			&LAFieldDriver::step_seconds);
 	ClassDB::bind_method(D_METHOD("fold_reduce", "partials", "folds", "keys", "groups"),
 			&LAFieldDriver::fold_reduce);
 
@@ -475,17 +498,15 @@ void LAFieldDriver::_bind_methods() {
 	BIND_ENUM_CONSTANT(SLOT_ACT_AGE);
 	BIND_ENUM_CONSTANT(SLOT_ACT_WAKE);
 	BIND_ENUM_CONSTANT(SLOT_ACT_MARK);
-	BIND_ENUM_CONSTANT(SLOT_LEVEL_SCAN);
-	BIND_ENUM_CONSTANT(SLOT_LEVEL_SORT);
-	BIND_ENUM_CONSTANT(SLOT_LEVEL_RESET);
-	BIND_ENUM_CONSTANT(SLOT_LEVEL_SEED);
-	BIND_ENUM_CONSTANT(SLOT_LEVEL_RELAX);
+	BIND_ENUM_CONSTANT(SLOT_SCAN);
+	BIND_ENUM_CONSTANT(SLOT_COMPACT);
 	BIND_ENUM_CONSTANT(SLOT_GRAIN);
 	BIND_ENUM_CONSTANT(SLOT_ACT_SEED);
 	BIND_ENUM_CONSTANT(SLOT_ACT_WAKE_RESET);
 	BIND_ENUM_CONSTANT(SLOT_LIST_RESET);
 	BIND_ENUM_CONSTANT(SLOT_LIST_APPEND);
 	BIND_ENUM_CONSTANT(SLOT_LIST_ARGS);
+	BIND_ENUM_CONSTANT(SLOT_STEP_DT);
 	BIND_ENUM_CONSTANT(SLOT_COUNT);
 	BIND_ENUM_CONSTANT(FOLD_SUM);
 	BIND_ENUM_CONSTANT(FOLD_MIN);

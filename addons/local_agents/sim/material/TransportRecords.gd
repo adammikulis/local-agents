@@ -15,7 +15,7 @@ enum Fluid { VACUUM, WATER, AIR }
 
 ## Per-record switches, packed into the kernel's `flags`. Matches the TF_* constants in flux.glsl.
 enum Flag { SETTLE = 2, EFIELD = 4, FRACTION = 16, DILUTE = 32,
-	RADIOGENIC = 64, ENERGY = 128, RELAX = 256, VEL = 512, LEVEL = 1024, WATER = 2048, LATTICE = 4096 }
+	RADIOGENIC = 64, ENERGY = 128, RELAX = 256, VEL = 512, WATER = 2048, LATTICE = 4096 }
 
 
 ## `settle` adds the grain's terminal velocity; `frac` is the derived share moved; `relax` carries
@@ -127,15 +127,6 @@ static func list_buffers(label: String) -> Dictionary:
 		if String(row["label"]) == label:
 			return {"idx": label + "_list_idx", "args": label + "_list_args"}
 	return {}
-
-
-## Density and dynamic viscosity of one Fluid, kg/m^3 and Pa s.
-static func fluid_properties(fluid: int) -> Vector2:
-	if fluid == Fluid.WATER:
-		return Vector2(LAPhysical.WATER_DENSITY_KG_M3, LAPhysical.WATER_DYNAMIC_VISCOSITY_PA_S)
-	if fluid == Fluid.AIR:
-		return Vector2(LAPhysical.AIR_DENSITY_KG_M3, LAPhysical.AIR_DYNAMIC_VISCOSITY_PA_S)
-	return Vector2.ZERO
 
 
 ## Amount at which a cell is full: mol/m^3 of the pure substance.

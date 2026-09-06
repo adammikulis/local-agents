@@ -158,7 +158,7 @@ func _run(grid, solid_v: PackedFloat32Array, temp_c: PackedFloat32Array) -> Arra
 	var groups: int = int(ceil(float(cc) / 64.0))
 	# No sun: solar_incident returns zero, so what comes back is the longwave half alone.
 	var ctx: Dictionary = {"cell_size": CELL, "g_m_s2": 9.81, "sun_dir": Vector3.ZERO,
-		"step_index": 0.0, "dt_s": LAMaterialFieldSphereStep3D.real_seconds_per_step()}
+		"step_index": 0.0, "dt_s": LAMaterialFieldSphereStep3D.seconds_per_step()}
 	var cl: int = _rd.compute_list_begin()
 	p.dispatch(_rd, cl, ctx, cc, groups)
 	_rd.compute_list_end()
@@ -225,7 +225,7 @@ func _transmission(grid) -> Array:
 	var out: Array = _run(grid, solid, temp)
 	var emis: float = LAPhysical.BASALT_EMISSIVITY
 	var t_hot: float = HOT_C + LAPhysical.KELVIN_OFFSET
-	var dt: float = LAMaterialFieldSphereStep3D.real_seconds_per_step()
+	var dt: float = LAMaterialFieldSphereStep3D.seconds_per_step()
 	# One face of the emitter, crossing the clear cell untouched, and the absorber keeps its own share.
 	var want: float = emis * emis * LAPhysical.STEFAN_BOLTZMANN * pow(t_hot, 4.0) * dt \
 			* FACE_AREA / CELL_VOL
@@ -258,7 +258,7 @@ func _init() -> void:
 		_fail("the grid has no interior cell, so no closed form applies.")
 		return
 
-	var dt: float = LAMaterialFieldSphereStep3D.real_seconds_per_step()
+	var dt: float = LAMaterialFieldSphereStep3D.seconds_per_step()
 	var sigma: float = LAPhysical.STEFAN_BOLTZMANN
 	var emis: float = LAPhysical.BASALT_EMISSIVITY
 

@@ -15,6 +15,7 @@
 #include "LABodySystem.hpp"
 #include "LAFieldCellMass.hpp"
 #include "LAGridGeometry.hpp"
+#include "LAAcousticSolve.hpp"
 #include "LAGravitySolve.hpp"
 #include "LAFieldDriver.hpp"
 #include "LAFieldLedger.hpp"
@@ -80,6 +81,7 @@ void initialize_local_agents(ModuleInitializationLevel p_level) {
     ClassDB::register_class<LABodySeeds>();
     ClassDB::register_class<LAFieldCellMass3D>();
     ClassDB::register_class<LAGridGeometry>();
+    ClassDB::register_class<LAAcousticSolve>();
     ClassDB::register_class<LAGravitySolve>();
     ClassDB::register_class<LABallistics>();
     ClassDB::register_class<LATestMasses>();

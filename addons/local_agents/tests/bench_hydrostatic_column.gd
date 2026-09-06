@@ -37,7 +37,7 @@ func _arm(exponential: bool) -> Dictionary:
 	if derive == null or flux == null:
 		printerr("bench_hydrostatic_column: " + rig.error)
 		return {}
-	rig.add_levels(flux.group_count())
+	rig.add_active_lists(flux.group_count())
 
 	# Uniform gravity down -y, with the potential that generates it: phi = g z, J/kg.
 	var g_vec: PackedFloat32Array = rig.filled(N * 3, 0.0)

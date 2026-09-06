@@ -30,18 +30,16 @@ public:
 		SLOT_ACT_AGE = 5,
 		SLOT_ACT_WAKE = 6,
 		SLOT_ACT_MARK = 7,
-		SLOT_LEVEL_SCAN = 8,
-		SLOT_LEVEL_SORT = 9,
-		SLOT_LEVEL_RESET = 10,
-		SLOT_LEVEL_SEED = 11,
-		SLOT_LEVEL_RELAX = 12,
-		SLOT_GRAIN = 13,
-		SLOT_ACT_SEED = 14,
-		SLOT_ACT_WAKE_RESET = 15,
-		SLOT_LIST_RESET = 16,
-		SLOT_LIST_APPEND = 17,
-		SLOT_LIST_ARGS = 18,
-		SLOT_COUNT = 19,
+		SLOT_SCAN = 8,
+		SLOT_COMPACT = 9,
+		SLOT_GRAIN = 10,
+		SLOT_ACT_SEED = 11,
+		SLOT_ACT_WAKE_RESET = 12,
+		SLOT_LIST_RESET = 13,
+		SLOT_LIST_APPEND = 14,
+		SLOT_LIST_ARGS = 15,
+		SLOT_STEP_DT = 16,
+		SLOT_COUNT = 17,
 	};
 
 	// How a reduce row's workgroup partials combine. LAReduceRecords owns the op table; this is the
@@ -65,10 +63,15 @@ public:
 			int p_cc, int p_groups, const Callable &p_probe);
 
 	void setup_transport(const Dictionary &p_plan);
-	int64_t run_transport(int64_t p_cl, const PackedInt32Array &p_peaks, const Array &p_pc_rows,
-			const Array &p_pc_grain, const Array &p_pc_lists, int p_seed_workgroups,
-			int p_list_workgroups, const Dictionary &p_restate);
-	void build_levels(int64_t p_cl, int p_group, const Array &p_pc_rows, int p_levels);
+	int64_t run_transport(int64_t p_cl, const Array &p_pc_rows, const Array &p_pc_grain,
+			const Array &p_pc_lists, int p_seed_workgroups, int p_list_workgroups,
+			const Dictionary &p_restate, const PackedByteArray &p_hz_pc);
+	// The last acoustic solve's residual over its own source, and the iterations it took.
+	Dictionary acoustic_reading() const;
+	// THE STEP THE LISTED CELLS AFFORD, seconds: every row states what its own cells can be
+	// integrated over, reduced into p_dt_buf on the device, and the shortest is read back here.
+	double step_seconds(const RID &p_dt_buf, const Array &p_pc_rows, const Array &p_pc_grain,
+			int p_seed_workgroups);
 
 	Dictionary fold_reduce(const RID &p_partials, const PackedInt32Array &p_folds,
 			const PackedStringArray &p_keys, int p_groups);
@@ -88,13 +91,26 @@ private:
 	RID _wake_args;
 	RID _grain_set;
 	Array _list_sets;
-	int _queue_bin = 0;
+	// The acoustic solve's own pipeline and uniform set: one assemble dispatch between the face
+	// predictor and the momentum close, with the solve itself outside any compute list.
+	RID _hz_pipe;
+	RID _hz_set;
+	RID _hz_comp;
+	RID _hz_cond;
+	RID _hz_rhs;
+	RID _hz_p;
+	RID _slot_off;
+	RID _nbr;
+	int _cc = 0;
+	double _hz_tol = 0.0;
+	int _hz_max_iter = 0;
+	double _hz_dt_s = 0.0;
+	float _hz_dt_s_f = 0.0f;
+	double _hz_residual = 0.0;
+	int _hz_iterations = 0;
 	int _slots = 0;
 	int _group_count = 1;
 	int _flush_every = 4096;
-	int _level_off = 0;
-	int _k_off = 0;
-	int _n_off = 0;
 	int _recorded = 0;
 
 	PackedByteArray _scratch;
@@ -107,22 +123,20 @@ private:
 	int _eos_base_off = -1;
 	int _eos_total = 0;
 
-	int _args_offset(int p_group, int p_bin) const;
-	// Copies one block into the scratch and writes this substep's level, index and count into it.
-	const PackedByteArray &_block(const Array &p_table, int p_slot, int p_level, int p_k, int p_n);
+	int _args_offset(int p_group) const;
+	const PackedByteArray &_block(const Array &p_table, int p_slot);
 	void _fire(int64_t p_cl, const RID &p_uset, const PackedByteArray &p_pc, const RID &p_args,
 			int p_offset);
 	void _fire_on(int64_t p_cl, const RID &p_pipe, const RID &p_uset, const PackedByteArray &p_pc,
 			const RID &p_args, int p_offset);
-	void _restate(int64_t p_cl, int p_group, int p_level);
-	void _act(int64_t p_cl, const RID &p_uset, const Array &p_table, int p_slot, int p_group,
-			int p_level, int p_bin);
+	void _restate(int64_t p_cl, int p_group);
+	void _act(int64_t p_cl, const RID &p_uset, const Array &p_table, int p_slot, int p_group);
 	void _rebuild_active(int64_t p_cl, const RID &p_uset, const Array &p_table, int p_group,
-			int p_level, bool p_take_wake);
-	void _run_row(int64_t p_cl, int p_row, const Array &p_pc_rows, int p_level, int p_k, int p_n);
-	void _run_slot(int64_t p_cl, int p_row, const Array &p_pc_rows, int p_slot, int p_level, int p_k,
-			int p_n);
+			bool p_take_wake);
+	void _run_row(int64_t p_cl, int p_row, const Array &p_pc_rows);
+	void _run_slot(int64_t p_cl, int p_row, const Array &p_pc_rows, int p_slot);
 	int64_t _flush(int64_t p_cl);
+	void _solve_acoustic();
 };
 
 } // namespace godot

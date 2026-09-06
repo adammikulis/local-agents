@@ -132,11 +132,11 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
 ## B. The substrate's state
 
 - [ ] **The interesting geology is slower than the clock by ten orders of magnitude.** Mantle convection,
-      ore concentration and atmospheric evolution run over 10^6–10^9 years against one
-      `SIM_SECONDS_PER_STEP`. Real Earth system models split the timescales — atmosphere and ocean on a
-      short step, ice and geology on a long one, coupled asynchronously — which keeps every equation and
-      dependency intact and changes only the cadence. `LATemporalLevels` subdivides a cell's own timestep
-      DOWNWARD; the long band is the other direction and nothing carries it.
+      ore concentration and atmospheric evolution run over 10^6–10^9 years against one advective field
+      step. Real Earth system models split the timescales — atmosphere and ocean on a short step, ice and
+      geology on a long one, coupled asynchronously — which keeps every equation and dependency intact and
+      changes only the cadence. The field step is the shortest thing the state affords; the long band is
+      the other direction and nothing carries it.
       **STEPPING A SLOW PROCESS WITH A LONGER dt IS THE FIX; SKIPPING ITS STEP IS NOT, AND THE DIFFERENCE
       IS THE WHOLE ITEM.** A skipped step of an integrating quantity is a permanent offset, not a
       transient. A band that runs every N steps must integrate `N * dt` and book what it moved over that

@@ -13,6 +13,7 @@ const STEPS_PER_TICK_MAX: int = 8
 static var _active: LASimLoop = null
 
 var _step: int = 0
+var _elapsed_s: float = 0.0        # the derived step lengths actually taken, summed
 var _tick: int = 0
 var _holds: int = 0
 var _steps_per_tick: int = 1
@@ -31,14 +32,14 @@ func _exit_tree() -> void:
 		_active = null
 
 
-## Simulated seconds one step represents.
+## Simulated seconds the step now running represents.
 static func step_seconds() -> float:
-	return LAMaterialFieldSphereStep3D.SIM_SECONDS_PER_STEP
+	return LAMaterialFieldSphereStep3D.seconds_per_step()
 
 
 ## Simulated seconds since the world was sealed.
 func elapsed_s() -> float:
-	return float(_step) * step_seconds()
+	return _elapsed_s
 
 
 func step_index() -> int:
@@ -63,9 +64,9 @@ func steps_per_tick() -> int:
 	return _steps_per_tick
 
 
-## Restore the step count from a save. Simulated seconds are the serialised form.
+## Restore the elapsed time from a save. Simulated seconds are the serialised form.
 func restore_elapsed_s(seconds: float) -> void:
-	_step = int(maxf(0.0, seconds) / step_seconds())
+	_elapsed_s = maxf(0.0, seconds)
 
 
 func _physics_process(_delta: float) -> void:
@@ -77,5 +78,6 @@ func _physics_process(_delta: float) -> void:
 		_step += 1
 		# Published BEFORE the step runs: a module sampling mid-step reads the time of the step it is in.
 		LASimReport.gauge("sim_steps", float(_step))
-		LASimReport.gauge("field_sim_s", elapsed_s())
+		LASimReport.gauge("field_sim_s", _elapsed_s)
 		stepped.emit(_step)
+		_elapsed_s += step_seconds()      # the length that step derived as it ran

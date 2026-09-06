@@ -4,7 +4,7 @@ extends VBoxContainer
 ## What this world is running and what it costs: the rung it declared, the milliseconds one field step
 ## took, and how many temporal levels the transport rows asked for. Read off the report, never computed.
 
-const ROWS: Array = [["Rung", ""], ["Step", "field_ms"], ["Levels", "transport_levels"]]
+const ROWS: Array = [["Rung", ""], ["Step", "field_ms"], ["Step s", "field_dt_s"]]
 
 var _values: Dictionary
 
@@ -34,7 +34,7 @@ func refresh() -> void:
 	var snap: Dictionary = LASimReport.snapshot(true)
 	var gauges: Dictionary = snap.get("gauges", {})
 	(_values["Step"] as Label).text = _gauge(gauges, "field_ms", "%.1f ms")
-	(_values["Levels"] as Label).text = _gauge(gauges, "transport_levels", "%.0f")
+	(_values["Step s"] as Label).text = _gauge(gauges, "field_dt_s", "%.3f")
 
 
 ## A gauge the run never published is absent, and an absent reading is an em dash, never a zero.

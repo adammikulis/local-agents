@@ -35,7 +35,7 @@ if MODE:
         after[0] += q
         after[-1] -= q
         cols.append({"porosity": phi, "grain_m": dia, "solid": 1.0,
-                     "pore_before": before, "pore_after": after, "claim": 2, "tlevel": 0})
+                     "pore_before": before, "pore_after": after, "claim": 2})
     d = {"cell_m": DZ0, "g": G0, "dt_s": DT0, "full_h2o_mol_m3": FULL, "kozeny_carman_c": KC,
          "water_rho_kg_m3": RHO_W, "columns": cols}
 else:
@@ -70,10 +70,9 @@ for c in d["columns"]:
                          "%.6g and edge %.6g, not what the closed form was computed from."
                          % (phi, c["porosity_read"], c["grain_read"], c["cement_read"],
                             c["g_rest_y"], c["edge"]))
-        if c["claim"] != 2 or c["tlevel"] != 0:
+        if c["claim"] != 2:
             fails.append("phi %.2f: the column's cells are not in the record's own dispatch list "
-                         "(claim %d, level %d), so the row was never asked to move anything."
-                         % (phi, c["claim"], c["tlevel"]))
+                         "(claim %d), so the row was never asked to move anything." % (phi, c["claim"]))
     if rel > BOUND:
         fails.append("phi %.2f d %.0e: the saturated column should pass %.6g mol/m^3 in one step at "
                      "K = %.4g m/s; the bottom cell gained %.6g and the top lost %.6g."

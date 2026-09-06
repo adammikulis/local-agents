@@ -110,19 +110,22 @@ for fn in LB.pass_files():
     if not sets:
         continue
     kernel = LB.pass_kernel(fn)
-    if kernel is None or isinstance(kernel, list):
-        print("check_binding_collisions: %s builds a uniform set but names %s kernels — the gate cannot "
-              "tell which kernel its slots must exist in."
-              % (fn, "no" if kernel is None else len(kernel)), file=sys.stderr)
+    loaded = set([kernel] if isinstance(kernel, str) else (kernel or []))
+    if not loaded:
+        print("check_binding_collisions: %s builds a uniform set and loads no kernel — the gate cannot "
+              "tell which kernel its slots must exist in." % fn, file=sys.stderr)
         sys.exit(2)
+    loop_filled = set(LB.pass_looped(fn, classes))
     for named, own in sets:
-        if named != kernel:
+        if named not in loaded:
             bad.append("%s loads %s and calls set_for(\"%s\") — it would bind another kernel's slots"
-                       % (fn, kernel, named))
+                       % (fn, ", ".join(sorted(loaded)), named))
             continue
         scanned += len(own)
-        for name in sorted(set(own) - set(unit[kernel])):
-            bad.append("%s supplies \"%s\" to %s, which never declares it" % (fn, name, kernel))
+        # A slot filled by walking a const list names no kernel; it is supplied to whichever of the
+        # pass's kernels declares it, so only what the literal dictionary names is checked here.
+        for name in sorted(set(own) - set(unit[named]) - loop_filled):
+            bad.append("%s supplies \"%s\" to %s, which never declares it" % (fn, name, named))
 
 if unresolved:
     print("check_binding_collisions: a uniform set the gate cannot read is a set it cannot check.",

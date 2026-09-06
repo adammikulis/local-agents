@@ -3,11 +3,17 @@ extends RefCounted
 
 ## ONE field step per call. LASimLoop drives it; nothing here reads a frame delta or banks time.
 
-# Simulated seconds ONE field step represents. Gated by scripts/check_step_quantum.sh.
-const SIM_SECONDS_PER_STEP: float = 43.2
+## The Courant number one field step may reach; generated.glsli emits it for the kernels.
+const COURANT: float = 0.5
+## Simulated seconds ONE field step represents, DERIVED from the state the step opens in. Zero in a
+## world whose processes take no time at all. Gated by scripts/check_step_quantum.sh.
+static var _dt_s: float = 0.0
 
-static func real_seconds_per_step() -> float:
-	return SIM_SECONDS_PER_STEP
+static func seconds_per_step() -> float:
+	return _dt_s
+
+static func publish_step_seconds(dt: float) -> void:
+	_dt_s = dt
 
 
 const MineralProfileScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldMineralProfile3D.gd")
@@ -167,11 +173,21 @@ func _seed_under_gravity() -> void:
 	LAFieldHydrosphereSeed.seed(_f)   # the body's own water, in its basins and its pores
 
 
-## ONE step: SIM_SECONDS_PER_STEP of simulated time. Every per-step term happens once here, so a
+## THE STEP THE BOX ITSELF AFFORDS, seconds: a body released from rest crosses the finest cell in
+## sqrt(2 L / g). 0 where nothing pulls, which FluxPass then reads as no bound of its own.
+func _fall_step_seconds() -> float:
+	var g: LAVoxelGrid = _f._grid
+	var gm: float = LABallistics.max_surface_gravity()
+	var edge: float = 0.0 if g == null else g.cell_size * pow(0.5, float(g.max_level))
+	return 0.0 if gm <= 0.0 or edge <= 0.0 else sqrt(2.0 * COURANT * edge / gm)
+
+
+## ONE step: the derived quantum of simulated time. Every per-step term happens once here, so a
 ## step's books cannot be split across a frame boundary.
 func step() -> void:
 	if not _f._ready_sim or not _f._use_gpu:
 		return
+	publish_step_seconds(_fall_step_seconds())   # FluxPass takes the shorter of this and its cells'
 	# Refresh the body rotation FIRST: everything below that converts a position or a direction reads it.
 	_f.sync_body_frame()
 	LASimReport.event("field_step")   # telemetry: field steps per run, moving or at rest

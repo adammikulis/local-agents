@@ -27,7 +27,7 @@ func _extent(rec: Dictionary, t_c: float, fuel: float, o2: float) -> float:
 	if ceiling > 0.0:
 		t_k = minf(t_k, ceiling)
 	var t_ref: float = maxf(float(rec.get("param2", 1.0)), 1.0)
-	var k: float = float(rec.get("rate_k", 0.0)) * LAMaterialFieldSphereStep3D.real_seconds_per_step()
+	var k: float = float(rec.get("rate_k", 0.0)) * LAMaterialFieldSphereStep3D.seconds_per_step()
 	var x: float = k * fuel * o2 \
 		* exp(-float(rec.get("threshold", 0.0)) * (1.0 / maxf(t_k, 1.0) - 1.0 / t_ref))
 	var quench_slot: int = int(rec.get("quench_slot", -1))

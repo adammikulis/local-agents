@@ -200,6 +200,18 @@ def _braced(src, start):
 LOOP_KEY = re.compile(r"^\s*\w+\[\s*(\w+)\[[^\]]*\]\s*\]\s*=", re.M)
 
 
+def pass_looped(fn, classes):
+    """Slots a pass fills by walking a const list. The loop names no kernel, so a slot in it is
+    supplied to whichever of the pass's kernels declares it."""
+    src = read(os.path.join(PASSES, fn))
+    out = []
+    for const in LOOP_KEY.findall(src):
+        got = _const_list(src, const, classes)
+        if got is not None:
+            out += got
+    return sorted(set(out))
+
+
 def pass_sets(fn, classes):
     """[(kernel, [slot the pass supplies itself, ...]), ...], and unreadable calls."""
     src = read(os.path.join(PASSES, fn))

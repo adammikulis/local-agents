@@ -50,9 +50,9 @@ var _rad_mixes: Array = []
 ## Device-read only, so this pass's own rather than drained LAChannels.derived_buffers() entries.
 func _buffers(cc: int) -> Dictionary:
 	# The four entry-heat buffers carry ghost tails: transport's pass 0 reads them for ghost donors.
-	# The temporal levels come with the derive rather than with transport: the restate walks the same
-	# sorted list, and this pass runs at rungs below the one that moves anything.
-	return LATemporalLevels.buffers(cc + ghost_count, FluxPassScript.group_count()).merged({"speed": cc,
+	# The active lists come with the derive rather than with transport: the restate walks the same
+	# list, and this pass runs at rungs below the one that moves anything.
+	return LAActiveCells.buffers(cc + ghost_count, FluxPassScript.group_count()).merged({"speed": cc,
 		"lat": cc, "alt": cc, "nonfinite": cc, "mom_orphan": cc, "unconverged": cc,
 		"h_h2o": {"n": cc, "ghosts": true}, "h_h2o_vap": {"n": cc, "ghosts": true}, "h_silicate": {"n": cc, "ghosts": true},
 		"h_sensible": {"n": cc, "ghosts": true}, "cap_sensible": {"n": cc, "ghosts": true},
@@ -96,7 +96,7 @@ func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: i
 	pc.resize(PC_BYTES)
 	pc.encode_u32(PC_LITHIFY, 1 if LAProcessSet.has_record("derive", "lithify") else 0)
 	pc.encode_u32(0, cc)
-	pc.encode_float(4, LAMaterialFieldSphereStep3D.real_seconds_per_step())
+	pc.encode_float(4, LAMaterialFieldSphereStep3D.seconds_per_step())
 	pc.encode_float(8, w.x)
 	pc.encode_float(12, w.y)
 	pc.encode_float(16, w.z)

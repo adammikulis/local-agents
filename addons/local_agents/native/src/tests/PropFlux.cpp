@@ -18,7 +18,7 @@ constexpr uint32_t kNz = 5;
 constexpr float kEdgeM = 200.0f;
 constexpr uint32_t kWords = 16384;
 
-// flux.glsl's own pass tags, and active_levels.glsli's "no second group".
+// flux.glsl's own pass tags, and active_cells.glsli's "no second group".
 constexpr uint32_t kPassFlux = 0;
 constexpr uint32_t kPassFace = 7;
 constexpr uint32_t kActNoGroup = ~0u;
@@ -213,7 +213,7 @@ void load_world(Rig &rig, const Lattice &lat, Rng &rng, float spread, float g_ma
 	// EVERY CELL AWAKE AND LISTED, on one temporal level: the whole box steps together.
 	rig.zero(LA_BIND_TLEVEL);
 	rig.zero(LA_BIND_ACT_QUIET);
-	rig.fill(LA_BIND_ACT_CLAIM, uint32_t(2)); // active_levels.glsli CLAIM_LISTED
+	rig.fill(LA_BIND_ACT_CLAIM, uint32_t(2)); // active_cells.glsli CLAIM_LISTED
 	rig.zero(LA_BIND_LEVEL_ARGS);
 	rig.zero(LA_BIND_LEVEL_IDX);
 	rig.zero(LA_BIND_LEVEL_PEAK);

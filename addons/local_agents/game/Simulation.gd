@@ -219,7 +219,7 @@ func set_probe_flags(overview: bool, farview: bool, auto_meteor: bool, auto_sele
 ## ONE simulated step: the clock, the orbit, the spin and the spawn probe. `dt` is a fixed quantum of
 ## SIMULATED seconds, so the orbit and the rotation advance by real physics rather than by a frame period.
 func _on_step(_step: int) -> void:
-	var dt: float = LAMaterialFieldSphereStep3D.SIM_SECONDS_PER_STEP
+	var dt: float = LAMaterialFieldSphereStep3D.seconds_per_step()
 	_clock.advance()
 	var spin: float = _body.angular_velocity_rad_s()
 	if _spawn.is_spawned() and is_finite(spin):

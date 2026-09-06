@@ -40,6 +40,7 @@ if [[ $EMIT -eq 0 && ! -f "$REGISTRY" ]]; then
   exit 2
 fi
 
+# generated.glsli is out: it is emitted from GDScript consts this scan already reads.
 # `find`, not a glob: bash 3.2 ships without globstar, so `**/*.gd` silently collapses to ONE directory
 # level and everything under sim/material/sphere_passes/ goes unscanned. That is where AtmospherePass.gd
 # declares the second air density, i.e. the exact defect this gate was widened to catch.
@@ -49,7 +50,7 @@ while IFS= read -r f; do
   skip=0
   for a in $AUTHORITY_FILES; do [[ "$base" == "$a" ]] && skip=1; done
   [[ $skip -eq 0 ]] && scanned+=("$f")
-done < <(find "$KERNEL_DIR" -type f \( -name '*.glsl' -o -name '*.glsli' \) -print; find "$SIM_DIR" -type f -name '*.gd' -print; find "$EXT_DIR" -type f \( -name '*.cpp' -o -name '*.hpp' \) -print)
+done < <(find "$KERNEL_DIR" -type f \( -name '*.glsl' -o -name '*.glsli' \) ! -name 'generated.glsli' -print; find "$SIM_DIR" -type f -name '*.gd' -print; find "$EXT_DIR" -type f \( -name '*.cpp' -o -name '*.hpp' \) -print)
 
 if [[ ${#scanned[@]} -eq 0 ]]; then
   echo "ERROR: zero files to scan — refusing to report a pass on an empty comparison." >&2

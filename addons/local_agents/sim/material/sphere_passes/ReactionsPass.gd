@@ -10,6 +10,10 @@ const MOVES_STATE: bool = true   # reactions transform matter and energy
 var _pipe: RID = RID()
 var _n_records: int = 0
 var _set: RID = RID()
+## The table as the kernel reads it, and the step its per-second rates were folded against.
+var _defs_rid: RID = RID()
+var _records: Array = []
+var _folded_dt_s: float = 0.0
 
 
 func _setup(bufs: Dictionary, cc: int) -> void:
@@ -30,7 +34,9 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 			% [recs.size(), LAReactionDefs.MAX_RECORDS] + "LAReactionDefs and regenerate.")
 		return
 	_n_records = recs.size()
+	_records = recs
 	var defs_ssbo: RID = _storage_buffer(LAReactionDefs.serialize(recs))
+	_defs_rid = defs_ssbo
 
 	# Transport ran before this pass in the same submit, with a barrier between them, so every amount here
 	# is what transport left. A reaction is same-cell, so it edits that amount in place.
@@ -41,6 +47,12 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:
 	if not _dispatchable() or _n_records <= 0 or not _set.is_valid():
 		return
+	# The rates are folded against the step they run over, and the step moves.
+	var dt_s: float = _ctx_num(ctx, "dt_s")
+	if dt_s != _folded_dt_s and _defs_rid.is_valid():
+		var bytes: PackedByteArray = LAReactionDefs.serialize(_records)
+		_rd.buffer_update(_defs_rid, 0, bytes.size(), bytes)
+		_folded_dt_s = dt_s
 	# The solar kernel and the reaction engine must see the IDENTICAL sun, magnitude included: it carries
 	# orbit-distance squared times atmospheric transmission, so what dims the sky suppresses photosynthesis
 	# directly rather than second-hand through cooling.

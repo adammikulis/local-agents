@@ -8,7 +8,6 @@ signal day_advanced(day: int)
 
 static var _active: LASimClock = null
 
-var _step: int = 0            # THE counter. Every time reading below derives from it.
 var _day: int = 0             # cached int(elapsed() / day_length()), so a rollover is one compare per step
 var _body = null              # LAPlanetBody: a day is ITS rotation period, measured
 
@@ -55,7 +54,6 @@ func _exit_tree() -> void:
 
 ## One simulated step. Driven by LASimLoop and by nothing else.
 func advance() -> void:
-	_step += 1
 	var len_s: float = day_length()
 	if not is_finite(len_s):
 		return
@@ -65,13 +63,15 @@ func advance() -> void:
 		day_advanced.emit(d)
 
 
-## Simulated seconds since the world was sealed.
+## Simulated seconds since the world was sealed. LASimLoop counts them; nothing here restates one.
 func elapsed() -> float:
-	return float(_step) * LAMaterialFieldSphereStep3D.SIM_SECONDS_PER_STEP
+	var loop: LASimLoop = LASimLoop.active()
+	return loop.elapsed_s() if loop != null else 0.0
 
 
 func steps() -> int:
-	return _step
+	var loop: LASimLoop = LASimLoop.active()
+	return loop.step_index() if loop != null else 0
 
 
 func day() -> int:
@@ -93,11 +93,8 @@ func restore(data: Dictionary) -> void:
 	if not is_finite(seconds):
 		push_error("LASimClock.restore: elapsed is %s. A clock is not restored to a time nobody has." % seconds)
 		return
-	# NEAREST step, not the one below: truncating biases every restore backwards by up to a whole step,
-	# which lands the calendar on the day before whenever the save sits near a day boundary.
-	_step = roundi(maxf(0.0, seconds) / LAMaterialFieldSphereStep3D.SIM_SECONDS_PER_STEP)
-	var len_s: float = day_length()
-	_day = 0 if not is_finite(len_s) else int(elapsed() / len_s)
 	var loop: LASimLoop = LASimLoop.active()
 	if loop != null:
-		loop.restore_elapsed_s(elapsed())
+		loop.restore_elapsed_s(seconds)
+	var len_s: float = day_length()
+	_day = 0 if not is_finite(len_s) else int(elapsed() / len_s)

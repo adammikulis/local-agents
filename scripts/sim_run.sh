@@ -44,7 +44,7 @@ FROM_SEAL=1
 # The default slice box, declared HERE and nowhere else: ox,oy,oz,nx,ny,nz,cell_m,fine_m. `site=coast`
 # is resolved by the world against its own terrain. A 15 km footprint, a 123 km column, 10 m at the ground.
 DEFAULT_SLICE_BOX="0,site=coast,0,3,24,3,5120,10"
-REPORT_KEYS="conservation,conservation_failed,conservation_audited,energy_run_drift,energy_held_first,energy_residual,energy_booked,o2_first,o2_total,mineral_first,mineral_total,h2o_first,h2o_total,element_C_total_first,element_C_total,temp_ground_mean,phenomena_kinds,field_ms,transport_levels"
+REPORT_KEYS="conservation,conservation_failed,conservation_audited,energy_run_drift,energy_held_first,energy_residual,energy_booked,o2_first,o2_total,mineral_first,mineral_total,h2o_first,h2o_total,element_C_total_first,element_C_total,temp_ground_mean,phenomena_kinds,field_ms,field_dt_s"
 EXTRA=()
 
 while [ $# -gt 0 ]; do

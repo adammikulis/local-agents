@@ -166,7 +166,7 @@ func _init() -> void:
 	p.face_count = grid.neighbours.size()
 	var want: Dictionary = p._buffers(_cc)
 	# The temporal levels a world gets from StateDerivePass; this rig runs the transport pass alone.
-	want.merge(LATemporalLevels.buffers(_cc, p.group_count()))
+	want.merge(LAActiveCells.buffers(_cc, p.group_count()))
 	for key in want:
 		var spec: Variant = want[key]
 		var n: int = int(spec["n"]) if spec is Dictionary else int(spec)

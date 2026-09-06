@@ -43,7 +43,7 @@ func _init() -> void:
 		printerr("bench_darcy: " + rig.error)
 		quit(2)
 		return
-	rig.add_levels(flux.group_count())
+	rig.add_active_lists(flux.group_count())
 
 	var cc: int = rig.cell_count
 	var g_vec: PackedFloat32Array = rig.filled(cc * 3, 0.0)
@@ -100,7 +100,6 @@ func _init() -> void:
 		flux.wake_all()
 	var after: PackedFloat32Array = rig.read("h2o_pore")
 	var claim: PackedInt32Array = rig.rd.buffer_get_data(rig.bufs["act_claim"]).to_int32_array()
-	var level: PackedInt32Array = rig.rd.buffer_get_data(rig.bufs["tlevel"]).to_int32_array()
 
 	var cols: Array = []
 	for x in NX:
@@ -114,7 +113,6 @@ func _init() -> void:
 			"solid": float(solid[rig.grid.index(x, 0, 0)]),
 			"pore_before": col_before, "pore_after": col_after,
 			"claim": int(claim[rig.grid.index(x, 0, 0)]),
-			"tlevel": int(level[rig.grid.index(x, 0, 0)]),
 			"g_rest_y": float(rig.read("g_rest")[rig.grid.index(x, 1, 0) * 3 + 1]),
 			"porosity_read": float(rig.read("porosity")[rig.grid.index(x, 1, 0)]),
 			"grain_read": float(rig.read("grain")[rig.grid.index(x, 1, 0)]),

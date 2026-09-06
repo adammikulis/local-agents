@@ -3,24 +3,28 @@ extends RefCounted
 
 ## BUBBLES OF COMPUTE. A cell is stepped while matter crosses it and sleeps when none has.
 
-## Substeps without a crossing before a cell stops donating. docs/MODEL_PARAMETERS.md carries why.
-const QUIET_SUBSTEPS: int = 2
+## Steps without a crossing before a cell stops donating. docs/MODEL_PARAMETERS.md carries why.
+const QUIET_STEPS: int = 2
 
-## The bin past the levels, holding the compaction queue's own length and dispatch.
-const QUEUE_BIN: int = LATemporalLevels.BINS
+## Slots per row group in the args buffer: FluxPass.Arg.
+const SLOTS: int = 8
 
 const KEYS: Dictionary = {"quiet": "act_quiet", "claim": "act_claim", "queue": "act_queue",
-	"wake": "act_wake", "wake_args": "act_wake_args"}
+	"wake": "act_wake", "wake_args": "act_wake_args", "idx": "act_idx", "args": "act_args",
+	"step_dt": "step_dt"}
 
 
-## Driver-owned: a quiet counter per cell per row group, the compaction's claim and queue, and the
-## cells another kernel changed, with their own indirect args.
+## Driver-owned: ONE ACTIVE LIST PER ROW GROUP with its own indirect args and the step its cells
+## afford, a quiet counter per cell per group, the claim and queue, and the wake another kernel fills.
 static func buffers(total: int, group_count: int) -> Dictionary:
-	return {KEYS.quiet: total * maxi(group_count, 1), KEYS.claim: total, KEYS.queue: total,
+	var g: int = maxi(group_count, 1)
+	return {KEYS.quiet: total * g, KEYS.claim: total, KEYS.queue: total,
+		KEYS.idx: total * g, KEYS.step_dt: g,
+		KEYS.args: {"n": SLOTS * g, "indirect": true},
 		KEYS.wake: total,
-		KEYS.wake_args: {"n": LATemporalLevels.SLOTS, "indirect": true}}
+		KEYS.wake_args: {"n": SLOTS, "indirect": true}}
 
 
-## Byte offset of one group's bin in the per-level args buffer.
-static func args_offset(group: int, bin: int) -> int:
-	return (group * (QUEUE_BIN + 1) + bin) * LATemporalLevels.SLOTS * 4
+## Byte offset of one group's block in the args buffer.
+static func args_offset(group: int) -> int:
+	return group * SLOTS * 4
