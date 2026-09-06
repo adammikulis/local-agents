@@ -831,6 +831,7 @@ void main() {
 		// THE ROOM'S OWN STARTING ITERATE, the cell less its lattice: what the fluid's condensed phases
 		// take out of it is what the loop below settles. Never carried from another pressure.
 		room_gas = max(vol - lat_vol, 0.0);
+		float room_prev = -1.0;
 		// The free water's own squeeze here: the strain is a function of p, so the room loop re-reads it.
 		float f_bm_liq = la_bm_strain(p_pa - LA_P_STD, 1.0 / WATER_COMPRESS, WATER_KPRIME);
 		float f_bm_ice = la_bm_strain(p_pa - LA_P_STD, ICE_BULK, ICE_KPRIME);
@@ -874,8 +875,11 @@ void main() {
 			c_comp = (cv.c0 + t_c * cv.c1 - cv.c2) + cw;
 			float room_next = max(vol - b_vol, 0.0);
 			// The gas pressure is n R T over this room, so the room settles to the pressure's own
-			// tolerance, or to float precision where the room is gone.
-			settled = abs(room_next - room_gas) <= max(LA_STATE_TOL * room_gas, 2.0 * LA_FLOAT_EPS * vol);
+			// tolerance -- or, where it is a difference of volumes of the CELL's order and resolves no
+			// finer than they do, to the float32 fixed point or two-cycle the iteration lands in.
+			settled = abs(room_next - room_gas) <= LA_STATE_TOL * room_gas
+				|| room_next == room_gas || room_next == room_prev;
+			room_prev = room_gas;
 			room_gas = room_next;
 			if (settled) {
 				break;
