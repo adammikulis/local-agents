@@ -86,6 +86,12 @@ static func centre(field) -> Vector3:
 	return grid.origin + 0.5 * grid.cell_size * Vector3(grid.nx, grid.ny, grid.nz)
 
 
+## A BODY-FRAME DIRECTION INTO THE PART OF THE BODY THIS FIELD STEPS: the one its box stands on. Zero
+## when the box is centred on the body, which holds every direction already.
+static func field_dir(field) -> Vector3:
+	return field._slice.offset.normalized() if field != null and field._slice != null else Vector3.ZERO
+
+
 ## Distance of a cell's centre from the body centre, model units.
 static func radius_of(field, c: int) -> float:
 	if field == null or field._grid == null:

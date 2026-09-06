@@ -15,7 +15,7 @@ question, which nothing could previously ask: should this be a number at all, an
 Every row names what would have to exist for the number to stop being needed. A row that never acquires
 that field is a value nobody intends to fix.
 
-**MAX_DECLARED: 223**
+**MAX_DECLARED: 220**
 
 The gate fails if the table grows past that ceiling. To add a number, derive it, bind it, or raise the
 ceiling in the same commit and argue for it in the message. When the count drops, lower the ceiling to bank
@@ -55,7 +55,6 @@ and 1 nC/m^3/s is the top of the lab-constrained range.
 | file | constant | value | why it is not physics | what deletes it |
 |---|---|---|---|---|
 | `addons/local_agents/sim/material/kernels3d/state_derive.glsl` | `LA_STATE_TOL` | 1.0e-6 | the relative move below which the (T, p) solve has stopped, which is float32's own resolution on a pressure, not a property of matter | a direct solve of the pair, which needs no stopping rule |
-| `addons/local_agents/sim/material/PhysicalConstants.gd` | `AIR_MASS_HORIZON` | 38.0 | empirical airmass cutoff at the horizon, an approximation to the Chapman function, not a measured quantity | use the Chapman function, or cite the approximation and its error |
 | `addons/local_agents/sim/material/PhysicalConstants.gd` | `NIC_CHARGE_RATE_C_M3_S` | 1.0e-9 | bulk stand-in for a collision process whose microphysics this grid cannot resolve; the top of the lab-constrained 0.1-1 nC/m^3/s range | hydrometeor size distributions in the substrate, at which point the rate is computed rather than chosen |
 | `addons/local_agents/sim/material/PhysicalConstants.gd` | `CONVECTIVE_UPDRAFT_M_S` | 10.0 | the updraft at which the charging rate is taken to saturate; observed mature-cell updrafts span 5-25 m/s and one had to be picked | same as above: with real collision kinetics the updraft enters through fall speed, not through a reference value |
 | `addons/local_agents/sim/material/PhysicalConstants.gd` | `CHARGING_LWC_KG_M3` | 1.0e-3 | the cloud liquid water content at which the riming rate is taken to saturate; lab rates climb over 0.1-2 g/m^3 | same as above |
@@ -262,7 +261,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/reactions/CombustionRecords.gd` | `PYROLYSIS_REF_TEMP_K` | 600.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionBalance.gd` | `TOL` | 1.0e-6 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldAtmos3D.gd` | `CLOUD_WATER_CRIT_KG_KG` | 0.5e-3 | Kessler (1969) q_crit | deleted when condensation is a reaction record and the detector reads the record |
-| `addons/local_agents/game/render/WaterSurfaceMesh.gd` | `SEA_BIAS` | 0.4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `ALOFT_CELLS` | 2.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `UPDRAFT_SAMPLE_M` | 40.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldAtmos3D.gd` | `CLOUD_BASE_ALT` | 62.0 | a renderer band radius, not a measured cloud base | Stage 2 substrate rewrite |
@@ -277,7 +275,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/game/render/WaterParticles.gd` | `CAP_ANGLE` | 1.4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldConservation3D.gd` | `REFERENCE_STEPS` | 600 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `CAP_ANGLE` | 0.8 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `FAR_ALT` | 130.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `REBUILD_PERIOD` | 0.22 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `RECENTER_DOT` | 0.999 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `RIPPLE_MAX` | 16 | presentation or diagnostic buffer length, not physics | not owed: presentation may choose numbers, but it may not write the field |

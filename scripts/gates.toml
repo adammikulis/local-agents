@@ -703,6 +703,7 @@ name = "check_slice_exterior"
 script = "scripts/check_slice_exterior.sh"
 kind = "gpu"
 marker = "^check_slice_exterior: OK"
+mutation = "python3 -c \"p='addons/local_agents/sim/material/FieldSlice3D.gd'; s=open(p).read(); open(p,'w').write(s.replace('return LAFieldGeometry.slot_toward(offset)','return LAFieldGeometry.slot_toward(-offset)'))\""
 
 [[gate]]
 name = "check_ground_drawn"
@@ -717,6 +718,20 @@ kind = "gpu"
 needs = ["import"]
 marker = "^check_meteor_offer: OK"
 mutation = "python3 -c \"p='addons/local_agents/game/ui/WorldOffers.gd'; s=open(p).read(); open(p,'w').write(s.replace('return impacts_missing().is_empty()','return true'))\""
+
+[[gate]]
+name = "check_slice_site"
+script = "scripts/check_slice_site.sh"
+kind = "gpu"
+marker = "^check_slice_site: OK"
+mutation = "python3 -c \"p='scripts/sim_run.sh'; s=open(p).read(); open(p,'w').write(s.replace('0,site=coast,0','0,surface,0'))\""
+
+[[gate]]
+name = "check_shot_look"
+script = "scripts/check_shot_look.sh"
+kind = "gpu"
+marker = "^check_shot_look: OK"
+mutation = "python3 -c \"p='addons/local_agents/sim/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); s=s.replace('ALBEDO = col;','ALBEDO = vec3(0.0);'); open(p,'w').write(s.replace('EMISSION = incandescence(temp) * 3.8;','EMISSION = vec3(0.35);'))\""
 
 [[gate]]
 name = "check_impact_books"

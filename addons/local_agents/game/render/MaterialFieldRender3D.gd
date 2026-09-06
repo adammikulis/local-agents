@@ -3,16 +3,11 @@ extends MeshInstance3D
 
 
 const RENDER_MIN: float = 0.08 * LAMaterialField3D.MAX_MASS   # min water in a cell for its top face to render
-const SEA_WAVE_EPS: float = 0.6   # calm-sea top faces within this of the sea shell are left to the ocean plane
 const WaterShader: Shader = preload("res://addons/local_agents/sim/shaders/VoxelWater.gdshader")
 const MeshBuilderScript: GDScript = preload("res://addons/local_agents/game/render/WaterSurfaceMesh.gd")
 
 const CAP_ANGLE: float = 0.8               # rebuild within this half-angle of the camera radial — a small NEAR patch
                                            # (nearly flat, so the flat Y-up shader stays correct; far sea = the sphere)
-const FAR_ALT: float = 130.0               # above this altitude (world units over sea level) the dynamic surface is
-                                           # skipped and the cheap ocean sphere shows. The flat/Y-up patch only reads
-                                           # right when you're DOWN near the water (small, ~flat cap); from any pulled-
-                                           # back view the curved cap looks blocky/weird, so hand those to the sphere.
 const MAX_MASS: float = LAMaterialField3D.MAX_MASS  # a full cell of water — for the sub-cell height fraction
 const REBUILD_PERIOD: float = 0.22         # ~4.5 Hz geometry rebuild (stale a couple frames is imperceptible)
 const RECENTER_DOT: float = 0.999          # rebuild early if the camera radial rotates past this (recentre the cap)
@@ -23,7 +18,6 @@ const RIPPLE_DECAY: float = 0.7            # amplitude e-fold time (1/s)
 var _f = null                              # LAMaterialField3D
 var _camera: Node3D = null
 var _center: Vector3 = Vector3.ZERO
-var _sea_radius: float = 0.0
 var _builder: RefCounted = null
 var _mesh: ArrayMesh = null
 var _mat: ShaderMaterial = null
@@ -33,11 +27,10 @@ var _last_radial: Vector3 = Vector3.ZERO
 var _ready: bool = false
 
 
-func setup(field, camera: Node3D, terrain, _sun, center: Vector3, sea_radius: float) -> void:
+func setup(field, camera: Node3D, terrain, _sun, center: Vector3, transparent: bool) -> void:
 	_f = field
 	_camera = camera
 	_center = center
-	_sea_radius = sea_radius
 	_builder = MeshBuilderScript.new()
 
 	_mesh = ArrayMesh.new()
@@ -47,10 +40,11 @@ func setup(field, camera: Node3D, terrain, _sun, center: Vector3, sea_radius: fl
 	# use the per-vertex CA flow. Salt/sea uniforms come later when the ocean unifies into this surface (A2).
 	_mat = ShaderMaterial.new()
 	_mat.shader = WaterShader
-	_mat.set_shader_parameter("salinity_from_vertex", 1.0)   # sea vs lake/river taken per-vertex from COLOR.a
+	# Nothing is dissolved in this world's water, so every surface draws as the fresh water it is.
+	_mat.set_shader_parameter("salinity_from_vertex", 1.0)
 	_mat.set_shader_parameter("flow_scale", 1.0)
 	_mat.set_shader_parameter("depth_influence", 0.7)        # deep sea + reasonably solid lakes; shoreline foam on
-	_mat.set_shader_parameter("base_alpha", 0.80)
+	_mat.set_shader_parameter("base_alpha", 0.80 if transparent else 1.0)
 	_mat.set_shader_parameter("ripple_speed", RIPPLE_SPEED)
 	_mat.set_shader_parameter("ripple_decay", RIPPLE_DECAY)
 	material_override = _mat
@@ -59,13 +53,6 @@ func setup(field, camera: Node3D, terrain, _sun, center: Vector3, sea_radius: fl
 	if field._inject != null and field._inject.has_signal("splashed"):
 		field._inject.splashed.connect(_on_splashed)
 	_ready = true
-
-
-## Moon-driven tide: set the sea-surface radius the near-cap mesh builds against. The next throttled rebuild
-## re-meshes the cap at the new level, so the shoreline advances/recedes with the tide for free. A scalar set
-## (no rebuild here) — driven each frame by LASystemOrbits alongside the ocean-shell tide so the two stay in step.
-func set_sea_radius(r: float) -> void:
-	_sea_radius = r
 
 
 func _on_splashed(world_pos: Vector3, strength: float) -> void:
@@ -89,15 +76,7 @@ func _process(delta: float) -> void:
 	if not _ready or _camera == null or not is_instance_valid(_camera) or _f._grid == null:
 		return
 	var cam_pos: Vector3 = _camera.global_position
-	var cam_dist: float = cam_pos.distance_to(_center)
-	var radial: Vector3 = (cam_pos - _center) / maxf(cam_dist, 0.001)
-	# FAR: from orbit/overview the flat-patch surface reads worse than the smooth ocean sphere — drop it (and the
-	# rebuild cost). Clear once, then idle until the camera descends back within FAR_ALT of sea level.
-	if cam_dist - _sea_radius > FAR_ALT:
-		if _mesh.get_surface_count() > 0:
-			_mesh.clear_surfaces()
-		return
-
+	var radial: Vector3 = (cam_pos - _center).normalized()
 	# Anchor the local patch frame so +Y == the camera radial (the flat shader's world-up assumption holds
 	# locally over the near cap). Update it every frame so the surface tracks a moving camera without a rebuild.
 	var ref: Vector3 = Vector3.FORWARD
@@ -122,8 +101,7 @@ func _process(delta: float) -> void:
 
 func _rebuild(radial: Vector3) -> void:
 	var inv_xform: Transform3D = global_transform.affine_inverse()
-	var out: Dictionary = _builder.build(_f, inv_xform, radial, cos(CAP_ANGLE),
-		RENDER_MIN, MAX_MASS, _sea_radius, SEA_WAVE_EPS)
+	var out: Dictionary = _builder.build(_f, inv_xform, radial, cos(CAP_ANGLE), RENDER_MIN, MAX_MASS)
 	if _mesh.get_surface_count() > 0:
 		_mesh.clear_surfaces()
 	if int(out["count"]) == 0 or (out["indices"] as PackedInt32Array).size() == 0:
@@ -153,11 +131,11 @@ func _age_ripples(delta: float) -> void:
 func _push_frame_uniforms(radial: Vector3) -> void:
 	if _mat == null:
 		return
-	# THE WIND OVER THIS PATCH, not a mean over the body: the cell the patch is centred on, projected
-	# into the patch's own frame, which is what the flat Y-up water shader reads. The wave dial saturates
-	# at the reference the arrow glyphs' ramp does, so one reading drives both pictures.
-	var ground: Vector3 = _center + radial * _sea_radius
-	var w3: Vector3 = _f.wind3_at(ground.x, ground.y, ground.z)
+	# THE WIND WHERE THE EYE STANDS, not a mean over the body, projected into the patch's own frame, which
+	# is what the flat Y-up water shader reads. The wave dial saturates at the reference the arrow glyphs'
+	# ramp does, so one reading drives both pictures.
+	var eye: Vector3 = _camera.global_position
+	var w3: Vector3 = _f.wind3_at(eye.x, eye.y, eye.z)
 	var local: Vector3 = global_transform.basis.inverse() * w3
 	var flat: Vector2 = Vector2(local.x, local.z)
 	var wdir: Vector2 = flat.normalized() if flat.length() > 1.0e-4 else Vector2(1.0, 0.0)

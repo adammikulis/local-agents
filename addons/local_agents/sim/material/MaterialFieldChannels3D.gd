@@ -36,16 +36,6 @@ func _airborne_at_cell(substance: String, c: int) -> float:
 	return NAN
 
 
-## Concentration of an airborne substance at a world point, in that channel's own units.
-func airborne_at(substance: String, world_pos: Vector3) -> float:
-	if _f._grid == null:
-		return 0.0
-	if _f._gpu != null:
-		_f._gpu.request_channel(substance)
-	var v: float = _airborne_at_cell(substance, _f.world_to_cell(world_pos))
-	return 0.0 if is_nan(v) else v
-
-
 ## Unit world direction UP the concentration gradient of an airborne substance — casting about for a smell.
 ## Zero where the air is uniform, which is the honest answer: there is nothing to follow.
 func airborne_gradient(substance: String, world_pos: Vector3) -> Vector3:

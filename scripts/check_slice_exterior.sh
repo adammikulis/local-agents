@@ -89,23 +89,32 @@ for k, st in faces.items():
               % (seen[sig], k), file=sys.stderr)
         fail = 1
     seen[sig] = k
-# The run above places the default box on the +Y surface, so S_NEG_Y (2) is under it and S_POS_Y (3) over
-# it, and 0/1/4/5 stand at the same depth. Pressure rises downward, so the vertical pair must separate by
-# more than the four same-depth faces separate from each other.
-if all(str(k) in faces for k in (0, 1, 2, 3, 4, 5)):
-    lo, hi = faces["2"], faces["3"]
+# WHICH FACE IS THE TOP ONE IS THE BOX'S TO SAY, not this gate's: a box standing anywhere but a pole is
+# tall along another axis, and its offset may run down that axis rather than up it. The capture names the
+# face pointing away from the centre; its opposite stands under the box. Pressure rises downward, and the
+# box is tall along that axis, so the pair must straddle more of the body's column than either other pair.
+up = int(d.get("up_slot", -1))
+if up < 0:
+    print("ERROR: the capture names no outward face for the box, so no pair can be compared.",
+          file=sys.stderr)
+    raise SystemExit(2)
+if all(str(k) in faces for k in range(6)):
+    lo, hi = faces[str(up ^ 1)], faces[str(up)]
     if lo["pressure_pa"] <= hi["pressure_pa"]:
         print("FAIL: the exterior under the box is not under more pressure than the exterior over it —",
               file=sys.stderr)
         print("      the capture is not reading the column below and the column above.", file=sys.stderr)
         fail = 1
-    flat = [faces[str(k)]["pressure_pa"] for k in (0, 1, 4, 5)]
-    if lo["pressure_pa"] - hi["pressure_pa"] <= max(flat) - min(flat):
-        print("FAIL: bottom and top separate by no more than the four faces at equal depth do —",
+    span = lo["pressure_pa"] - hi["pressure_pa"]
+    sides = [abs(faces[str(2 * a)]["pressure_pa"] - faces[str(2 * a + 1)]["pressure_pa"])
+             for a in range(3) if a != up >> 1]
+    if span <= max(sides):
+        print("FAIL: the vertical pair separates by no more than a horizontal pair does — the six faces",
               file=sys.stderr)
-        print("      the six faces are reading one global cell.", file=sys.stderr)
+        print("      are not straddling the box's own column.", file=sys.stderr)
         fail = 1
-print('SLICE_EXTERIOR_CAPTURE={"faces":%d,"named":%d,"failures":%d}' % (len(faces), len(named), fail))
+print('SLICE_EXTERIOR_CAPTURE={"faces":%d,"named":%d,"up_slot":%d,"failures":%d}'
+      % (len(faces), len(named), up, fail))
 raise SystemExit(fail)
 PY
 rc=$?

@@ -406,10 +406,3 @@ func lava_shell_diag() -> Dictionary:
 		"lava_rind_c": _row_mean("lava_rind_sum", "lava_rind")}
 
 
-# Whole-grid liquid water, one value per cell — the `liquid` buffer state_derive.glsl writes, read back at
-# the drain. For consumers that need EVERY cell (the water surface mesh, the root-column stats). Empty
-# before the first drain: a missing readback is missing.
-func liquid() -> PackedFloat32Array:
-	if _f == null or _f._mirrors == null or not _f._mirrors.live("liquid"):
-		return PackedFloat32Array()
-	return _f._mirrors.array("liquid")

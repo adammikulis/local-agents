@@ -26,6 +26,8 @@ var _amount_names: PackedStringArray = PackedStringArray()
 ## Face slot -> {"cells", "weights"} over the global cells outside it, or {"unresolved": String}.
 var _faces: Array = []
 var _unresolved: Dictionary = {}
+## The face slot pointing away from the body centre; slot ^ 1 stands under the box. -1 outside RECORD.
+var _up_slot: int = -1
 var _samples: Array = []
 var _requested: bool = false
 var _starved: bool = false
@@ -57,7 +59,9 @@ static func maybe_make(field):
 	cap._amount_names = _matter_channels()
 	cap._names = PackedStringArray(["temp", "pressure", "vel_x", "vel_y", "vel_z"])
 	cap._names.append_array(cap._amount_names)
+	box.bind_terrain(field._terrain)
 	cap._faces = exterior_faces(field._grid, field.centre() + box.resolved_offset(field._body), box)
+	cap._up_slot = box.up_slot()
 	for d in LAVoxelGrid.SLOTS:
 		if (cap._faces[d] as Dictionary).has("unresolved"):
 			cap._unresolved[str(d)] = String(cap._faces[d]["unresolved"])
@@ -209,7 +213,8 @@ func _write() -> void:
 			push_error("LAFieldBoundaryCapture3D: cannot write \"%s\" (%s)." % [_path, error_string(FileAccess.get_open_error())])
 		return
 	fh.store_string(JSON.stringify({"version": VERSION, "cadence": CAPTURE_EVERY,
-		"cell_size": _f._grid.cell_size, "unresolved": _unresolved, "samples": _samples}))
+		"cell_size": _f._grid.cell_size, "up_slot": _up_slot, "unresolved": _unresolved,
+		"samples": _samples}))
 	fh.close()
 
 
