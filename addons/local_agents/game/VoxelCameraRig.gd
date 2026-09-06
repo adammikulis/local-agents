@@ -96,16 +96,16 @@ var _geosync_local_dir: Vector3 = Vector3.UP
 # --- Solar-system overview: a pulled-back framing that shows the planet + the (visible) sun together.
 var _solar_view: bool = false
 
-# A DRONE, NOT A TELEPORT. Presentation constants: none of them reaches the field.
-const FLY_SPEED_PER_HEIGHT: float = 0.5   # m/s of cruise per metre of height over the ground (1/s)
-const FLY_SPEED_FLOOR_M_S: float = 4.0    # cruise on the deck: a person's running pace
-const FLY_BOOST: float = 4.0              # Shift multiplier
-const FLY_MULT_RANGE: float = 8.0         # wheel-set cruise multiplier, either side of 1
-const FLY_RESPONSE_TAU_S: float = 0.35    # e-folding time of the velocity toward the commanded one
-const FLY_LOOK_TAU_S: float = 0.08        # e-folding time of the aim toward the dragged one
-const FLY_LOOK_SENS: float = 0.005        # radians per pixel for the hold-drag mouse-look
-const FLY_PITCH_LIMIT_DEG: float = 85.0   # steepest aim off the horizon; at 90 the up-vector degenerates
-const FRAME_MARGIN: float = 1.2           # framed radius over the subject's own, so it clears the edge
+# A DRONE, NOT A TELEPORT. Framing constants: none of them reaches the field, so none is a model parameter.
+const FLY_SPEED_PER_HEIGHT: float = 0.5   # 1/s: m/s of cruise per metre of height over the ground
+const FLY_SPEED_FLOOR_M_S: float = 4.0    # m/s: cruise on the deck, a person's running pace
+const FLY_BOOST: float = 4.0              # dimensionless: the Shift multiplier on cruise speed
+const FLY_MULT_RANGE: float = 8.0         # dimensionless: wheel-set cruise multiplier, either side of 1
+const FLY_RESPONSE_TAU_S: float = 0.35    # s: e-folding time of the velocity toward the commanded one
+const FLY_LOOK_TAU_S: float = 0.08        # s: e-folding time of the aim toward the dragged one
+const FLY_LOOK_SENS: float = 0.005        # rad/px of hold-drag mouse-look
+const FLY_PITCH_LIMIT_DEG: float = 85.0   # deg off the horizon; at 90 the up-vector degenerates
+const FRAME_MARGIN: float = 1.2           # dimensionless: framed radius over the subject's own
 var _fly: bool = false
 var _fly_pos: Vector3 = Vector3.ZERO
 var _fly_look: Vector3 = Vector3.FORWARD  # world-space unit forward (aim), eased toward the goal
