@@ -16,7 +16,7 @@ uniform float mie_g = 0.76;            // Mie asymmetry (forward-scatter glow ti
 // lowest altitude are all measured from these. On a sphere world +Y is the pole, not the horizon.
 uniform vec3 planet_up = vec3(0.0, 1.0, 0.0);
 uniform float eye_radius_m = 0.0;      // |eye - body centre|
-uniform float sea_radius_m = 0.0;      // the sea shell the atmosphere stands on
+uniform float crust_radius_m = 0.0;    // the mean crust radius the atmosphere stands on
 // Scale height of the Rayleigh atmosphere, m (U.S. Standard Atmosphere).
 const float AIR_SCALE_HEIGHT_M = 8000.0;
 
@@ -51,10 +51,10 @@ float air_mass(float cos_up) {
 // eye's own altitude; looking down it is the ray's closest approach to the body, which is what makes a
 // planet seen from space wear a bright limb and a black sky above it.
 float ray_air_density(float cos_up) {
-	float h = eye_radius_m - sea_radius_m;
+	float h = eye_radius_m - crust_radius_m;
 	if (cos_up < 0.0) {
 		float perp = eye_radius_m * sqrt(max(0.0, 1.0 - cos_up * cos_up));
-		h = perp - sea_radius_m;
+		h = perp - crust_radius_m;
 	}
 	return exp(-max(h, 0.0) / AIR_SCALE_HEIGHT_M);
 }

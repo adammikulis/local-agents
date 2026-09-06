@@ -8,7 +8,7 @@ const SPECIES_GROUP: String = "aquatic"    # shared "all aquatic life" group (sc
 # that collides with the per-species group of the species literally named "fish".
 
 const DEFAULT_SUBMERGE: float = 0.35  # how far below the surface a swimmer rides (config: "submerge")
-const GILL_SUBMERGE_MARGIN: float = 0.15  # keep a gill-breather's top this far under the sea shell so it stays submerged
+const GILL_SUBMERGE_MARGIN: float = 0.15  # keep a gill-breather's top this far under the water so it stays submerged
 const SCHOOL_RADIUS: float = 6.0
 const SCHOOL_WEIGHT: float = 0.8
 const BASK_DURATION: float = 6.0      # seconds a basking species rests hauled out on the beach
@@ -773,7 +773,6 @@ func _eff_submerge() -> float:
 
 func _swim_planet(pos: Vector3, candidate: Vector3, step_len: float, up: Vector3) -> bool:
 	var center: Vector3 = terrain.planet_center()
-	var sea: float = terrain.sea_radius()
 	var next_pos: Vector3 = pos + candidate * step_len
 	var next_dir: Vector3 = (next_pos - center).normalized()
 	if not _habitable_dir(next_dir):
@@ -788,7 +787,7 @@ func _swim_planet(pos: Vector3, candidate: Vector3, step_len: float, up: Vector3
 			state = "swim"
 		next_pos = pos + candidate * step_len
 		next_dir = (next_pos - center).normalized()
-		# If even the corrective step is unhabitable, hold position this frame (edge of a shrinking sea).
+		# If even the corrective step is unhabitable, hold position this frame (edge of shrinking water).
 		if not _habitable_dir(next_dir):
 			next_pos = pos
 			next_dir = (next_pos - center).normalized()
@@ -797,7 +796,11 @@ func _swim_planet(pos: Vector3, candidate: Vector3, step_len: float, up: Vector3
 
 	_heading = candidate if candidate.length() > 0.001 else _heading
 
-	# Ride `eff_submerge` below the spherical sea shell; never sink below the solid sea floor (Rule 5).
+	# Ride `eff_submerge` below the free surface the fill left over THIS column; never sink below the
+	# solid floor (Rule 5). A column the fill left dry has no surface to ride, so hold position.
+	var sea: float = terrain.water_surface_radius(next_dir)
+	if is_nan(sea):
+		return false
 	var eff_submerge: float = _eff_submerge()
 	var target_r: float = sea - eff_submerge
 	var sr: float = terrain.surface_radius(next_dir)
@@ -809,14 +812,13 @@ func _swim_planet(pos: Vector3, candidate: Vector3, step_len: float, up: Vector3
 	return false
 
 
-# PLANET: true where a WATER SHELL exists along `dir` — the solid surface radius sits below the sea shell.
-# (The planet substrate has no 2.5D salinity/depth band, so shell presence is the habitability rule here.)
+# PLANET: true where WATER STANDS along `dir` — the crust's radius sits below the surface the fill left.
 func _habitable_dir(dir: Vector3) -> bool:
 	var sr: float = terrain.surface_radius(dir)
 	if is_nan(sr):
 		return false                     # unmeshed patch: treat as non-habitable so the fish turns back
-	var sea: float = terrain.sea_radius()
-	if sr >= sea:
+	var sea: float = terrain.water_surface_radius(dir)
+	if is_nan(sea) or sr >= sea:
 		return false                     # dry land above the waterline
 	if breathes == "water" and (sea - sr) < size * 2.0:
 		return false
@@ -846,14 +848,14 @@ func _find_habitable_dir_planet(pos: Vector3, up: Vector3) -> Vector3:
 	return Vector3.ZERO
 
 
-# PLANET: haul out onto the narrow dry beach band just above the waterline (surface_radius within 2 m of
-# sea_radius). Mirrors the flat _try_bask, in radii instead of world-Y. Returns true if basking started.
+# PLANET: haul out onto the narrow dry beach band just above the waterline. Mirrors the flat _try_bask,
+# in radii instead of world-Y. Returns true if basking started.
 func _try_bask_planet(dir: Vector3) -> bool:
 	var sr: float = terrain.surface_radius(dir)
 	if is_nan(sr):
 		return false
-	var sea: float = terrain.sea_radius()
-	if sr < sea or sr > sea + 2.0:
+	var sea: float = terrain.water_surface_radius(dir)
+	if is_nan(sea) or sr < sea or sr > sea + 2.0:
 		return false
 	global_position = terrain.planet_center() + dir.normalized() * sr
 	_bask_timer = BASK_DURATION

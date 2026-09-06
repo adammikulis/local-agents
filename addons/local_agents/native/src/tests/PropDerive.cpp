@@ -60,7 +60,7 @@ struct Push {
 	float rad_w_kg_2;
 	float rad_w_kg_3;
 	float rad_w_kg_4;
-	float sea_radius_m;
+	float crust_radius_m;
 	float grav_self;
 	uint32_t lithify;
 	uint32_t detect;
@@ -85,7 +85,7 @@ struct World {
 	std::vector<float> props;
 	std::vector<float> energy;
 	std::vector<float> pressure;
-	float sea_radius = 0.0f;
+	float crust_radius = 0.0f;
 };
 
 // A substance table shaped like a real one — a molar mass, a heat capacity, a mixture entry, a fullness
@@ -193,7 +193,7 @@ World load(Rig &rig, Rng &rng) {
 	std::vector<float> grav(size_t(n) * 3u, 0.0f);
 	for (uint32_t i = 0; i < n; ++i) { grav[i * 3u + 1u] = -9.80665f; }
 	rig.put(LA_BIND_GRAVITY, grav);
-	w.sea_radius = 0.4f * float(kN) * kEdgeM;
+	w.crust_radius = 0.4f * float(kN) * kEdgeM;
 	return w;
 }
 
@@ -213,7 +213,7 @@ Push push_for(const World &w) {
 	p.rad_w_kg_2 = 2.0e-11f;
 	p.rad_w_kg_3 = 3.0e-11f;
 	p.rad_w_kg_4 = 4.0e-11f;
-	p.sea_radius_m = w.sea_radius;
+	p.crust_radius_m = w.crust_radius;
 	p.grav_self = 1.0f;
 	return p;
 }

@@ -6,6 +6,7 @@
 #include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_string_array.hpp>
+#include <godot_cpp/variant/vector2.hpp>
 
 namespace godot {
 
@@ -39,6 +40,10 @@ public:
 			double p_t_surface_c, const PackedFloat32Array &p_p_pa, const PackedFloat32Array &p_p_rock);
 	// Moles per m^3 summed into kilograms per m^3 for one cell. Times the cell's own volume is its mass.
 	static double kg_m3_at(const Array &p_mirrors, int p_c);
+	// WHERE THE SUSPENDED CONDENSATE STANDS: the lowest and highest radius of any open cell carrying at
+	// least p_min_mol_m3 of liquid plus ice water, measured from the field's centre. (NAN, NAN) where
+	// the box holds none, so a reader is told the band is absent instead of given one.
+	static Vector2 condensate_band(Object *p_field, double p_min_mol_m3);
 
 protected:
 	static void _bind_methods();

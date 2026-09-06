@@ -22,6 +22,7 @@
 #include "LAFieldSnapshot.hpp"
 #include "LAFieldStateCache.hpp"
 #include "LAFieldHydrosphereSeed.hpp"
+#include "LAWaterFill.hpp"
 #include "LAFieldLithostaticSeed.hpp"
 #include "LAPlanetTables.hpp"
 #include "LASubstances.hpp"
@@ -90,6 +91,7 @@ void initialize_local_agents(ModuleInitializationLevel p_level) {
     ClassDB::register_class<LAFieldStateCache>();
     ClassDB::register_class<LABodyMeasure>();
     ClassDB::register_class<LAFieldHydrosphereSeed>();
+    ClassDB::register_class<LAWaterFill>();
     ClassDB::register_class<LAFieldLithostaticSeed>();
     ClassDB::register_class<LASubstances>();
     ClassDB::register_class<LAMixtureEnthalpy>();

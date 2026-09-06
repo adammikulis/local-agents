@@ -256,12 +256,6 @@ func _on_impact() -> void:
 		orbits.apply_impulse(_impact_velocity * _impact_mass_kg())
 
 	var r: float = _radius()
-	if _terrain != null and _terrain.has_method("carve_sphere"):
-		_terrain.carve_sphere(_impact_point, r)
-		if _ecology != null and _ecology.has_method("material_field"):
-			var substrate: Object = _ecology.material_field()
-			if substrate != null and substrate.has_method("resample_terrain"):
-				substrate.resample_terrain(_impact_point, r * 1.5)
 	# Big splash if it struck water.
 	if _ecology != null and _ecology.has_method("material_field"):
 		var water: Object = _ecology.material_field()

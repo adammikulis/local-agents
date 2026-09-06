@@ -16,7 +16,7 @@ uniform vec3 cam_pos;
 uniform vec3 cam_dir;      // normalize(cam_pos - planet_center)
 uniform vec3 sun_dir;      // world dir toward the star (basis.z of the sun light)
 uniform float cap_cos;     // cos(cap half-angle) — emit only in the camera-facing dome
-uniform float sea_radius;
+uniform float crust_radius;
 uniform float cloud_base_r;
 uniform float fog_top_r;
 uniform float fog_lo_r;
@@ -83,10 +83,10 @@ void start() {
 	float r;
 	if (u4 < 0.62) {
 		band = 0.0;
-		r = mix(sea_radius + 4.0, sea_radius + 38.0, u3);   // thin cloud shell hugging the planet
+		r = mix(crust_radius + 4.0, crust_radius + 38.0, u3);   // thin shell hugging the planet
 	} else if (u4 < 0.84) {
 		band = 1.0;
-		r = mix(sea_radius + 2.0, cloud_base_r, u3);
+		r = mix(crust_radius + 2.0, cloud_base_r, u3);
 	} else {
 		band = 2.0;
 		r = mix(fog_lo_r, fog_top_r, u3);

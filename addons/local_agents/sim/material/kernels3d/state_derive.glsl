@@ -103,7 +103,7 @@ layout(set = 0, binding = LA_BIND_ORG_OC, std430) restrict writeonly buffer OrgO
 layout(set = 0, binding = LA_BIND_ORG_FRESH, std430) restrict writeonly buffer OrgFresh { float org_fresh[]; };
 
 // WHERE AND HOW FAST, so a band of latitude or altitude is an ordinary reduce gate rather than a CPU walk.
-// speed is |v|, m/s; alt is the height of the cell above the sea shell, m; lat is the angle of its radius
+// speed is |v|, m/s; alt is the cell's GEOPOTENTIAL height over the mean crust radius, m; lat its
 // out of the equatorial plane, degrees.
 layout(set = 0, binding = LA_BIND_SPEED, std430) restrict writeonly buffer Speed { float speed[]; };
 layout(set = 0, binding = LA_BIND_LAT, std430) restrict writeonly buffer Lat { float lat[]; };
@@ -154,7 +154,7 @@ layout(push_constant, std430) uniform Params {
 	float rad_w_kg_2;
 	float rad_w_kg_3;
 	float rad_w_kg_4;
-	float sea_radius_m;     // the sea shell's radius from the body centre; 0 = the body carries no shell
+	float crust_radius_m;   // the body's MEAN CRUST radius from its centre; 0 = no body is declared
 	float grav_self;        // 1/2 where the box's own mass sources the potential, 1 for a declared body
 	uint lithify;           // 1 where the ladder holds the "lithify" derive record
 	uint detect;            // 1 = the detect phase: only the neighbour classes, off settled state
@@ -562,9 +562,15 @@ void main() {
 	float nf = 0.0;
 	// GEOMETRY AND THE PER-STEP BOOKS: neither moves inside a step.
 	if (params.restate == 0u) {
-		alt[g] = (params.sea_radius_m > 0.0) ? r_len - params.sea_radius_m
-			: uintBitsToFloat(0x7FC00000u);
-		r_frac[g] = (params.sea_radius_m > 0.0) ? r_len / params.sea_radius_m
+		// GEOPOTENTIAL HEIGHT over the body's mean crust radius, m: the solved potential's own datum,
+		// which is what the U.S. Standard Atmosphere 1976 tabulates its layers against. GM comes off the
+		// monopole the gravity solve published, so nothing here is declared. NaN with no solve.
+		float gm = -grav_ref[g] * r_len;
+		float phi_ref = -gm / max(params.crust_radius_m, 1.0);
+		float g_ref = gm / max(params.crust_radius_m * params.crust_radius_m, 1.0);
+		alt[g] = (params.crust_radius_m > 0.0 && g_ref > 0.0)
+			? (grav_phi[g] + grav_ref[g] - phi_ref) / g_ref : uintBitsToFloat(0x7FC00000u);
+		r_frac[g] = (params.crust_radius_m > 0.0) ? r_len / params.crust_radius_m
 			: uintBitsToFloat(0x7FC00000u);
 		g_rest[g * 3u] = g_eff.x;
 		g_rest[g * 3u + 1u] = g_eff.y;

@@ -321,9 +321,9 @@ func _orient_to_surface(node: Node3D, pos: Vector3) -> void:
 	node.scale = scl
 
 
-# True when `placed` sits in water — inside the planet's sea shell (at or below the sea radius).
+# True when `placed` sits in water: the FIELD's own liquid at that point, not a radius.
 func _is_water_pos(placed: Vector3) -> bool:
-	return (placed - terrain.planet_center()).length() <= terrain.sea_radius()
+	return _material != null and _material.is_water_at(placed)
 
 
 func _instance_actor(kind: String, placed: Vector3, genome = null, family_id: int = -1, force_place: bool = false) -> Node:

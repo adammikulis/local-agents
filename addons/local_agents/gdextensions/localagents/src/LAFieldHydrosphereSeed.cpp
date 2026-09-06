@@ -47,7 +47,7 @@ void LAFieldHydrosphereSeed::seed(Object *p_field) {
 	PackedFloat32Array h2o = LAFieldMirrors::of(p_field, "h2o");
 	const PackedByteArray regolith = p_field->get("_regolith");
 	const PackedFloat32Array porosity = LAFieldMirrors::of(p_field, "porosity");
-	// The share of each cell below the sea shell and above its ground: the terrain's own ocean.
+	// The share of each cell under the free water surface the fill left and above its ground.
 	const PackedFloat32Array water = p_field->get("_water_fraction");
 	const PackedFloat32Array rock = p_field->get("_rock_fraction");
 	if (!grid || cc <= 0 || h2o.size() != cc || regolith.size() != cc || porosity.size() != cc
@@ -73,26 +73,42 @@ void LAFieldHydrosphereSeed::seed(Object *p_field) {
 		return;
 	}
 	const double body_r = LABodySeeds::seed_radius_m("planet");
-	const double sea_r = double(p_field->call("sea_radius"));
-	if (!(body_r > 0.0) || !(sea_r > 0.0) || depth.size() != cc || cw.size() < cc * 3
-			|| edges.size() < cc) {
-		UtilityFunctions::push_error("LAFieldHydrosphereSeed: no sea shell, ground depth or cell centres, "
-				"so there is no surface for the water table to be measured from.");
+	if (!(body_r > 0.0) || depth.size() != cc || cw.size() < cc * 3 || edges.size() < cc) {
+		UtilityFunctions::push_error("LAFieldHydrosphereSeed: no ground depth or cell centres, so there "
+				"is no surface for the water table to be measured from.");
 		return;
 	}
+	// WHAT THE PORE WATER STANDS OVER: the free surface the fill left over this box, measured, never a
+	// declared shell. A box whose columns are all dry has none, and its pore water stands at the ground.
+	Object *terrain = Object::cast_to<Object>(p_field->get("_terrain"));
+	const Vector3 centre = field_centre(p_field);
+	double w_sum = 0.0;
+	int w_n = 0;
+	for (int c = 0; c < cc; c++) {
+		if (!(water[c] > 0.0f) || !terrain || !terrain->has_method("water_radius")) {
+			continue;
+		}
+		const Vector3 rel = Vector3(float(cw[c * 3] - double(centre.x)), float(cw[c * 3 + 1] - double(centre.y)),
+				float(cw[c * 3 + 2] - double(centre.z)));
+		const double w = double(terrain->call("water_radius", rel.normalized()));
+		if (std::isfinite(w)) {
+			w_sum += w;
+			w_n++;
+		}
+	}
+	const double sea_r = w_n > 0 ? w_sum / double(w_n) : body_r;
 	// LA_APPROX: seed_water_table_equipotential
 	const double h_wt = LAPlanetComposition::water_table_m(body_r, ground_kg / kg_m3, sea_r - body_r,
 			la_physical_array("HYPSOMETRY_AREA_BELOW"), la_physical_array("HYPSOMETRY_ELEVATION_M"));
 	if (!std::isfinite(h_wt)) {
 		return;
 	}
-	const Vector3 centre = field_centre(p_field);
 	PackedFloat32Array pore_w = LAFieldMirrors::of(p_field, "h2o_pore");
 	pore_w.resize(cc);
 	float *w = h2o.ptrw();
 	float *pw = pore_w.ptrw();
-	// THE SEA STANDS WHERE THE SHAPE PUTS IT, and the pore water under the water table: two channels, the
-	// sea in its own volume and the pore water in the rock's, wherever the rock is below the table.
+	// THE WATER STANDS WHERE THE FILL PUT IT, and the pore water under the water table: two channels, the
+	// free water in its own volume and the pore water in the rock's, wherever the rock is below the table.
 	for (int c = 0; c < cc; c++) {
 		w[c] = float(MIN(double(MAX(water[c], 0.0f)), 1.0) * full_mol);
 		pw[c] = 0.0f;

@@ -170,7 +170,6 @@ func report() -> Dictionary:
 		# Conserved totals are NOT listed here.
 		"enclosed_void": q.enclosed_void_cells(),
 		"enclosed_void5": q.enclosed_void_cells(5),
-		"rock_grows": (_f._stamp.grows if _f._stamp != null else 0), "rock_shrinks": (_f._stamp.shrinks if _f._stamp != null else 0),
 	}
 	if _f._inject != null:
 		r.merge(_f._inject.queue.report())

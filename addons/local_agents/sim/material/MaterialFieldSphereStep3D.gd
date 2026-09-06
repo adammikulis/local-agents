@@ -201,8 +201,8 @@ func step() -> void:
 		var irr: float = float(_f._sun_light.get_meta("irradiance_w_m2"))
 		var xuv: float = float(_f._sun_light.get_meta("xuv_w_m2", 0.0))
 		_f._gpu.set_sun_flux(_f.dir_to_field(_f._sun_light.global_transform.basis.z * irr), xuv)
-	if _f._gpu.has_method("set_sea_radius"):
-		_f._gpu.set_sea_radius(_f.sea_radius())
+	if _f._gpu.has_method("set_crust_radius"):
+		_f._gpu.set_crust_radius(LABodySeeds.seed_radius_m(_f._body_key))
 	if _f._inject != null and not _f._inject.queue.is_empty():
 		_f._inject.queue.flush(_f._gpu)
 	# Boundary face-state record/replay: samples at the drain, feeds REPLAY tails before the dispatch.
@@ -226,8 +226,6 @@ func step() -> void:
 	# Charge module reads the strike list the breakdown kernel published and fires the bolt visuals.
 	if _f._charge_mod != null:
 		_f._charge_mod.post_step()
-	if _f._stamp != null:
-		_f._stamp.maybe_scan()                       # stamp solid-flag crossings into the SDF (gated)
 	LASimReport.gauge("field_post_ms", float(Time.get_ticks_usec() - t_post) / 1000.0)   # scatter + CPU post-passes
 	LASimReport.gauge("field_ms", float(Time.get_ticks_usec() - t0) / 1000.0)
 	if _f._seal != null and _f._seal.sealed():

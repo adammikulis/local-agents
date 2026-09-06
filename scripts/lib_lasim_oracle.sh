@@ -208,7 +208,7 @@ func _run() -> void:
 	var steps: Array = []
 	for s in _steps:
 		var ctx: Dictionary = {"cell_size": CELL, "centre": Vector3.ZERO, "spin": Vector3.ZERO,
-			"spin_rate_rad_s": 0.0, "sea_radius": 0.0, "gravity_self": 0.0, "step_index": float(s),
+			"spin_rate_rad_s": 0.0, "crust_radius": 0.0, "gravity_self": 0.0, "step_index": float(s),
 			"dt_s": 1.0, "seeding": false}
 		var cl: int = _rd.compute_list_begin()
 		derive.dispatch(_rd, cl, ctx, cc, groups)

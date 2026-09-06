@@ -69,7 +69,7 @@ func _init() -> void:
 	rig.fill("e_j_m3", 0.0)
 	rig.fill("e_lith_j_m3", rock_kg * LASubstances.enthalpy_at("silicate", t_c, p_pa))
 	var ctx: Dictionary = {"cell_size": CELL, "centre": Vector3.ZERO, "spin": Vector3.ZERO,
-		"spin_rate_rad_s": 0.0, "sea_radius": 0.0, "gravity_self": 0.0, "dt_s": DT_S,
+		"spin_rate_rad_s": 0.0, "crust_radius": 0.0, "gravity_self": 0.0, "dt_s": DT_S,
 		"sun_dir": Vector3.ZERO, "cell_size_min": CELL}
 	rig.step_only(derive, ctx)
 

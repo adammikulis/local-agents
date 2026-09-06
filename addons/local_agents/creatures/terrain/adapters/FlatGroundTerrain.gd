@@ -23,9 +23,9 @@ func planet_radius() -> float:
 	return far_below
 
 
-## No sea on a bare flat world. -INF so the walker coast-avoidance (`sea_r > 0.0`) is always skipped.
-func sea_radius() -> float:
-	return -INF
+## No standing water on a bare flat world: NAN is what every reader takes for a dry column.
+func water_surface_radius(_dir: Vector3) -> float:
+	return NAN
 
 
 ## Not a radial planet — flat +Y-up world.
@@ -67,8 +67,3 @@ func raycast_terrain(from: Vector3, dir: Vector3, max_distance: float) -> Dictio
 		return miss                                  # behind the origin or past the ray
 	return {"hit": true, "position": from + d * t, "normal": Vector3.UP}
 
-
-## Destructive terrain edit — a bare flat ground has no voxel volume to carve, so this is a no-op (an actor
-## that tries to blast a crater on the flat world simply leaves no crater; it does not crash).
-func carve_sphere(_world_pos: Vector3, _radius: float) -> void:
-	pass

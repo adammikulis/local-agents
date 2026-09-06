@@ -6,10 +6,8 @@ extends RefCounted
 # Kessler (1969) q_crit: the cloud-water mixing ratio above which drops start collecting each other.
 const CLOUD_WATER_CRIT_KG_KG: float = 0.5e-3
 
-# Altitudes above the sea surface, model units, at which the renderer places its particle bands.
-const CLOUD_BASE_ALT: float = 62.0
-const FOG_TOP_ALT: float = 16.0
-const FOG_LO_ALT: float = 0.0
+## Cells a column query climbs out of rock and back down onto the ground before giving up.
+const COLUMN_MARCH_CELLS: int = 64
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
 
@@ -39,17 +37,29 @@ func _condensed_at(cell: int) -> float:
 	return _f._queries.liquid_at(cell) + _f._queries.ice_at(cell)
 
 
-## Cloud density at a world XZ column (0 if unresolved). Cloud = the condensate that is NOT ground fog.
+## THE OPEN CELL RESTING ON THE GROUND under a world point: where a column query stands. No altitude is
+## named; the solid mask decides. -1 when the march leaves the box still in rock.
+func _ground_cell(world_pos: Vector3) -> int:
+	return LAFieldGeometry.ground(_f, _f.world_to_cell(world_pos), COLUMN_MARCH_CELLS)
+
+
+## Cloud over a world point: the most condensate any warm open cell of that column carries. 0 where the
+## column holds none. Nothing here names a cloud base -- where the condensate is IS the cloud base.
 func cloud_at(x: float, z: float) -> float:
-	var c: int = _f.world_to_cell(Vector3(x, cloud_base_y(), z))
-	if c < 0:
-		return 0.0
-	return 0.0 if _f._mirrors.at("temp", c) < LAMaterialField3D.FOG_MAX_TEMP else _condensed_at(c)
+	var c: int = _ground_cell(Vector3(x, 0.0, z))
+	var best: float = 0.0
+	for _k in COLUMN_MARCH_CELLS:
+		if c < 0:
+			break
+		if _f._mirrors.at("temp", c) >= LAMaterialField3D.FOG_MAX_TEMP:
+			best = maxf(best, _condensed_at(c))
+		c = LAFieldGeometry.above(_f, c)
+	return best
 
 
-## Fog density at a world XZ column (0 if unresolved). Fog = cool near-ground condensate.
+## Fog over a world point: cool condensate in the open cell standing on the ground there.
 func fog_at(x: float, z: float) -> float:
-	var c: int = _f.world_to_cell(Vector3(x, fog_base_y(), z))
+	var c: int = _ground_cell(Vector3(x, 0.0, z))
 	if c < 0:
 		return 0.0
 	return _condensed_at(c) if _f._mirrors.at("temp", c) < LAMaterialField3D.FOG_MAX_TEMP else 0.0
@@ -73,17 +83,18 @@ func refresh_aggregates() -> void:
 
 
 
-## The atmosphere band radii the water-particle renderer places against, measured from the body centre.
+## WHERE THE CONDENSATE ACTUALLY STANDS, from the body centre: the lowest and highest radius of any open
+## cell carrying condensate. NAN where the box holds none, and a renderer given NAN draws nothing.
 func atmos_cloud_base_r() -> float:
-	return _f.sea_radius() + CLOUD_BASE_ALT
+	return LAFieldCellMass3D.condensate_band(_f, LAMaterialField3D.CONDENSE_COVER_MIN).x
 
 
 func atmos_fog_top_r() -> float:
-	return _f.sea_radius() + FOG_TOP_ALT
+	return LAFieldCellMass3D.condensate_band(_f, LAMaterialField3D.CONDENSE_COVER_MIN).y
 
 
 func atmos_fog_lo_r() -> float:
-	return _f.sea_radius() + FOG_LO_ALT
+	return LAFieldCellMass3D.condensate_band(_f, LAMaterialField3D.CONDENSE_COVER_MIN).x
 
 
 ## The outermost radius the grid holds: half the box, so no particle is placed where there are no cells.
@@ -125,18 +136,9 @@ func cloud_cell_count() -> int:
 	return _f._cloud_cells_c
 
 
-# CloudLayer sheets — the water-particle renderer samples the baked cover texture instead.
-func cloud_base_y() -> float:
-	return _f.sea_radius() + 62.0
-
-
-func fog_base_y() -> float:
-	return _f.sea_radius() + 6.0
-
-
 ## Relative humidity 0..1 near the ground at a world XZ column = vapor / sat(T) = min(moisture, sat)/sat.
 func relative_humidity_at(x: float, z: float) -> float:
-	var c: int = _f.world_to_cell(Vector3(x, fog_base_y(), z))
+	var c: int = _ground_cell(Vector3(x, 0.0, z))
 	if c < 0 or _f._solid[c] != 0:
 		return 0.0
 	var s: float = _sat(_f._mirrors.at("temp", c), _cell_p(c))
@@ -147,7 +149,7 @@ func relative_humidity_at(x: float, z: float) -> float:
 
 ## Dewpoint °C near the ground at a world XZ column.
 func dewpoint_at(x: float, z: float) -> float:
-	var c: int = _f.world_to_cell(Vector3(x, fog_base_y(), z))
+	var c: int = _ground_cell(Vector3(x, 0.0, z))
 	if c < 0 or _f._solid[c] != 0 or _f._queries.vapour_at(c) <= 0.0:
 		return NAN
 	# Partial pressure of the vapour the cell holds: e = (n/V) R T, the amount already mol/m^3.

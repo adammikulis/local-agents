@@ -8,29 +8,37 @@ const CURVE_POINTS: int = 65
 const CURVE_BAKE: int = 512
 ## Shortest wavelength the seeded relief carries, metres.
 const FINEST_WAVELENGTH_M: float = 4.0e2
-# Fractal cave tunnels carved into the crust below the weathering front.
-const CAVE_SIZE_M: float = 2.0e4
-const CAVE_THRESHOLD: float = 0.09
-const CAVE_STRENGTH: float = 40.0
-const CAVE_DEPTH_FADE_M: float = 4.7e3
 
 
 ## Octaves that carry a cascade from `long_m` down to `short_m`.
 static func octaves_between(long_m: float, short_m: float) -> int:
 	return maxi(int(ceil(log(maxf(long_m / maxf(short_m, 1.0), 2.0)) / log(2.0))), 1)
 
-## Elevation, metres, at cumulative surface-area fraction `u`: the declared hypsographic curve read
-## backwards, linear between its break points.
+## THE CURVE'S OWN AREA-WEIGHTED MEAN, metres against the elevations it is quoted at. The measured curve
+## is quoted against sea level, and this body has none: the relief rides on the body's MEAN CRUST RADIUS,
+## so the curve is read with its own mean taken out and the mean radius is where zero is.
+static func hypsometric_mean_m() -> float:
+	var a: Array[float] = LAPhysical.HYPSOMETRY_AREA_BELOW
+	var e: Array[float] = LAPhysical.HYPSOMETRY_ELEVATION_M
+	var acc: float = 0.0
+	for i in range(1, a.size()):
+		acc += 0.5 * (e[i] + e[i - 1]) * (a[i] - a[i - 1])
+	return acc / maxf(a[a.size() - 1] - a[0], 1.0e-9)
+
+
+## Elevation over the body's mean crust radius, metres, at cumulative surface-area fraction `u`: the
+## measured hypsographic curve read backwards, linear between its break points, re-anchored on its mean.
 static func elevation_at_area(u: float) -> float:
 	var a: Array[float] = LAPhysical.HYPSOMETRY_AREA_BELOW
 	var e: Array[float] = LAPhysical.HYPSOMETRY_ELEVATION_M
+	var mean: float = hypsometric_mean_m()
 	var t: float = clampf(u, a[0], a[a.size() - 1])
 	for i in range(1, a.size()):
 		if t <= a[i]:
 			var span: float = a[i] - a[i - 1]
-			return e[i - 1] if span <= 0.0 else e[i - 1] \
-				+ (t - a[i - 1]) / span * (e[i] - e[i - 1])
-	return e[e.size() - 1]
+			return (e[i - 1] if span <= 0.0 else e[i - 1] \
+				+ (t - a[i - 1]) / span * (e[i] - e[i - 1])) - mean
+	return e[e.size() - 1] - mean
 
 
 ## Even directions over the sphere: a Fibonacci lattice, no clustering at the poles.
@@ -55,8 +63,8 @@ static func hypsometric_curve(values: PackedFloat32Array) -> Curve:
 	var lo: float = sorted[0]
 	var span: float = sorted[n - 1] - lo
 	var c: Curve = Curve.new()
-	c.min_value = LAPhysical.HYPSOMETRY_DEEPEST_M
-	c.max_value = LAPhysical.HYPSOMETRY_HIGHEST_M
+	c.min_value = LAPhysical.HYPSOMETRY_DEEPEST_M - hypsometric_mean_m()
+	c.max_value = LAPhysical.HYPSOMETRY_HIGHEST_M - hypsometric_mean_m()
 	c.bake_resolution = CURVE_BAKE
 	for k in range(CURVE_POINTS):
 		var q: float = float(k) / float(CURVE_POINTS - 1)
@@ -70,13 +78,12 @@ static func hypsometric_curve(values: PackedFloat32Array) -> Curve:
 
 ## THE ONE DECLARATION OF THE BODY'S STARTING SHAPE: wavelengths follow the radius, relief follows the
 ## hypsographic curve.
-static func opts(r_m: float, seed_val: int, caves: bool, sea_level_m: float) -> Dictionary:
+static func opts(r_m: float, seed_val: int) -> Dictionary:
 	# Wavelength of the continent-ocean pattern on this body.
 	var lambda0: float = TAU * maxf(r_m, 1.0) / float(LAPhysical.TOPOGRAPHY_DOMINANT_HARMONIC_DEGREE)
 	var cross: float = LAPhysical.TOPOGRAPHY_SELF_AFFINE_CROSSOVER_M
 	return {
 		"radius": r_m,
-		"sea_radius": r_m + sea_level_m,
 		"seed": seed_val,
 		"continental_size": lambda0,
 		"continental_octaves": octaves_between(lambda0, cross),
@@ -86,9 +93,4 @@ static func opts(r_m: float, seed_val: int, caves: bool, sea_level_m: float) -> 
 		"detail_gain": pow(2.0, -LAPhysical.TOPOGRAPHY_SHORT_HURST),
 		# Spectral continuity at the crossover.
 		"detail_weight": pow(cross / lambda0, LAPhysical.TOPOGRAPHY_LONG_HURST),
-		"caves_enabled": caves,
-		"cave_size": CAVE_SIZE_M,
-		"cave_threshold": CAVE_THRESHOLD,
-		"cave_strength": CAVE_STRENGTH,
-		"cave_depth_fade": CAVE_DEPTH_FADE_M,
 	}

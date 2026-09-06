@@ -13,8 +13,12 @@ var _viewer: VoxelViewer = null
 var _gen_opts: Dictionary = {}             # the dict build_planet handed LASpherePlanetGenerator.build()
 var _center: Vector3 = Vector3.ZERO
 var _planet_radius: float = 0.0
-var _sea_radius: float = 0.0
 var _coast_dir: Vector3 = Vector3.ZERO   # the coast site the last box asked for
+var _planet_gen: RefCounted = null       # LASpherePlanetGenerator: the seed's shape, dropped at the seal
+## Where the body's water settled: the fill's per-node surface elevation over the mean crust radius.
+var _water_level: PackedFloat32Array = PackedFloat32Array()
+var _water_nlat: int = 0
+var _water_nlon: int = 0
 
 ## Planet centre in world space (origin by default). Only meaningful in planet mode.
 func planet_center() -> Vector3:
@@ -24,18 +28,23 @@ func planet_center() -> Vector3:
 func planet_radius() -> float:
 	return _planet_radius
 
-## Radius of the spherical sea shell (world units from centre). 0 in island mode.
-func sea_radius() -> float:
-	return _sea_radius
-
-## Highest radius the terrain reaches: the sea shell plus the highest elevation the declared hypsographic
-## curve carries. Nothing solid stands above it.
+## Highest radius the terrain reaches: the mean crust radius plus the highest elevation the hypsographic
+## curve carries over its own mean. Nothing solid stands above it.
 func max_surface_radius() -> float:
-	return _planet_radius + LAPhysical.HYPSOMETRY_HIGHEST_M
+	return _planet_radius + LAPhysical.HYPSOMETRY_HIGHEST_M - LAPlanetShape.hypsometric_mean_m()
 
-## Lowest radius the terrain reaches: the sea shell plus the deepest elevation the curve carries.
+## Lowest radius the terrain reaches: the mean crust radius plus the deepest elevation the curve carries.
 func min_surface_radius() -> float:
-	return _planet_radius + LAPhysical.HYPSOMETRY_DEEPEST_M
+	return _planet_radius + LAPhysical.HYPSOMETRY_DEEPEST_M - LAPlanetShape.hypsometric_mean_m()
+
+
+## WHERE THE BODY'S WATER STANDS along a body-frame direction: the world radius of the free surface over
+## it, NAN where the fill left that column dry. Not a shell: an ocean and a lake read different levels.
+func water_radius(body_dir: Vector3) -> float:
+	if _water_level.is_empty():
+		return NAN
+	var e: float = LAWaterFill.level_at(_water_level, _water_nlat, _water_nlon, body_dir)
+	return NAN if is_nan(e) else _planet_radius + e
 
 ## Local "up" at a world point: radial from the planet centre.
 func up_at(pos: Vector3) -> Vector3:
@@ -53,15 +62,14 @@ func build_planet(parent: Node3D, opts: Dictionary = {}) -> void:
 	var body: Dictionary = LABodySeeds.of(String(opts.get("seed_key", "planet")))
 	var rho_w: float = float(LASubstances.table().get("h2o", {}).get("density", 0.0))
 	if rho_w <= 0.0 or not body.has("hydrosphere_kg") or not body.has("groundwater_kg"):
-		push_error("VoxelTerrainService: no hydrosphere declared or no water density, so the sea has no level.")
+		push_error("VoxelTerrainService: no hydrosphere declared or no water density, so the body has no water to lay down.")
 		return
-	var sea_level: float = LAPlanetComposition.sea_level_m(float(opts.get("radius", 0.0)), (float(body["hydrosphere_kg"]) - float(body["groundwater_kg"])) / rho_w,
-		PackedFloat64Array(LAPhysical.HYPSOMETRY_AREA_BELOW), PackedFloat64Array(LAPhysical.HYPSOMETRY_ELEVATION_M))
-	var gen_opts: Dictionary = LAPlanetShape.opts(float(opts.get("radius", 0.0)), int(opts.get("seed", 1337)), bool(opts.get("caves_enabled", true)), sea_level)
+	var gen_opts: Dictionary = LAPlanetShape.opts(float(opts.get("radius", 0.0)), int(opts.get("seed", 1337)))
 	var gen: VoxelGeneratorGraph = pg.build(gen_opts)
 	_planet_radius = pg.radius()
-	_sea_radius = pg.sea_radius()
 	_generator = gen
+	_planet_gen = pg
+	_fill_water((float(body["hydrosphere_kg"]) - float(body["groundwater_kg"])) / rho_w)
 
 	var mesher: VoxelMesherTransvoxel = VoxelMesherTransvoxel.new()
 	# TRANSVOXEL'S TRANSITION CELLS CLOSE THE STEP BETWEEN TWO LEVELS OF DETAIL; the terrain shader moves
@@ -73,13 +81,13 @@ func build_planet(parent: Node3D, opts: Dictionary = {}) -> void:
 	terrain.mesher = mesher
 	terrain.generator = gen
 	terrain.material = _make_material()
-	# Tell the triplanar shader to band climate RADIALLY (snow/beach/slope keyed off height above the sea
-	# shell + radial up) instead of by world-Y — else all the "snow" piles at the +Y pole.
+	# Tell the triplanar shader to band climate RADIALLY (snow/beach/slope keyed off height over the mean
+	# crust radius + radial up) instead of by world-Y — else all the "snow" piles at the +Y pole.
 	if terrain.material is ShaderMaterial:
 		var tm: ShaderMaterial = terrain.material
 		tm.set_shader_parameter("planet_enabled", 1.0)
 		tm.set_shader_parameter("planet_center", _center)
-		tm.set_shader_parameter("planet_sea_radius", _sea_radius)
+		tm.set_shader_parameter("planet_crust_radius", _planet_radius)
 	terrain.lod_count = _lod_count_for(terrain.lod_distance)
 	terrain.view_distance = int(opts.get("view_distance", 8000))
 	terrain.generate_collisions = true
@@ -138,23 +146,6 @@ func attach_viewer(camera: Node3D, visuals: bool = true) -> void:
 	camera.add_child(viewer)
 	_viewer = viewer
 
-## Destruction: remove SDF matter inside the sphere.
-func carve_sphere(world_pos: Vector3, radius: float) -> void:
-	_edit_sphere(world_pos, radius, VoxelTool.MODE_REMOVE)
-
-func _edit_sphere(world_pos: Vector3, radius: float, mode: int) -> void:
-	if _terrain == null:
-		return
-	var vt: VoxelTool = _terrain.get_voxel_tool()
-	if vt == null:
-		return
-	vt.set_channel(VoxelBuffer.CHANNEL_SDF)
-	vt.set_mode(mode)
-	# VoxelTool operates in the terrain's LOCAL/voxel space; convert so edits land correctly when the body
-	# is rotated/translated (a spinning planet). At identity this is a no-op.
-	vt.do_sphere(_terrain.to_local(world_pos), radius)
-
-
 ## Signed distance to the rock surface at a world point: negative INSIDE rock, positive in air or void,
 ## from the body's own shape rather than from what a viewer has streamed. 999 when there is no terrain.
 func sdf_at(pos: Vector3) -> float:
@@ -172,11 +163,6 @@ func sdf_at(pos: Vector3) -> float:
 
 func is_solid(pos: Vector3) -> bool:
 	return sdf_at(pos) < 0.0
-
-
-## Solidification: add SDF matter inside the sphere. The inverse of carve_sphere, at the same seam.
-func fill_sphere(world_pos: Vector3, radius: float) -> void:
-	_edit_sphere(world_pos, radius, VoxelTool.MODE_ADD)
 
 
 ## Physics-space raycast against the terrain body (collision_mask=1).
@@ -201,36 +187,41 @@ func raycast_terrain(from: Vector3, dir: Vector3, max_distance: float) -> Dictio
 func ground_point(pos: Vector3) -> Vector3:
 	return surface_point(pos - _center)
 
-## PLANET: world radius of the solid surface along the WORLD direction `dir`, solved from the SDF the body
-## is generated from, so one direction gives one radius whatever a viewer has streamed. NAN without terrain.
+## PLANET: world radius of the solid surface along the WORLD direction `dir`, read off the body's own
+## shape, so one direction gives one radius whatever a viewer has streamed. NAN without terrain.
 func surface_radius(dir: Vector3) -> float:
-	return _generated_surface_radius(dir)
+	return _generated_surface_radius(to_body_dir(dir))
 
 
 ## The same radius along a direction fixed IN THE BODY: a place on the planet, which the world direction
 ## sweeps past as the body turns.
 func body_surface_radius(body_dir: Vector3) -> float:
-	return _generated_surface_radius(to_world_dir(body_dir))
+	return _generated_surface_radius(body_dir)
 
 
-## The body's own frame is the frame its SDF is written in; the world frame is that one turned by the
+## THE WATER'S free-surface radius along a WORLD direction; NAN where that column is dry.
+func water_surface_radius(dir: Vector3) -> float:
+	return water_radius(to_body_dir(dir))
+
+
+## The body's own frame is the frame its shape is written in; the world frame is that one turned by the
 ## body's rotation. A direction given in one means a different place on the planet in the other.
 func to_world_dir(body_dir: Vector3) -> Vector3:
 	return body_dir if _terrain == null \
 		else (_terrain.global_transform.basis.orthonormalized() * body_dir)
 
 
-## WHERE TO STAND A DEMO BOX SO IT HOLDS A SHORE, solved in LAPlanetComposition over a few hundred
-## directions at seed time. Vector3.ZERO when this body's surface holds none; asked with no footprint,
-## the site the last box chose.
+func to_body_dir(world_dir: Vector3) -> Vector3:
+	return world_dir if _terrain == null \
+		else (_terrain.global_transform.basis.orthonormalized().inverse() * world_dir)
+
+
+## WHERE TO STAND A DEMO BOX SO IT HOLDS A SHORE, read off the fill over a few hundred directions at seed
+## time. Vector3.ZERO when this body's surface holds none; asked with no footprint, the last box's site.
 func coast_site_dir(footprint_m: float) -> Vector3:
 	if footprint_m <= 0.0:
 		return _coast_dir
-	print("SITE_CHOOSER_STANDIN=%s" % JSON.stringify({
-		"file": "addons/local_agents/gdextensions/localagents/src/LAPlanetTables.cpp",
-		"expr": "LAPlanetComposition::coast_site: la_surface_radius(dir) - p_sea_r_m",
-		"replaced_by": "the hydrosphere fill's own liquid-at-surface columns"}))
-	var g: Dictionary = LAPlanetComposition.coast_site(self, _planet_radius, _sea_radius, footprint_m)
+	var g: Dictionary = LAPlanetComposition.coast_site(self, _planet_radius, footprint_m)
 	_coast_dir = g.get("dir", Vector3.ZERO)
 	return _coast_dir
 
@@ -242,35 +233,38 @@ func coast_site_world_dir() -> Vector3:
 
 ## What the crust under a footprint at `d` is: the site rule is read off this reading.
 func footprint_ground(d: Vector3, footprint_m: float) -> Dictionary:
-	return LAPlanetComposition.footprint_ground(self, d, _planet_radius, _sea_radius, footprint_m)
+	return LAPlanetComposition.footprint_ground(self, d, _planet_radius, footprint_m)
 
 
-# Bracket the SDF crossing coarsely over the whole relief band, then twice across the bracket it found.
-const GEN_RAY_COARSE: float = 32.0
-const GEN_RAY_STRIDE: float = 1.0
-const GEN_RAY_REFINE: float = 0.05
-const SURFACE_RAY_MARGIN: float = GEN_RAY_COARSE   # air above the ceiling / below the floor to start in
+## Nodes across the fill lattice. The fill decides a LEVEL; the crust is compared against it at its own
+## resolution, so a shoreline is as fine as the cells are.
+## LA_APPROX: water_fill_lattice
+const FILL_NLAT: int = 180
+const FILL_NLON: int = 360
 
 
+func _fill_water(water_m3: float) -> void:
+	var elev: PackedFloat32Array = _planet_gen.elevation_lattice(FILL_NLAT, FILL_NLON)
+	if elev.is_empty():
+		push_error("VoxelTerrainService: the crust carries no elevation lattice, so the body's water has nowhere to settle.")
+		return
+	var f: Dictionary = LAWaterFill.solve(elev, FILL_NLAT, FILL_NLON, _planet_radius, water_m3)
+	if f.is_empty():
+		return
+	_water_level = f["level_m"]
+	_water_nlat = FILL_NLAT
+	_water_nlon = FILL_NLON
+	print("WATER_FILL=%s" % JSON.stringify({"bodies": f["bodies"], "basins": f["basins"],
+		"wet_nodes": f["wet_nodes"], "nodes": FILL_NLAT * FILL_NLON}))
+
+
+## The crust's radius along a body-frame direction: the mean radius plus the cascade's own elevation, the
+## same expression the compiled SDF evaluates. NAN before the generator is built.
 func _generated_surface_radius(dir: Vector3) -> float:
-	if _generator == null:
+	if _planet_gen == null:
 		return NAN
-	var d: Vector3 = dir.normalized()
-	var r_top: float = max_surface_radius() + SURFACE_RAY_MARGIN
-	var r_bot: float = maxf(min_surface_radius() - SURFACE_RAY_MARGIN, 1.0)
-	var r_a: float = r_top
-	var r_b: float = r_bot
-	var r_hit: float = NAN
-	# The generator is sampled in the terrain's OWN space; every caller here speaks world.
-	for stride in [GEN_RAY_COARSE, GEN_RAY_STRIDE, GEN_RAY_REFINE]:
-		var hit: float = _generator.raycast_sdf_approx(
-			_terrain.to_local(_center + d * r_a), _terrain.to_local(_center + d * r_b), stride)
-		if hit < 0.0:
-			return r_hit
-		r_hit = r_a - hit
-		r_a = minf(r_hit + stride, r_top)
-		r_b = maxf(r_hit - stride, r_bot)
-	return r_hit
+	var e: float = _planet_gen.elevation_at(dir)
+	return NAN if is_nan(e) else _planet_radius + e
 
 
 ## PLANET: the world-space surface point along `dir` (centre + dir * surface_radius).

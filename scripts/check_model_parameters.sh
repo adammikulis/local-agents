@@ -172,7 +172,12 @@ while IFS=$'\t' read -r gfile gname gval; do
     ghosts=$((ghosts + 1))
     continue
   fi
-  code="$(grep -Eh "(^|[[:space:]])const(expr)?[[:space:]]+([A-Za-z0-9_]+[[:space:]]+)?${gname}([[:space:]]*[:=]|[[:space:]])" "$REPO_ROOT/$gfile" | head -1)"
+  code="$(grep -Eh "(^|[[:space:]])const(expr)?[[:space:]]+([A-Za-z0-9_]+[[:space:]]+)?${gname}([[:space:]]*[:=]|[[:space:]])" "$REPO_ROOT/$gfile" | head -1 || true)"
+  if [[ -z "$code" ]]; then
+    echo "FAIL  ${REGISTRY#"$REPO_ROOT"/}: \`$gname\` is declared against $gfile, which no longer holds it."
+    ghosts=$((ghosts + 1))
+    continue
+  fi
   if [[ -z "$code" ]]; then
     echo "FAIL  ${REGISTRY#"$REPO_ROOT"/}: \`$gname\` is declared but no longer exists in $gfile."
     ghosts=$((ghosts + 1))

@@ -28,12 +28,12 @@ func _random_aquatic_point(cfg: Dictionary) -> Vector3:
 	var dmin: float = float(cfg.get("depth_min", 0.0))
 	var dmax: float = float(cfg.get("depth_max", 999.0))
 	var pc: Vector3 = _eco.terrain.planet_center()
-	var sea_r: float = _eco.terrain.sea_radius()
 	for i in range(AQUATIC_SAMPLE_TRIES):
 		var dir: Vector3 = _eco.random_field_dir()
 		var ground_r: float = _eco._surface_radius(dir)
-		if is_nan(ground_r) or ground_r >= sea_r:
-			continue                                  # dry land poking above sea level
+		var sea_r: float = _eco.terrain.water_surface_radius(dir)
+		if is_nan(ground_r) or is_nan(sea_r) or ground_r >= sea_r:
+			continue                                  # dry land, or a column the fill left dry
 		var lo: float = maxf(ground_r, sea_r - dmax)  # deepest allowed (clamped to just above the seabed)
 		var hi: float = sea_r - dmin                  # shallowest allowed (just below the surface)
 		if hi <= lo:

@@ -72,7 +72,7 @@ func _build_sky() -> void:
 	_sky_ctrl.setup(_world, _sim.star(), _sim.moon(), _render_opts)
 	# The sky follows THIS camera, never a viewport lookup: a photographed run draws through an
 	# off-screen SubViewport whose parent window holds no camera.
-	_sky_ctrl.bind_camera(_camera, _sim.body().center(), _sim.body().sea_radius())
+	_sky_ctrl.bind_camera(_camera, _sim.body().center(), _sim.body().radius())
 	_sky_ctrl.enter_space_mode(_sim.body().center())
 	if _sim.orbits() != null and _sim.orbits().has_method("set_sky_controller"):
 		_sim.orbits().set_sky_controller(_sky_ctrl)
@@ -101,11 +101,11 @@ func _build_world_visuals() -> void:
 		_sim.ecology().set_vegetation_renderer(_veg_renderer)
 
 	# The field's condensate as ONE GPU particle system; phase is per-particle, off the cover texture.
-	_water.setup(material, _camera, _sky_ctrl.sun(), body.center(), body.sea_radius())
+	_water.setup(material, _camera, _sky_ctrl.sun(), body.center(), body.radius())
 
 	# One arrow glyph per open cell, at every altitude, over the chosen vector field. The scene's own
 	# declaration outranks the shell's flag; only an undeclared scene defers to it.
-	_vectors.setup(material, _camera, body.center(), body.sea_radius())
+	_vectors.setup(material, _camera, body.center(), body.radius())
 	_vectors.set_source(_input.vectors() if declared_vectors == LAFieldVectors.SOURCE_UNSET
 		else declared_vectors)
 

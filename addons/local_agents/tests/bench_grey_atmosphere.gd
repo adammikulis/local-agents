@@ -110,7 +110,7 @@ func _build(ny: int, sun: Vector3) -> bool:
 	_rig.upload("g_rest", g_vec)
 	_rig.fill("pressure", LAPhysical.STANDARD_PRESSURE_PA)
 	_ctx = {"cell_size": CELL, "centre": Vector3.ZERO, "spin": Vector3.ZERO, "spin_rate_rad_s": 0.0,
-		"sea_radius": 0.0, "gravity_self": 0.0, "dt_s": DT_S, "sun_dir": sun, "cell_size_min": CELL}
+		"crust_radius": 0.0, "gravity_self": 0.0, "dt_s": DT_S, "sun_dir": sun, "cell_size_min": CELL}
 	return true
 
 

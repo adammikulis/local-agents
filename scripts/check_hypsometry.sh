@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# HYPSOMETRY GATE — the seeded body's surface-height histogram against Earth's own hypsographic curve,
-# declared and cited in LAPhysical. A relief that is a typed amplitude reads its own distribution instead.
-# MUTATION: scale the elevation LAPlanetShape.hypsometric_curve() lays along the cascade by 3 -> red.
+# HYPSOMETRY GATE — the seeded body's surface-height histogram against Earth's own hypsographic curve in
+# LAPhysical, and LAWaterFill's water surface against the level that inventory reaches on that curve.
+# MUTATION: scale the elevation LAPlanetShape.hypsometric_curve() lays along the cascade by 3 -> red;
+# halve the inventory LAVoxelTerrainService._fill_water is handed -> red.
 # EXIT 0 the body matches the curve · 1 it does not · 2 the gate could not run.
 set -uo pipefail
 SCRIPT_DIR="$(cd "${BASH_SOURCE[0]%/*}" && pwd)"
@@ -41,8 +42,9 @@ echo "$SUMMARY"
 if [ "$VIOLATIONS" -gt 0 ]; then
   printf '%s\n' "$OUT" | grep 'HYPSOMETRY_VIOLATION' || true
   echo >&2
-  echo "The seeded body does not stand where Earth's hypsographic curve says a planet's surface stands." >&2
-  echo "Fix the shape the generator lays, never the curve: every elevation in it is a measurement." >&2
+  echo "The seeded body does not stand where Earth's hypsographic curve says a planet's surface stands," >&2
+  echo "or the fill left its water at a level that curve cannot hold. Fix the shape the generator lays" >&2
+  echo "and the flood that stands on it, never the curve: every elevation in it is a measurement." >&2
   exit 1
 fi
 echo "check_hypsometry: OK ($COMPARED comparisons)"

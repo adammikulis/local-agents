@@ -5,7 +5,6 @@ extends Node3D
 
 const FieldCacheScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldCache3D.gd")
 const GravityScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldGravity3D.gd")
-const MineralStampScript: GDScript = preload("res://addons/local_agents/sim/material/MineralStamp3D.gd")
 
 # A cell is "full" of water at this amount, mol/m^3: liquid water's density over its molar mass.
 const MAX_MASS: float = LAPhysical.WATER_DENSITY_KG_M3 / LAPhysical.MOLAR_MASS_WATER_KG_MOL
@@ -24,7 +23,7 @@ var _cell_count: int = 0
 var _solid: PackedByteArray = PackedByteArray()          # 1 = rock (holds no fluid), 0 = void (air/water)
 var _rock_fraction: PackedFloat32Array = PackedFloat32Array()   # share of the cell's volume inside the terrain
 var _surface_depth: PackedFloat32Array = PackedFloat32Array()   # m below the local ground, negative above it
-var _water_fraction: PackedFloat32Array = PackedFloat32Array()  # share of the cell's volume under the sea shell and over its ground
+var _water_fraction: PackedFloat32Array = PackedFloat32Array()  # share of the cell's volume under the fill's water surface and over its ground
 var _ground_d: PackedFloat32Array = PackedFloat32Array()        # depth of the ground under the cell's fluid below its centre, m
 ## THE ONE CPU-SIDE DECLARATION of every per-cell channel: LAFieldMirrors, native storage the drain
 ## lands the device's channels in. Nothing here holds a cell-sized array.
@@ -50,7 +49,6 @@ var _gpu = null                                          # LAMaterialSphereGPU3D
 var _use_gpu: bool = false
 var _queries = null                                      # LAMaterialFieldQueries3D
 var _inject = null                                       # LAMaterialFieldInject3D (write-side injection + FX)
-var _stamp = null                                        # LAMineralStamp3D — solid-flag -> SDF growth stamp
 var _sphere_step = null                                  # LAMaterialFieldSphereStep3D — the per-frame step loop
 var _organic = null                                      # LAMaterialFieldOrganic3D — the dead pool's C:H:O gauge
 # Substrate-foundation primitive modules (the field only delegates; all logic lives in these). Seams the
@@ -141,13 +139,6 @@ func field_to_point(field_pos: Vector3) -> Vector3:
 	return pivot + _body_basis * (field_pos - pivot)
 
 
-## Radius of the sea shell, model units, measured from `centre()`.
-func sea_radius() -> float:
-	if _terrain != null and _terrain.has_method("sea_radius"):
-		return float(_terrain.sea_radius())
-	return 0.0
-
-
 var _ready_sim: bool = false
 var _seal = null
 
@@ -190,7 +181,7 @@ func _adopt(grid: LAVoxelGrid) -> void:
 	_sphere_step = SphereStepScript.new()
 	_sphere_step.setup(self)
 
-## The body centre — the pivot the grid's rotation turns about, and the origin `sea_radius` is measured from.
+## The body centre — the pivot the grid's rotation turns about, and the origin every radius is measured from.
 func centre() -> Vector3:
 	return LAFieldGeometry.centre(self)
 
@@ -270,9 +261,6 @@ func activate() -> void:
 	_inject.setup(self)
 	_organic = OrganicScript.new()
 	_organic.setup(self)
-	# The sparse, event-driven solid-flag crossing -> SDF terrain-growth stamp (idle until armed).
-	_stamp = MineralStampScript.new()
-	_stamp.setup(self)
 	# Substrate-foundation primitives (thin delegates; the field only forwards to them).
 	_charge_mod = ChargeScript.new()
 	_charge_mod.setup(self)
@@ -292,7 +280,7 @@ func sample_solidity() -> void:
 	var k: String = "" if _terrain_opts.is_empty() else FieldCacheScript.key(_terrain_opts, _grid)
 	var fr: Dictionary = FieldCacheScript.load_fractions(k, _cell_count)
 	if fr.is_empty():
-		fr = LAPlanetComposition.surface_fractions(_grid, _terrain, centre(), sea_radius())
+		fr = LAPlanetComposition.surface_fractions(_grid, _terrain, centre())
 		fr["surface_depth"] = LAPlanetComposition.surface_depth(_grid, _terrain, centre())
 		LAFieldStateCache.save_blob(k, fr)
 	_rock_fraction = fr.get("rock_fraction", PackedFloat32Array())
@@ -438,13 +426,6 @@ func wet_cell_count() -> int:
 func add_water_pooled(center: Vector3, amount: float, radius: float) -> void:
 	if _inject != null:
 		_inject.add_water_pooled(center, amount, radius)   # queued as a sparse LIVE device add — no channel-wide
-
-
-## Re-sample rock/void from the terrain SDF in a region after an edit.
-func resample_terrain(world_pos: Vector3, radius: float) -> void:
-	if _inject != null:
-		_inject.resample_terrain(world_pos, radius)
-		if _gpu != null: _gpu.mark_solid_dirty()   # the solid mask changed → re-seed the GPU solid/static buffers
 
 
 ## Count of open cells whose derived condensate is at or above CONDENSE_COVER_MIN.

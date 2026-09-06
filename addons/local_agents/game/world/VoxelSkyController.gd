@@ -38,9 +38,9 @@ func bind_scene(material, water) -> void:
 
 ## The camera the frame is drawn through and the body it stands on: the sky's own altitude and its local
 ## vertical.
-func bind_camera(camera: Node3D, planet_centre: Vector3, sea_radius: float) -> void:
+func bind_camera(camera: Node3D, planet_centre: Vector3, crust_radius: float) -> void:
 	if _sky != null and _sky.has_method("bind_camera"):
-		_sky.bind_camera(camera, planet_centre, sea_radius)
+		_sky.bind_camera(camera, planet_centre, crust_radius)
 
 
 func update(delta: float) -> void:

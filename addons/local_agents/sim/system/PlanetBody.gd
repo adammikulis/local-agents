@@ -77,9 +77,6 @@ func center() -> Vector3:
 func radius() -> float:
 	return _terrain.planet_radius() if _terrain != null else 0.0
 
-func sea_radius() -> float:
-	return _terrain.sea_radius() if _terrain != null else 0.0
-
 ## Highest radius any terrain on this body reaches. 0 before the terrain is built.
 func max_surface_radius() -> float:
 	return _terrain.max_surface_radius() if _terrain != null else 0.0
@@ -111,11 +108,6 @@ func is_solid(world_pos: Vector3) -> bool:
 
 func sdf_at(world_pos: Vector3) -> float:
 	return _terrain.sdf_at(world_pos) if _terrain != null else 999.0
-
-## Destruction: remove SDF matter inside the sphere (impacts, eruptions, digging).
-func carve_sphere(world_pos: Vector3, r: float) -> void:
-	if _terrain != null:
-		_terrain.carve_sphere(world_pos, r)
 
 ## Attach a VoxelViewer under `node` so terrain streams/meshes around it.
 func attach_viewer(node: Node3D, visuals: bool = true) -> void:

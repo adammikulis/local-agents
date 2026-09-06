@@ -375,15 +375,15 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c,
 	const Dictionary body = LABodySeeds::of("planet");
 	const double n2_kg = double(body.get("atmosphere_n2_kg", 0.0));
 	const double body_kg = double(body.get("mass_kg", 0.0));
-	const double r_sea = double(p_field->call("sea_radius"));
+	const double r_datum = LABodySeeds::seed_radius_m("planet");
 	if (!(n2_kg > 0.0) || !(body_kg > 0.0)) {
 		UtilityFunctions::push_error("LAFieldLithostaticSeed.shape_atmosphere: the body record declares no "
 				"atmosphere_n2_kg or no mass_kg, so the planet would seed airless.");
 		return;
 	}
-	if (!(r_sea > 0.0)) {
-		UtilityFunctions::push_error("LAFieldLithostaticSeed.shape_atmosphere: the terrain states no sea "
-				"radius, so the barometric law has no datum.");
+	if (!(r_datum > 0.0)) {
+		UtilityFunctions::push_error("LAFieldLithostaticSeed.shape_atmosphere: the body record states no "
+				"mean crust radius, so the barometric law has no datum.");
 		return;
 	}
 	std::vector<Mirror> gases = channel_mirrors(p_field, "phase", "gas");
@@ -453,11 +453,11 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c,
 		}
 		const double r_c = double((centres[c] - centre).length());
 		const double e = double(edges[c]);
-		if (std::abs(r_c - r_sea) > 0.5 * e) {
+		if (std::abs(r_c - r_datum) > 0.5 * e) {
 			continue;
 		}
 		const Vector3 g(p_gravity[c * 3], p_gravity[c * 3 + 1], p_gravity[c * 3 + 2]);
-		phi_0 += double(p_phi[c]) + double(g.length()) * (r_sea - r_c);
+		phi_0 += double(p_phi[c]) + double(g.length()) * (r_datum - r_c);
 		at_sea++;
 	}
 	if (at_sea == 0) {
@@ -466,20 +466,20 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c,
 		return;
 	}
 	phi_0 /= double(at_sea);
-	// THE DENSITY AT THE DATUM IS THE INVENTORY OVER THE SHELL THE LAW FILLS: n0 = N / (4 pi r_sea^2 H),
+	// THE DENSITY AT THE DATUM IS THE INVENTORY OVER THE SHELL THE LAW FILLS: n0 = N / (4 pi r_datum^2 H),
 	// H the radial integral of the profile in the body's own 1/r potential, taken until nothing is left.
 	const double gm = la_physical("GRAVITATIONAL_CONSTANT") * body_kg;
 	// The step starts at the datum's own scale height and halves until the shell holds to float precision.
 	double shell = 0.0;
 	{
-		double dr = rt_over_m * r_sea * r_sea / gm;
+		double dr = rt_over_m * r_datum * r_datum / gm;
 		double prev = -1.0;
 		for (;;) {
 			double sum = 0.0;
-			for (double r = r_sea + 0.5 * dr;; r += dr) {
-				const double f = std::exp(-(gm / r_sea - gm / r) / rt_over_m) * (r / r_sea) * (r / r_sea);
+			for (double r = r_datum + 0.5 * dr;; r += dr) {
+				const double f = std::exp(-(gm / r_datum - gm / r) / rt_over_m) * (r / r_datum) * (r / r_datum);
 				sum += f * dr;
-				if (f < 1.0e-30 || r > r_sea + 1.0e7) {
+				if (f < 1.0e-30 || r > r_datum + 1.0e7) {
 					break;
 				}
 			}
@@ -491,7 +491,7 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c,
 			dr *= 0.5;
 		}
 	}
-	const double area = 4.0 * 3.14159265358979 * r_sea * r_sea;
+	const double area = 4.0 * 3.14159265358979 * r_datum * r_datum;
 	// The air stands in the volume the cell's rock and sea leave, the same fractions the chords read.
 	const PackedFloat32Array rock = p_field->get("_rock_fraction");
 	const PackedFloat32Array water = p_field->get("_water_fraction");

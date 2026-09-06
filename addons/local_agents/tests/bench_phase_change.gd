@@ -28,7 +28,7 @@ func _sweep(e_lo: float, e_hi: float) -> Dictionary:
 	_rig.upload("e_j_m3", e)
 	_rig.fill("e_lith_j_m3", 0.0)
 	_rig.step({"cell_size": CELL, "centre": Vector3.ZERO, "spin": Vector3.ZERO,
-		"spin_rate_rad_s": 0.0, "sea_radius": 0.0, "gravity_self": 0.0, "dt_s": 1.0})
+		"spin_rate_rad_s": 0.0, "crust_radius": 0.0, "gravity_self": 0.0, "dt_s": 1.0})
 	return {"e": e, "temp": _rig.read("temp"), "pressure": _rig.read("pressure"),
 		"solid": _rig.read("h2o_solid"), "liquid": _rig.read("h2o_liquid"),
 		"vapour": _rig.read("h2o_vapour")}

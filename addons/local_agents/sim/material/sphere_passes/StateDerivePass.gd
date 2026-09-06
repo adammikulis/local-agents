@@ -116,7 +116,7 @@ func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: i
 			var mix: Array = _rad_mixes[i]
 			w_kg = LARadiogenicDecay.heat_w_kg_of({"U": mix[0], "Th": mix[1], "K": mix[2]}, epoch)
 		pc.encode_float(52 + i * 4, w_kg)
-	pc.encode_float(68, float(ctx.get("sea_radius", 0.0)))
+	pc.encode_float(68, float(ctx.get("crust_radius", 0.0)))
 	# NO SOLVER, NO POTENTIAL: a world with no gravity pass has a zero potential field, and the weight it
 	# would be read at is never guessed. GravityPass publishes which of its two sources wrote it.
 	pc.encode_float(72, float(ctx.get("gravity_self", 0.0)))

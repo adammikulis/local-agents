@@ -254,8 +254,8 @@ func set_sun_flux(v: Vector3, xuv_w_m2: float) -> void:
 
 ## Radius of the sea shell from the body centre, metres — the datum the derived `alt` is measured from.
 ## Absent or zero = the body carries no shell, which is no altitude, not an altitude of zero.
-func set_sea_radius(m: float) -> void:
-	_ctx["sea_radius"] = m
+func set_crust_radius(m: float) -> void:
+	_ctx["crust_radius"] = m
 
 
 ## Whether anything can write matter or energy this step: a writer pass, or a CPU mirror marked dirty.

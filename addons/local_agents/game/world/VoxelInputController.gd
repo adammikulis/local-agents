@@ -68,9 +68,7 @@ var _debug_family_root: Node = null
 var _cam_creature_done: bool = false    # latch: framed a behavior-tinted creature for the debug screenshot
 var _stamp_test: bool = false
 var _stamp_test_deposited: bool = false
-var _stamp_test_reported: bool = false
 var _stamp_test_target: Vector3 = Vector3.ZERO
-var _stamp_test_deposit_frame: int = 0
 
 var _bench_name: String = ""
 var _bench_interval: int = 0
@@ -501,32 +499,18 @@ func _fire_schedule(frame: int, spawned: bool) -> void:
 				# DIFFUSE recharge only. Whether anything warm seeps back out is the rock's answer, not ours.
 				hfield.add_water_pooled(hsurf, 0.5 * LAMaterialField3D.MAX_MASS, cs * 3.5)
 
-	# Rock Stage C proof: deposit rock into the VOID cell over the surface, then confirm the rock_fill
-	# 0.5-crossing GROWS terrain (is_solid flips false->true at the stamp point).
-	if _stamp_test and spawned and _material != null:
-		if not _stamp_test_deposited and frame >= 90:
-			# WHERE THIS RUN'S FIELD STANDS. A box centred on the body holds every direction, so any one
-			# serves; a slice's box holds one, and a fixed axis names a place outside it.
-			var dir: Vector3 = LAFieldGeometry.field_dir(_material)
-			var sp: Vector3 = _terrain.surface_point(dir if dir != Vector3.ZERO else Vector3.UP)
-			if not is_nan(sp.x) and _material.get("_stamp") != null:
-				_stamp_test_target = sp
-				_material._stamp.debug_deposit(sp, 1.0)
-				_stamp_test_deposited = true
-				_stamp_test_deposit_frame = frame
-				print("STAMP_TEST_DEPOSIT={pos:%v, before_solid:%s}" % [_stamp_test_target, str(_terrain.is_solid(_stamp_test_target))])
-		elif _stamp_test_deposited and not _stamp_test_reported:
-			var st = _material._stamp
-			var grew: bool = st != null and st.grows > 0
-			# Report the MOMENT the grow fires, or a failure marker if none fired within ~250 frames.
-			if grew or frame > _stamp_test_deposit_frame + 250:
-				print("STAMP_TEST={grew:%s, at_frame:%d, grows:%d, shrinks:%d, before_solid:%s, after_solid:%s, live_is_solid:%s, scan_ms:%.3f}" % [
-					str(grew), frame, (st.grows if st != null else 0), (st.shrinks if st != null else 0),
-					str(st.last_grow_before_solid if st != null else false),
-					str(st.last_grow_after_solid if st != null else false),
-					str(_terrain.is_solid(st.last_grow_pos) if (st != null and grew) else false),
-					(st.last_scan_ms if st != null else 0.0)])
-				_stamp_test_reported = true
+	# --stamp-test: put rock into the VOID cell over the surface through the ordinary injection queue.
+	if _stamp_test and spawned and _material != null and not _stamp_test_deposited and frame >= 90:
+		# WHERE THIS RUN'S FIELD STANDS. A box centred on the body holds every direction, so any one
+		# serves; a slice's box holds one, and a fixed axis names a place outside it.
+		var dir: Vector3 = LAFieldGeometry.field_dir(_material)
+		var sp: Vector3 = _terrain.surface_point(dir if dir != Vector3.ZERO else Vector3.UP)
+		var inj = _material.get("_inject")
+		if not is_nan(sp.x) and inj != null:
+			_stamp_test_target = sp
+			var cell: int = inj.debug_deposit(sp, 1.0)
+			_stamp_test_deposited = cell >= 0
+			print("STAMP_TEST_DEPOSIT={pos:%v, cell:%d}" % [_stamp_test_target, cell])
 
 	# Verification-aid CLI (--geosync / --solar-view): apply the start camera mode AFTER the ecology spawn has
 	# framed the camera, so the mode framing holds (otherwise spawn's vista overrides it).
@@ -561,11 +545,13 @@ func _fire_schedule(frame: int, spawned: bool) -> void:
 	# --water-cam: hover the camera over the water looking ACROSS it toward a nearby shore, so the free
 	# fluid surface fills the frame.
 	if _water_cam and not _water_cam_done and _shoot_path != "" and _camera != null and _body != null \
-			and _body.has_method("sea_radius"):
+			and _terrain != null and _terrain.has_method("water_surface_radius"):
 		if frame >= _shoot_frames - 60:
 			var wc_center: Vector3 = _body.center()
-			var sea_r: float = _body.sea_radius()
 			var wdir: Vector3 = Vector3(0.42, 0.36, 0.83).normalized()      # a fixed spot on the planet
+			var sea_r: float = _terrain.water_surface_radius(wdir)
+			if is_nan(sea_r):
+				sea_r = _terrain.surface_radius(wdir)
 			var wtan: Vector3 = wdir.cross(Vector3.UP).normalized()
 			# Low aerial oblique, gazing down and across onto the ground below.
 			_camera.global_position = wc_center + wdir * (sea_r + 115.0)

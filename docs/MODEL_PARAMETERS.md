@@ -100,10 +100,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/terrain/PlanetShape.gd` | `CDF_SAMPLES` | 8192 | directions the relief cascade's own distribution is measured over before the hypsographic curve is laid along it | a closed form for the cascade's distribution |
 | `addons/local_agents/sim/terrain/PlanetShape.gd` | `CURVE_POINTS` | 65 | control points of that map | the same closed form |
 | `addons/local_agents/sim/terrain/PlanetShape.gd` | `CURVE_BAKE` | 512 | resolution the graph samples that map at | the same closed form |
-| `addons/local_agents/sim/terrain/PlanetShape.gd` | `CAVE_SIZE_M` | 2.0e4 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
-| `addons/local_agents/sim/terrain/PlanetShape.gd` | `CAVE_THRESHOLD` | 0.09 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
-| `addons/local_agents/sim/terrain/PlanetShape.gd` | `CAVE_STRENGTH` | 40.0 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
-| `addons/local_agents/sim/terrain/PlanetShape.gd` | `CAVE_DEPTH_FADE_M` | 4.7e3 | declared starting shape, not a rate | 0.5 grows the terrain by simulating geology forward |
 | `addons/local_agents/sim/SimReportSources.gd` | `METAB_FIT_MIN_N` | 3 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/streamer/StreamerDirector.gd` | `WINDOW_MAX` | 4 | presentation or diagnostic buffer length, not physics | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/streamer/StreamerDirector.gd` | `RESET_EVERY` | 12 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
@@ -206,13 +202,9 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/ecology/EcologySpawner.gd` | `LAND_TRIES` | 32 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/events/LAEventTracker.gd` | `SAMPLE_INTERVAL` | 1.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/events/LAEventTracker.gd` | `RECENT_MAX` | 32 | presentation or diagnostic buffer length, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/sim/material/MaterialFieldInject3D.gd` | `CRATER_WATCH_MAX` | 256 | a telemetry list's length, not a physical quantity | not owed: a diagnostic may size its own buffer |
 | `addons/local_agents/sim/material/MaterialFieldClimateSwing3D.gd` | `STATIONS_PER_BAND` | 8 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldClimateSwing3D.gd` | `LONG_DAYS` | 8 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldClimateSwing3D.gd` | `SITE_RETRY_FRAMES` | 60 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MineralStamp3D.gd` | `SCAN_EVERY` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MineralStamp3D.gd` | `ACTIVE_WINDOW` | 32 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MineralStamp3D.gd` | `STAMP_BUDGET` | 96 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialSphereGPU3D.gd` | `CHANNEL_HOLD_DRAINS` | 20 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialSphereGPU3D.gd` | `SLOW_READBACK_EVERY` | 4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/PhaseRecords.gd` | `VAPOUR_TRANSFER_COEFF` | 1.2e-3 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -263,9 +255,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MaterialFieldAtmos3D.gd` | `CLOUD_WATER_CRIT_KG_KG` | 0.5e-3 | Kessler (1969) q_crit | deleted when condensation is a reaction record and the detector reads the record |
 | `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `ALOFT_CELLS` | 2.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `UPDRAFT_SAMPLE_M` | 40.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialFieldAtmos3D.gd` | `CLOUD_BASE_ALT` | 62.0 | a renderer band radius, not a measured cloud base | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialFieldAtmos3D.gd` | `FOG_TOP_ALT` | 16.0 | a renderer band radius, not a measured fog top | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialFieldAtmos3D.gd` | `FOG_LO_ALT` | 0.0 | a renderer band radius, not a measured fog base | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldBiota3D.gd` | `GROUND_SEARCH` | 6 | a march bound, not a physical quantity | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldChannels3D.gd` | `HEAD_REACH` | 4 | a march bound, not a physical quantity | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldBiota3D.gd` | `HEAT_RADIUS` | 0.0 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -291,9 +280,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/sphere_passes/GravityPass.gd` | `MAX_ITERATIONS` | 20000 | conjugate-gradient iterations one solve may take before it reports that it did not converge | a direct solve, which has no iteration to cap |
 | `addons/local_agents/sim/material/kernels3d/neighbours.glsli` | `N_SLOTS` | 6 | faces of a cube; it is geometry, not a choice | never — a box has six faces |
 | `addons/local_agents/sim/material/kernels3d/generated.glsli` | `EXP_LIMIT` | 44.3614195558365 | generated from ReactionThermo.EXP_LIMIT; the exponent bound where exp() overflows float32 | deleted with its source row |
-| `addons/local_agents/sim/terrain/VoxelTerrainService.gd` | `GEN_RAY_COARSE` | 32.0 | first sweep of the same search, metres. Brackets the crossing over the whole relief band before the metre and centimetre passes refine it; a DISCRETISATION | an analytic surface intersection, which needs no sweep at all |
-| `addons/local_agents/sim/terrain/VoxelTerrainService.gd` | `GEN_RAY_STRIDE` | 1.0 | march step for the SDF surface search, metres. A DISCRETISATION, not a property of the ground | an analytic surface intersection, at which point there is no step to choose |
-| `addons/local_agents/sim/terrain/VoxelTerrainService.gd` | `GEN_RAY_REFINE` | 0.05 | bisection tolerance for the same search, metres. Sets how precisely the surface is located, nothing physical | as above |
 | `addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd` | `SIM_SECONDS_PER_STEP` | 43.2 | the coarsest temporal level, a DECISION about the clock quantum; every cell's own dt is picked from its CFL by LATemporalLevels below it | nothing: the CFL choice its deletion condition asked for already lives in the levels |
 | `addons/local_agents/sim/material/reactions/BioRecords.gd` | `ICE_FREE_LAND_AREA_M2` | 1.30e14 | EARTH's ice-free land area, used to scale a global biological flux down to a per-area rate. Measured for Earth, but this planet is not Earth and its own land area is emergent | measure the planet's own ice-free land from the field and scale by that |
 | `addons/local_agents/sim/material/reactions/BioRecords.gd` | `PG_TO_KG` | 1.0e12 | exact unit conversion, petagrams to kilograms. A definition, not a parameter | nothing; it is exact by definition of the SI prefix |

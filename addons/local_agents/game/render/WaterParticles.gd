@@ -13,18 +13,18 @@ var _field = null
 var _camera: Node3D = null
 var _sun: DirectionalLight3D = null
 var _center: Vector3 = Vector3.ZERO
-var _sea_radius: float = 0.0               # unset until setup() supplies it
+var _crust_radius: float = 0.0             # unset until setup() supplies it
 var _pm: ShaderMaterial = null             # process material
 var _dm: ShaderMaterial = null             # draw material
 var _sky_tint: Color = Color(1.0, 1.0, 1.0)
 
 
-func setup(field, camera: Node3D, sun: DirectionalLight3D, center: Vector3, sea_radius: float) -> void:
+func setup(field, camera: Node3D, sun: DirectionalLight3D, center: Vector3, crust_radius: float) -> void:
 	_field = field
 	_camera = camera
 	_sun = sun
 	_center = center
-	_sea_radius = sea_radius
+	_crust_radius = crust_radius
 	name = "WaterParticles"
 	amount = MAX_PARTICLES
 	lifetime = LIFETIME
@@ -52,10 +52,18 @@ func setup(field, camera: Node3D, sun: DirectionalLight3D, center: Vector3, sea_
 	process_material = _pm
 	_pm.set_shader_parameter("planet_center", _center)
 	_pm.set_shader_parameter("cap_cos", cos(CAP_ANGLE))
-	_pm.set_shader_parameter("sea_radius", _sea_radius)
-	_pm.set_shader_parameter("cloud_base_r", _field.atmos_cloud_base_r())
-	_pm.set_shader_parameter("fog_top_r", _field.atmos_fog_top_r())
-	_pm.set_shader_parameter("fog_lo_r", _field.atmos_fog_lo_r())
+	_pm.set_shader_parameter("crust_radius", _crust_radius)
+	# NO CONDENSATE, NO BAND, NO PARTICLES: the radii are read off the cells that carry condensate, so a
+	# world holding none draws none rather than a band nothing stands in.
+	var base_r: float = _field.atmos_cloud_base_r()
+	var top_r: float = _field.atmos_fog_top_r()
+	var lo_r: float = _field.atmos_fog_lo_r()
+	if is_nan(base_r) or is_nan(top_r) or is_nan(lo_r):
+		emitting = false
+		return
+	_pm.set_shader_parameter("cloud_base_r", base_r)
+	_pm.set_shader_parameter("fog_top_r", top_r)
+	_pm.set_shader_parameter("fog_lo_r", lo_r)
 	_pm.set_shader_parameter("outer_r", outer)
 	emitting = true
 

@@ -2,6 +2,7 @@
 #include "LAGridGeometry.hpp"
 #include "LAFieldCellMass.hpp"
 
+#include "LABodySystem.hpp"
 #include "LAFieldMirrors.hpp"
 #include "LAScriptCall.hpp"
 #include "LASubstances.hpp"
@@ -12,6 +13,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <vector>
 
 #include <godot_cpp/core/class_db.hpp>
@@ -128,7 +130,7 @@ void LAFieldCellMass3D::regolith(Object *p_field) {
 	Array cargs;
 	cargs.append(p_field);
 	const Vector3 centre = la_call_gd("res://addons/local_agents/sim/material/FieldGeometry3D.gd", "centre", cargs);
-	const double sea_r = double(p_field->call("sea_radius"));
+	const double sea_r = LABodySeeds::seed_radius_m("planet");
 	const double circulation_m = la_physical("GROUNDWATER_CIRCULATION_M");
 	const double phi0 = la_physical("REGOLITH_SURFACE_POROSITY");
 	const PackedFloat32Array depth = p_field->get("_surface_depth");
@@ -452,12 +454,54 @@ double LAFieldCellMass3D::kg_m3_at(const Array &p_mirrors, int p_c) {
 	return m;
 }
 
+Vector2 LAFieldCellMass3D::condensate_band(Object *p_field, double p_min_mol_m3) {
+	const Vector2 absent(std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN());
+	if (!p_field) {
+		return absent;
+	}
+	Object *grid = Object::cast_to<Object>(p_field->get("_grid"));
+	const int cc = int(p_field->get("_cell_count"));
+	const PackedByteArray solid = p_field->get("_solid");
+	const PackedFloat32Array w = LAFieldMirrors::of(p_field, "h2o");
+	const PackedFloat32Array liq = LAFieldMirrors::of(p_field, "h2o_liquid");
+	const PackedFloat32Array ice = LAFieldMirrors::of(p_field, "h2o_solid");
+	if (!grid || cc <= 0 || solid.size() != cc || w.size() != cc || liq.size() != cc || ice.size() != cc) {
+		return absent;
+	}
+	const PackedFloat64Array cw = LAGridGeometry::centres_f64(grid);
+	if (cw.size() < cc * 3) {
+		return absent;
+	}
+	Array cargs;
+	cargs.append(p_field);
+	const Vector3 centre = la_call_gd("res://addons/local_agents/sim/material/FieldGeometry3D.gd", "centre", cargs);
+	double lo = std::numeric_limits<double>::infinity();
+	double hi = -std::numeric_limits<double>::infinity();
+	for (int c = 0; c < cc; c++) {
+		if (solid[c] != 0) {
+			continue;
+		}
+		const double amt = MAX(double(w[c]), 0.0)
+				* (CLAMP(double(liq[c]), 0.0, 1.0) + CLAMP(double(ice[c]), 0.0, 1.0));
+		if (amt < p_min_mol_m3) {
+			continue;
+		}
+		const double r = std::hypot(cw[c * 3] - double(centre.x), cw[c * 3 + 1] - double(centre.y),
+				cw[c * 3 + 2] - double(centre.z));
+		lo = MIN(lo, r);
+		hi = MAX(hi, r);
+	}
+	return lo > hi ? absent : Vector2(float(lo), float(hi));
+}
+
 void LAFieldCellMass3D::_bind_methods() {
 	ClassDB::bind_static_method("LAFieldCellMass3D",
 			D_METHOD("upload_regolith", "rd", "bufs", "field"), &LAFieldCellMass3D::upload_regolith);
 	ClassDB::bind_static_method("LAFieldCellMass3D",
 			D_METHOD("upload_solid", "rd", "bufs", "field"), &LAFieldCellMass3D::upload_solid);
 	ClassDB::bind_static_method("LAFieldCellMass3D", D_METHOD("regolith", "field"), &LAFieldCellMass3D::regolith);
+	ClassDB::bind_static_method("LAFieldCellMass3D",
+			D_METHOD("condensate_band", "field", "min_mol_m3"), &LAFieldCellMass3D::condensate_band);
 	ClassDB::bind_static_method("LAFieldCellMass3D",
 			D_METHOD("masses_at", "field", "cell", "cell_m3"), &LAFieldCellMass3D::masses_at);
 	ClassDB::bind_static_method("LAFieldCellMass3D",

@@ -111,7 +111,6 @@ const LAND_TRIES: int = 32
 func _random_spawn_point() -> Vector3:
 	var center: Vector3 = _eco.terrain.planet_center()
 	var above: float = _eco.terrain.planet_radius() + 1.0
-	var sea_r: float = _eco.terrain.sea_radius() if _eco.terrain.has_method("sea_radius") else 0.0
 	# Drawn up front: the draw count must not depend on what the terrain answers.
 	var dirs: Array[Vector3] = []
 	for i in range(LAND_TRIES):
@@ -122,7 +121,8 @@ func _random_spawn_point() -> Vector3:
 		if is_nan(sr) or not _eco.holds(_surface_point(d)):
 			continue
 		held = d if held == Vector3.ZERO else held
-		if sr >= sea_r + LAND_MARGIN:
+		var w: float = _eco.terrain.water_surface_radius(d)
+		if is_nan(w) or sr >= w + LAND_MARGIN:
 			return center + d * above                  # dry land the field steps
 	return center + held * above if held != Vector3.ZERO else Vector3(NAN, NAN, NAN)
 

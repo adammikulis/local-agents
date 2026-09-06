@@ -17,7 +17,7 @@ var _env: Environment = null
 var _want_fog: bool = true
 var _camera: Node3D = null                   # the camera the frame is drawn through
 var _planet_centre: Vector3 = Vector3.ZERO
-var _sea_radius: float = 0.0
+var _crust_radius: float = 0.0
 var _star: Node3D = null
 var _moon: Node3D = null
 
@@ -124,10 +124,10 @@ func bind_bodies(star: Node3D, moon: Node3D) -> void:
 
 ## The camera the frame is drawn through, and the body it stands on. The render layer owns both and hands
 ## them over; nothing here goes looking for a camera.
-func bind_camera(camera: Node3D, planet_centre: Vector3, sea_radius: float) -> void:
+func bind_camera(camera: Node3D, planet_centre: Vector3, crust_radius: float) -> void:
 	_camera = camera
 	_planet_centre = planet_centre
-	_sea_radius = sea_radius
+	_crust_radius = crust_radius
 
 
 func sun() -> DirectionalLight3D:
@@ -171,7 +171,7 @@ func _update_sky() -> void:
 	if _sky_shader_mat != null:
 		_sky_shader_mat.set_shader_parameter("planet_up", up)
 		_sky_shader_mat.set_shader_parameter("eye_radius_m", eye_r)
-		_sky_shader_mat.set_shader_parameter("sea_radius_m", _sea_radius)
+		_sky_shader_mat.set_shader_parameter("crust_radius_m", _crust_radius)
 		_sky_shader_mat.set_shader_parameter("sun_dir", _sun.global_transform.basis.z)
 		_sky_shader_mat.set_shader_parameter("sun_color", _sun.light_color)
 		_sky_shader_mat.set_shader_parameter("sun_irradiance", beam)
@@ -182,7 +182,7 @@ func _update_sky() -> void:
 		_env.fog_enabled = _want_fog
 		# The air thins with height, and the scattering coefficient thins with it.
 		_env.fog_density = RAYLEIGH_BETA_SEA_LEVEL \
-			* exp(-maxf(eye_r - _sea_radius, 0.0) / AIR_SCALE_HEIGHT_M)
+			* exp(-maxf(eye_r - _crust_radius, 0.0) / AIR_SCALE_HEIGHT_M)
 	if _water != null and _water.has_method("set_sky_tint"):
 		_water.set_sky_tint(Color(1.0, 1.0, 1.0) * beam)
 
@@ -247,7 +247,7 @@ func _sun_elevation() -> float:
 ## surface — the only altitude a world with no viewer has.
 func _eye_radius() -> float:
 	if _camera == null or not is_instance_valid(_camera):
-		return _sea_radius
+		return _crust_radius
 	return _camera.global_position.distance_to(_planet_centre)
 
 

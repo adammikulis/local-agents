@@ -42,7 +42,7 @@ func _arm(n: int, dt_s: float, steps: int) -> Dictionary:
 	rig.fill("silicate", LASubstances.full_mol_m3("silicate"))
 	rig.fill("pressure", LAPhysical.STANDARD_PRESSURE_PA)
 	var ctx: Dictionary = {"cell_size": cell, "centre": Vector3.ZERO, "spin": Vector3.ZERO,
-		"spin_rate_rad_s": 0.0, "sea_radius": 0.0, "gravity_self": 0.0, "dt_s": dt_s,
+		"spin_rate_rad_s": 0.0, "crust_radius": 0.0, "gravity_self": 0.0, "dt_s": dt_s,
 		"sun_dir": Vector3.ZERO, "cell_size_min": cell}
 	var want: PackedFloat32Array = rig.filled(n, T_COLD_C)
 	want[0] = T_HOT_C
