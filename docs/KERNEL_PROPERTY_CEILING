@@ -5,4 +5,4 @@
 # a different pressure, past what check_derive_fixed_point.sh declares.
 # sparse_edit.glsl / sparse_edit_stays_inside_the_stock: `take = gain / max(ratio, 1e-30)` undoes the
 # `take * ratio` above it in float32, so `src_ch[su] -= take` can leave the stock below zero.
-2
+0
