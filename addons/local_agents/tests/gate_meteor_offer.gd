@@ -76,9 +76,11 @@ func _walk() -> void:
 		var rung: int = int(rec["rung"])
 		LAProcessSet.declare(rung)
 		var offers: bool = LAWorldOffers.has_impacts()
-		var before: int = actors.get_child_count()
+		# The world's OWN count, not the nodes made: a node whose launch was refused is freed, and a
+		# refused rock did not arrive.
+		var before: int = int(impacts.report()["meteors"])
 		impacts.fire_ambient_meteor()
-		var arrived: int = actors.get_child_count() - before
+		var arrived: int = int(impacts.report()["meteors"]) - before
 		if offers and arrived == 0:
 			_say("Rung \"%s\" offers an impact and received no rock." % rec["name"])
 		if not offers and arrived > 0:

@@ -1,6 +1,8 @@
 #include "LABallistics.hpp"
 
+#include "LABodySystem.hpp"
 #include "LAFieldCellMass.hpp"
+#include "LAFieldLithostaticSeed.hpp"
 #include "LAGridGeometry.hpp"
 #include "LAPhysicalRead.hpp"
 
@@ -9,6 +11,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <godot_cpp/core/math.hpp>
 #include <unordered_map>
 #include <vector>
@@ -44,6 +47,7 @@ struct FreeBody {
 	double radius_m = 0.0;
 	double fall_time_s = 0.0;
 	double drag_heat_j = 0.0;
+	int64_t sub_steps = 0;
 	bool armed = false;
 	bool landed = false;
 	double land_speed = 0.0;
@@ -176,6 +180,103 @@ bool occupied(const Dvec &p_at) {
 	}
 	const double r = tb().system[b].radius;
 	return r > 0.0 && (p_at - tb().system[b].centre).len() < r;
+}
+
+// THE LENGTH A STRIDE MAY NOT EXCEED, m. Inside the box it is the cell the body stands in: g and the
+// medium's density are cell-wise, so a stride longer than a cell skips cells the ram drag should have
+// acted in. Outside it the body is falling toward the air, whose e-folding length is the scale height
+// R T / M / g of the seeded column, so a stride of one H cannot cross the atmosphere unbraked. With no
+// air and no box the only force is the point-mass sum, whose scale is the distance to the body itself.
+double stride_m(const Dvec &p_at) {
+	const int c = cell_of(p_at);
+	if (c >= 0) {
+		return cell_edge(c);
+	}
+	if (tb().grid) {
+		const double g = Dvec(LABallistics::g_at(p_at.v3())).len();
+		const double rt = LAFieldLithostaticSeed::seeded_air_rt_over_m(LABodySeeds::surface_temp_c());
+		if (std::isfinite(rt) && rt > 0.0 && g > 0.0) {
+			return rt / g;
+		}
+	}
+	const int b = LABallistics::dominant(p_at.v3());
+	return b >= 0 ? (p_at - tb().system[b].centre).len() : 0.0;
+}
+
+// Seconds in the next stride: one length scale at the speed the body is at, read WHERE THE BODY IS, and
+// never more than what is left of the step. Over a constant L that is p_dt_s / ceil(|v| dt / L).
+double sub_step_h(const FreeBody &p_b, double p_left) {
+	const double l = stride_m(p_b.pos);
+	const double v = p_b.vel.len();
+	const double h = (l > 0.0 && v > 0.0) ? l / v : p_left;
+	return (std::isfinite(h) && h > 0.0 && h < p_left) ? h : p_left;
+}
+
+// Joules the drag left in one cell, and where along the arc it first entered it.
+struct CellHeat {
+	double joules = 0.0;
+	Dvec at;
+};
+
+// ONE SUB-STEP. Velocity Verlet about the exact parabola of a constant acceleration -- second order and
+// symplectic, so a bound orbit stays bound -- then the ram drag F = 1/2 rho Cd A v^2 over the same
+// interval, whose dv/dt = -k v^2 has the closed solution v/(1 + k v h) that no step length can turn the
+// body around. Lands it at the first rock along the arc.
+void advance(FreeBody &b, double p_h, std::unordered_map<int, CellHeat> &p_heat) {
+	// A body launched out of rock is not landed in it until it has reached open ground.
+	if (!b.armed && !occupied(b.pos)) {
+		b.armed = true;
+	}
+	const Dvec v0 = b.vel;
+	const Dvec a0 = Dvec(LABallistics::g_at(b.pos.v3()));
+	const Dvec start = b.pos;
+	auto path = [&](double s) {
+		const double t = s * p_h;
+		return start + v0 * t + a0 * (0.5 * t * t);
+	};
+	const Dvec next = path(1.0);
+	if (b.armed && occupied(next)) {
+		// Where along this arc the rock begins, so the landing time is not rounded up to a sub-step.
+		double lo = 0.0, hi = 1.0;
+		for (int it = 0; it < 24; it++) {
+			const double mid = 0.5 * (lo + hi);
+			if (occupied(path(mid))) {
+				hi = mid;
+			} else {
+				lo = mid;
+			}
+		}
+		b.pos = path(hi);
+		b.rest_field = to_field(b.pos);
+		b.vel = v0 + a0 * (hi * p_h);
+		b.fall_time_s += p_h * hi;
+		b.land_speed = b.vel.len();
+		b.landed = true;
+		return;
+	}
+	b.pos = next;
+	b.vel = v0 + (a0 + Dvec(LABallistics::g_at(next.v3()))) * (0.5 * p_h);
+	// Only a body with a mass and a cross-section rams anything; a declared point has neither.
+	if (b.armed && b.mass_kg > 0.0 && b.radius_m > 0.0) {
+		const double rho = LABallistics::medium_density_at(b.pos.v3());
+		const double speed = b.vel.len();
+		if (rho > 0.0 && speed > 0.0) {
+			const double area = Math::PI * b.radius_m * b.radius_m;
+			const double k = 0.5 * rho * SPHERE_CD * area / b.mass_kg;
+			const double after = speed / (1.0 + k * speed * p_h);
+			const double joules = 0.5 * b.mass_kg * (speed * speed - after * after);
+			b.vel = b.vel * (after / speed);
+			b.drag_heat_j += joules;
+			if (joules > 0.0) {
+				CellHeat &e = p_heat[cell_of(b.pos)];
+				if (!(e.joules > 0.0)) {
+					e.at = b.pos;
+				}
+				e.joules += joules;
+			}
+		}
+	}
+	b.fall_time_s += p_h;
 }
 
 } // namespace
@@ -440,6 +541,7 @@ Dictionary LABallistics::state(int p_id) {
 	out["landed"] = b.landed;
 	out["fall_time_s"] = b.fall_time_s;
 	out["drag_heat_j"] = b.drag_heat_j;
+	out["sub_steps"] = b.sub_steps;
 	out["mass_kg"] = b.mass_kg;
 	out["cell"] = cell_of(b.pos);
 	// The release point, carried in the grid's frame: the ground it was let go of turns under it.
@@ -470,37 +572,30 @@ Array LABallistics::step(double p_dt_s) {
 		if (b.landed) {
 			continue;
 		}
-		// A body launched out of rock is not landed in it until it has reached open ground.
-		if (!b.armed && !occupied(b.pos)) {
-			b.armed = true;
+		// EVERY BODY ON ITS OWN CLOCK. The field's step is the field's, and a rock at escape speed crosses
+		// the whole air column inside one of them. A stride is one length scale at the body's own speed --
+		// n = ceil(|v| dt / L) where L holds -- so the ram drag acts in every cell of the air it passes.
+		std::unordered_map<int, CellHeat> heat;
+		double left = p_dt_s;
+		long long n = 0;
+		while (left > 0.0 && !b.landed) {
+			const double h = sub_step_h(b, left);
+			advance(b, h, heat);
+			left -= h;
+			n++;
 		}
-		// VELOCITY VERLET: a half kick at each end of the step about a drift that is the exact parabola of
-		// a constant acceleration, so a fall resolves inside one step and a bound orbit stays bound.
-		const Dvec v0 = b.vel;
-		const Dvec a0 = Dvec(g_at(b.pos.v3()));
-		const Dvec start = b.pos;
-		auto path = [&](double s) {
-			const double t = s * p_dt_s;
-			return start + v0 * t + a0 * (0.5 * t * t);
-		};
-		const Dvec next = path(1.0);
-		if (b.armed && occupied(next)) {
-			// Where along this step's arc the rock begins, so the landing time is not rounded up to a tick.
-			double lo = 0.0, hi = 1.0;
-			for (int it = 0; it < 24; it++) {
-				const double mid = 0.5 * (lo + hi);
-				if (occupied(path(mid))) {
-					hi = mid;
-				} else {
-					lo = mid;
-				}
-			}
-			b.pos = path(hi);
-			b.rest_field = to_field(b.pos);
-			b.vel = v0 + a0 * (hi * p_dt_s);
-			b.fall_time_s += p_dt_s * hi;
-			b.land_speed = b.vel.len();
-			b.landed = true;
+		b.sub_steps = n;
+		// The joules the ram took out, cell by cell: the energy came out of the air the body pushed aside,
+		// so it goes back into the cells it was taken from and not into the one it ended the step in.
+		for (const std::pair<const int, CellHeat> &e : heat) {
+			Dictionary row;
+			row["id"] = b.id;
+			row["position"] = e.second.at.v3();
+			row["cell"] = e.first;
+			row["joules"] = e.second.joules;
+			tb().drag_rows.push_back(row);
+		}
+		if (b.landed) {
 			Dictionary row;
 			row["id"] = b.id;
 			row["position"] = b.pos.v3();
@@ -508,38 +603,12 @@ Array LABallistics::step(double p_dt_s) {
 			row["time"] = b.fall_time_s;
 			row["cell"] = cell_of(b.pos);
 			row["g_release"] = b.g_release;
+			row["sub_steps"] = b.sub_steps;
 			// The RADIAL drop: a radius is the same in either frame, and between release and landing the
 			// ground under the body has turned a long way east.
 			row["height_m"] = (from_field(b.from_field) - pivot()).len() - (b.pos - pivot()).len();
 			tb().landed_rows.push_back(row);
-			continue;
 		}
-		b.pos = next;
-		b.vel = v0 + (a0 + Dvec(g_at(next.v3()))) * (0.5 * p_dt_s);
-		// Ram drag, F = 1/2 rho Cd A v^2, integrated EXACTLY over the step: dv/dt = -k v^2 has the closed
-		// solution v/(1 + k v dt), which no step size can turn the body around. Only a body with a mass
-		// and a cross-section rams anything; a declared point has neither.
-		if (b.armed && b.mass_kg > 0.0 && b.radius_m > 0.0) {
-			const double rho = medium_density_at(b.pos.v3());
-			const double speed = b.vel.len();
-			if (rho > 0.0 && speed > 0.0) {
-				const double area = Math::PI * b.radius_m * b.radius_m;
-				const double k = 0.5 * rho * SPHERE_CD * area / b.mass_kg;
-				const double after = speed / (1.0 + k * speed * p_dt_s);
-				const double joules = 0.5 * b.mass_kg * (speed * speed - after * after);
-				b.vel = b.vel * (after / speed);
-				b.drag_heat_j += joules;
-				if (joules > 0.0) {
-					Dictionary row;
-					row["id"] = b.id;
-					row["position"] = b.pos.v3();
-					row["cell"] = cell_of(b.pos);
-					row["joules"] = joules;
-					tb().drag_rows.push_back(row);
-				}
-			}
-		}
-		b.fall_time_s += p_dt_s;
 	}
 	return tb().landed_rows;
 }
