@@ -15,7 +15,7 @@ question, which nothing could previously ask: should this be a number at all, an
 Every row names what would have to exist for the number to stop being needed. A row that never acquires
 that field is a value nobody intends to fix.
 
-**MAX_DECLARED: 219**
+**MAX_DECLARED: 228**
 
 The gate fails if the table grows past that ceiling. To add a number, derive it, bind it, or raise the
 ceiling in the same commit and argue for it in the message. When the count drops, lower the ceiling to bank
@@ -92,6 +92,15 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/gdextensions/localagents/include/LAAbsorptionBands.hpp` | `CDF_XMAX` | 50.0 | upper limit of x = c2*nu/T in that table; above it the fraction of blackbody power is below 1e-9 | a body cold enough that x = 50 falls inside its emission, i.e. below about 30 K |
 | `addons/local_agents/game/render/VegetationRenderer.gd` | `_CHUNK` | 256 | presentation, not physics | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/game/render/VegetationRenderer.gd` | `_INITIAL_CAP` | 512 | presentation or diagnostic buffer length, not physics | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/game/VoxelCameraRig.gd` | `FLY_SPEED_PER_HEIGHT` | 0.5 | presentation: the drone advances half its own height each second, which holds the ground's apparent rate under it the same at any altitude | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/game/VoxelCameraRig.gd` | `FLY_SPEED_FLOOR_M_S` | 4.0 | presentation: cruise on the deck, a person's running pace, so the eye still moves at zero height | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/game/VoxelCameraRig.gd` | `FLY_BOOST` | 4.0 | presentation: the Shift multiplier on cruise speed | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/game/VoxelCameraRig.gd` | `FLY_MULT_RANGE` | 8.0 | presentation: how far either side of 1 the scroll wheel may set the cruise multiplier | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/game/VoxelCameraRig.gd` | `FLY_RESPONSE_TAU_S` | 0.35 | presentation: e-folding time of the camera's velocity toward the commanded one, a small multirotor's response | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/game/VoxelCameraRig.gd` | `FLY_LOOK_TAU_S` | 0.08 | presentation: e-folding time of the aim toward the dragged one | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/game/VoxelCameraRig.gd` | `FLY_LOOK_SENS` | 0.005 | presentation: radians of aim per pixel of mouse drag | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/game/VoxelCameraRig.gd` | `FLY_PITCH_LIMIT_DEG` | 85.0 | presentation: steepest aim off the horizon; at 90 the up-vector the camera basis is built from degenerates | not owed: presentation may choose numbers, but it may not write the field |
+| `addons/local_agents/game/VoxelCameraRig.gd` | `FRAME_MARGIN` | 1.2 | presentation: framed radius over the framed subject's own, so it does not touch the frame edge | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/sim/SimWorld.gd` | `SLOW_BUILD_CELLS` | 250000 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/FieldGridBudget3D.gd` | `CELLS_PER_SCALE_HEIGHT` | 2.0 | cells one atmospheric scale height is cut into at the target edge; a DISCRETISATION of the air column, held under `docs/CELL_BUDGET` | a grid that resolves the scale height everywhere, which the cell budget forbids at planet scale |
 | `addons/local_agents/sim/material/FieldGridBudget3D.gd` | `CELLS_PER_LEVEL_PAD` | 4.0 | cells of its own edge a refinement level carries around the terrain surface and around a box's focus axis; a DISCRETISATION of the octree grading, held under `docs/CELL_BUDGET` | a grid at the finest edge everywhere, which the cell budget forbids at planet scale |
