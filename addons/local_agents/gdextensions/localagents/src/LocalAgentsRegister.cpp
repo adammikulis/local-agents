@@ -10,6 +10,7 @@
 #include "LAAbsorptionBands.hpp"
 #include "LAColumnRadiation.hpp"
 #include "LABallistics.hpp"
+#include "LATestMasses.hpp"
 #include "LAMixtureEnthalpy.hpp"
 #include "LABodySystem.hpp"
 #include "LAFieldCellMass.hpp"
@@ -81,6 +82,7 @@ void initialize_local_agents(ModuleInitializationLevel p_level) {
     ClassDB::register_class<LAGridGeometry>();
     ClassDB::register_class<LAGravitySolve>();
     ClassDB::register_class<LABallistics>();
+    ClassDB::register_class<LATestMasses>();
     ClassDB::register_class<LAFieldDriver>();
     ClassDB::register_class<LAFieldLedger>();
     ClassDB::register_class<LAFieldMirrors>();

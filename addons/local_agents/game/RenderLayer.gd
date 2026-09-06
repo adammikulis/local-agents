@@ -19,6 +19,7 @@ var declared_vectors: String = LAFieldVectors.SOURCE_UNSET
 @onready var _water_surface: Node = $WaterSurface
 @onready var _vectors: LAFieldVectors = $FieldVectors
 @onready var _heat_tex: LAHeatFieldTexture = $HeatFieldTexture
+@onready var _test_masses: LATestMassView = $TestMassView
 
 
 func build(world: Node, sim: LASimulation, input: LAVoxelInputController) -> void:
@@ -118,12 +119,15 @@ func _build_world_visuals() -> void:
 	# The ground's reflectance, from the one place this world declares it.
 	terrain.set_shader_param("albedo_bare_ground", LAPhysical.ALBEDO_BARE_GROUND)
 	terrain.set_shader_param("albedo_snow_ice", LAPhysical.ALBEDO_SNOW_ICE)
+	# The test masses: a marker where each probe stands and the line it fell down.
+	_test_masses.setup(_sim.test_masses(), _camera)
+
 	# Hot ground glows — the live per-cell temperature as a 3D texture over the field box.
 	_heat_tex.setup(material, terrain)
 
 	for pair in [["terrain", terrain.terrain_node()], ["camera", _camera], ["sky", _sky_ctrl], ["vegetation", _veg_renderer],
 			["ocean", _ocean], ["water_particles", _water], ["water_surface", _water_surface],
-			["vectors", _vectors], ["heat_texture", _heat_tex]]:
+			["vectors", _vectors], ["heat_texture", _heat_tex], ["test_masses", _test_masses]]:
 		LAAblate.adopt(pair[0], pair[1])
 	# Effects density onto the atmosphere particles.
 	_sim.settings_applier().bind(_world, terrain, _water)

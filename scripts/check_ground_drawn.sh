@@ -149,4 +149,12 @@ else
 fi
 
 [ "$fail" -eq 0 ] || exit 1
+
+# THE RUNG ABOVE, ON THE SAME BOX: a world that solves gravity draws the glyphs of it, and the arms are
+# the same eye, so one invocation covers the rung that draws nothing and the rung that draws a field.
+if [ -z "${LA_GROUND_RUNG:-}" ] && [ "${LA_GROUND_BODY:-}" = "" ]; then
+	echo "check_ground_drawn: rung 0 stands; now the same eye at rung 1."
+	LA_GROUND_RUNG=1 "$0" "$@" || exit $?
+fi
+
 echo "check_ground_drawn: OK (the eye is ${alt} m up, pitched ${pitch}, framing ground at ${aim} m and meeting it at ${ahead} m)"

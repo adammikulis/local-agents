@@ -37,6 +37,7 @@ set(SRC
     src/LAAbsorptionBands.cpp
     src/LAColumnRadiation.cpp
     src/LABallistics.cpp
+    src/LATestMasses.cpp
     src/LAMixtureEnthalpy.cpp
     src/LAPlanetTables.cpp
     src/LABodySystem.cpp

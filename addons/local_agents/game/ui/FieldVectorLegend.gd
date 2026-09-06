@@ -13,6 +13,7 @@ var _vectors: LAFieldVectors = null
 var _title: Label = null
 var _top: Label = null
 var _root: Control = null
+var _shown: float = -1.0
 
 
 func _ready() -> void:
@@ -32,7 +33,7 @@ func _ready() -> void:
 	_root.add_child(bar)
 	var row: HBoxContainer = HBoxContainer.new()
 	var calm: Label = _label(LAUiStyle.COL_TEXT_DIM)
-	calm.text = "calm"
+	calm.text = "0"
 	calm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(calm)
 	_top = _label(LAUiStyle.COL_TEXT_DIM)
@@ -52,10 +53,18 @@ func bind_vectors(vectors: LAFieldVectors) -> void:
 func refresh() -> void:
 	if _vectors == null or _vectors.reference() <= 0.0:
 		visible = false
+		_shown = -1.0
 		return
 	visible = true
+	_shown = _vectors.reference()
 	_title.text = "%s, one arrow per open cell" % _vectors.source
-	_top.text = "%.0f %s" % [_vectors.reference(), _vectors.unit()]
+	_top.text = "%.2f %s" % [_shown, _vectors.unit()]
+
+
+## The ramp is measured off the glyphs the renderer drew, so the key follows it rather than a constant.
+func _process(_delta: float) -> void:
+	if _vectors != null and not is_equal_approx(_shown, _vectors.reference()):
+		refresh()
 
 
 func _label(col: Color) -> Label:

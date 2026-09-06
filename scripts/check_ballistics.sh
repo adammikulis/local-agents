@@ -89,8 +89,11 @@ func _solve(grid, fill: PackedFloat32Array) -> PackedFloat32Array:
 	_owned.append(bufs["cell_edge"])
 	bufs["pos"] = _vec3_flat(grid)
 	bufs["gravity"] = _f32(cc * 3)
+	# StateDerivePass declares the potential and the vertical tables; a rig without that pass makes them.
 	bufs["grav_phi"] = _f32(cc)
 	bufs["grav_ref"] = _f32(cc)
+	bufs["vert_up"] = _f32(cc)
+	bufs["vert_down"] = _f32(cc)
 	for name in LAMatterChannels.CHANNELS:
 		bufs[String(name)] = _f32(cc)
 	var src_bytes: PackedByteArray = fill.to_byte_array()
@@ -148,7 +151,7 @@ func _init() -> void:
 		g_field[c * 3 + 2] = gv.z
 		solid[c] = 1 if p.y < 0.0 else 0
 	LABallistics.set_system([])
-	LABallistics.set_field(ga, g_field, solid, [])
+	LABallistics.set_field(ga, g_field, solid, [], Basis.IDENTITY, Vector3.ZERO)
 	var start: Vector3 = Vector3(0.0, A_DROP_H, 0.0)
 	var g_here: float = LABallistics.g_at(start).length()
 	var res: Array = _fall(start, A_DT, 200000)
@@ -168,7 +171,7 @@ func _init() -> void:
 	# CONTROL: no gravity, no landing.
 	var zero_g: PackedFloat32Array = PackedFloat32Array()
 	zero_g.resize(ga.cell_count * 3)
-	LABallistics.set_field(ga, zero_g, solid, [])
+	LABallistics.set_field(ga, zero_g, solid, [], Basis.IDENTITY, Vector3.ZERO)
 	var control: Array = _fall(start, A_DT, 4000)
 	if bool(control[0]):
 		fail += 1
@@ -200,7 +203,7 @@ func _init() -> void:
 	if solved.size() != gb.cell_count * 3:
 		_fail("the gravity solve returned no field — refusing to report a pass.")
 		return
-	LABallistics.set_field(gb, solved, b_solid, [])
+	LABallistics.set_field(gb, solved, b_solid, [], Basis.IDENTITY, Vector3.ZERO)
 	var b_start: Vector3 = Vector3(0.0, 6.0, 0.0)
 	var b_res: Array = _fall(b_start, B_DT, 200000)
 	var b_land: Vector3 = b_res[3]

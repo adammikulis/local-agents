@@ -59,6 +59,8 @@ script = ExtResource("11_moon")
 [node name="SystemOrbits" type="Node" parent="."]
 script = ExtResource("12_systemorbits")
 
+[node name="TestMasses" type="LATestMasses" parent="."]
+
 [node name="MeteorImpacts" type="Node" parent="."]
 script = ExtResource("13_meteorimpacts")
 

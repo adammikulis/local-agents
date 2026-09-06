@@ -150,13 +150,3 @@ func children_of(cid: int) -> Array:
 ## Mate / pair-bond partners of `cid` (the other parent(s) of its offspring). Empty if unpaired.
 func mates_of(cid: int) -> Array:
 	return (_mates[cid] as Array).duplicate() if _mates.has(cid) else []
-
-
-func members_of_component(cid: int) -> Array:
-	var root: int = find(cid)
-	var out: Array = []
-	for k in _parent.keys():
-		var ki: int = int(k)
-		if ki > _seq and find(ki) == root:
-			out.append(ki)
-	return out

@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="LocalAgentDemoEntry" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/examples/DemoEntry.gd" id="1_entry"]
+
+[resource]
+script = ExtResource("1_entry")
+order = 131
+title = "Slice, rung 1: gravity"
+description = "The same box as rung 0 with one process added: the potential of the mass that is there, solved on the device. Arrows over every open cell draw that field, and the key beside them gives the magnitude they saturate at. A test mass released two kilometres over the ground falls under the same field and stops on the rock; the readout carries the local g at the probe, its speed and how long it fell, and G drops another wherever you are standing. The solve is also what gives the seed a vertical, so the water the body was given soaks into the rock under it; this box stands on the body's pole, where no basin holds a free surface. Nothing else moves: no wind, no flow, no heat spreading."
+scene_path = "res://addons/local_agents/examples/SliceRung1Demo.tscn"
+requires_model = false
+requires_voxel_backend = true

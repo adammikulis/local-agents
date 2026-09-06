@@ -67,7 +67,9 @@ finds the sea as a declared shell radius and the field sampling the generator af
 ## 7. THE DEMO SITE'S THREE GATES ARE RED ON THEIR BRANCH
 
 Branch `demo-site` (coast site, sea plate deleted, body/world frame fix) is unlanded:
-`scripts/check_sparse_edit.sh` and `scripts/check_slice_exterior.sh` are red there.
+`scripts/check_sparse_edit.sh` and `scripts/check_slice_exterior.sh` are red there. Until it lands the
+demo box stands on the body's pole: `scripts/sim_run.sh --slice --rung 1 --frames 4 --report
+water_liquid_total,wet_cells` reads no free water surface anywhere in it.
 
 ## 8. THE EYE IS NOT FRAMED OR GROUNDED OFF THE SLICE'S AXES
 
@@ -78,16 +80,7 @@ addons/local_agents/examples/SliceRung0Demo.tscn <dir>` carries one-pixel dark l
 Reading: `is_area_meshed` in the terrain service answers whether a block is loaded, not whether the
 mesher shows it; `mesher.transitions_enabled` is true there.
 
-## 9. THE RUNG-1 DEMO IS NOT CUT
-
-`scripts/check_demo_catalog.sh` lists `slice_rung0.tres` and nothing above it. Rung 1 adds: the solved
-g drawn as arrows at every height (`LAFieldVectors`, a `gravity` source, offered where
-`LAWorldOffers.has_gravity()`); a test mass dropped from 2 km through `LABallistics.drop` that falls
-and stops, the HUD reading its speed and `g_at` (a probe: no `note_creation`, no channel write); the
-water inventory standing where gravity put it. `LifeDemo.tscn` declares `process_rung = 1` on the same
-box. `game/render/HeatGlow.gd` has no caller: wire it to the field's temperature or delete it.
-
-## 10. PHYSICS IS NOT IN THE ABLATION REGISTRY
+## 9. PHYSICS IS NOT IN THE ABLATION REGISTRY
 
 `scripts/sim_run.sh --slice --rung 1 --ablate=gravity --frames 4` refuses the name: `LAAblate.names()`
 lists presentation modules only and `LAProcessSet` resolves the rung once at launch. A process the rung
@@ -95,21 +88,24 @@ contains switches through the same `set_on`, the sweep measures its cost the sam
 from `creatures/sim/SimAblate.gd` to `sim/`. A body released with gravity off keeps the ground's
 tangential velocity and departs along the tangent; state the expression `LABallistics.drop` gives it.
 
-## 11. THE SURFACE IS STILL: EVERY WEATHER-SHAPED STAND-IN IS ABSENT RATHER THAN FAKED
+## 10. THE SURFACE IS STILL: EVERY WEATHER-SHAPED STAND-IN IS ABSENT RATHER THAN FAKED
 
 `docs/FAKES.md` carries what creatures need and nothing the surface shows: `wind_field` (deleted by
 ACOUSTIC), `rain` (WATER), `streams` (ADVECT), `diurnal_heat` (RADIATION), each read through the query
 the real row will answer, offered in the HUD as a stand-in.
 
-## 12. A FREE BODY IS INTEGRATED AT THE FIELD'S STEP, AND IMPACTORS ARE SIZED BY AN INVENTED DRAW
+## 11. A FREE BODY IS INTEGRATED AT THE FIELD'S STEP, AND IMPACTORS ARE SIZED BY AN INVENTED DRAW
 
-`LABallistics::step(dt_s)` advances every body by `SIM_SECONDS_PER_STEP`: a body at escape speed
-crosses the atmosphere inside one step and the ram drag never acts. `rg -n "randf_range\(0.55"
-addons/local_agents/sim/actors/Meteor.gd` finds the impactor size drawn from an invented range (the
-measured law: Brown et al. 2002, N(>E) ∝ E^-0.9, a cited chondrite density). `LAMeteorImpacts.arrive()`
-counts a rock `launch()` refused. `SPHERE_CD` in `LABallistics.cpp` is the hypersonic limit at every Re.
+`LABallistics::step(dt_s)` takes the whole of `SIM_SECONDS_PER_STEP` in one go, so a body crossing the
+atmosphere rams it at one density for the whole crossing. `scripts/shoot_demo.sh
+addons/local_agents/examples/SliceRung1Demo.tscn <dir>` photographs a test mass already landed: the
+world advances 43.2 simulated seconds per rendered frame, so a two-kilometre fall is over between two
+frames and nothing is seen falling. `rg -n "randf_range\(0.55" addons/local_agents/sim/actors/Meteor.gd`
+finds the impactor size drawn from an invented range (the measured law: Brown et al. 2002,
+N(>E) ∝ E^-0.9, a cited chondrite density). `LAMeteorImpacts.arrive()` counts a rock `launch()` refused.
+`SPHERE_CD` in `LABallistics.cpp` is the hypersonic limit at every Re.
 
-## 13. A THROWN BODY FALLS UNDER THE ENGINE'S GRAVITY, NOT THE FIELD'S
+## 12. A THROWN BODY FALLS UNDER THE ENGINE'S GRAVITY, NOT THE FIELD'S
 
 `rg -n "gravity_scale" addons/local_agents/creatures/creature/CreatureRagdoll.gd` reads `1.0`, so the
 live gravity switch never reaches a flung or dying creature; `impulse.length() > 3.0` in `Creature.gd`
@@ -117,12 +113,12 @@ is an invented threshold. The design: kinematic until thrown; then a Jolt `Rigid
 `gravity_scale = 0` pushed each tick by `m·g(pos)` from `LABallistics.g_at` plus the seeded air's drag
 (bound, not copied), the impulse from the overpressure in its cell, kinematic again when asleep.
 
-## 14. A BODY'S MASS, CARBON, ENERGY AND RATES ARE NOT IN REAL UNITS
+## 13. A BODY'S MASS, CARBON, ENERGY AND RATES ARE NOT IN REAL UNITS
 
 `rg -n "MASS_UNIT_SCALE|TISSUE_PER_KG|RESP_K" addons/local_agents/creatures` finds a scale factor with
 no referent spent as mol/m³ of a cell. The species mass is the one input; the rest derives (Kleiber).
 
-## 15. NOT EXAMINED UNTIL THE RUNG-2 DEMO IS APPROVED — rung 3
+## 14. NOT EXAMINED UNTIL THE RUNG-2 DEMO IS APPROVED — rung 3
 
 - `scripts/check_bench_shock_tube.sh`: at a 10:1 Sod jump the rarefaction head stands outside the bound
   and the overshoot grows as the grid halves; at a 1% jump every claim passes.
@@ -136,7 +132,7 @@ no referent spent as mol/m³ of a cell. The species mass is the one input; the r
   the advective CFL, `SIM_SECONDS_PER_STEP` and the acoustic temporal levels are deleted; declared in
   `docs/APPROXIMATIONS.md` when built.
 
-## 16. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the rows above it and their books
+## 15. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the rows above it and their books
 
 - `scripts/check_bench_heat_slab.sh` (rung 4): a slab held between 20 and 520 °C leaves that range.
   Reading: `la_row_need` in `flux.glsl` gates the conduction row on `cap_sensible[c] > 0`.
@@ -150,7 +146,7 @@ no referent spent as mol/m³ of a cell. The species mass is the one input; the r
 - `LA_RUN_TIMEOUT=110 scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn --
   --sandbox --ui --run-frames=20` prints no report and logs no error; `--planet-only --no-fauna` reports.
 
-## 17. ONLY WATER AND SILICATE MELT AND BOIL WHERE THEIR TABLE SAYS, AND ROWS THE ENGINE READS ARE EMPTY
+## 16. ONLY WATER AND SILICATE MELT AND BOIL WHERE THEIR TABLE SAYS, AND ROWS THE ENGINE READS ARE EMPTY
 
 `rg -n "LADDER|la_sensible_only|LA_MIX_MAX" addons/local_agents/sim/material/kernels3d/state_derive.glsl`:
 every other condensed channel is e = c·T at every temperature while `LASubstances.cpp` cites its melting
@@ -160,19 +156,19 @@ point and fusion enthalpy; the CPU twin `LAMixtureEnthalpy` reads the table for 
 point, every planet mineral carries basalt's albedo and emissivity, and `SOLID_IN`/`SOLID_OUT` in
 `state_derive.glsl` bind sediment cementation to Marsh's magma crystal fractions.
 
-## 18. THE PHYSICS RUNS INSIDE GODOT'S PROCESS
+## 17. THE PHYSICS RUNS INSIDE GODOT'S PROCESS
 
 Maintainer's decision, standing: a standalone native process with its own device, clock and CLI; gates
 run it with no Godot launch; Godot attaches as a viewer. Today every pass is a GDScript record on a Godot
 RenderingDevice (`LAFieldDriver`) and `scripts/run_sim_offscreen.sh` launches Godot for every gate.
 Branch `native-plans` is unlanded: `scripts/check_lasim_parity.sh` there reads `plan_reduce.lapl is truncated`.
 
-## 19. THE LEDGER RECONSTRUCTS ELEMENTS FROM CHANNEL AMOUNTS
+## 18. THE LEDGER RECONSTRUCTS ELEMENTS FROM CHANNEL AMOUNTS
 
 Maintainer's decision, standing: per-cell moles of elements are the state and species are derived
 (`docs/PHYSICS_TODO.md` B); today the ledger reconstructs them from `Channels.gd` (`mol_per_unit`).
 
-## 20. PRESENTATION LIVES ON THE SIM SIDE OF THE EJECTA MODULE, AND THE GPU LINT RUNS HERE ONLY
+## 19. PRESENTATION LIVES ON THE SIM SIDE OF THE EJECTA MODULE, AND THE GPU LINT RUNS HERE ONLY
 
 `rg -n 'MultiMeshInstance3D|la_effects_scale' addons/local_agents/sim/material/MaterialEjecta3D.gd`
 finds a draw cap read off the graphics preset and a MultiMesh built under `sim/`.

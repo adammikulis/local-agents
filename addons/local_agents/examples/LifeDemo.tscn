@@ -3,6 +3,7 @@
 [ext_resource type="PackedScene" path="res://addons/local_agents/game/VoxelWorld.tscn" id="1_voxelworld"]
 
 [node name="LifeDemo" instance=ExtResource("1_voxelworld")]
+process_rung = 1
 slice_box = "0,surface,0,3,24,3,5120,10"
 start_local_hour = 12.0
 field_vectors = "off"

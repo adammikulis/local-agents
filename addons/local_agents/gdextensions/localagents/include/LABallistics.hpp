@@ -3,6 +3,7 @@
 
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/variant/array.hpp>
+#include <godot_cpp/variant/basis.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
@@ -38,15 +39,18 @@ public:
 	static Vector3 acceleration_at(const Vector3 &p_at, int p_exclude);
 
 	// The field's own state, republished when it re-solves: the grid, the drained gravity mirror
-	// (flat cell*3, m/s^2), the solid mask (1 = rock) and LAFieldCellMass3D.mirrors() for the medium's
-	// mass density.
+	// (flat cell*3, m/s^2), the solid mask (1 = rock), LAFieldCellMass3D.mirrors() for the medium's
+	// mass density, and the frame the grid is laid in (body -> world, about p_pivot).
 	static void set_field(Object *p_grid, const PackedFloat32Array &p_gravity,
-			const PackedByteArray &p_solid, const Array &p_mass_mirrors);
+			const PackedByteArray &p_solid, const Array &p_mass_mirrors, const Basis &p_frame,
+			const Vector3 &p_pivot);
 	static void clear_field();
 	static bool has_field();
 
 	// What a body at this point falls under: the solved field inside the box, the point-mass sum outside.
 	static Vector3 g_at(const Vector3 &p_at);
+	// True where a body would stop: the field's solid mask inside the box, a body's surface radius outside.
+	static bool rock_at(const Vector3 &p_at);
 	// Mass density of the medium at a point, kg/m^3. 0 outside the box or with no field.
 	static double medium_density_at(const Vector3 &p_at);
 	// Largest relative gap between g_at(a cell centre) and that cell's own value in the mirror this was
@@ -57,7 +61,8 @@ public:
 	// neither is a point, and a point has no drag. Returns the id state() and release() take.
 	static int drop(const Vector3 &p_pos, const Vector3 &p_vel, double p_mass_kg, double p_radius_m);
 	static void release(int p_id);
-	// {position, velocity, speed, landed, fall_time_s, drag_heat_j, cell}. Empty for an unknown id.
+	// {position, velocity, speed, landed, fall_time_s, drag_heat_j, cell, from, g_release, height_m}.
+	// Empty for an unknown id.
 	static Dictionary state(int p_id);
 	static int live_count();
 	// Advance every live body by p_dt_s and return the rows that landed this step:

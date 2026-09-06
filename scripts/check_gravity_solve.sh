@@ -104,9 +104,12 @@ func _solve(grid, fill: PackedFloat32Array) -> Array:
 	_owned.append(bufs["cell_edge"])
 	bufs["pos"] = _vec3_flat(grid)
 	bufs["gravity"] = _f32(cc * 3)
-	# The potential this solve writes; StateDerivePass declares it, so a rig without that pass makes it.
+	# The potential and the vertical tables this solve writes; StateDerivePass declares them, so a rig
+	# without that pass makes them.
 	bufs["grav_phi"] = _f32(cc)
 	bufs["grav_ref"] = _f32(cc)
+	bufs["vert_up"] = _f32(cc)
+	bufs["vert_down"] = _f32(cc)
 	for name in LAMatterChannels.CHANNELS:
 		bufs[String(name)] = _f32(cc)
 	var src_bytes: PackedByteArray = fill.to_byte_array()
