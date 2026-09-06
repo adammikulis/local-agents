@@ -13,7 +13,6 @@
 #include <vector>
 
 #include "LAPhysicalRead.hpp"
-#include "LATerrainLattice.hpp"
 #include "LASubstances.hpp"
 #include "LABodySystem.hpp"
 
@@ -894,7 +893,7 @@ void LAPlanetComposition::seed(Object *p_field, double p_t_c, const PackedFloat3
 // second: the rock is the chord below the ground, the water the chord between the ground and the level
 // the fill left over that column, the rest is air. SUB^2 such lines cover the cell's projection; every
 // fraction is a ratio of chords, so a cell wholly inside rock reads exactly one.
-// LA_APPROX: chord_quadrature_lattice
+// LA_APPROX: chord_quadrature
 Dictionary LAPlanetComposition::surface_fractions(Object *p_grid, Object *p_terrain, const Vector3 &p_centre) {
 	Dictionary out;
 	if (!p_grid || !p_terrain) {
@@ -949,31 +948,47 @@ Dictionary LAPlanetComposition::surface_fractions(Object *p_grid, Object *p_terr
 		out["ground_d"] = ground;
 		return out;
 	}
-	const Vector3 origin = p_grid->get("origin");
-	const int span = std::max(int(p_grid->get("nx")), std::max(int(p_grid->get("ny")), int(p_grid->get("nz"))));
 	const double base = double(p_grid->get("cell_size"));
-	const LATerrainLattice &lat = LATerrainLattice::build(p_terrain, origin, base * span, LATerrainLattice::lod_for(base * span), 32, p_centre, lo, hi);
-	if (!lat.valid()) {
-		UtilityFunctions::push_error("LAPlanetComposition: the terrain lattice did not build; no rock is seeded in the relief band.");
+	// THE CRUST'S OWN RADIUS UNDER EVERY CUT CELL, and the water standing over it, in one sweep each: the
+	// shape is analytic along a direction, so nothing is bisected and nothing is smoothed by a lattice.
+	PackedVector3Array dirs;
+	dirs.resize(int(ask.size()));
+	for (size_t k = 0; k < ask.size(); k++) {
+		const Vector3 rel = cw[ask[k]] - p_centre;
+		dirs[int(k)] = rel.length() > 0.0f ? rel.normalized() : Vector3(0, 1, 0);
+	}
+	const PackedFloat32Array ground_r = p_terrain->has_method("surface_radii")
+			? PackedFloat32Array(p_terrain->call("surface_radii", dirs))
+			: PackedFloat32Array();
+	if (ground_r.size() != int(ask.size())) {
+		UtilityFunctions::push_error("LAPlanetComposition: the terrain answered no crust radius under the "
+				"cells the relief band holds, so no rock is seeded in it.");
 		return out;
 	}
+	PackedFloat32Array water_r = p_terrain->has_method("water_radii")
+			? PackedFloat32Array(p_terrain->call("water_radii", dirs))
+			: PackedFloat32Array();
+	if (water_r.size() != int(ask.size())) {
+		water_r.resize(int(ask.size()));
+		water_r.fill(std::numeric_limits<float>::quiet_NaN());
+	}
+	// SUB^2 lines along the local vertical through the cell; the ground and the free water surface are
+	// each one sphere over this cell, so every crossing is a quadratic and every fraction a chord ratio.
 	const int SUB = 6;
-	const int BISECT = 20;
-	for (int c : ask) {
+	for (size_t k = 0; k < ask.size(); k++) {
+		const int c = ask[k];
 		const double e = c < edge.size() ? double(edge[c]) : base;
 		const double h = 0.5 * e;
 		const Vector3 rel = cw[c] - p_centre;
-		const double r0 = radius_of(c);
 		if (!(rel.length() > 0.0)) {
 			continue;
 		}
 		const Vector3 up = rel / rel.length();
-		// THE WATER'S OWN LEVEL OVER THIS COLUMN, from the fill. NaN where the fill left it dry, and then
-		// no chord of this cell is water whatever its neighbours hold.
-		const double w_r = p_terrain->has_method("water_radius")
-				? double(p_terrain->call("water_radius", up))
-				: std::numeric_limits<double>::quiet_NaN();
-		// A lateral basis across the vertical.
+		const double g_r = double(ground_r[int(k)]);
+		const double w_r = double(water_r[int(k)]);
+		if (!std::isfinite(g_r)) {
+			continue;
+		}
 		Vector3 a = std::abs(up.y) < 0.9 ? Vector3(0, 1, 0).cross(up) : Vector3(1, 0, 0).cross(up);
 		a = a.normalized();
 		const Vector3 b = up.cross(a).normalized();
@@ -990,9 +1005,9 @@ Dictionary LAPlanetComposition::surface_fractions(Object *p_grid, Object *p_terr
 				double x_in = -std::numeric_limits<double>::infinity();
 				double x_out = std::numeric_limits<double>::infinity();
 				bool miss = false;
-				for (int k = 0; k < 3 && !miss; k++) {
-					const double d = double(up[k]);
-					const double o = double(q[k] - cw[c][k]);
+				for (int k2 = 0; k2 < 3 && !miss; k2++) {
+					const double d = double(up[k2]);
+					const double o = double(q[k2] - cw[c][k2]);
 					if (std::abs(d) < 1e-12) {
 						if (std::abs(o) > h) {
 							miss = true;
@@ -1010,37 +1025,20 @@ Dictionary LAPlanetComposition::surface_fractions(Object *p_grid, Object *p_terr
 					continue;
 				}
 				chord += x_out - x_in;
-				// Where the ground crosses this line: rock below it. The lattice sign at both ends brackets it.
-				const bool rock_in = lat.sample(q + up * float(x_in)) < 0.0;
-				const bool rock_out = lat.sample(q + up * float(x_out)) < 0.0;
-				double x_ground = x_out;
-				if (rock_in && rock_out) {
-					x_ground = x_out;
-				} else if (!rock_in && !rock_out) {
-					x_ground = x_in;
-				} else {
-					double lo_x = x_in, hi_x = x_out;
-					for (int it = 0; it < BISECT; it++) {
-						const double m = 0.5 * (lo_x + hi_x);
-						if (lat.sample(q + up * float(m)) < 0.0) {
-							lo_x = m;
-						} else {
-							hi_x = m;
-						}
-					}
-					x_ground = 0.5 * (lo_x + hi_x);
-				}
-				chord_rock += x_ground - x_in;
-				// The ground's depth below the centre along this line: the rock top, or the cube's bottom.
-				ground_sum += -x_ground;
-				ground_n += 1;
-				// The free water surface along this line: r(x) = |q - centre + x up|.
+				// r(x) = |q - centre + x up|, so a crossing at radius R solves x^2 + 2 par x + perp^2 = R^2.
 				const Vector3 qr = q - p_centre;
 				const double par = double(qr.dot(up));
 				const double perp2 = std::max(double(qr.length_squared()) - par * par, 0.0);
-				const double inside = w_r * w_r - perp2;
-				if (std::isfinite(w_r) && w_r > 0.0 && inside > 0.0) {
-					const double x_sea = std::sqrt(inside) - par;
+				const double in_g = g_r * g_r - perp2;
+				const double x_ground = in_g > 0.0
+						? std::min(std::max(std::sqrt(in_g) - par, x_in), x_out)
+						: x_in;
+				chord_rock += x_ground - x_in;
+				ground_sum += -x_ground;
+				ground_n += 1;
+				const double in_w = w_r * w_r - perp2;
+				if (std::isfinite(w_r) && w_r > 0.0 && in_w > 0.0) {
+					const double x_sea = std::sqrt(in_w) - par;
 					const double w_lo = std::max(x_ground, x_in);
 					const double w_hi = std::min(x_sea, x_out);
 					if (w_hi > w_lo) {
@@ -1178,10 +1176,12 @@ Dictionary LAPlanetComposition::coast_site(Object *p_surface, double p_body_r_m,
 		const Dictionary g = footprint_ground(p_surface, site, p_body_r_m, p_footprint_m);
 		// A SHORE IS WHERE LAND MEETS WATER, and the shoreline of a coast runs across the footprint
 		// rather than clipping its corner: how evenly the footprint is split is the first measure, zero
-		// where it is all dry or all wet and greatest where half of it stands under the line.
+		// where it is all dry or all wet and greatest where half of it stands under the line. Among
+		// footprints split alike, the DEEPEST water: a box whose sea is thinner than its own cells holds
+		// no sea. Framing only -- no cell, no channel and no rate reads this.
 		const double share = double(g["sea_share"]);
 		const double even = 0.5 - std::abs(share - 0.5);
-		const double relief = double(g["land_m"]) + double(g["depth_m"]);
+		const double relief = double(g["depth_m"]);
 		if (!(even > 0.0) || even < best_even || (even == best_even && relief <= best_relief)) {
 			continue;
 		}
@@ -1238,6 +1238,22 @@ static double pore_above_sea(double p_e_m, double p_h_m, double p_phi0, double p
 	return p_phi0 * p_zc * (std::exp(-z_wt / p_zc) - std::exp(-z_hi / p_zc));
 }
 
+double LAPlanetComposition::hypsometry_mean_m() {
+	const PackedFloat64Array a = la_physical_array("HYPSOMETRY_AREA_BELOW");
+	const PackedFloat64Array e = la_physical_array("HYPSOMETRY_ELEVATION_M");
+	const int n = std::min(a.size(), e.size());
+	if (n < 2 || !(a[n - 1] > a[0])) {
+		UtilityFunctions::push_error("LAPlanetComposition: the hypsographic curve covers no area, so it "
+				"has no mean for the relief to ride on.");
+		return 0.0;
+	}
+	double acc = 0.0;
+	for (int i = 1; i < n; i++) {
+		acc += 0.5 * (e[i] + e[i - 1]) * (a[i] - a[i - 1]);
+	}
+	return acc / (a[n - 1] - a[0]);
+}
+
 double LAPlanetComposition::water_table_m(double p_r_m, double p_groundwater_m3, double p_water_level_m,
 		const PackedFloat64Array &p_area_below, const PackedFloat64Array &p_elevation_m) {
 	const int n = std::min(p_area_below.size(), p_elevation_m.size());
@@ -1247,17 +1263,19 @@ double LAPlanetComposition::water_table_m(double p_r_m, double p_groundwater_m3,
 	if (n < 2 || !(p_r_m > 0.0) || !(phi0 > 0.0) || !(zc > 0.0) || !(aq > 0.0)) {
 		return 0.0;
 	}
+	// The level is quoted over the MEAN CRUST RADIUS, so the curve is read in that frame too.
+	const double mean = hypsometry_mean_m();
 	auto volume = [&](double h) {
 		double acc = 0.0;
 		for (int i = 1; i < n; i++) {
-			const double a = pore_above_sea(p_elevation_m[i - 1] - p_water_level_m, h, phi0, zc, aq);
-			const double b = pore_above_sea(p_elevation_m[i] - p_water_level_m, h, phi0, zc, aq);
+			const double a = pore_above_sea(p_elevation_m[i - 1] - mean - p_water_level_m, h, phi0, zc, aq);
+			const double b = pore_above_sea(p_elevation_m[i] - mean - p_water_level_m, h, phi0, zc, aq);
 			acc += 0.5 * (a + b) * (p_area_below[i] - p_area_below[i - 1]);
 		}
 		return 4.0 * kPi * p_r_m * p_r_m * acc;
 	};
 	// The table cannot stand above the highest ground, and there it saturates every pore over the sea.
-	double hi = std::max(p_elevation_m[n - 1] - p_water_level_m, 0.0);
+	double hi = std::max(p_elevation_m[n - 1] - mean - p_water_level_m, 0.0);
 	if (volume(hi) < p_groundwater_m3) {
 		UtilityFunctions::push_error("LAPlanetComposition: the body declares more groundwater than the pore "
 				"space standing over its sea can hold, so the table would stand above the ground everywhere.");
@@ -1277,46 +1295,34 @@ double LAPlanetComposition::water_table_m(double p_r_m, double p_groundwater_m3,
 
 PackedFloat32Array LAPlanetComposition::surface_depth(Object *p_grid, Object *p_terrain, const Vector3 &p_centre) {
 	PackedFloat32Array out;
-	if (!p_grid || !p_terrain) {
+	if (!p_grid || !p_terrain || !p_terrain->has_method("surface_radii")) {
 		return out;
 	}
 	const int cc = int(p_grid->get("cell_count"));
 	const PackedFloat64Array cw = LAGridGeometry::centres_f64(p_grid);
-	double lo = -1.0, hi = -1.0;
-	if (p_terrain->has_method("min_surface_radius") && p_terrain->has_method("max_surface_radius")) {
-		lo = double(p_terrain->call("min_surface_radius"));
-		hi = double(p_terrain->call("max_surface_radius"));
-	}
-	const Vector3 origin = p_grid->get("origin");
-	const int span = std::max(int(p_grid->get("nx")), std::max(int(p_grid->get("ny")), int(p_grid->get("nz"))));
-	const double base = double(p_grid->get("cell_size"));
-	const LATerrainLattice &lat = LATerrainLattice::build(p_terrain, origin, base * span, LATerrainLattice::lod_for(base * span), 32, p_centre, lo, hi);
-	if (!lat.valid() || !(lo > 0.0) || !(hi > 0.0)) {
-		UtilityFunctions::push_error("LAPlanetComposition: the terrain lattice did not build; no cell has a depth below its ground.");
+	if (cc <= 0 || cw.size() < cc * 3) {
 		return out;
 	}
-	out.resize(cc);
-	float *w = out.ptrw();
+	PackedVector3Array dirs;
+	dirs.resize(cc);
+	std::vector<double> radius((size_t)cc, 0.0);
 	for (int c = 0; c < cc; c++) {
 		const double rx = cw[c * 3] - double(p_centre.x);
 		const double ry = cw[c * 3 + 1] - double(p_centre.y);
 		const double rz = cw[c * 3 + 2] - double(p_centre.z);
 		const double r = std::hypot(rx, ry, rz);
-		if (!(r > 0.0)) {
-			w[c] = float(lo);
-			continue;
-		}
-		const Vector3 dir(float(rx / r), float(ry / r), float(rz / r));
-		double a = lo, b = hi;
-		for (int i = 0; i < 24; i++) {
-			const double m = 0.5 * (a + b);
-			if (lat.sample(p_centre + dir * float(m)) < 0.0) {
-				a = m;   // still rock: the surface is farther out
-			} else {
-				b = m;
-			}
-		}
-		w[c] = float(0.5 * (a + b) - r);
+		radius[(size_t)c] = r;
+		dirs[c] = r > 0.0 ? Vector3(float(rx / r), float(ry / r), float(rz / r)) : Vector3(0, 1, 0);
+	}
+	const PackedFloat32Array ground_r = p_terrain->call("surface_radii", dirs);
+	if (ground_r.size() != cc) {
+		UtilityFunctions::push_error("LAPlanetComposition: the terrain answered no crust radius per cell, so no cell has a depth below its ground.");
+		return out;
+	}
+	out.resize(cc);
+	float *w = out.ptrw();
+	for (int c = 0; c < cc; c++) {
+		w[c] = float(double(ground_r[c]) - radius[(size_t)c]);
 	}
 	return out;
 }
@@ -1337,6 +1343,7 @@ void LAPlanetComposition::_bind_methods() {
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("shell_channels"), &shell_channels);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("surface_fractions", "grid", "terrain", "centre"), &surface_fractions);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("solid_of", "fraction"), &solid_of);
+	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("hypsometry_mean_m"), &hypsometry_mean_m);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("surface_depth", "grid", "terrain", "centre"), &surface_depth);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("footprint_ground", "surface", "dir", "body_r_m", "footprint_m"), &footprint_ground);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("site_box", "terrain", "coast", "offset", "dims", "cell_m", "surface_axis"), &site_box);

@@ -31,11 +31,11 @@ func planet_radius() -> float:
 ## Highest radius the terrain reaches: the mean crust radius plus the highest elevation the hypsographic
 ## curve carries over its own mean. Nothing solid stands above it.
 func max_surface_radius() -> float:
-	return _planet_radius + LAPhysical.HYPSOMETRY_HIGHEST_M - LAPlanetShape.hypsometric_mean_m()
+	return _planet_radius + LAPhysical.HYPSOMETRY_HIGHEST_M - LAPlanetComposition.hypsometry_mean_m()
 
 ## Lowest radius the terrain reaches: the mean crust radius plus the deepest elevation the curve carries.
 func min_surface_radius() -> float:
-	return _planet_radius + LAPhysical.HYPSOMETRY_DEEPEST_M - LAPlanetShape.hypsometric_mean_m()
+	return _planet_radius + LAPhysical.HYPSOMETRY_DEEPEST_M - LAPlanetComposition.hypsometry_mean_m()
 
 
 ## WHERE THE BODY'S WATER STANDS along a body-frame direction: the world radius of the free surface over
@@ -199,9 +199,35 @@ func body_surface_radius(body_dir: Vector3) -> float:
 	return _generated_surface_radius(body_dir)
 
 
+## The crust's radius along many WORLD directions at once. A walk over a box's cells asks once.
+func surface_radii(dirs: PackedVector3Array) -> PackedFloat32Array:
+	var out: PackedFloat32Array = PackedFloat32Array()
+	if _planet_gen == null:
+		out.resize(dirs.size())
+		out.fill(NAN)
+		return out
+	var body: PackedVector3Array = PackedVector3Array()
+	body.resize(dirs.size())
+	for i in dirs.size():
+		body[i] = to_body_dir(dirs[i])
+	out = _planet_gen.elevations_at(body)
+	for i in out.size():
+		out[i] += _planet_radius
+	return out
+
+
 ## THE WATER'S free-surface radius along a WORLD direction; NAN where that column is dry.
 func water_surface_radius(dir: Vector3) -> float:
 	return water_radius(to_body_dir(dir))
+
+
+## The same along many WORLD directions at once, NAN per dry column.
+func water_radii(dirs: PackedVector3Array) -> PackedFloat32Array:
+	var out: PackedFloat32Array = PackedFloat32Array()
+	out.resize(dirs.size())
+	for i in dirs.size():
+		out[i] = water_radius(to_body_dir(dirs[i]))
+	return out
 
 
 ## The body's own frame is the frame its shape is written in; the world frame is that one turned by the

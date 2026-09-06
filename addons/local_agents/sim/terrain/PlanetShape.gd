@@ -14,24 +14,12 @@ const FINEST_WAVELENGTH_M: float = 4.0e2
 static func octaves_between(long_m: float, short_m: float) -> int:
 	return maxi(int(ceil(log(maxf(long_m / maxf(short_m, 1.0), 2.0)) / log(2.0))), 1)
 
-## THE CURVE'S OWN AREA-WEIGHTED MEAN, metres against the elevations it is quoted at. The measured curve
-## is quoted against sea level, and this body has none: the relief rides on the body's MEAN CRUST RADIUS,
-## so the curve is read with its own mean taken out and the mean radius is where zero is.
-static func hypsometric_mean_m() -> float:
-	var a: Array[float] = LAPhysical.HYPSOMETRY_AREA_BELOW
-	var e: Array[float] = LAPhysical.HYPSOMETRY_ELEVATION_M
-	var acc: float = 0.0
-	for i in range(1, a.size()):
-		acc += 0.5 * (e[i] + e[i - 1]) * (a[i] - a[i - 1])
-	return acc / maxf(a[a.size() - 1] - a[0], 1.0e-9)
-
-
 ## Elevation over the body's mean crust radius, metres, at cumulative surface-area fraction `u`: the
 ## measured hypsographic curve read backwards, linear between its break points, re-anchored on its mean.
 static func elevation_at_area(u: float) -> float:
 	var a: Array[float] = LAPhysical.HYPSOMETRY_AREA_BELOW
 	var e: Array[float] = LAPhysical.HYPSOMETRY_ELEVATION_M
-	var mean: float = hypsometric_mean_m()
+	var mean: float = LAPlanetComposition.hypsometry_mean_m()
 	var t: float = clampf(u, a[0], a[a.size() - 1])
 	for i in range(1, a.size()):
 		if t <= a[i]:
@@ -63,8 +51,8 @@ static func hypsometric_curve(values: PackedFloat32Array) -> Curve:
 	var lo: float = sorted[0]
 	var span: float = sorted[n - 1] - lo
 	var c: Curve = Curve.new()
-	c.min_value = LAPhysical.HYPSOMETRY_DEEPEST_M - hypsometric_mean_m()
-	c.max_value = LAPhysical.HYPSOMETRY_HIGHEST_M - hypsometric_mean_m()
+	c.min_value = LAPhysical.HYPSOMETRY_DEEPEST_M - LAPlanetComposition.hypsometry_mean_m()
+	c.max_value = LAPhysical.HYPSOMETRY_HIGHEST_M - LAPlanetComposition.hypsometry_mean_m()
 	c.bake_resolution = CURVE_BAKE
 	for k in range(CURVE_POINTS):
 		var q: float = float(k) / float(CURVE_POINTS - 1)

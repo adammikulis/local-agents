@@ -50,6 +50,10 @@ public:
 	static Dictionary shell_minerals();
 	static double shell_density(double p_t_c, double p_p_pa);
 	static double core_radius_frac(double p_t_c, double p_p_pa);
+	// THE HYPSOGRAPHIC CURVE'S OWN AREA-WEIGHTED MEAN, m against the elevations it is quoted at. The
+	// measured curve stands against sea level and a seeded body has none, so every elevation here is read
+	// with this taken out: zero is the body's MEAN CRUST RADIUS.
+	static double hypsometry_mean_m();
 	static Dictionary surface_fractions(Object *p_grid, Object *p_terrain, const Vector3 &p_centre);
 	static PackedByteArray solid_of(const PackedFloat32Array &p_fraction);
 	static PackedFloat32Array surface_depth(Object *p_grid, Object *p_terrain, const Vector3 &p_centre);

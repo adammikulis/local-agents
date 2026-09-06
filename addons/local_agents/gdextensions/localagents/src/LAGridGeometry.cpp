@@ -8,7 +8,6 @@
 #include "LAScriptCall.hpp"
 #include "LAFieldStateCache.hpp"
 #include <godot_cpp/classes/file_access.hpp>
-#include "LATerrainLattice.hpp"
 #include <godot_cpp/variant/utility_functions.hpp>
 
 #include <algorithm>
@@ -396,19 +395,15 @@ Dictionary LAGridGeometry::build(const Vector3i &p_dims, const PackedByteArray &
 
 namespace {
 
-// THE TERRAIN SURFACE, PER POINT: the generator's own signed radial distance, negative under ground.
-// The lattice is the same one the solid mask reads, so the grid resolves the ground the field has.
+// THE TERRAIN SURFACE, PER POINT: the crust's own radius along the point's direction, so the grid grades
+// against the shape itself and not against a sampling of it.
 struct SurfaceProbe {
-	const LATerrainLattice *lat = nullptr;
 	Object *terrain = nullptr;
 	Vector3 centre;
 
-	bool valid() const { return lat != nullptr || terrain != nullptr; }
+	bool valid() const { return terrain != nullptr; }
 
 	double at(const Vector3 &p) const {
-		if (lat != nullptr) {
-			return lat->sample(p);
-		}
 		const Vector3 rel = p - centre;
 		const double r = double(rel.length());
 		if (!(r > 0.0)) {
@@ -418,27 +413,13 @@ struct SurfaceProbe {
 	}
 };
 
-SurfaceProbe probe_surface(const Vector3i &p_dims, const Vector3 &p_origin, double p_cell_size,
-		const Vector3 &p_centre, Object *p_terrain) {
+SurfaceProbe probe_surface(const Vector3i &, const Vector3 &, double, const Vector3 &p_centre,
+		Object *p_terrain) {
 	SurfaceProbe out;
 	out.centre = p_centre;
-	if (!p_terrain || !p_terrain->has_method("surface_radius")) {
-		return out;
+	if (p_terrain && p_terrain->has_method("surface_radius")) {
+		out.terrain = p_terrain;
 	}
-	if (p_terrain->has_method("min_surface_radius") && p_terrain->has_method("max_surface_radius")) {
-		const double r_lo = double(p_terrain->call("min_surface_radius"));
-		const double r_hi = double(p_terrain->call("max_surface_radius"));
-		const int nx = MAX(p_dims.x, 1), ny = MAX(p_dims.y, 1), nz = MAX(p_dims.z, 1);
-		// LA_APPROX: chord_quadrature_lattice
-		const double extent = p_cell_size * MAX(MAX(nx, ny), nz);
-		const LATerrainLattice &lat = LATerrainLattice::build(p_terrain, p_origin, extent,
-				LATerrainLattice::lod_for(extent), 32, p_centre, r_lo, r_hi);
-		if (lat.valid()) {
-			out.lat = &lat;
-			return out;
-		}
-	}
-	out.terrain = p_terrain;
 	return out;
 }
 

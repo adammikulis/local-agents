@@ -42,6 +42,19 @@ func elevation_at(dir: Vector3) -> float:
 	return _curve.sample_baked(clampf((v - _lo) * _inv_span, 0.0, 1.0))
 
 
+## Elevation along many body-frame directions at once: one call, so a walk over a box's cells pays for
+## the noise and not for the crossing into script.
+func elevations_at(dirs: PackedVector3Array) -> PackedFloat32Array:
+	var out: PackedFloat32Array = PackedFloat32Array()
+	out.resize(dirs.size())
+	if _curve == null:
+		out.fill(NAN)
+		return out
+	for i in dirs.size():
+		out[i] = elevation_at(dirs[i])
+	return out
+
+
 ## The crust's elevation over an equirectangular lattice, row 0 at the north pole: what LAWaterFill lays
 ## the body's water over.
 func elevation_lattice(nlat: int, nlon: int) -> PackedFloat32Array:

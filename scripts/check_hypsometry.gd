@@ -73,7 +73,7 @@ func _init() -> void:
 		bad += 1
 		print("HYPSOMETRY_VIOLATION water_level=%.0f curve=%.0f" % [level, want_level])
 	compared += 1
-	var mean: float = LAPlanetShape.hypsometric_mean_m()
+	var mean: float = LAPlanetComposition.hypsometry_mean_m()
 	if hs[0] < LAPhysical.HYPSOMETRY_DEEPEST_M - mean:
 		bad += 1
 		print("HYPSOMETRY_VIOLATION deepest=%.0f declared=%.0f" % [
@@ -98,7 +98,7 @@ func _curve_level(r_body: float) -> float:
 	var want: float = (float(body["hydrosphere_kg"]) - float(body["groundwater_kg"])) / rho_w
 	var a: Array[float] = LAPhysical.HYPSOMETRY_AREA_BELOW
 	var e: Array[float] = LAPhysical.HYPSOMETRY_ELEVATION_M
-	var mean: float = LAPlanetShape.hypsometric_mean_m()
+	var mean: float = LAPlanetComposition.hypsometry_mean_m()
 	var lo: float = e[0] - mean
 	var hi: float = e[e.size() - 1] - mean
 	for _k in 80:
