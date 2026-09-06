@@ -46,15 +46,12 @@ static func bite_rate(c) -> float:
 	return LACreatureRespiration.capacity_rate(c) * BITE_OVER_CAPACITY
 
 
-const FOUNDING_FRAMES: int = 60
-
-
-static func note_spawn(c, from_genome: bool) -> void:
-	if from_genome or c == null or c._material == null:
+## Every body that appears is booked, whoever made it: the seal decides whether it is seeded matter or a
+## stand-in's, not a frame count.
+static func note_spawn(c) -> void:
+	if c == null or c._material == null or not c._material.has_method("note_biota_spawn"):
 		return
-	if not c._material.has_method("note_biota_spawn"):
-		return
-	c._material.note_biota_spawn(body_mass(c), int(Engine.get_physics_frames()) <= FOUNDING_FRAMES)
+	c._material.note_biota_spawn(body_mass(c))
 
 
 ## Overwrite the mass-derived fields on a freshly-configured creature.

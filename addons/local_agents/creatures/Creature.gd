@@ -263,8 +263,10 @@ func set_ecology(e) -> void:
 	_ecology = e
 
 
+## The field is what holds the body stock, so a body is booked when it is handed one, not at setup().
 func set_material_field(w) -> void:
 	_material = w
+	LACreatureBodyMass.note_spawn(self)
 
 
 # The game's LAFlameFX combustion visual, optional: a core creature dies-burned with the game deleted.
