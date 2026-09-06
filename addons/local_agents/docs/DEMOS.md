@@ -166,7 +166,7 @@ The same box as rung 0 with one process added: the potential of the mass that is
 
 ## 15. Life on the planet, backdrop faked
 
-The same coastal box the rung-0 demo lays down, run at the highest rung the ladder has passed, with plants, trees, herds, birds, insects and fish living in it. Everything the ladder has not yet reached is a declared stand-in, listed in docs/FAKES.md and printed by the run: drinking water, breathable oxygen and the carbon a plant grows on. Nothing here moves water, weather or fire; those arrive as their rungs land, and each landing deletes its fake.
+The same coastal box the rung-0 demo lays down, run at the highest rung the ladder has passed, with plants, trees, herds, birds, insects and fish living in it. Everything the ladder has not yet reached is a declared stand-in, listed in docs/FAKES.md and printed by the run: drinking water, breathable oxygen and the carbon a plant grows on. Nothing here moves water, weather or fire; those arrive as their rungs land, and each landing moves its stand-in from fake to real; every stand-in switches off, fake or real at any time.
 
 - Scene: `res://addons/local_agents/examples/LifeDemo.tscn`
 - Requires: the godot_voxel GDExtension (addons/zylann.voxel/)
