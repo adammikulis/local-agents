@@ -54,6 +54,37 @@ PLIST
 	echo "$exe"
 }
 
+# THE MAINTAINER'S WINDOW. A second bundle with no background-only key, its own id, opened on the
+# monitor at a real size with real audio. Only LA_SHOW_WINDOW=1 reaches it (scripts/show_demo.sh);
+# check_godot_launcher.sh fails any automated script that sets it.
+LA_SHOW_POS="${LA_WIN_POS:-120,80}"
+LA_SHOW_RES="${LA_WINDOW_RES:-1600x1000}"
+la_shown_exe() {
+	local real="$1"
+	local app="${TMPDIR:-/tmp}/la-godot-agent/GodotShown.app"
+	local exe="$app/Contents/MacOS/godot"
+	mkdir -p "$app/Contents/MacOS" || return 1
+	cat > "$app/Contents/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>godot</string>
+<key>CFBundleIdentifier</key><string>com.localagents.godot-shown</string>
+<key>CFBundleName</key><string>GodotShown</string>
+<key>NSHighResolutionCapable</key><true/>
+</dict></plist>
+PLIST
+	local stage
+	if [ ! -x "$exe" ] || [ "$exe" -ot "$real" ]; then
+		stage="$(mktemp "$app/Contents/MacOS/godot.XXXXXX")" || return 1
+		cp -f "$real" "$stage" && chmod 755 "$stage" && mv -f "$stage" "$exe" || {
+			rm -f "$stage"
+			return 1
+		}
+	fi
+	echo "$exe"
+}
+
 # Hash of the extension sources; build_extension.sh writes it beside the dylib.
 la_extension_hash() {
 	local ext="$1/addons/local_agents/gdextensions/localagents"
@@ -81,15 +112,20 @@ la_godot() {
 	if [ "$(uname)" = "Darwin" ]; then
 		local real agent
 		real="$(command -v "$binary" 2>/dev/null)" || { echo "la_godot: no $binary on PATH" >&2; return 127; }
-		agent="$(la_agent_exe "$real")" || {
-			echo "la_godot: could not build the non-activating GodotAgent bundle; refusing to launch a" >&2
-			echo "           Godot that would steal the keyboard. Check ${TMPDIR:-/tmp}/la-godot-agent." >&2
-			return 1
-		}
+		if [ "${LA_SHOW_WINDOW:-}" = "1" ]; then
+			agent="$(la_shown_exe "$real")" || { echo "la_godot: could not build the GodotShown bundle." >&2; return 1; }
+		else
+			agent="$(la_agent_exe "$real")" || {
+				echo "la_godot: could not build the non-activating GodotAgent bundle; refusing to launch a" >&2
+				echo "           Godot that would steal the keyboard. Check ${TMPDIR:-/tmp}/la-godot-agent." >&2
+				return 1
+			}
+		fi
 		binary="$agent"
 	fi
 	# The bundle id every launch runs under; the extension prohibits activation for exactly this id.
 	export __CFBundleIdentifier="com.localagents.godot-agent"
+	[ "${LA_SHOW_WINDOW:-}" = "1" ] && export __CFBundleIdentifier="com.localagents.godot-shown"
 	la_extension_current "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" || return 2
 	# One line per engine launch. check_launch_count.sh counts them.
 	if [ -n "${LA_LAUNCH_LOG:-}" ]; then
@@ -116,6 +152,12 @@ la_godot() {
 	esac
 	if [ "$headless" -eq 1 ]; then
 		command ${pre[@]+"${pre[@]}"} "$binary" ${audio[@]+"${audio[@]}"} "$@"
+		rc=$?
+	elif [ "${LA_SHOW_WINDOW:-}" = "1" ]; then
+		# The maintainer's window: on the monitor, real size, real audio, focus allowed.
+		# UNSET, not 0: the scene asks has_environment, and a set variable of any value shrinks the window.
+		env -u LA_OFFSCREEN ${pre[@]+"${pre[@]}"} "$binary" \
+			--position "$LA_SHOW_POS" --resolution "$LA_SHOW_RES" "$@"
 		rc=$?
 	else
 		# This branch creates a WINDOW, and the extension reads LA_OFFSCREEN at CORE to make it unfocusable.
