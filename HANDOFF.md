@@ -141,15 +141,13 @@ is an invented threshold. The design: kinematic until thrown; then a Jolt `Rigid
 - `LA_RUN_TIMEOUT=110 scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn --
   --sandbox --ui --run-frames=20` prints no report and logs no error; `--planet-only --no-fauna` reports.
 
-## 16. ONLY WATER AND SILICATE MELT AND BOIL WHERE THEIR TABLE SAYS, AND ROWS THE ENGINE READS ARE EMPTY
+## 16. ONLY WATER AND SILICATE MELT AND BOIL WHERE THEIR TABLE SAYS, AND TWO ROWS ARE EMPTY
 
 `rg -n "LADDER|la_sensible_only|LA_MIX_MAX" addons/local_agents/sim/material/kernels3d/state_derive.glsl`:
 every other condensed channel is e = c·T at every temperature while `LASubstances.cpp` cites its melting
 point and fusion enthalpy; the CPU twin `LAMixtureEnthalpy` reads the table for any id and is the spec
-(`scripts/check_enthalpy_ssot.sh`). No row carries K′ (`second_order_birch_murnaghan` in
-`docs/APPROXIMATIONS.md`), `pyroxene` has a melt point and no fusion enthalpy, `apatite` has no melt
-point, every planet mineral carries basalt's albedo and emissivity, and `SOLID_IN`/`SOLID_OUT` in
-`state_derive.glsl` bind sediment cementation to Marsh's magma crystal fractions.
+(`scripts/check_enthalpy_ssot.sh`). `apatite` carries neither a melting point nor a fusion enthalpy, and
+every planet mineral carries basalt's `albedo` and `emissivity`.
 
 ## 17. THE PHYSICS RUNS INSIDE GODOT'S PROCESS
 
