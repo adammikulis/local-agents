@@ -62,18 +62,18 @@ const BREATH_REFILL: float = 25.0     # breath reserve refilled per sec while in
 
 var energy: float = 60.0
 var max_energy: float = 60.0
-var metabolism: float = 0.5           # THIS FRAME's realised burn (aerobic capacity x the temperature band)
+var metabolism: float = 0.5           # THIS FRAME's realised burn, moles of body carbon a second
 var mass_kg: float = 0.05             # real body mass in kilograms (species data)
 var structural_mass: float = 0.0      # non-labile tissue; what a sunken body still weighs
 var respiratory_capacity: float = 1.0 # gill surface packed into the body's area (the land animals' gene)
-var aerobic_capacity: float = 0.5     # what the gills and the water could support per second, before the band
+var aerobic_capacity: float = 0.5     # ceiling the gills and the water's oxygen support, mol C/s
 var bite_rate: float = 1.0            # mass units a mouth can process per second
 var thermal_band: float = 1.0         # 0..1 reaction rate at the water temperature; also caps swim speed
 var thermal_optimum_c: float = (LAPhysical.WATER_FREEZE_C + LAPhysical.PROTEIN_DENATURE_C) * 0.5
                                       # heritable: the water temperature this genome's enzymes work best at
 var thermal_tolerance: float = 1.0    # heritable: fraction of the liquid-water/protein envelope it spans
 var gut: float = 0.0                  # ingested mass awaiting assimilation (bounds a meal to the animal's gut)
-var gut_waste: float = 0.0            # kept so LACreatureBodyMass.body_mass reads one shape for every animal
+var gut_waste: float = 0.0            # kept so LACreatureBodyMass.body_carbon reads one shape for every animal
 var hungry_at: float = 0.6            # forage urgently once energy drops below this fraction of max
 # Fish live IN water, so they never thirst — hydration is kept full so the SHARED cognition reward math (which
 # weighs energy + hydration) sees zero thirst pressure. Present so the reused stack needs no per-fish branch.
@@ -147,10 +147,10 @@ func setup(_terrain, _mat_field, _config: Dictionary) -> void:
 	structural_mass = LACreatureBodyMass.structural(config)
 	max_energy = LACreatureBodyMass.reserve(config)
 	energy = max_energy
-	aerobic_capacity = LACreatureRespiration.capacity_rate(self)
-	metabolism = aerobic_capacity
+	aerobic_capacity = LACreatureRespiration.sustained_carbon_rate(self)
+	metabolism = LACreatureRespiration.basal_carbon_rate(self)
 	bite_rate = LACreatureBodyMass.bite_rate(self)
-	food_value = LACreatureBodyMass.body_mass(self)
+	food_value = LACreatureBodyMass.body_carbon(self)
 	hungry_at = float(config.get("hungry_at", hungry_at))
 	flees_from = PackedStringArray(config.get("flees_from", PackedStringArray()))
 	family_id = int(config.get("family_id", get_instance_id()))
@@ -171,7 +171,7 @@ func setup(_terrain, _mat_field, _config: Dictionary) -> void:
 		_heading = Vector3.FORWARD
 	# A BODY APPEARED: book its mass against the field's biota stock.
 	if material != null and material.has_method("note_biota_spawn"):
-		material.note_biota_spawn(LACreatureBodyMass.body_mass(self))
+		material.note_biota_spawn(LACreatureBodyMass.body_carbon(self))
 
 
 func set_ecology(e) -> void:
@@ -450,7 +450,7 @@ func die(_cause: String = "", _impulse: Vector3 = Vector3.ZERO) -> void:
 		return
 	_dying = true
 	LASimReport.event("death", {"cause": _cause, "species": species})
-	var remains: float = LACreatureBodyMass.body_mass(self)
+	var remains: float = LACreatureBodyMass.body_carbon(self)
 	if remains > 0.0 and material != null and material.has_method("deposit_detritus"):
 		material.deposit_detritus(global_position, remains)
 	structural_mass = 0.0
@@ -535,11 +535,21 @@ func _physics_process(delta: float) -> void:
 	# A fish is an ectotherm: body temperature is the water's, so the burn rides this genome's band read there.
 	var water_c: float = float(material.temp_at(pos))
 	thermal_band = LACreatureRespiration.temp_band(water_c, self)
-	metabolism = aerobic_capacity * thermal_band
-	var burned: float = metabolism * delta
-	energy -= burned
+	# An ectotherm's rate IS its body temperature's: the basal law read through this genome's band, and
+	# bounded by the oxygen the water actually holds.
+	var o2: float = material.o2_at(pos.x, pos.y, pos.z)
+	if o2 <= 0.0 and LAFakes.stands_in("breathable_o2"):
+		o2 = LACreatureRespiration.medium_o2_mol_m3(self)
+	aerobic_capacity = LACreatureRespiration.aerobic_ceiling(self, o2, thermal_band)
+	metabolism = minf(LACreatureRespiration.basal_carbon_rate(self) * thermal_band, aerobic_capacity)
+	var burned: float = minf(metabolism * delta, maxf(energy, 0.0))
 	if burned > 0.0:
-		material.respire_at(pos, burned)         # O₂ in, CO₂ out — a fish breathes the water it swims in
+		# O₂ in, CO₂ out — a fish breathes the water it swims in. What the seeded water cannot supply
+		# comes from the stand-in that is holding free oxygen up, and is booked there.
+		var extent: float = material.respire_at(pos, burned)
+		if extent < burned:
+			extent += LAFakes.draw("breathable_o2", burned - extent)
+		energy -= extent
 	if energy <= 0.0:
 		die("starved")
 		return
@@ -553,7 +563,7 @@ func _physics_process(delta: float) -> void:
 		if room > 0.0:
 			var got: float = material.graze_biomass(pos, minf(bite_rate * delta, room))
 			energy = minf(max_energy, energy + got)
-	food_value = LACreatureBodyMass.body_mass(self)   # a body is worth what it weighs
+	food_value = LACreatureBodyMass.body_carbon(self)   # a body is worth what it weighs
 
 	# Basking species haul out onto the beach and rest at the surface for a spell (turtles/crabs). Placed AFTER
 	# the energy budget so a basking animal still metabolises, breathes and can starve.

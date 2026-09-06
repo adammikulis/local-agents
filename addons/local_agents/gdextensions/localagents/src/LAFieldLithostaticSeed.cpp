@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <limits>
 #include <numeric>
 #include <vector>
@@ -111,6 +112,177 @@ double eos_p(double vol, double a_gas_rt, double b_vol, double c_comp, double p_
 	double p = (k > 0.0) ? 2.0 * a_gas_rt / (k + disc) : (disc - k) / (2.0 * c_comp);
 	return p;
 }
+
+// A CUBE READ ALONG THE LOCAL VERTICAL. s runs from the cube's lowest point to its highest, so the share
+// of its volume below s is the distribution of n_0 U_0 + n_1 U_1 + n_2 U_2 -- the three edges' projections
+// on the vertical against uniform U -- and the section's area is that distribution's density.
+struct CubeColumn {
+	double n[3] = { 0.0, 0.0, 0.0 };   // edge projections on the vertical, m
+	int k = 0;
+	double span = 0.0;                 // the cube's extent along the vertical, m
+};
+
+CubeColumn cube_column(double p_edge, const Vector3 &p_up) {
+	double n[3] = { std::abs(double(p_up.x)) * p_edge, std::abs(double(p_up.y)) * p_edge,
+		std::abs(double(p_up.z)) * p_edge };
+	std::sort(n, n + 3, std::greater<double>());
+	// An edge nearly square to the vertical is divided by in the section, and under this share of the
+	// span the cancellation that costs outweighs the width it carries; the span stays centred without it.
+	const double zeta = std::pow(std::numeric_limits<double>::epsilon(), 0.25);
+	const double whole = n[0] + n[1] + n[2];
+	CubeColumn col;
+	for (int i = 0; i < 3; i++) {
+		if (n[i] > zeta * whole) {
+			col.n[col.k++] = n[i];
+			col.span += n[i];
+		}
+	}
+	return col;
+}
+
+// The share of the cube's volume below the level s.
+double column_below(const CubeColumn &p_col, double p_s) {
+	if (p_col.k <= 0) {
+		return p_s > 0.0 ? 1.0 : 0.0;
+	}
+	double prod = 1.0;
+	for (int i = 0; i < p_col.k; i++) {
+		prod *= p_col.n[i];
+	}
+	const double fact = p_col.k == 3 ? 6.0 : (p_col.k == 2 ? 2.0 : 1.0);
+	double sum = 0.0;
+	for (int m = 0; m < (1 << p_col.k); m++) {
+		double t = p_s;
+		int bits = 0;
+		for (int i = 0; i < p_col.k; i++) {
+			if (m & (1 << i)) {
+				t -= p_col.n[i];
+				bits++;
+			}
+		}
+		if (!(t > 0.0)) {
+			continue;
+		}
+		double term = 1.0;
+		for (int j = 0; j < p_col.k; j++) {
+			term *= t;
+		}
+		sum += (bits & 1) ? -term : term;
+	}
+	return sum / (fact * prod);
+}
+
+// The section at s, share of the cube's volume per metre, as a polynomial in t = s - p_s0. Which corners
+// the segment stands past is decided at p_mid, so a term whose breakpoint IS p_s0 is not lost to rounding.
+void column_section(const CubeColumn &p_col, double p_s0, double p_mid, double p_a[3]) {
+	p_a[0] = p_a[1] = p_a[2] = 0.0;
+	if (p_col.k <= 0) {
+		return;
+	}
+	double prod = 1.0;
+	for (int i = 0; i < p_col.k; i++) {
+		prod *= p_col.n[i];
+	}
+	const double fact = p_col.k == 3 ? 2.0 : 1.0;
+	for (int m = 0; m < (1 << p_col.k); m++) {
+		double corner = 0.0;
+		int bits = 0;
+		for (int i = 0; i < p_col.k; i++) {
+			if (m & (1 << i)) {
+				corner += p_col.n[i];
+				bits++;
+			}
+		}
+		if (!(p_mid > corner)) {
+			continue;
+		}
+		const double sgn = (bits & 1) ? -1.0 : 1.0;
+		const double base = p_s0 - corner;
+		if (p_col.k == 1) {
+			p_a[0] += sgn;
+		} else if (p_col.k == 2) {
+			p_a[0] += sgn * base;
+			p_a[1] += sgn;
+		} else {
+			p_a[0] += sgn * base * base;
+			p_a[1] += sgn * 2.0 * base;
+			p_a[2] += sgn;
+		}
+	}
+	for (int j = 0; j < 3; j++) {
+		p_a[j] /= fact * prod;
+	}
+}
+
+// int_0^1 u^j exp(-z u) du, j = 0..2: the exponential's own moments over a segment. Series inside the
+// radius where the closed form cancels.
+void exp_moments(double p_z, double p_e[3]) {
+	if (std::abs(p_z) < 0.5) {
+		for (int j = 0; j < 3; j++) {
+			double term = 1.0, sum = 1.0 / double(j + 1);
+			for (int i = 1; i < 24; i++) {
+				term *= -p_z / double(i);
+				sum += term / double(i + j + 1);
+			}
+			p_e[j] = sum;
+		}
+		return;
+	}
+	const double q = std::exp(-p_z);
+	p_e[0] = (1.0 - q) / p_z;
+	p_e[1] = (1.0 - (1.0 + p_z) * q) / (p_z * p_z);
+	p_e[2] = (2.0 - (2.0 + 2.0 * p_z + p_z * p_z) * q) / (p_z * p_z * p_z);
+}
+
+// WHAT ONE CELL'S GAS WEIGHS AGAINST THE DATUM'S: exp(-(phi - phi_0) / (R T / M)) integrated over the
+// volume the cell's rock and sea leave, over the cell's whole volume. The gas stands on them, so the room
+// is the cube above the level that leaves p_cut of it below. Every segment carries the section's exact
+// polynomial against an exponent linear in s, in the potential of the monopole this cell's own gravity
+// states; p_sub splits a segment where that potential's curvature over it would show.
+double cell_air_share(const CubeColumn &p_col, double p_cut, double p_phi_c, double p_phi_0,
+		double p_g, double p_r, double p_rt, int p_sub) {
+	const double half = 0.5 * p_col.span;
+	const double gm_eff = p_g * p_r * p_r;
+	const bool radial = p_r > p_col.span;
+	auto phi_at = [&](double z) {
+		return radial ? p_phi_c + gm_eff * (1.0 / p_r - 1.0 / (p_r + z)) : p_phi_c + p_g * z;
+	};
+	double bp[10];
+	int nb = 0;
+	bp[nb++] = p_cut;
+	for (int m = 1; m < (1 << p_col.k) - 1; m++) {
+		double v = 0.0;
+		for (int i = 0; i < p_col.k; i++) {
+			if (m & (1 << i)) {
+				v += p_col.n[i];
+			}
+		}
+		if (v > p_cut && v < p_col.span) {
+			bp[nb++] = v;
+		}
+	}
+	bp[nb++] = p_col.span;
+	std::sort(bp, bp + nb);
+	double out = 0.0;
+	for (int b = 0; b + 1 < nb; b++) {
+		const double seg = (bp[b + 1] - bp[b]) / double(p_sub);
+		if (!(seg > 0.0)) {
+			continue;
+		}
+		for (int q = 0; q < p_sub; q++) {
+			const double s0 = bp[b] + seg * double(q);
+			double a[3];
+			column_section(p_col, s0, s0 + 0.5 * seg, a);
+			const double f0 = phi_at(s0 - half), f1 = phi_at(s0 + seg - half);
+			double e[3];
+			exp_moments((f1 - f0) / p_rt, e);
+			out += std::exp(-(f0 - p_phi_0) / p_rt) * seg
+					* (a[0] * e[0] + a[1] * seg * e[1] + a[2] * seg * seg * e[2]);
+		}
+	}
+	return out;
+}
+
 
 } // namespace
 
@@ -457,7 +629,7 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c,
 			continue;
 		}
 		const Vector3 g(p_gravity[c * 3], p_gravity[c * 3 + 1], p_gravity[c * 3 + 2]);
-		phi_0 += double(p_phi[c]) + double(g.length()) * (r_datum - r_c);
+		phi_0 += double(p_phi[c]) + double(g.length()) * r_c * r_c * (1.0 / r_c - 1.0 / r_datum);
 		at_sea++;
 	}
 	if (at_sea == 0) {
@@ -467,60 +639,153 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c,
 	}
 	phi_0 /= double(at_sea);
 	// THE DENSITY AT THE DATUM IS THE INVENTORY OVER THE SHELL THE LAW FILLS: n0 = N / (4 pi r_datum^2 H),
-	// H the radial integral of the profile in the body's own 1/r potential, taken until nothing is left.
+	// H the radial integral of the profile in the body's own 1/r potential, from the datum to the EXOBASE:
+	// where a molecule's mean free path reaches the scale height, the gas stops being a fluid and the
+	// column ends. In a 1/r potential the isothermal integrand does not vanish, so nothing else bounds it.
 	const double gm = la_physical("GRAVITATIONAL_CONSTANT") * body_kg;
-	// The step starts at the datum's own scale height and halves until the shell holds to float precision.
-	double shell = 0.0;
-	{
-		double dr = rt_over_m * r_datum * r_datum / gm;
+	const double eps32 = double(std::numeric_limits<float>::epsilon());
+	const double sigma = std::sqrt(2.0) * Math::PI * la_physical("N2_KINETIC_DIAMETER_M")
+			* la_physical("N2_KINETIC_DIAMETER_M");
+	const double avogadro = la_physical("AVOGADRO_PER_MOL");
+	const double area = 4.0 * Math::PI * r_datum * r_datum;
+	const double h_datum = rt_over_m * r_datum * r_datum / gm;
+	// The midpoint shell integral, halved until it holds to float precision.
+	auto shell_to = [&](double r_top) -> double {
+		if (!(r_top > r_datum)) {
+			return NAN;
+		}
+		int n = int(std::ceil((r_top - r_datum) / h_datum));
 		double prev = -1.0;
-		for (;;) {
+		for (int it = 0; it < 40; it++) {
+			const double h = (r_top - r_datum) / double(n);
 			double sum = 0.0;
-			for (double r = r_datum + 0.5 * dr;; r += dr) {
-				const double f = std::exp(-(gm / r_datum - gm / r) / rt_over_m) * (r / r_datum) * (r / r_datum);
-				sum += f * dr;
-				if (f < 1.0e-30 || r > r_datum + 1.0e7) {
-					break;
-				}
+			for (int i = 0; i < n; i++) {
+				const double r = r_datum + (double(i) + 0.5) * h;
+				sum += std::exp(-(gm / r_datum - gm / r) / rt_over_m) * (r / r_datum) * (r / r_datum) * h;
 			}
-			if (prev >= 0.0 && std::abs(sum - prev) <= double(std::numeric_limits<float>::epsilon()) * sum) {
-				shell = sum;
-				break;
+			if (prev > 0.0 && std::abs(sum - prev) <= eps32 * sum) {
+				return sum;
 			}
 			prev = sum;
-			dr *= 0.5;
+			n *= 2;
+		}
+		return NAN;
+	};
+	// lambda(r) = 1 / (sigma n(r)) against H(r) = (R T / M) r^2 / G M, in logs so neither side overflows.
+	auto exobase_of = [&](double n0_mol) -> double {
+		auto excess = [&](double r) {
+			return std::log(n0_mol * avogadro) - (gm / r_datum - gm / r) / rt_over_m
+					+ std::log(sigma * rt_over_m * r * r / gm);
+		};
+		double lo = r_datum, hi = r_datum + h_datum, step = h_datum;
+		for (int i = 0; i < 200 && excess(hi) > 0.0; i++) {
+			lo = hi;
+			step *= 2.0;
+			hi += step;
+		}
+		if (excess(hi) > 0.0 || excess(lo) < 0.0) {
+			return NAN;
+		}
+		for (int i = 0; i < 200; i++) {
+			const double mid = 0.5 * (lo + hi);
+			if (excess(mid) > 0.0) {
+				lo = mid;
+			} else {
+				hi = mid;
+			}
+		}
+		return 0.5 * (lo + hi);
+	};
+	// The exobase stands on the datum density and the datum density on the shell under it: one fixed point.
+	double shell = 0.0;
+	{
+		double n0 = mol_sum / (area * h_datum);
+		double r_exo = 0.0;
+		bool settled = false;
+		for (int it = 0; it < 12 && !settled; it++) {
+			const double r_next = exobase_of(n0);
+			const double s = std::isfinite(r_next) ? shell_to(r_next) : NAN;
+			if (!std::isfinite(s) || !(s > 0.0)) {
+				break;
+			}
+			settled = r_exo > 0.0 && std::abs(r_next - r_exo) <= eps32 * r_next;
+			r_exo = r_next;
+			shell = s;
+			n0 = mol_sum / (area * s);
+		}
+		if (!settled) {
+			UtilityFunctions::push_error("LAFieldLithostaticSeed.shape_atmosphere: the barometric column "
+					"reached no exobase, so the datum density has no shell to stand on.");
+			return;
 		}
 	}
-	const double area = 4.0 * 3.14159265358979 * r_datum * r_datum;
 	// The air stands in the volume the cell's rock and sea leave, the same fractions the chords read.
+	// LA_APPROX: chord_quadrature
 	const PackedFloat32Array rock = p_field->get("_rock_fraction");
 	const PackedFloat32Array water = p_field->get("_water_fraction");
-	std::vector<double> shape(cc, 0.0);
+	std::vector<double> shape(cc, 0.0), curve(cc, 0.0), vol(cc, 0.0);
+	auto air_of = [&](int c, int sub) -> double {
+		const Vector3 g(p_gravity[c * 3], p_gravity[c * 3 + 1], p_gravity[c * 3 + 2]);
+		const double gmag = double(g.length());
+		const double taken = (c < rock.size() ? std::max(double(rock[c]), 0.0) : 0.0)
+				+ (c < water.size() ? std::max(double(water[c]), 0.0) : 0.0);
+		const double room = std::max(1.0 - taken, 0.0);
+		if (!(gmag > 0.0) || !(room > 0.0)) {
+			return 0.0;
+		}
+		const CubeColumn col = cube_column(double(edges[c]), Vector3(-g / float(gmag)));
+		// The level that leaves the rock and the sea below it: they settled under this same gravity.
+		double cut = 0.0;
+		if (room < 1.0) {
+			double lo = 0.0, hi = col.span;
+			for (int i = 0; i < 60; i++) {
+				const double mid = 0.5 * (lo + hi);
+				if (column_below(col, mid) < 1.0 - room) {
+					lo = mid;
+				} else {
+					hi = mid;
+				}
+			}
+			cut = 0.5 * (lo + hi);
+		}
+		const double r_c = double((centres[c] - centre).length());
+		return cell_air_share(col, cut, double(p_phi[c]), phi_0, gmag, r_c, rt_over_m, sub);
+	};
 	for (int c = 0; c < cc; c++) {
 		if (sky[c] == 0 || !std::isfinite(double(p_phi[c]))) {
 			continue;
 		}
 		const double e = double(edges[c]);
-		const double gx[3] = { std::abs(double(p_gravity[c * 3])), std::abs(double(p_gravity[c * 3 + 1])),
-			std::abs(double(p_gravity[c * 3 + 2])) };
-		const double taken = (c < rock.size() ? std::max(double(rock[c]), 0.0) : 0.0)
-				+ (c < water.size() ? std::max(double(water[c]), 0.0) : 0.0);
-		const double room = std::max(1.0 - taken, 0.0);
-		if (!(room > 0.0)) {
-			continue;
+		vol[c] = e * e * e;
+		shape[c] = air_of(c, 1);
+		// How far the 1/r potential departs from the straight line a segment carries, in R T / M.
+		const Vector3 g(p_gravity[c * 3], p_gravity[c * 3 + 1], p_gravity[c * 3 + 2]);
+		const double r_c = double((centres[c] - centre).length());
+		curve[c] = r_c > 0.0 ? double(g.length()) * 3.0 * e * e / (4.0 * r_c * rt_over_m) : 0.0;
+	}
+	// A SEGMENT IS SPLIT WHERE ITS CURVATURE WOULD SHOW IN THE TOTAL, and nowhere else: the error a cell
+	// carries is its own share of the air times what the straight line costs it.
+	{
+		double held = 0.0;
+		int sky_n = 0;
+		for (int c = 0; c < cc; c++) {
+			held += shape[c] * vol[c];
+			sky_n += sky[c] != 0 ? 1 : 0;
 		}
-		// The gas stands on the cell's rock and sea: its layer is the room they leave, its centre that
-		// much higher than the cell's. A CELL HOLDS WHAT ITS VOLUME HOLDS: over a layer whose potential
-		// falls linearly along g, the mean of the exponential is its centre value times sinh(x)/x per
-		// axis, x being half that axis's potential drop over R T / M.
-		const double gmag = std::sqrt(gx[0] * gx[0] + gx[1] * gx[1] + gx[2] * gx[2]);
-		const double phi_gas = double(p_phi[c]) + gmag * 0.5 * (1.0 - room) * e;
-		double mean = 1.0;
-		for (int a = 0; a < 3; a++) {
-			const double x = gx[a] * e * room * 0.5 / rt_over_m;
-			mean *= (x > 0.0) ? std::sinh(x) / x : 1.0;
+		const double allow = eps32 * held / double(MAX(sky_n, 1));
+		for (int c = 0; c < cc; c++) {
+			const double err = std::expm1(curve[c]) * shape[c] * vol[c];
+			if (!(err > allow)) {
+				continue;
+			}
+			const double n = std::ceil(std::sqrt(err / allow));
+			if (!(n <= 65536.0)) {
+				UtilityFunctions::push_error("LAFieldLithostaticSeed.shape_atmosphere: a cell's potential "
+						"curves so far across it that the barometric integral does not converge over it.");
+				return;
+			}
+			shape[c] = air_of(c, int(n));
 		}
-		shape[c] = std::exp(-(phi_gas - phi_0) / rt_over_m) * mean * room;
 	}
 	for (size_t i = 0; i < gases.size(); i++) {
 		Mirror &m = gases[i];
@@ -535,14 +800,11 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c,
 	// and what stands there is the escape law's, not the grid's. The mean free path against the cell:
 	// lambda = 1 / (sqrt(2) pi d^2 n).
 	{
-		const double d = la_physical("N2_KINETIC_DIAMETER_M");
-		const double n_a = la_physical("AVOGADRO_PER_MOL");
-		const double sigma = std::sqrt(2.0) * 3.14159265358979 * d * d;
 		const double kn_limit = la_physical("KNUDSEN_CONTINUUM_LIMIT");
 		std::vector<double> n_m3(cc, 0.0);
 		for (const Mirror &m : gases) {
 			for (int c = 0; c < cc; c++) {
-				n_m3[c] += std::max(double(m.arr[c]), 0.0) * n_a;
+				n_m3[c] += std::max(double(m.arr[c]), 0.0) * avogadro;
 			}
 		}
 		for (Mirror &m : gases) {
