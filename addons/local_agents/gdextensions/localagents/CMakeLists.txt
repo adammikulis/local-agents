@@ -34,6 +34,7 @@ set_target_properties(godot-cpp PROPERTIES
 set(SRC
     src/AgentNode.cpp
     src/AgentRuntime.cpp
+    src/LAAblate.cpp
     src/LAAbsorptionBands.cpp
     src/LAColumnRadiation.cpp
     src/LABallistics.cpp

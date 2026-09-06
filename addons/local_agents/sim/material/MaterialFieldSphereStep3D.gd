@@ -40,7 +40,10 @@ func full_steps() -> int:
 
 ## A sealed world with no writer this step is unchanged, so nothing is dispatched or read back.
 func _at_rest() -> bool:
-	return _sealed_full_steps > 0 and _f._seal != null and _f._seal.sealed() and _f._capture == null \
+	# THE SWITCHES, on the sim clock: `--ablate=name@step` lands here, and a thrown switch is a writer
+	# event, so a resting world takes a full step under the process set it now has.
+	return not LAAblate.step_switches(_f._gpu._step_index) \
+		and _sealed_full_steps > 0 and _f._seal != null and _f._seal.sealed() and _f._capture == null \
 		and not _f._gpu.state_moves() and (_f._inject == null or _f._inject.queue.is_empty()) \
 		and not _f._gpu._step_probe.is_valid()
 

@@ -46,14 +46,15 @@ three-vector declared `{"n": cc * 3, "ghosts": true}` is `cc * 3 + ng` long.
 `LABodySystem.cpp` (Gleick 1996) count the surface ocean and continental groundwater only, and
 `REGOLITH_SURFACE_POROSITY`/`COMPACTION_LENGTH_M` (Athy 1930, shales) are applied to basalt and basement.
 
-## 5. A SKY CELL HOLDS MORE GAS THAN STANDS IN IT
+## 5. THE PLANET CARRIES LESS AIR THAN IT WAS GIVEN, AND A BOX CANNOT WEIGH ITS OWN SHARE
 
-`scripts/check_body_measured.sh` is red: `body_mass_by_channel` puts the whole excess over the declared
-body mass in `co2` and `n2`, and the excess scales with the box. `scripts/check_atmosphere_mass.sh` is in
-no `[[gate]]` row, and its rung-2 arm compares one slab against the whole planet's inventory.
-`rg -n "r_sea \+ 1.0e7" addons/local_agents/gdextensions/localagents/src/LAFieldLithostaticSeed.cpp`
-finds the datum's shell integral cut at a chosen radius, where the exobase is the radius the gas leaves.
-Reading: `shape_atmosphere` in `LAFieldLithostaticSeed.cpp` gives each cell `Π_a sinh(x_a)/x_a`.
+`scripts/check_atmosphere_mass.sh` prints a seeded nitrogen below the declared inventory, and its test is
+one-sided because the deficit is not the seed's: `scripts/sim_run.sh --body --rung 2 --frames 2 --report
+nitrogen_all,body_seed_atmosphere_n2_kg`. The same gate cannot read a slab, because a box's footprint on
+the sphere is not a rectangle: `scripts/sim_run.sh --slice --rung 2 --frames 2 --report nitrogen_all`
+reads a box whose long axis is the world axis nearest the local vertical, not the vertical itself.
+Reading: `solid_of` in `LAPlanetTables.cpp` calls a cell solid at half rock, and `shape_atmosphere`
+floods `sky` only through cells whose `solid[c] == 0`.
 
 ## 6. THE CRUST HAS TWO REPRESENTATIONS, AND THE SEA IS A SPHERE AT ONE RADIUS
 
@@ -82,19 +83,18 @@ Reading: `coast_site` in `LAPlanetTables.cpp` bisects onto the waterline and the
 `land_m + depth_m`, which is largest where the relief is steepest rather than where the box's own
 footprint is half wet.
 
-## 9. PHYSICS IS NOT IN THE ABLATION REGISTRY
-
-`scripts/sim_run.sh --slice --rung 1 --ablate=gravity --frames 4` refuses the name: `LAAblate.names()`
-lists presentation modules only and `LAProcessSet` resolves the rung once at launch. A process the rung
-contains switches through the same `set_on`, the sweep measures its cost the same way, `LAAblate` moves
-from `creatures/sim/SimAblate.gd` to `sim/`. A body released with gravity off keeps the ground's
-tangential velocity and departs along the tangent; state the expression `LABallistics.drop` gives it.
-
-## 10. THE SURFACE IS STILL: EVERY WEATHER-SHAPED STAND-IN IS ABSENT RATHER THAN FAKED
+## 9. THE SURFACE IS STILL: EVERY WEATHER-SHAPED STAND-IN IS ABSENT RATHER THAN FAKED
 
 `docs/FAKES.md` carries what creatures need and nothing the surface shows: `wind_field` (deleted by
 ACOUSTIC), `rain` (WATER), `streams` (ADVECT), `diurnal_heat` (RADIATION), each read through the query
 the real row will answer, offered in the HUD as a stand-in.
+
+## 10. THE SLICE'S OWN GRAVITY READS ZERO IN THE REPORT WHILE A MASS FALLS AT ~9.5 m/s^2 IN IT
+
+`scripts/sim_run.sh --slice --rung 1 --frames 4 --report gravity_mean_g,gravity_solves` reads
+`gravity_mean_g` 0 in the box where `scripts/check_test_mass.sh` measures `g_release` near 9.5.
+Reading: `dispatch_slab` in `GravityPass.gd` issues `MODE_FIELD_STATS` without the `MODE_MOMENTS` sweep
+that `PRE_MODES` runs before it.
 
 ## 11. A FALL IS OVER BETWEEN TWO RENDERED FRAMES, AND ONE DRAG COEFFICIENT SERVES EVERY SPEED
 
@@ -113,10 +113,16 @@ is an invented threshold. The design: kinematic until thrown; then a Jolt `Rigid
 `gravity_scale = 0` pushed each tick by `m·g(pos)` from `LABallistics.g_at` plus the seeded air's drag
 (bound, not copied), the impulse from the overpressure in its cell, kinematic again when asleep.
 
-## 13. A BODY'S MASS, CARBON, ENERGY AND RATES ARE NOT IN REAL UNITS
+## 13. THE SEEDED COLUMN IS NOT IN THE BALANCE THE FACE RECONSTRUCTION HOLDS
 
-`rg -n "MASS_UNIT_SCALE|TISSUE_PER_KG|RESP_K" addons/local_agents/creatures` finds a scale factor with
-no referent spent as mol/m³ of a cell. The species mass is the one input; the rest derives (Kleiber).
+`scripts/check_atmosphere_at_rest.sh` reads the sealed column moving: `pressure_rest_rel` settles at a
+fixed departure while `mach_max` decays and the acoustic residual reads machine zero. The same column at
+rung 2 reads it exactly zero (`LA_BOUNDARY_FACES=shut,shut,shut,shut,shut,shut scripts/sim_run.sh
+--rung 2 --slice-box "0,surface,0,1,20,1,2000,2000" --frames 12 --report pressure_rest_rel`), and
+quartering the cell edge falls it by the edge times the step.
+Reading: `shape_atmosphere` in `LAFieldLithostaticSeed.cpp` integrates the barometric profile over the
+cube, and `la_stack_face_p` in `stack.glsli` reconstructs the face pressure from the cell mean; a column
+in balance needs both to be the same profile.
 
 ## 14. NOT EXAMINED UNTIL THE RUNG-2 DEMO IS APPROVED — rung 3
 
@@ -184,8 +190,9 @@ finds a draw cap read off the graphics preset and a MultiMesh built under `sim/`
 
 `scripts/agent_harness.sh sim --rung=N --frames 20` runs a world holding only the processes up to rung N;
 `scripts/agent_harness.sh ladder` names the first red rung; `scripts/shoot_demo.sh <scene> [outdir]`
-renders the poses `--shots=alt:pitch:yaw;...` declares (look at the PNGs); `--ablate=a,b` switches names
-off and `--ablate-sweep=N` measures each one's frame cost. A lane runs `LA_NO_GPU=1 scripts/agent_harness.sh lint`
+renders the poses `--shots=alt:pitch:yaw;...` declares (look at the PNGs); `--ablate=name[@step]` switches
+one off (`+name@step` back on), process or module alike, and `--ablate-sweep=N` measures its frame
+cost. A lane runs `LA_NO_GPU=1 scripts/agent_harness.sh lint`
 plus its own gates; the full lint is `scripts/integrate.sh`'s, one landing at a time, and a source-file
 merge conflict is resolved by hand. Worktrees come from `scripts/new_worktree.sh`; without its kernel
 import the GPU field is dead and the report looks fine. Mutation-test every gate you write, both ways.

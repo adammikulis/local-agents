@@ -328,8 +328,9 @@ func _entry(with_air: bool) -> Dictionary:
 	# `drop` takes a Vector3, which Godot carries at single precision: the speed the body actually left
 	# with is the one it reads back, not the one that was asked for.
 	v0 = float(LABallistics.state(id)["speed"])
-	# The crossing this arm measures: the column's own height over the speed the body entered it at.
-	LABallistics.step(float(E_NY) * E_CELL / v0)
+	# The gate's own patience, not a physical time: the body is only ever slowed, so it integrates ten
+	# crossings at the entry speed to be sure the rock has left the column it is measured over.
+	LABallistics.step(10.0 * float(E_NY) * E_CELL / v0)
 	var rows: Array = LABallistics.drag_work()
 	var st: Dictionary = LABallistics.state(id)
 	var v1: float = float(st["speed"])

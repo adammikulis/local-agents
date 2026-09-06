@@ -61,6 +61,11 @@ public:
 
 	void step(const Array &p_passes, const PackedStringArray &p_names, const Dictionary &p_ctx,
 			int p_cc, int p_groups, const Callable &p_probe);
+	// A pass that must READ the device takes its own submit before the step records.
+	void pre_step(const Array &p_passes, const Dictionary &p_ctx, int p_cc, int p_groups);
+	// Can anything write matter or energy this step: a LIVE pass declaring MOVES_STATE, or the derive's
+	// own live lithify step.
+	bool moves_state(const Array &p_passes) const;
 
 	void setup_transport(const Dictionary &p_plan);
 	int64_t run_transport(int64_t p_cl, const Array &p_pc_rows, const Array &p_pc_grain,
@@ -86,6 +91,8 @@ private:
 	Array _row_sets;
 	PackedInt32Array _row_group;
 	PackedInt32Array _row_radiate;
+	Array _rows;                  // the transport records this plan walks, in dispatch order
+	PackedInt32Array _row_live;   // 0 = this record's switch is off; it moves nothing this step
 	Array _groups;
 	RID _args;
 	RID _wake_args;
@@ -129,6 +136,9 @@ private:
 	int _eos_total = 0;
 
 	int _args_offset(int p_group) const;
+	bool _live(int p_row) const;
+	void _refresh_live();
+	Dictionary _off_last;         // pass label -> its switch was off when the last step ran
 	const PackedByteArray &_block(const Array &p_table, int p_slot);
 	void _fire(int64_t p_cl, const RID &p_uset, const PackedByteArray &p_pc, const RID &p_args,
 			int p_offset);

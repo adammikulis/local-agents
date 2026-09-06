@@ -193,11 +193,8 @@ func _plan() -> Dictionary:
 	var radiate: PackedInt32Array = PackedInt32Array()
 	for row: Dictionary in _rows:
 		radiate.append(1 if int(row["mode"]) == LATransportRecords.RADIATE else 0)
-	var groups: Array = []
-	for group: PackedInt32Array in _row_groups:
-		groups.append(group)
-	return {"pipe": _pipe, "row_sets": _sets, "row_group": _row_group, "row_radiate": radiate,
-		"groups": groups, "args": _args_rid,
+	return {"pipe": _pipe, "rows": _rows, "row_sets": _sets, "row_group": _row_group,
+		"row_radiate": radiate, "groups": _row_groups, "args": _args_rid,
 		"wake_args": _wake_args_rid, "grain_set": _grain_set, "list_sets": _list_sets,
 		"hz_pipe": _hz_pipe, "hz_set": _hz_set, "slots": ActiveScript.SLOTS,
 		"hz_comp": _hz_comp_rid, "hz_cond": _hz_cond_rid, "hz_rhs": _hz_rhs_rid, "hz_p": _hz_p_rid,

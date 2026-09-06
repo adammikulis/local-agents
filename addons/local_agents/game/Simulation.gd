@@ -143,6 +143,7 @@ func _build_field() -> void:
 	if _material.has_method("sample_solidity"):
 		_material.sample_solidity()
 	LASimReport.register(Callable(_material, "report"))
+	LASimReport.register(func() -> Dictionary: return {"process_live": LAProcessSet.live_mask()})
 	LASimReport.register(func() -> Dictionary: return _body_block())
 	LASimReport.register(func() -> Dictionary: return LASimReportSources.population(self), true)
 	LASimReport.register(func() -> Dictionary: return LASimReportSources.cognition(self), true)

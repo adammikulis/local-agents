@@ -32,7 +32,7 @@ const RECORDS: Array[Dictionary] = [
 	{"name": "species_tables", "release": "0.5 (traits from DNA loci)",
 		"file": "addons/local_agents/sim/ecology/EcologyService.gd",
 		"expression": "LAFakes.stands_in(\"species_tables\")",
-		"stands_in": "Traits read off a genome's loci, sorted by what survives. Speed, senses, diet, hierarchy and which tree grows where are read from authored per-species rows instead."},
+		"stands_in": "Traits read off a genome's loci, sorted by what survives. Speed, senses, diet, hierarchy and which tree grows where are read from authored per-species rows instead. Body mass in kilograms is the one measured number a row may carry: the body's carbon, water, metabolic rate and mouth rate all derive from it."},
 ]
 
 ## name -> [made, returned, draws]. What a fake hands out is MADE here: there is no source behind it.

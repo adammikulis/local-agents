@@ -609,9 +609,14 @@ Dictionary LAPlanetComposition::body_field(Object *p_grid, const Vector3 &p_cent
 	const double g_si = la_physical("GRAVITATIONAL_CONSTANT");
 	const int N = prof.n;
 	const double dr = prof.dr;
-	// Potential at every shell boundary r_k = k dr, inward from -GM/R.
+	// THE PROFILE'S OWN OUTER RADIUS IS WHERE ITS MASS ENDS: the shooting stops on the shell whose
+	// pressure reaches the standard, so the last boundary overshoots the radius asked for by less than one
+	// shell. Anchoring the potential anywhere else leaves g and phi stepping at the seam between the
+	// enclosed-mass branch and the monopole one.
+	const double r_prof = double(N) * dr;
+	// Potential at every shell boundary r_k = k dr, inward from -GM/r_prof.
 	std::vector<double> phi_k(N + 1, 0.0);
-	phi_k[N] = -g_si * prof.mass / p_radius_m;
+	phi_k[N] = -g_si * prof.mass / r_prof;
 	for (int k = N - 1; k >= 0; k--) {
 		const double r_mid = (double(k) + 0.5) * dr;
 		const double m_mid = k > 0 ? 0.5 * (prof.m_in[k - 1] + prof.m_in[k]) : 0.5 * prof.m_in[0];
@@ -619,7 +624,7 @@ Dictionary LAPlanetComposition::body_field(Object *p_grid, const Vector3 &p_cent
 	}
 	const PackedFloat64Array cw = LAGridGeometry::centres_f64(p_grid);
 	const int cc = cw.size() / 3;
-	const double phi_datum = -g_si * prof.mass / p_radius_m;
+	const double phi_datum = -g_si * prof.mass / r_prof;
 	PackedFloat32Array g, ref, dev;
 	PackedFloat64Array phi;
 	g.resize(cc * 3);
@@ -634,7 +639,7 @@ Dictionary LAPlanetComposition::body_field(Object *p_grid, const Vector3 &p_cent
 		const double dx = cw[c * 3] - double(p_centre.x), dy = cw[c * 3 + 1] - double(p_centre.y), dz = cw[c * 3 + 2] - double(p_centre.z);
 		const double r = std::sqrt(dx * dx + dy * dy + dz * dz);
 		double m = prof.mass, ph = 0.0;
-		if (r >= p_radius_m) {
+		if (r >= r_prof) {
 			ph = -g_si * prof.mass / r;
 		} else {
 			const double x = r / dr;

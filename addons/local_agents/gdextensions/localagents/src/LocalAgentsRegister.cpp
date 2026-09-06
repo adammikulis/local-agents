@@ -28,6 +28,7 @@
 #include "LASubstances.hpp"
 #include "NetworkGraph.hpp"
 #include "LAProcess.hpp"
+#include "LAAblate.hpp"
 #include "LAProcessSet.hpp"
 #include "LANoActivation.hpp"
 
@@ -72,6 +73,7 @@ void initialize_local_agents(ModuleInitializationLevel p_level) {
     ClassDB::register_class<NetworkGraph>();
     ClassDB::register_class<LAProcess>();
     ClassDB::register_class<LAProcessSet>();
+    ClassDB::register_class<LAAblate>();
     ClassDB::register_class<LAAbsorptionBands>();
     ClassDB::register_class<LAColumnRadiation>();
     ClassDB::register_class<LAElementAbundances>();
@@ -109,6 +111,7 @@ void terminate_local_agents(ModuleInitializationLevel p_level) {
     }
 
     LAProcessSet::release();
+    LAAblate::release();
 
     if (g_agent_runtime_singleton) {
         Engine::get_singleton()->unregister_singleton(StringName("AgentRuntime"));
