@@ -9,24 +9,26 @@ const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/st
 const FluxPassScript: GDScript = preload("res://addons/local_agents/sim/material/sphere_passes/FluxPass.gd")
 
 ## props row layout — state_derive.glsl PROP_*.
-const PROP_STRIDE: int = 12
+const PROP_STRIDE: int = 55
 const PROP_M: int = 0
-const PROP_C: int = 1
-const PROP_MOL_PER_KG: int = 2
-const PROP_ENTRY: int = 3
-const PROP_LAMBDA: int = 4
-const PROP_FULL: int = 5
+const PROP_MOL_PER_KG: int = 1
+const PROP_ENTRY: int = 2
+const PROP_LAMBDA: int = 3
+const PROP_FULL: int = 4
 ## The EOS half: rho(T, p) inverted per substance, so pressure is a state function of the cell.
-const PROP_ALPHA: int = 6
-const PROP_BULK: int = 7
-const PROP_TREF: int = 8
+const PROP_ALPHA: int = 5
+const PROP_BULK: int = 6
+const PROP_TREF: int = 7
 ## 1 where the channel is a rock or metal phase, so the solid flag reads the whole lithic volume.
-const PROP_LITHIC: int = 9
+const PROP_LITHIC: int = 8
 ## 1-based index into the push constant's radiogenic W/kg slots; 0 for a substance with no U/Th/K.
-const PROP_RAD_GROUP: int = 10
+const PROP_RAD_GROUP: int = 9
 ## 1 where the channel is a CONDENSED phase: it fills volume of its own and resists being squeezed. A
 ## dissolved solute rides in its solvent and does neither.
-const PROP_CONDENSED: int = 11
+const PROP_CONDENSED: int = 10
+## The channel substance's own phase ladder, laid out by LAMixtureEnthalpy::thermal_row — every condensed
+## channel melts and boils where its table row says. state_derive.glsl PROP_LADDER, TH_*.
+const PROP_LADDER: int = 11
 
 ## Push-constant slots for distinct radiogenic trace mixes, re-evaluated at the run's epoch per step.
 const RAD_GROUPS: int = 4
@@ -154,8 +156,8 @@ func _props() -> PackedFloat32Array:
 				% [name, unit] + "A channel amount is moles per m^3; without it the channel's mass is a guess.")
 			return PackedFloat32Array()
 		var entry: int = LAMatterChannels.entry_of(id)
-		var c: float = LAMatterChannels.specific_heat(id)
-		if entry == LAMatterChannels.Entry.SENSIBLE and c <= 0.0:
+		var ladder: PackedFloat32Array = LAMixtureEnthalpy.thermal_row(id)
+		if ladder.size() != PROP_STRIDE - PROP_LADDER:
 			return PackedFloat32Array()
 		var mol_per_kg: float = 1.0 / molar[i] if LAMatterChannels.GASES.has(id) else 0.0
 		var lambda_w_mk: float = float(s.get("conductivity", 0.0))
@@ -166,10 +168,11 @@ func _props() -> PackedFloat32Array:
 		var base: int = i * PROP_STRIDE
 		out[base + PROP_LAMBDA] = lambda_w_mk
 		out[base + PROP_M] = molar[i]
-		out[base + PROP_C] = c
 		out[base + PROP_MOL_PER_KG] = mol_per_kg
 		out[base + PROP_ENTRY] = float(entry)
 		out[base + PROP_FULL] = full[i]
+		for k in ladder.size():
+			out[base + PROP_LADDER + k] = ladder[k]
 		out[base + PROP_ALPHA] = float(s.get("expansion_per_k", 0.0))
 		# CONDENSED fills volume of its own and resists being squeezed, which is what the EOS sums; a gas
 		# is the A term and a dissolved solute rides in its solvent. No modulus is a substance nobody has

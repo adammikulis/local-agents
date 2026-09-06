@@ -4,27 +4,20 @@ extends RefCounted
 ## Fill the enthalpy state from a starting TEMPERATURE, once the channels holding matter are seeded.
 ## Seeding-phase creation: every joule is declared through the seal.
 
-const PC: GDScript = preload("res://addons/local_agents/sim/material/PhysicalConstants.gd")
-
-
-## The cell's enthalpy at (t, p) as state_derive.glsl carries it: two ladder entries over the gas room, the rest sensible.
+## The cell's enthalpy at (t, p) as state_derive.glsl carries it: EVERY substance off its own ladder.
 static func entry_enthalpies(masses: Dictionary, room_m3: float, t_c: float, p_pa: float) -> Dictionary:
-	var h_h2o: float = 0.0
-	var h_sil: float = 0.0
+	var h: PackedFloat64Array = PackedFloat64Array([0.0, 0.0, 0.0])
 	var mc: float = 0.0
 	for id in masses:
 		var m: float = float(masses[id])
 		if m <= 0.0:
 			continue
-		match LAMatterChannels.entry_of(String(id)):
-			LAMatterChannels.Entry.H2O:
-				h_h2o += m * LAMixtureEnthalpy.specific_enthalpy(String(id), t_c, p_pa, m, room_m3)
-			LAMatterChannels.Entry.SILICATE:
-				h_sil += m * LAMixtureEnthalpy.specific_enthalpy(String(id), t_c, p_pa, m, room_m3)
-			_:
-				mc += m * LAMatterChannels.specific_heat(String(id))
-	return {"h_h2o": h_h2o, "h_silicate": h_sil,
-		"h_sensible": mc * (t_c + PC.KELVIN_OFFSET), "cap_sensible": mc}
+		var e: int = LAMatterChannels.entry_of(String(id))
+		h[e] += m * LAMixtureEnthalpy.specific_enthalpy(String(id), t_c, p_pa, m, room_m3)
+		if e == LAMatterChannels.Entry.SENSIBLE:
+			mc += m * LAMixtureEnthalpy.phase_specific_heat(String(id), t_c, p_pa)
+	return {"h_h2o": h[LAMatterChannels.Entry.H2O], "h_silicate": h[LAMatterChannels.Entry.SILICATE],
+		"h_sensible": h[LAMatterChannels.Entry.SENSIBLE], "cap_sensible": mc}
 
 
 ## Seed `_e`, the internal energy of (t_c, p) per cell: the enthalpy there less the fluid's pV.
