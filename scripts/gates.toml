@@ -624,6 +624,12 @@ kind = "gpu"
 marker = "^check_derive_fixed_point: OK"
 
 [[gate]]
+name = "check_derive_safe_math"
+script = "scripts/check_derive_safe_math.sh"
+kind = "gpu"
+marker = "^check_derive_safe_math: OK"
+
+[[gate]]
 name = "check_boundary_momentum_book"
 script = "scripts/check_boundary_momentum_book.sh"
 kind = "gpu"

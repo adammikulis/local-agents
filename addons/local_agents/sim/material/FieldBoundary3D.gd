@@ -334,7 +334,7 @@ func _derive(st: Dictionary, d: int) -> Dictionary:
 	out["cap_sensible"] = float(e["cap_sensible"]) / vol
 	out["e_j_m3"] = (float(e["h_h2o"]) + float(e["h_silicate"]) + float(e["h_sensible"])) / vol
 	out["e_lith_j_m3"] = (float(el["h_h2o"]) + float(el["h_silicate"]) + float(el["h_sensible"])) / vol
-	out.merge({"temp": t_c, "temp_lith": t_c})
+	out.merge({"temp": t_c, "temp_lith": t_c, "water_rho": LASubstances.density("h2o", t_c, p_pa)})
 	out["conductivity_lith"] = v_lambda / v_used if v_used > 0.0 else 0.0
 	out["pressure"] = p_pa
 	out["rho_bulk"] = mass_total / vol

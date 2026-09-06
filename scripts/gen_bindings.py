@@ -7,6 +7,9 @@ import argparse
 import os
 import sys
 
+# The generator must not dirty the tree it generates into: importing lib_bindings writes __pycache__.
+sys.dont_write_bytecode = True
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lib_bindings as LB
 

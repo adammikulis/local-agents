@@ -176,27 +176,39 @@ if [[ "$rows" -gt "$cap" ]]; then
   echo "to be a modelling choice, raise MAX_DECLARED in the same commit and say why in the message."
   exit 1
 fi
-# --- NO GHOST ROWS: a declared constant that no longer exists must leave the registry ------------------
-# Without this the queue only ever grows stale: a row for a deleted (or since-derived) constant still counts
-# toward the ceiling, so deleting code stops lowering the number and the ratchet quietly stops meaning
-# anything. The rename of scent_fert_sphere3d.glsl -> fert_sphere3d.glsl is the case that showed it: three
-# rows kept pointing at a path that no longer existed and nothing said so.
+# --- NO GHOST ROWS, AND NO STALE VALUES: a row for a constant that is gone holds the ceiling up, and one
+# recording a value the code does not hold reads as review of a number nobody uses ---------------------
 ghosts=0
-while IFS=$'\t' read -r gfile gname; do
+while IFS=$'\t' read -r gfile gname gval; do
   [[ -z "$gname" || "$gfile" == "*" ]] && continue
   case " $AUTHORITY_FILES " in *" ${gfile##*/} "*) continue ;; esac
   if [[ ! -f "$REPO_ROOT/$gfile" ]]; then
     echo "FAIL  ${REGISTRY#"$REPO_ROOT"/}: \`$gname\` is declared against $gfile, which does not exist."
     ghosts=$((ghosts + 1))
-  elif ! grep -Eq "(^|[[:space:]])const[[:space:]]+([A-Za-z0-9_]+[[:space:]]+)?${gname}([[:space:]]*[:=]|[[:space:]])" "$REPO_ROOT/$gfile"; then
+    continue
+  fi
+  code="$(grep -Eh "(^|[[:space:]])const[[:space:]]+([A-Za-z0-9_]+[[:space:]]+)?${gname}([[:space:]]*[:=]|[[:space:]])" "$REPO_ROOT/$gfile" | head -1)"
+  if [[ -z "$code" ]]; then
     echo "FAIL  ${REGISTRY#"$REPO_ROOT"/}: \`$gname\` is declared but no longer exists in $gfile."
     ghosts=$((ghosts + 1))
+    continue
   fi
-done < <(awk '/^[ \t]*\|/ { n = split($0, c, "|"); if (n < 4) next; f = c[2]; nm = c[3]; gsub(/[` \t]/, "", f); gsub(/[` \t]/, "", nm); if (nm == "" || nm == "constant" || nm ~ /^-+$/) next; printf "%s\t%s\n", f, nm }' "$REGISTRY")
+  lit="$(printf '%s\n' "$code" | sed -e 's|//.*$||' -e 's|#.*$||' -e 's/^[^=]*=//' -e 's/;.*$//' \
+    -e 's/[[:space:]]//g' -e 's/[fFuU]$//')"
+  if ! awk -v a="$gval" -v b="$lit" '
+      BEGIN {
+        num = "^[-+]?([0-9]+\\.?[0-9]*|\\.[0-9]+)([eE][-+]?[0-9]+)?$"
+        if (a !~ num || b !~ num) { exit 0 }        # an expression on either side is not a value to compare
+        exit((a + 0) == (b + 0) ? 0 : 1)
+      }'; then
+    echo "FAIL  ${REGISTRY#"$REPO_ROOT"/}: \`$gname\` is recorded as $gval and $gfile holds $lit."
+    ghosts=$((ghosts + 1))
+  fi
+done < <(awk '/^[ \t]*\|/ { n = split($0, c, "|"); if (n < 5) next; f = c[2]; nm = c[3]; vv = c[4]; gsub(/[` \t]/, "", f); gsub(/[` \t]/, "", nm); gsub(/[` \t]/, "", vv); if (nm == "" || nm == "constant" || nm ~ /^-+$/) next; printf "%s\t%s\t%s\n", f, nm, vv }' "$REGISTRY")
 if [[ $ghosts -gt 0 ]]; then
   echo
-  echo "Delete those rows. A registry entry for a constant that is gone is not a record, it is a ghost that"
-  echo "holds the ceiling up and makes the ratchet stop measuring anything."
+  echo "Delete or correct those rows. An entry for a constant that is gone, or one recording a value the"
+  echo "code does not hold, holds the ceiling up and makes the ratchet stop measuring anything."
   exit 1
 fi
 

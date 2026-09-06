@@ -1,29 +1,68 @@
-// One cell, one pressure: V = N R T / p + sum m v0(T)(1 - (p - p_std)/K) is the quadratic
-//     C p^2 + (V - B - C p_std) p - A = 0,  A = N R T, B = sum m v0(T), C = sum m v0(T)/K,
-// closed form and O(1) per cell. No bulk modulus = incompressible: adds to B and nothing to C.
+// V = N R T / p + B - C (p - p_ref) is the quadratic C p^2 + (V - B - C p_ref) p - A = 0, with
+// A = N R T, B = sum m v(T, p_ref) and C = -dB/dp there, both off Birch-Murnaghan below.
 #ifndef LA_EOS_GLSLI
 #define LA_EOS_GLSLI
 
-// The vapour a condensed phase raises over itself is in `a_gas_rt` already, at its saturation pressure
-// over the room: the pressure is the gas's, and nothing here floors it.
-float la_eos_p(float vol, float a_gas_rt, float b_vol, float c_comp, float p_std) {
+// Birch-Murnaghan 3rd order (Birch 1947, Phys. Rev. 71:809), strain f = ((V0/V)^(2/3)-1)/2, a = 3/2(K0'-4):
+// P = 3 K0 f (1+2f)^(5/2) (1 + a f). Native twin LASubstances::bm_strain. v0(1 - P/K) has no root at P ~ K.
+float la_bm_p(float f, float k0, float a) {
+	float u = 1.0 + 2.0 * f;
+	return 3.0 * k0 * f * u * u * sqrt(u) * (1.0 + a * f);
+}
+
+float la_bm_dp(float f, float k0, float a) {
+	float u = 1.0 + 2.0 * f;
+	return 3.0 * k0 * u * sqrt(u) * ((u + 5.0 * f) * (1.0 + a * f) + a * f * u);
+}
+
+// Newton inside a bracket the sign test maintains: the one root of a monotone P(f).
+float la_bm_strain(float p_pa, float k0, float kprime) {
+	if (!(k0 > 0.0) || p_pa == 0.0) {
+		return 0.0;
+	}
+	float a = 1.5 * (kprime - 4.0);
+	float lo = -0.45;
+	float hi = 1.5;
+	float f = clamp(p_pa / (3.0 * k0), lo, hi);
+	for (int i = 0; i < 20; ++i) {
+		float r = la_bm_p(f, k0, a) - p_pa;
+		if (r > 0.0) { hi = f; } else { lo = f; }
+		if (hi - lo <= 4.0 * LA_FLOAT_EPS * (1.0 + abs(f))) {
+			break;
+		}
+		float d = la_bm_dp(f, k0, a);
+		float step = d > 0.0 ? f - r / d : 0.5 * (lo + hi);
+		f = (step > lo && step < hi) ? step : 0.5 * (lo + hi);
+	}
+	return f;
+}
+
+float la_bm_squeeze(float f) {
+	float u = 1.0 + 2.0 * f;
+	return 1.0 / (u * sqrt(u));
+}
+
+// K_T = -V dP/dV = (1 + 2f) dP/df / 3, Pa.
+float la_bm_k_t(float f, float k0, float kprime) {
+	return (1.0 + 2.0 * f) * la_bm_dp(f, k0, 1.5 * (kprime - 4.0)) / 3.0;
+}
+
+// A condensed phase's own vapour is in `a_gas_rt` already, at saturation over the room.
+float la_eos_p(float vol, float a_gas_rt, float b_vol, float c_comp, float p_ref) {
 	if (vol <= 0.0) {
 		return 0.0;
 	}
-	// Nothing compressible: the gas fills what the condensed phases leave.
 	if (c_comp <= 0.0) {
 		float room = vol - b_vol;
 		return room > 0.0 ? a_gas_rt / room : 0.0;
 	}
 	// No gas at all: the condensed phases alone are squeezed into the cell.
 	if (a_gas_rt <= 0.0) {
-		return p_std + (b_vol - vol) / c_comp;
+		return p_ref + (b_vol - vol) / c_comp;
 	}
-	float k = vol - b_vol - c_comp * p_std;
+	float k = vol - b_vol - c_comp * p_ref;
 	float disc = sqrt(k * k + 4.0 * c_comp * a_gas_rt);
-	// Stable root of the same quadratic: for k > 0, (disc - k)/(2C) cancels catastrophically as C -> 0
-	// and one ulp over 2C is an arbitrary pressure; 2A/(k + disc) is algebraically identical, sums
-	// positives, and limits exactly to the ideal-gas A/k.
+	// Stable root: (disc - k)/(2C) cancels catastrophically as C -> 0; 2A/(k + disc) is identical.
 	float p = (k > 0.0) ? 2.0 * a_gas_rt / (k + disc) : (disc - k) / (2.0 * c_comp);
 	return p;
 }

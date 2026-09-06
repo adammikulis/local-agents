@@ -5,7 +5,6 @@
 
 // ONE CONSERVATIVE FACE FLUX. Every face states one interface pressure and velocity, solved once from
 // the pair; mass, momentum, enthalpy and charge ride it, and a column in balance produces zero flux.
-// The cell keeps internal energy; a crossing's enthalpy is the energy flux, pressure work included.
 
 #include "cellvol.glsli"
 #include "neighbours.glsli"
@@ -263,7 +262,8 @@ float drift_at(uint c, uint n, uint d, float dist) {
 	float down = gm > 0.0 ? dot(gv / gm, face_normal(d)) : 0.0;
 	if (params.law == LAW_DARCY) {
 		float k = darcy_conductivity(lo, max(c, n));
-		if (k <= 0.0 || gm <= 0.0 || params.fluid_rho <= 0.0) {
+		float rho_f = carrier_rho(lo);
+		if (k <= 0.0 || gm <= 0.0 || rho_f <= 0.0) {
 			return 0.0;
 		}
 		// Piezometric head, m: elevation, plus the pressure the fluid stands under where BOTH cells are
@@ -272,7 +272,7 @@ float drift_at(uint c, uint n, uint d, float dist) {
 		float p_c = solid[c] == 0.0 ? max(pressure[c], 0.0) : 0.0;
 		float p_n = solid[n] == 0.0 ? max(pressure[n], 0.0) : 0.0;
 		bool both_open = solid[c] == 0.0 && solid[n] == 0.0;
-		float dh = (-la_dphi(c, n, d) + (both_open ? (p_c - p_n) / params.fluid_rho : 0.0)) / gm;
+		float dh = (-la_dphi(c, n, d) + (both_open ? (p_c - p_n) / rho_f : 0.0)) / gm;
 		return k * dh / dist;
 	}
 	if (params.law == LAW_SHALLOW) {
@@ -295,8 +295,8 @@ float drift_at(uint c, uint n, uint d, float dist) {
 	return 0.0;
 }
 
-// The DIFFUSIVE crossing per unit face area over THIS SUBSTEP, positive out of `c`. Eddy mixing
-// homogenises the MIXING RATIO, relaxed exactly over the substep at the rate the pair's masses set.
+// The DIFFUSIVE crossing per face area this substep, out of `c`: eddy mixing homogenises the MIXING
+// RATIO, relaxed over the substep at the rate the pair's masses set.
 float diffusive_at(uint c, uint n, float dist, float open) {
 	if (params.law == LAW_EDDY) {
 		// The FLUID each side holds: the bulk less its lithic grains, which do not mix with a gas.
@@ -354,11 +354,7 @@ void face_states(uint c) {
 	if (solid[c] != 0.0 || collisionless(c)) {
 		return;   // rock's pressure is PressurePass's column; a collisionless cell holds no fluid
 	}
-	float fc = condensed_frac(c);
-	float mu_mol = mix(params.mu_air, params.mu_water, fc);
-	float rb = rho_fluid(c);
-	float mixl = SMAGORINSKY_COEFF * cell_edge[c];
-	nu_t[c] = (rb > 0.0 ? mu_mol / rb : 0.0) + mixl * mixl * strain_rate(c);
+	nu_t[c] = eddy_viscosity(c);
 	float top_c = water_top(c);
 	w_top[c] = top_c;
 
@@ -532,7 +528,8 @@ void row_flux(uint c) {
 				// The band crosses through its wet share of the face at the liquid's own concentration,
 				// against its own interface pressure.
 				vec3 wd = water_face(donor_adv, dd, w_top[donor_adv]);
-				cross_mean = sign(u) * min(abs(cross_mean), FULL_H2O * wd.x * abs(u) * open * la_dt * div_f);
+				cross_mean = sign(u) * min(abs(cross_mean),
+					full_h2o_at(donor_adv) * wd.x * abs(u) * open * la_dt * div_f);
 			} else if (rides) {
 				f_face = face_gas_factor(donor_adv, dd);
 			}
@@ -847,14 +844,10 @@ void grain_state(uint g) {
 		silicate_bed[g] = 0.0;
 		return;
 	}
-	float water = h2o_water(g) / FULL_H2O;
-	float air = 1.0 - condensed_frac(g);
-	float tot = water + air;
-	float f_water = tot > 0.0 ? water / tot : 0.0;
-	float f_air = tot > 0.0 ? air / tot : 0.0;
+	vec2 sh = pore_shares(g);
 
-	float in_water = f_water * suspended_share(g, params.rho_water, params.mu_water);
-	float in_air = f_air * suspended_share(g, params.rho_air, params.mu_air);
+	float in_water = sh.x * suspended_share(g, water_rho[g], water_visc(g));
+	float in_air = sh.y * suspended_share(g, air_rho(g), air_visc(g));
 
 	silicate_susp_water[g] = loose * in_water;
 	silicate_susp_air[g] = loose * in_air;
@@ -880,7 +873,7 @@ float la_row_need(uint c) {
 	float adv = abs(vc.x) + abs(vc.y) + abs(vc.z);
 	if ((params.flags & TF_VEL) != 0u && solid[c] == 0.0) {
 		float cw = h2o_water(c) > 0.0 ? water_c(c) : 0.0;
-		float f_w = h2o_water(c) * M_H2O / RHO_WATER;
+		float f_w = water_vol_frac(c);
 		float top = cw > 0.0 ? water_top(c) : 1.0e30;
 		float w = 0.0;
 		for (uint d = 0u; d < N_SLOTS; ++d) {
@@ -909,7 +902,7 @@ float la_row_need(uint c) {
 		v = adv;
 	}
 	if ((params.flags & TF_SETTLE) != 0u) {
-		v += stokes_settling(c, params.grain_d, params.fluid_rho, params.fluid_visc);
+		v += settling_speed_max(c);
 	}
 	if (params.law == LAW_SHALLOW || params.law == LAW_FILM) {
 		// The steepest slope a cell can present is one, so the closure's own speed is bounded by it.
@@ -999,6 +992,7 @@ void radiate_gather(uint c) {
 		if (nbr[f] < 0) {
 			continue;   // nobody gathers at the box edge and it leaves for space
 		}
+		// LA_APPROX: six_ray_longwave_gather
 		gained += absorptivity * longwave_incident(c, f, d);
 	}
 	float sun_w = solar_incident(c);

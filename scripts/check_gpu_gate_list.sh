@@ -37,8 +37,9 @@ while :; do
 	[ "$grown" -eq 1 ] || break
 done
 
-# A gate needs a GPU when it EXECUTES a run — a quoted \$var path to a launching script, or the native
-# sim binary — or when it READS the shared arm lint_capture.sh records, which only a GPU could produce.
+# A gate needs a GPU when it EXECUTES a run — a quoted \$var path to a launching script, the native sim
+# binary, or a lib function that starts either — or when it READS the shared arm lint_capture.sh records,
+# which only a GPU could produce.
 actual=""
 for b in $in_lint; do
 	f="$ROOT/scripts/$b.sh"
@@ -46,7 +47,8 @@ for b in $in_lint; do
 	[ "$b" = "check_gpu_gate_list" ] && continue   # this scan names the patterns it looks for
 	if rg -q -e "\"\\\$[A-Za-z_][A-Za-z_0-9]*[^\"]*/($LAUNCH)\\.sh\"" "$f" \
 		|| rg -q -e '[$][(]la_(report|report_raw|marker|cap_state|cap_front)\b' "$f" \
-		|| rg -q -e '/bin/lasim"' "$f"; then
+		|| rg -q -e '/bin/lasim"' "$f" \
+		|| rg -q -e '\bla_lasim(_oracle_run)?\b' "$f"; then
 		actual="$actual $b"
 	fi
 done

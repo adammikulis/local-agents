@@ -141,6 +141,7 @@ func _build() -> Dictionary:
 	_write(bufs, "h2o_liquid", _filled(cc, 1.0))
 	_write(bufs, "k_cond", _filled(cc, LAPhysical.WATER_BULK_MODULUS_PA))
 	_write(bufs, "rho_bulk", _filled(cc, RHO))
+	_write(bufs, "water_rho", _filled(cc, RHO))
 	_write(bufs, "pressure", _filled(cc, P))
 	_write(bufs, "temp", tmp)
 	return bufs
