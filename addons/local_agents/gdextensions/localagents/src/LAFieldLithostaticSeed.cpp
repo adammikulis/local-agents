@@ -30,7 +30,6 @@ namespace {
 
 const char *CHANNELS_GD = "res://addons/local_agents/sim/material/Channels.gd";
 const char *GEOMETRY_GD = "res://addons/local_agents/sim/material/FieldGeometry3D.gd";
-const char *FIELD_GD = "res://addons/local_agents/sim/material/MaterialField3D.gd";
 
 // The hydrostatic seed's Gauss-Seidel: over-relaxation factor, sweeps per frozen reconstruction,
 // re-takes of it, and the move below which a sweep has settled.
@@ -160,7 +159,7 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 	const bool walkable = !nbr.is_empty() && slot_off.size() >= cc * 7 && edges.size() >= cc;
 	const Dictionary table = LASubstances::table();
 	const Dictionary rows = la_call_gd(CHANNELS_GD, "rows", Array());
-	const double t_c = double(la_gd_const(FIELD_GD, "INITIAL_TEMP"));
+	const double t_c = LABodySeeds::surface_temp_c();
 	const double p_std = la_physical("STANDARD_PRESSURE_PA");
 	const double rt = la_physical("GAS_CONSTANT_J_MOL_K") * (t_c + la_physical("KELVIN_OFFSET"));
 

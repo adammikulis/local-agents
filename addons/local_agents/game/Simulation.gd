@@ -115,13 +115,13 @@ func _build_field() -> void:
 			return
 	else:
 		# METRES: LAFieldGravity solves Poisson in SI on this grid.
-		var air_m: float = LAFieldGridBudget.air_extent_m("planet", float(_body.radius()), LAMaterialField3D.INITIAL_TEMP)
-		var rock_m: float = LAFieldGridBudget.rock_extent_m(float(_body.radius()), LAMaterialField3D.INITIAL_TEMP)
+		var air_m: float = LAFieldGridBudget.air_extent_m("planet", float(_body.radius()), LABodySeeds.surface_temp_c())
+		var rock_m: float = LAFieldGridBudget.rock_extent_m(float(_body.radius()), LABodySeeds.surface_temp_c())
 		if not is_finite(air_m) or not is_finite(rock_m):
 			push_error("GRID_EXTENT_UNSOLVED: the seeded air has no Knudsen top (%s) or the geotherm no lid (%s), so the box has no extent to enclose." % [air_m, rock_m])
 			return
 		var extent_m: float = float(_body.radius()) + air_m
-		var target_m: float = LAFieldGridBudget.target_edge_m("planet", float(_body.radius()), LAMaterialField3D.INITIAL_TEMP)
+		var target_m: float = LAFieldGridBudget.target_edge_m("planet", float(_body.radius()), LABodySeeds.surface_temp_c())
 		if not (target_m > 0.0):
 			push_error("GRID_TARGET_UNKNOWN: the body declares no mass or radius, so the atmosphere's "
 				+ "scale height gives the grid no edge to refine to.")

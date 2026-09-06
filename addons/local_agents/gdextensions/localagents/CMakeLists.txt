@@ -35,6 +35,7 @@ set(SRC
     src/AgentNode.cpp
     src/AgentRuntime.cpp
     src/LAAbsorptionBands.cpp
+    src/LAColumnRadiation.cpp
     src/LABallistics.cpp
     src/LAMixtureEnthalpy.cpp
     src/LAPlanetTables.cpp

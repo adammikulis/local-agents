@@ -97,7 +97,7 @@ func seed_tick() -> bool:
 	var g_solved: PackedFloat32Array = LAFieldLithostaticSeed.vertical(_f, _f._gpu.read_raw("g_rest"))
 	# The barometric profile is a function of the SOLVED POTENTIAL, so the solve's own phi goes with it.
 	if LAProcessSet.has_record("pass", GRAVITY_PASS):
-		LAFieldLithostaticSeed.shape_atmosphere(_f, LAMaterialField3D.INITIAL_TEMP, g_solved, _f._gravity.phi_abs())
+		LAFieldLithostaticSeed.shape_atmosphere(_f, LABodySeeds.surface_temp_c(), g_solved, _f._gravity.phi_abs())
 	var balance: Dictionary = LAFieldLithostaticSeed.compress(_f, g_solved, _f._t_rock)
 	LAFieldEnthalpySeed.seed(_f, _f._t_rock, balance.get("fluid", PackedFloat32Array()), balance.get("rock", PackedFloat32Array()))
 	# WEIGH THE BODY once the march has compressed the rock it stands on.

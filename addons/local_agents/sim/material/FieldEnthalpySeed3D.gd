@@ -32,7 +32,7 @@ static func seed(f, t_rock: PackedFloat32Array, p_pa: PackedFloat32Array, p_rock
 	if f._cell_count <= 0 or f._grid == null or t_rock.size() != f._cell_count or p_pa.size() != f._cell_count:
 		push_error("LAFieldEnthalpySeed: no grid, no marched pressure or no rock temperature to seed the ladder on.")
 		return
-	var r: Dictionary = LAFieldCellMass3D.seed_enthalpy(f, f._grid, t_rock, f.INITIAL_TEMP, p_pa, p_rock)
+	var r: Dictionary = LAFieldCellMass3D.seed_enthalpy(f, f._grid, t_rock, LABodySeeds.surface_temp_c(), p_pa, p_rock)
 	f._mirrors.set_array("e_j_m3", r["e"])
 	f._mirrors.set_array("e_lith_j_m3", r["e_lith"])
 	if f._seal != null:

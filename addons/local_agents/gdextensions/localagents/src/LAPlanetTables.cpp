@@ -385,6 +385,11 @@ double LAPlanetComposition::core_radius_frac(double p_t_c, double p_p_pa) {
 // is wherever the inner `f_core` of the mass ends up, not a radius anybody declared.
 constexpr double kPi = 3.14159265358979323846;
 
+// Anhydrous peridotite's melting interval at the potential-temperature reference pressure P = 0, C
+// (Katz, Spiegelman & Langmuir 2003, G-cubed 4:1073, Table 2: A1 solidus, C1 liquidus).
+constexpr double PERIDOTITE_SOLIDUS_C = 1085.7;
+constexpr double PERIDOTITE_LIQUIDUS_C = 1780.0;
+
 // The relaxed radial structure of a body of radius R: pressure per shell and the core's shell count.
 struct RadialProfile {
 	int n = 0;
@@ -397,6 +402,12 @@ struct RadialProfile {
 	std::vector<double> m_in;
 	double mass = 0.0;
 };
+
+// W/m^2 crossing the surface of a body of radius R: what the rock above its core makes by decay, over
+// the area that heat has to cross.
+static double radiogenic_flux(double p_h_w_kg, double p_m_rock, double p_radius_m) {
+	return p_h_w_kg * MAX(p_m_rock, 0.0) / (4.0 * kPi * p_radius_m * p_radius_m);
+}
 
 // THE BODY STANDS AT ITS OWN GEOTHERM: each shell's density is the composition's at that shell's own
 // temperature and pressure, so the radius that holds the declared mass is the hot body's.
@@ -429,12 +440,12 @@ static void geotherm_on_profile(double p_radius_m, double p_t_c, int p_n, int p_
 	// WHAT LEAVES IS WHAT THE BODY MAKES: the radiogenic production of the rock above the core, over the
 	// surface it crosses. The body's own decay, not a continental mean measured on a planet with crust.
 	const double m_rock = p_m_in[p_n - 1] - (p_i_core > 0 ? p_m_in[p_i_core - 1] : 0.0);
-	const double q_surf = h_w_kg * MAX(m_rock, 0.0) / (4.0 * kPi * p_radius_m * p_radius_m);
+	const double q_surf = radiogenic_flux(h_w_kg, m_rock, p_radius_m);
 	auto alpha_at = [&](double a0, double k0, double kp, double p) {
 		const double k_t = k0 + kp * std::max(p - p_std, 0.0);
 		return (k0 > 0.0 && k_t > 0.0) ? a0 * k0 / k_t : a0;
 	};
-	double t_ad = la_physical("MANTLE_POTENTIAL_TEMP_K");
+	double t_ad = LAPlanetComposition::mantle_potential_temp_k();
 	// THE LID'S BASE, metres: T(z) = Ts + q z / k - a z^2 / (2k) reaching the potential temperature.
 	// The shell grid is coarser than the lithosphere, so this is solved, not counted off it.
 	const double disc = q_surf * q_surf - 2.0 * a_w_m3 * k_m * (t_ad - t_surface_k);
@@ -677,6 +688,35 @@ double LAPlanetComposition::core_radius_m(double p_radius_m, double p_t_c) {
 double LAPlanetComposition::lid_thickness_m(double p_radius_m, double p_t_c) {
 	const RadialProfile prof = radial_profile(p_radius_m, p_t_c);
 	return prof.n > 0 ? prof.lid_m : NAN;
+}
+
+PackedFloat64Array LAPlanetComposition::peridotite_melting_interval_c() {
+	PackedFloat64Array out;
+	out.push_back(PERIDOTITE_SOLIDUS_C);
+	out.push_back(PERIDOTITE_LIQUIDUS_C);
+	return out;
+}
+
+// WHAT THE MAGMA OCEAN LEAVES BEHIND, K: the temperature at which the mantle's melt fraction is the
+// rheological transition, so the mush stands at the crystal fraction it mobilises at. Lever rule over
+// the peridotite melting interval, the same one LAMixtureEnthalpy melts a mixture along.
+double LAPlanetComposition::mantle_potential_temp_k() {
+	const double melt_frac = 1.0 - la_physical("RHEOLOGICAL_MOBILE_CRYSTAL_FRAC");
+	return la_physical("KELVIN_OFFSET") + PERIDOTITE_SOLIDUS_C
+			+ melt_frac * (PERIDOTITE_LIQUIDUS_C - PERIDOTITE_SOLIDUS_C);
+}
+
+// THE HEAT THE BODY MAKES, W/m^2 at its surface: the decay of the trace nuclides in the mantle, whose
+// mass is the composition's non-core share. No profile: the mantle mass and the radius are the whole of it.
+double LAPlanetComposition::surface_heat_flux_w_m2(double p_mass_kg, double p_radius_m) {
+	if (!(p_mass_kg > 0.0) || !(p_radius_m > 0.0)) {
+		return NAN;
+	}
+	const Dictionary rock = LASubstances::table().get("silicate", Dictionary());
+	const double h_w_kg = LARadiogenicDecay::heat_w_kg_of(rock.get("traces", Dictionary()),
+			-la_physical("PLANET_EPOCH_YEARS_BEFORE_PRESENT"));
+	const double m_rock = p_mass_kg * (1.0 - LAElementAbundances::core_mass_fraction());
+	return radiogenic_flux(h_w_kg, m_rock, p_radius_m);
 }
 
 // THE RADIUS IS AN OUTPUT. A body is given a mass and a composition; how big it is follows from how far
@@ -1186,6 +1226,9 @@ void LAPlanetComposition::_bind_methods() {
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("body_field", "grid", "centre", "radius_m", "t_c"), &body_field);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("upload_body_field", "rd", "bufs", "grid", "centre", "radius_m", "t_c"), &upload_body_field);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("geotherm_k", "radius_m", "t_surface_c"), &geotherm_k);
+	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("surface_heat_flux_w_m2", "mass_kg", "radius_m"), &surface_heat_flux_w_m2);
+	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("peridotite_melting_interval_c"), &peridotite_melting_interval_c);
+	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("mantle_potential_temp_k"), &mantle_potential_temp_k);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("seed", "field", "t_c", "t_rock"), &seed);
 }
 

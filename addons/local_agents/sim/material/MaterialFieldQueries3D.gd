@@ -89,10 +89,11 @@ func total_water() -> float:
 
 # --- Temperature query -------------------------------------------------------
 
-## Temperature °C at a world point (a mild default outside the shell). Sphere-native single 3D read.
+## Temperature °C at a world point. NAN outside the box: a point the field does not hold has no
+## temperature to read.
 func temp_at(pos: Vector3) -> float:
 	var c: int = _f.world_to_cell(pos)
-	return _f._mirrors.at("temp", c) if c >= 0 else _f.INITIAL_TEMP
+	return _f._mirrors.at("temp", c) if c >= 0 else NAN
 
 
 ## Pressure at a world point, Pa. NAN outside the box or before the first readback.

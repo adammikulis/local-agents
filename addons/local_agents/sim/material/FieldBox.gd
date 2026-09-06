@@ -152,7 +152,7 @@ func _update_slice() -> void:
 	var edge: float = cell_size * cube_fill
 	if not is_equal_approx(_cube_mesh.size.x, edge):
 		_cube_mesh.size = Vector3(edge, edge, edge)
-	var ambient: float = _field.INITIAL_TEMP
+	var ambient: float = LABodySeeds.surface_temp_c()
 	var span: float = maxf(0.01, color_span)
 	for i in range(_slice_points.size()):
 		var t: float = _field.temp_at(_slice_points[i])

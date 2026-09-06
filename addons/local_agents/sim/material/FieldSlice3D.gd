@@ -97,8 +97,8 @@ func apply(field, body, terrain) -> bool:
 	var half: Vector3 = 0.5 * Vector3(dims) * cell_size
 	# The slice is a region of the one construction path, under the same refinement rule as the body, and
 	# it declares its own finest edge instead of taking the planet's scale-height target.
-	var air_m: float = LAFieldGridBudget.air_extent_m("planet", float(body.radius()), LAMaterialField3D.INITIAL_TEMP)
-	var rock_m: float = LAFieldGridBudget.rock_extent_m(float(body.radius()), LAMaterialField3D.INITIAL_TEMP)
+	var air_m: float = LAFieldGridBudget.air_extent_m("planet", float(body.radius()), LABodySeeds.surface_temp_c())
+	var rock_m: float = LAFieldGridBudget.rock_extent_m(float(body.radius()), LABodySeeds.surface_temp_c())
 	if not is_finite(air_m) or not is_finite(rock_m):
 		return _fail("the seeded air has no Knudsen top or the geotherm no lid, so the slice has no band to refine")
 	field.setup_box(centre - half, dims, cell_size, terrain, body.center(), rock_m, air_m,

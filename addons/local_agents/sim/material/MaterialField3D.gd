@@ -30,7 +30,6 @@ var _ground_d: PackedFloat32Array = PackedFloat32Array()        # depth of the g
 ## lands the device's channels in. Nothing here holds a cell-sized array.
 var _mirrors: LAFieldMirrors = null
 
-const INITIAL_TEMP: float = 15.0
 # Gas channel seeds, mol/m^3.
 const O2_AMBIENT: float = 0.0
 const SNOW_PRESENT: float = 1.9e-4 * MAX_MASS
@@ -203,8 +202,9 @@ func _alloc_channels() -> void:
 			names.append(String(name))
 	_mirrors = LAFieldMirrors.new()
 	_mirrors.alloc(names, _cell_count)
-	_mirrors.fill("temp", INITIAL_TEMP)
-	_mirrors.fill("temp_lith", INITIAL_TEMP)
+	var t_seed: float = LABodySeeds.surface_temp_c()
+	_mirrors.fill("temp", t_seed)
+	_mirrors.fill("temp_lith", t_seed)
 	# Read-only query accessors bind to this field now; the mirrors they read exist from here on.
 	_queries = QueriesScript.new()
 	_queries.setup(self)
@@ -300,8 +300,9 @@ func _seed_silicate() -> void:
 	if _mirrors == null or not _mirrors.has("silicate") or _solid.size() != _cell_count:
 		return
 	var r_body: float = LABodySeeds.seed_radius_m(_body_key)
-	_t_rock = LAFieldCellMass3D.rock_temperature(self, _grid, LAFieldGeothermSeed.profile_k(r_body, INITIAL_TEMP), r_body, INITIAL_TEMP, _surface_depth)
-	LAPlanetComposition.seed(self, INITIAL_TEMP, _t_rock)
+	var t_surface: float = LABodySeeds.surface_temp_c()
+	_t_rock = LAFieldCellMass3D.rock_temperature(self, _grid, LAFieldGeothermSeed.profile_k(r_body, t_surface), r_body, t_surface, _surface_depth)
+	LAPlanetComposition.seed(self, t_surface, _t_rock)
 	_body_measure = LABodyMeasure.new()
 	_body_measure.measure(self, LABodySeeds.spin_axis_of(_body_key))
 
