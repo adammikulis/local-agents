@@ -46,23 +46,24 @@ static func has_flora() -> bool:
 
 
 ## A field channel this world MOVES: a channel nothing transports holds its seeded value everywhere.
-## Asked of THIS world's own transport rows, never of the ladder's whole table.
+## Asked of THIS world's own LIVE transport rows, never of the ladder's whole table, so a row switched
+## off mid-run stops being offered the same step.
 static func moves(channel: String) -> bool:
 	for row: Dictionary in LAProcessSet.transport_rows():
 		var legs: Array = row["books"] if row.has("books") else [row.get("channel", "")]
-		if legs.has(channel):
+		if legs.has(channel) and LAProcessSet.is_active("transport", String(row.get("label", ""))):
 			return true
 	return false
 
 
 ## The wind: a velocity exists only where momentum is transported.
 static func has_wind() -> bool:
-	return LAProcessSet.has_record("transport", MOMENTUM_TRANSPORT)
+	return LAProcessSet.is_active("transport", MOMENTUM_TRANSPORT)
 
 
 ## The solved gravity field.
 static func has_gravity() -> bool:
-	return LAProcessSet.has_record("pass", GRAVITY_PASS)
+	return LAProcessSet.is_active("pass", GRAVITY_PASS)
 
 
 ## More than one body to look at: the solar view frames the system this world orbits in.

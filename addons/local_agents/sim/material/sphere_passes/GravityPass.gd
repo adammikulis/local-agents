@@ -247,6 +247,15 @@ func _drain(rd: RenderingDevice) -> Dictionary:
 	return _last
 
 
+## The switch came off: no pull is no pull, so the field this pass published goes to zero rather than
+## standing as the last thing it solved. The driver calls it once, on the way down.
+func switched_off(rd: RenderingDevice) -> void:
+	if _gravity.is_valid() and not _mirror.is_empty(): rd.buffer_clear(_gravity, 0, _mirror.size() * 4)
+	_mirror.fill(0.0)
+	_mean_g = 0.0
+	_last["gravity_mean_g"] = 0.0
+
+
 ## Solved acceleration, flat cell*3, m/s^2. Empty until the first drain after the first solve.
 func mirror() -> PackedFloat32Array:
 	return _mirror

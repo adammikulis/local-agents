@@ -28,7 +28,7 @@ const FPS_PROBE_FRAMES: int = 150
 @export var start_local_hour: float = -1.0
 ## What this world DECLARES, outranking the command line: "cli" defers to the flags.
 @export_enum("cli", "on", "off") var presentation: String = "cli"
-## "" defers to the flags; otherwise LAAblate.LIFE_PLANET_ONLY, LIFE_NO_FAUNA or LIFE_FULL.
+## "" defers to the flags; otherwise LAAblate's planet_only, no_fauna or full.
 @export var life: String = ""
 @export_enum("cli", "sandbox", "campaign") var game_mode: String = "cli"
 

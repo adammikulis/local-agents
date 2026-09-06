@@ -1,6 +1,7 @@
 #include "LAProcessSet.hpp"
 
 #include <godot_cpp/classes/file_access.hpp>
+#include <godot_cpp/classes/json.hpp>
 #include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/classes/resource.hpp>
@@ -8,6 +9,7 @@
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/core/error_macros.hpp>
 #include <godot_cpp/variant/array.hpp>
+#include <godot_cpp/variant/utility_functions.hpp>
 
 using namespace godot;
 
@@ -35,7 +37,8 @@ const char *const STATE_GATES[] = { "check_rung_state.sh", "check_derive_fixed_p
 	nullptr };
 const char *const STATE_PASSES[] = { "InjectPass.gd", "StateDerivePass.gd", nullptr };
 
-const char *const GRAVITY_GATES[] = { "check_gravity_solve.sh", "check_hydrosphere_mass.sh", nullptr };
+const char *const GRAVITY_GATES[] = { "check_gravity_solve.sh", "check_hydrosphere_mass.sh",
+	"check_live_toggles.sh", nullptr };
 const char *const GRAVITY_PASSES[] = { "GravityPass.gd", "ReducePass.gd", nullptr };
 const char *const GRAVITY_REDUCE[] = { "@amounts", "energy_stock", "energy_stock_lith", "energy_stock_open",
 	"energy_stock_open_lith", "energy_kinetic",
@@ -139,6 +142,15 @@ const int LADDER_COUNT = (int)(sizeof(LADDER) / sizeof(RungRow));
 
 int g_active = LAProcessSet::TOP;
 bool g_reduce_cached = false;
+// The field step a toggle from here on takes effect at, and whether one has since the stepper last asked.
+int g_step = 0;
+bool g_toggled = false;
+
+// Every process switched OFF, by name. Absent = on: a world starts with every process it contains live.
+Dictionary &g_off() {
+	static Dictionary v;
+	return v;
+}
 
 // Constructed on first use, never at load: a Variant built by a dylib static initializer runs before
 // the engine has handed the binding its interface pointers.
@@ -359,6 +371,9 @@ int LAProcessSet::playable() {
 void LAProcessSet::declare(int p_rung) {
 	g_active = clamp_rung(p_rung);
 	g_custom() = PackedStringArray();
+	g_off().clear();
+	g_step = 0;
+	g_toggled = false;
 	g_reduce_cached = false;
 	g_reduce_cache() = Array();
 	g_booked_cached = false;
@@ -368,6 +383,9 @@ void LAProcessSet::declare(int p_rung) {
 // An explicit set: exactly these process records and nothing else, whatever rung each sits on.
 void LAProcessSet::declare_records(const PackedStringArray &p_ids) {
 	g_custom() = p_ids;
+	g_off().clear();
+	g_step = 0;
+	g_toggled = false;
 	g_reduce_cached = false;
 	g_reduce_cache() = Array();
 	g_booked_cached = false;
@@ -422,8 +440,116 @@ Array LAProcessSet::records() {
 			d["rung"] = r.rung;
 			out.append(d);
 		}
+		for (const char *const *e = r.derive; *e != nullptr; ++e) {
+			Dictionary d;
+			d["kind"] = String("derive");
+			d["label"] = String(*e);
+			d["rung"] = r.rung;
+			out.append(d);
+		}
 	}
 	return out;
+}
+
+// The one spelling of a process on a switch, a flag and a HUD row. A pass and a reaction module are
+// named after the file they live in; a transport row and a derive step already carry their own name.
+String LAProcessSet::process_name(const String &p_kind, const String &p_label) {
+	if (p_kind == "pass") {
+		return p_label.trim_suffix(".gd").trim_suffix("Pass").to_snake_case();
+	}
+	if (p_kind == "reaction") {
+		return p_label.trim_suffix(".gd").trim_suffix("Records").to_snake_case();
+	}
+	return p_label;
+}
+
+// Every process this world contains, in ladder order: what the switch list and the sweep enumerate.
+PackedStringArray LAProcessSet::process_names(int p_rung) {
+	const Array recs = records();
+	PackedStringArray out;
+	for (int i = 0; i < recs.size(); ++i) {
+		const Dictionary rec = recs[i];
+		if (!has_record(rec["kind"], rec["label"], p_rung)) {
+			continue;
+		}
+		const String n = process_name(rec["kind"], rec["label"]);
+		if (!out.has(n)) {
+			out.append(n);
+		}
+	}
+	return out;
+}
+
+// The record a switch name stands for, and whether it is on. Empty when this world has no such process.
+Dictionary LAProcessSet::process_entry(const String &p_name) {
+	const Array recs = records();
+	for (int i = 0; i < recs.size(); ++i) {
+		const Dictionary rec = recs[i];
+		if (process_name(rec["kind"], rec["label"]) != p_name
+				|| !has_record(rec["kind"], rec["label"], ANY)) {
+			continue;
+		}
+		Dictionary d = rec.duplicate();
+		d["name"] = p_name;
+		d["on"] = !g_off().has(p_name);
+		return d;
+	}
+	return Dictionary();
+}
+
+// Throw the switch. A name this world does not contain is refused: an absent process has no switch.
+bool LAProcessSet::set_live(const String &p_name, bool p_on) {
+	const Dictionary rec = process_entry(p_name);
+	if (rec.is_empty()) {
+		Dictionary d;
+		d["name"] = p_name;
+		d["rung"] = name_of(g_active);
+		UtilityFunctions::print("PROCESS_TOGGLE_REFUSED=" + JSON::stringify(d));
+		return false;
+	}
+	if (bool(rec["on"]) == p_on) {
+		return true;
+	}
+	if (p_on) {
+		g_off().erase(p_name);
+	} else {
+		g_off()[p_name] = true;
+	}
+	g_toggled = true;
+	Dictionary d;
+	d["kind"] = rec["kind"];
+	d["name"] = p_name;
+	d["on"] = p_on;
+	d["step"] = g_step;
+	UtilityFunctions::print("PROCESS_TOGGLE=" + JSON::stringify(d));
+	return true;
+}
+
+bool LAProcessSet::is_active(const String &p_kind, const String &p_label, int p_rung) {
+	return has_record(p_kind, p_label, p_rung) && !g_off().has(process_name(p_kind, p_label));
+}
+
+bool LAProcessSet::is_switched_on(const String &p_kind, const String &p_label) {
+	return !g_off().has(process_name(p_kind, p_label));
+}
+
+Dictionary LAProcessSet::live_mask() {
+	const PackedStringArray names = process_names(ANY);
+	Dictionary out;
+	for (int i = 0; i < names.size(); ++i) {
+		out[names[i]] = !g_off().has(names[i]);
+	}
+	return out;
+}
+
+void LAProcessSet::note_step(int p_step) {
+	g_step = p_step;
+}
+
+bool LAProcessSet::take_toggled() {
+	const bool was = g_toggled;
+	g_toggled = false;
+	return was;
 }
 
 // The one spelling of a record in a serialised set.
@@ -654,6 +780,7 @@ void LAProcessSet::release() {
 	g_booked_cached = false;
 	g_booked_key() = String();
 	g_custom() = PackedStringArray();
+	g_off().clear();
 }
 
 void LAProcessSet::_bind_methods() {
@@ -672,6 +799,18 @@ void LAProcessSet::_bind_methods() {
 	ClassDB::bind_static_method("LAProcessSet", D_METHOD("has_record", "kind", "label", "rung"),
 			&has_record, DEFVAL(ANY));
 	ClassDB::bind_static_method("LAProcessSet", D_METHOD("live_rungs"), &live_rungs);
+	ClassDB::bind_static_method("LAProcessSet", D_METHOD("process_name", "kind", "label"), &process_name);
+	ClassDB::bind_static_method("LAProcessSet", D_METHOD("process_names", "rung"), &process_names,
+			DEFVAL(ANY));
+	ClassDB::bind_static_method("LAProcessSet", D_METHOD("process_entry", "name"), &process_entry);
+	ClassDB::bind_static_method("LAProcessSet", D_METHOD("set_live", "name", "on"), &set_live);
+	ClassDB::bind_static_method("LAProcessSet", D_METHOD("is_active", "kind", "label", "rung"),
+			&is_active, DEFVAL(ANY));
+	ClassDB::bind_static_method("LAProcessSet", D_METHOD("is_switched_on", "kind", "label"),
+			&is_switched_on);
+	ClassDB::bind_static_method("LAProcessSet", D_METHOD("live_mask"), &live_mask);
+	ClassDB::bind_static_method("LAProcessSet", D_METHOD("note_step", "step"), &note_step);
+	ClassDB::bind_static_method("LAProcessSet", D_METHOD("take_toggled"), &take_toggled);
 	ClassDB::bind_static_method("LAProcessSet", D_METHOD("pass_paths", "all_paths", "rung"),
 			&pass_paths, DEFVAL(ANY));
 	ClassDB::bind_static_method("LAProcessSet", D_METHOD("transport_rows", "rung"), &transport_rows,
