@@ -82,13 +82,13 @@ angles. Read the PNGs.
 Reading: `get_transvoxel_position` in `VoxelTerrainTriplanar.gdshader` moves a transition vertex onto
 the coarse surface and leaves its `NORMAL` at the fine one's.
 
-## 8b. THE LIQUID SHEET OPENS ALONG A LEVEL BOUNDARY, AND THE ROCK IS STILL MESHED OFF THE GENERATOR
+## 8b. THE ROCK IS STILL MESHED OFF THE SEED GENERATOR
 
-`scripts/check_mesh_detector.sh` holds the corners two cells put in two places to
-`docs/MESH_SEAM_CEILING`; zero is a watertight sheet. `rg -n "LA_APPROX: godot_voxel_mesher_over_generator"
-addons/local_agents` finds the ground still drawn by `VoxelLodTerrain` off the seed generator.
-Reading: `la_corner_r` in `addons/local_agents/sim/material/kernels3d/mesh_extract.glsl` reaches the fourth cell at a corner through a neighbour, and
-across a 2:1 boundary the two cells sharing that corner reach a different one.
+`rg -n "LA_APPROX: godot_voxel_mesher_over_generator" addons/local_agents` finds the ground drawn by
+`VoxelLodTerrain` from the generator's own distance field, while the water beside it is drawn from the
+field by `mesh_extract.glsl`.
+Reading: `_lod_count_for` in `addons/local_agents/sim/terrain/VoxelTerrainService.gd` builds a pyramid
+that refines toward the camera; the field's own lattice is graded once at seed and does not.
 
 ## 9. THE SURFACE IS STILL: EVERY WEATHER-SHAPED STAND-IN IS ABSENT RATHER THAN FAKED
 
@@ -148,15 +148,13 @@ is an invented threshold. The design: kinematic until thrown; then a Jolt `Rigid
 - `LA_RUN_TIMEOUT=110 scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn --
   --sandbox --ui --run-frames=20` prints no report and logs no error; `--planet-only --no-fauna` reports.
 
-## 16. ONLY WATER AND SILICATE MELT AND BOIL WHERE THEIR TABLE SAYS, AND ROWS THE ENGINE READS ARE EMPTY
+## 16. ONLY WATER AND SILICATE MELT AND BOIL WHERE THEIR TABLE SAYS, AND TWO ROWS ARE EMPTY
 
 `rg -n "LADDER|la_sensible_only|LA_MIX_MAX" addons/local_agents/sim/material/kernels3d/state_derive.glsl`:
 every other condensed channel is e = c·T at every temperature while `LASubstances.cpp` cites its melting
 point and fusion enthalpy; the CPU twin `LAMixtureEnthalpy` reads the table for any id and is the spec
-(`scripts/check_enthalpy_ssot.sh`). No row carries K′ (`second_order_birch_murnaghan` in
-`docs/APPROXIMATIONS.md`), `pyroxene` has a melt point and no fusion enthalpy, `apatite` has no melt
-point, every planet mineral carries basalt's albedo and emissivity, and `SOLID_IN`/`SOLID_OUT` in
-`state_derive.glsl` bind sediment cementation to Marsh's magma crystal fractions.
+(`scripts/check_enthalpy_ssot.sh`). `apatite` carries neither a melting point nor a fusion enthalpy, and
+every planet mineral carries basalt's `albedo` and `emissivity`.
 
 ## 17. THE PHYSICS RUNS INSIDE GODOT'S PROCESS
 

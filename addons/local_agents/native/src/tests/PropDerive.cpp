@@ -19,7 +19,7 @@ constexpr uint32_t kDraws = 4;
 
 // state_derive.glsl's per-channel substance table: PROP_STRIDE words per channel, then the detection
 // thresholds. scripts/check_kernel_properties.sh holds these to the kernel's own declarations.
-constexpr uint32_t kPropStride = 12;
+constexpr uint32_t kPropStride = 13;
 constexpr uint32_t kPropM = 0;
 constexpr uint32_t kPropC = 1;
 constexpr uint32_t kPropMolPerKg = 2;
@@ -32,6 +32,7 @@ constexpr uint32_t kPropTref = 8;
 constexpr uint32_t kPropLithic = 9;
 constexpr uint32_t kPropRadGroup = 10;
 constexpr uint32_t kPropCondensed = 11;
+constexpr uint32_t kPropKprime = 12;
 constexpr uint32_t kDetSlots = 5;
 
 // What check_derive_fixed_point.sh declares a second pass may move: float32 on the pressure, and the
@@ -113,6 +114,8 @@ std::vector<float> draw_props(Rng &rng) {
 		p[b + kPropLithic] = (condensed && rng.chance(0.5f)) ? 1.0f : 0.0f;
 		p[b + kPropRadGroup] = float(rng.below(5));
 		p[b + kPropCondensed] = condensed ? 1.0f : 0.0f;
+		// The span the measured rows cover, halite to orthoenstatite.
+		p[b + kPropKprime] = rng.range(3.3f, 8.7f);
 	}
 	for (uint32_t k = 0; k < kDetSlots; ++k) {
 		p[kChannelSlots * kPropStride + k] = rng.decades(1.0e-3f, 1.0e3f);
