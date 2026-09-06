@@ -22,7 +22,6 @@ if la_cap_dir >/dev/null; then
 else
   OUT="$(la_godot --headless --path "$REPO_ROOT" -s "$RUNNER" 2>&1)"
 fi
-RC=$?
 SUMMARY="$(printf '%s\n' "$OUT" | grep -o 'FAINT_YOUNG_SUN=.*' | tail -n 1)"
 if [[ -z "$SUMMARY" ]]; then
   printf '%s\n' "$OUT" | tail -20 >&2
@@ -30,12 +29,15 @@ if [[ -z "$SUMMARY" ]]; then
   exit 2
 fi
 echo "$SUMMARY"
-if [[ "$RC" -eq 1 ]]; then
+# THE VERDICT IS THE MARKER'S, not the process exit code: under the batched capture every runner shares
+# one launch, so an exit code would report the batch and a frozen planet would read as a pass.
+FAILURES="$(printf '%s\n' "$SUMMARY" | sed -n 's/.*"failures":\([0-9][0-9]*\).*/\1/p')"
+case "$FAILURES" in "" | *[!0-9]*) echo "ERROR: the marker carries no failure count." >&2; exit 2 ;; esac
+if [[ "$FAILURES" -gt 0 ]]; then
   echo
   echo "Either the honest greenhouse freezes the planet under the faint young sun — a physics finding"
   echo "to report, never a constant to tune — or the no-greenhouse arm failed to freeze, which means"
   echo "this gate is no longer measuring the greenhouse at all."
   exit 1
 fi
-[[ "$RC" -eq 0 ]] || exit 2
 echo "check_faint_young_sun: OK"

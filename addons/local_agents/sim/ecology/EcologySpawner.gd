@@ -106,30 +106,25 @@ const LAND_MARGIN: float = 2.0
 const LAND_TRIES: int = 32
 
 
+## A raw point over ground the FIELD HOLDS, dry land where the box has any. NAN when none of the tries
+## lands in a cell: nothing is placed where no matter is being simulated.
 func _random_spawn_point() -> Vector3:
 	var center: Vector3 = _eco.terrain.planet_center()
 	var above: float = _eco.terrain.planet_radius() + 1.0
 	var sea_r: float = _eco.terrain.sea_radius() if _eco.terrain.has_method("sea_radius") else 0.0
-	if sea_r <= 0.0 or not _eco.terrain.has_method("surface_radius"):
-		return center + random_field_dir() * above
 	# Drawn up front: the draw count must not depend on what the terrain answers.
 	var dirs: Array[Vector3] = []
 	for i in range(LAND_TRIES):
 		dirs.append(random_field_dir())
-	var best_dir: Vector3 = Vector3.ZERO
-	var best_r: float = -INF
+	var held: Vector3 = Vector3.ZERO
 	for d in dirs:
 		var sr: float = _surface_radius(d)
-		if is_nan(sr):
+		if is_nan(sr) or not _eco.holds(_surface_point(d)):
 			continue
-		if sr > best_r:
-			best_r = sr
-			best_dir = d
+		held = d if held == Vector3.ZERO else held
 		if sr >= sea_r + LAND_MARGIN:
-			return center + d * above                  # dry land found
-	if best_dir == Vector3.ZERO:
-		best_dir = dirs[0]
-	return center + best_dir * above
+			return center + d * above                  # dry land the field steps
+	return center + held * above if held != Vector3.ZERO else Vector3(NAN, NAN, NAN)
 
 
 func _surface_radius(dir: Vector3) -> float:
@@ -151,8 +146,8 @@ static func _random_sphere_dir() -> Vector3:
 	return v.normalized()
 
 
-## A direction into the region the field actually steps: the whole sphere when the field spans the body,
-## the box's own footprint when it does not. Nothing lives where no matter is being simulated.
+## A world direction into the region the field actually steps: the whole sphere when the field spans the
+## body, the box's own footprint when it does not. Nothing lives where no matter is being simulated.
 func random_field_dir() -> Vector3:
 	var m = _eco._material
 	var g = m._grid if m != null else null
@@ -163,7 +158,8 @@ func random_field_dir() -> Vector3:
 		return _random_sphere_dir()
 	var rng = LASimRng.for_domain("life")
 	var p: Vector3 = g.origin + Vector3(rng.randf() * span.x, rng.randf() * span.y, rng.randf() * span.z)
-	var d: Vector3 = p - _eco.terrain.planet_center()
+	# THE GRID IS LAID IN THE BODY'S FRAME; everything else here speaks world. This is the one crossing.
+	var d: Vector3 = m.field_to_point(p) - _eco.terrain.planet_center()
 	return d.normalized() if d.length() > 0.001 else _random_sphere_dir()
 
 
@@ -187,7 +183,8 @@ func _tangent_offset_raw(anchor: Vector3, u: float, v: float) -> Vector3:
 	return anchor + t1 * u + t2 * v
 
 
-# Project a world point radially onto the planet surface. Null when no surface resolves along it.
+# Project a world point radially onto the planet surface. Null when no surface resolves along it, or
+# when the field does not step the cell it lands in: nothing stands where no matter is simulated.
 func _place_on_surface(world_pos: Vector3):
 	if _eco.terrain == null:
 		return null
@@ -195,7 +192,7 @@ func _place_on_surface(world_pos: Vector3):
 	if is_nan(d.x) or d.length() < 0.001:
 		return null
 	var p: Vector3 = _surface_point(d.normalized())
-	if is_nan(p.x):
+	if is_nan(p.x) or not _eco.holds(p):
 		return null
 	return p
 

@@ -76,7 +76,7 @@ func _solve_slice() -> void:
 			+ "Declare the body (set_body) before the seed.")
 		return
 	var bf: Dictionary = LAPlanetComposition.upload_body_field(_f._gpu._rd, _f._gpu._bufs, _f._grid,
-		_f.centre(), float(body.radius()), LAMaterialField3D.INITIAL_TEMP)
+		_f.centre(), float(body.radius()), LABodySeeds.surface_temp_c())
 	if bf.is_empty():
 		return
 	_phi_slab = bf["phi"]

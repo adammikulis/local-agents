@@ -1,11 +1,14 @@
 #include "LABodySystem.hpp"
 
+#include "LAColumnRadiation.hpp"
 #include "LAFieldCellMass.hpp"
+#include "LAFieldLithostaticSeed.hpp"
 #include "LAPhysicalRead.hpp"
 #include "LAPlanetTables.hpp"
 #include "LAScriptCall.hpp"
 
 #include <godot_cpp/core/class_db.hpp>
+#include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
 #include <godot_cpp/variant/packed_float64_array.hpp>
@@ -17,7 +20,6 @@ using namespace godot;
 namespace {
 
 const char *GEOMETRY_GD = "res://addons/local_agents/sim/material/FieldGeometry3D.gd";
-const char *FIELD_GD = "res://addons/local_agents/sim/material/MaterialField3D.gd";
 
 // Cited measurements of OUR system, which is why none of them belongs in LAPhysical.
 constexpr double SOLAR_MASS_KG = 1.98847e30;        // IAU 2015 B3 nominal solar mass
@@ -33,9 +35,25 @@ constexpr double LUNAR_MASS_KG = 7.346e22;          // Williams et al. 2014, LLR
 constexpr double EARTH_HYDROSPHERE_KG = 1.386e21;
 // The share of it standing in pore space rather than on the surface (Gleick 1996, Table 2.1).
 constexpr double EARTH_GROUNDWATER_KG = 2.34e19;
-// N2 in the atmosphere, kg: dry air 5.1352e18 kg (Trenberth & Smith 2005, J. Climate 18:864) at the
-// N2 mass fraction of dry air, 0.7552. The other prebiotic gases stand in mole ratio to it.
-constexpr double EARTH_ATMOSPHERE_N2_KG = 3.878e18;
+// One bar in pascals, exact by definition.
+constexpr double BAR_PA = 1.0e5;
+// Partial pressure of N2 over the Archean surface, bar: 0.5 to 1.1 from the isotopic and noble-gas
+// record of quartz-hosted fluid inclusions at 3.5 Ga (Marty et al. 2013, Science 342:101). The bulk
+// silicate Earth's nitrogen budget holds the atmosphere inside that bound over the Hadean too
+// (Marty 2012, EPSL 313:56), and today's 0.78 bar stands inside it.
+constexpr double ARCHEAN_PN2_LOW_BAR = 0.5;
+constexpr double ARCHEAN_PN2_HIGH_BAR = 1.1;
+constexpr double ARCHEAN_PN2_BAR = 0.5 * (ARCHEAN_PN2_LOW_BAR + ARCHEAN_PN2_HIGH_BAR);
+
+// Obliquity of the planet's spin, degrees: the mean obliquity of the ecliptic at J2000, 23 deg 26 min
+// 21.406 sec (IAU 2006 precession, IERS Conventions 2010, Table 5.1). The DECISION that it is also the
+// 4.4 Ga value is docs/MODEL_PARAMETERS.md's; the epoch's obliquity is not measured.
+constexpr double PLANET_OBLIQUITY_DEG = 23.439279;
+
+// The orbital plane, as the two directions that span it: the star from the planet, and the way the
+// planet runs. The orbital normal and the spin axis are both read off these.
+const Vector3 ORBIT_STAR_DIR(1.0, 0.0, 0.0);
+const Vector3 ORBIT_VELOCITY_DIR(0.0, 0.0, 1.0);
 
 // Total angular momentum of the Earth-Moon pair. Tides move it between spin and orbit; they do not change
 // the sum, so this one number holds for the epoch as it does for today (Canup 2012, Science 338:1052;
@@ -64,6 +82,83 @@ double circular_speed(double p_total_mass_kg, double p_separation_m) {
 double circular_orbit_angular_momentum(double p_a, double p_b, double p_separation_m) {
 	const double reduced = p_a * p_b / MAX(p_a + p_b, 1.0);
 	return reduced * std::sqrt(la_physical("GRAVITATIONAL_CONSTANT") * (p_a + p_b) * p_separation_m);
+}
+
+// The matter budget each body is given. One declaration: the rows below and the radius solve read it.
+double body_mass_kg(const String &p_key) {
+	if (p_key == "star") {
+		return SOLAR_MASS_KG;
+	}
+	if (p_key == "planet") {
+		return EARTH_MASS_KG;
+	}
+	if (p_key == "moon") {
+		return LUNAR_MASS_KG;
+	}
+	return 0.0;
+}
+
+// What the seed's surface temperature, radius and surface pressure come out at together.
+struct PlanetSeed {
+	double t_c = NAN;
+	double r_m = NAN;
+	double p_surface_pa = NAN;
+};
+
+// THE SEED'S OWN SURFACE, solved rather than declared: what the epoch's star delivers to the seeded
+// surface less what it reflects, plus what the body's own decay delivers from below, against the
+// longwave leaving the seeded column. The radius and the surface gravity that balance is taken at
+// follow from the temperature it returns, so the pair is iterated until it stops moving.
+const PlanetSeed &planet_seed() {
+	static PlanetSeed s;
+	static bool solved = false;
+	if (solved) {
+		return s;
+	}
+	solved = true;
+	const Dictionary x = LAFieldLithostaticSeed::seeded_air_mole_fractions();
+	const double x_n2 = double(x.get("n2", 0.0));
+	if (!(x_n2 > 0.0)) {
+		UtilityFunctions::push_error("LABodySeeds: the seeded air carries no N2, so its cited partial "
+				"pressure states no surface pressure.");
+		return s;
+	}
+	// The column stands at the pressure N2's cited partial pressure implies over N2's own share of it.
+	s.p_surface_pa = ARCHEAN_PN2_BAR * BAR_PA / x_n2;
+	// A sphere radiates over four times the disc that intercepts the beam.
+	const double absorbed = (1.0 - LABodySeeds::surface_albedo())
+			* LABodySeeds::irradiance_w_m2(LABodySeeds::luminosity_at_epoch_w(), ASTRONOMICAL_UNIT_M)
+			/ 4.0;
+	const double g_const = la_physical("GRAVITATIONAL_CONSTANT");
+	const double kelvin = la_physical("KELVIN_OFFSET");
+	double t_c = 0.0;
+	double r = 0.0;
+	// Until the radius the balance is taken at stops moving. The pass count bounds an oscillation in
+	// the last bits; the loop settles in two.
+	for (int i = 0; i < 8; i++) {
+		const double r_next = LAPlanetComposition::radius_for_mass(EARTH_MASS_KG, t_c);
+		if (!(std::isfinite(r_next) && r_next > 0.0)) {
+			UtilityFunctions::push_error("LABodySeeds: the composition solves no radius, so the surface "
+					"balance has no gravity to stand the column in.");
+			return s;
+		}
+		if (r_next == r) {
+			break;
+		}
+		r = r_next;
+		const double net_in = absorbed + LAPlanetComposition::surface_heat_flux_w_m2(EARTH_MASS_KG, r);
+		t_c = LAColumnRadiation::equilibrium_temp_k(net_in, x, s.p_surface_pa,
+					  g_const * EARTH_MASS_KG / (r * r))
+				- kelvin;
+		if (!std::isfinite(t_c)) {
+			UtilityFunctions::push_error("LABodySeeds: the seeded column radiates nothing that balances "
+					"what reaches it inside the band table's range, so the surface has no temperature.");
+			return s;
+		}
+	}
+	s.t_c = t_c;
+	s.r_m = r;
+	return s;
 }
 
 } // namespace
@@ -134,8 +229,52 @@ double LABodySeeds::astronomical_unit_m() {
 	return ASTRONOMICAL_UNIT_M;
 }
 
+double LABodySeeds::obliquity_deg() {
+	return PLANET_OBLIQUITY_DEG;
+}
+
+// r x v of the planet about the star, off the two directions that span its orbital plane.
+Vector3 LABodySeeds::orbital_normal() {
+	return (-ORBIT_STAR_DIR).cross(ORBIT_VELOCITY_DIR).normalized();
+}
+
+// The orbital normal tipped by the obliquity, towards the star direction. Which way it is tipped inside
+// the orbital plane is a phase of the year, not a measurement.
 Vector3 LABodySeeds::spin_axis() {
-	return Vector3(0.40, 0.92, 0.0);
+	const double a = Math::deg_to_rad(PLANET_OBLIQUITY_DEG);
+	return (orbital_normal() * std::cos(a) + ORBIT_STAR_DIR * std::sin(a)).normalized();
+}
+
+// The surface the seeded planet turns to the star: its ground and its water, over the share of the solid
+// surface each covers under the hypsometric curve the ground is shaped from.
+double LABodySeeds::surface_albedo() {
+	const double land = la_physical("HYPSOMETRY_LAND_AREA_FRACTION");
+	return land * la_physical("ALBEDO_BARE_GROUND") + (1.0 - land) * la_physical("ALBEDO_OCEAN");
+}
+
+double LABodySeeds::surface_temp_c() {
+	return planet_seed().t_c;
+}
+
+double LABodySeeds::surface_pressure_pa() {
+	return planet_seed().p_surface_pa;
+}
+
+// The N2 standing over that surface at its cited partial pressure: p A / g.
+double LABodySeeds::atmosphere_n2_kg() {
+	const double r = seed_radius_m("planet");
+	if (!(r > 0.0)) {
+		return 0.0;
+	}
+	const double g = la_physical("GRAVITATIONAL_CONSTANT") * EARTH_MASS_KG / (r * r);
+	return ARCHEAN_PN2_BAR * BAR_PA * 4.0 * Math::PI * r * r / g;
+}
+
+PackedFloat64Array LABodySeeds::archean_pn2_bound_bar() {
+	PackedFloat64Array out;
+	out.push_back(ARCHEAN_PN2_LOW_BAR);
+	out.push_back(ARCHEAN_PN2_HIGH_BAR);
+	return out;
 }
 
 // Angular momentum is carried as a UNIT AXIS and a MAGNITUDE, never as one Vector3: Vector3 is binary32,
@@ -143,13 +282,14 @@ Vector3 LABodySeeds::spin_axis() {
 // an output of whatever inertia the seeded matter turns out to have.
 Dictionary LABodySeeds::rows() {
 	const double moon_orbit_l = circular_orbit_angular_momentum(
-			EARTH_MASS_KG, LUNAR_MASS_KG, LUNAR_SEPARATION_AT_EPOCH_M);
+			body_mass_kg("planet"), body_mass_kg("moon"), LUNAR_SEPARATION_AT_EPOCH_M);
 	// What the pair's conserved total leaves the planet to spin with. Its DAY is that over the inertia the
 	// seeded matter turns out to have, so the day length is an output.
 	const double spin_l = EARTH_MOON_ANGULAR_MOMENTUM_KG_M2_S - moon_orbit_l;
 	const double v_orbit = circular_speed(
-			SOLAR_MASS_KG + EARTH_MASS_KG + LUNAR_MASS_KG, ASTRONOMICAL_UNIT_M);
-	const double v_moon = circular_speed(EARTH_MASS_KG + LUNAR_MASS_KG, LUNAR_SEPARATION_AT_EPOCH_M);
+			body_mass_kg("star") + body_mass_kg("planet") + body_mass_kg("moon"), ASTRONOMICAL_UNIT_M);
+	const double v_moon = circular_speed(body_mass_kg("planet") + body_mass_kg("moon"),
+			LUNAR_SEPARATION_AT_EPOCH_M);
 	// The Moon starts in the planet's EQUATORIAL plane, which is what a giant impact leaves behind; the
 	// inclination it has today is something the tides did to it, not something it was given.
 	const Vector3 spin = spin_axis().normalized();
@@ -157,29 +297,30 @@ Dictionary LABodySeeds::rows() {
 			std::abs(spin.x) < 0.9 ? Vector3(1, 0, 0) : Vector3(0, 1, 0)).normalized();
 
 	Dictionary star;
-	star["mass_kg"] = SOLAR_MASS_KG;
+	star["mass_kg"] = body_mass_kg("star");
 	star["luminosity_w"] = luminosity_at_epoch_w();
 	star["xuv_luminosity_w"] = xuv_luminosity_at_epoch_w();
 	star["radius_m"] = SOLAR_RADIUS_M;
-	star["position_m"] = Vector3(ASTRONOMICAL_UNIT_M, 0.0, 0.0);
+	star["position_m"] = ORBIT_STAR_DIR * ASTRONOMICAL_UNIT_M;
 	star["velocity_m_s"] = Vector3();
 	star["spin_axis"] = Vector3();
 	star["spin_l_kg_m2_s"] = 0.0;
 	star["gridded"] = false;
 
 	Dictionary planet;
-	planet["mass_kg"] = EARTH_MASS_KG;
+	planet["mass_kg"] = body_mass_kg("planet");
 	planet["hydrosphere_kg"] = EARTH_HYDROSPHERE_KG;
 	planet["groundwater_kg"] = EARTH_GROUNDWATER_KG;
-	planet["atmosphere_n2_kg"] = EARTH_ATMOSPHERE_N2_KG;
+	planet["atmosphere_n2_kg"] = atmosphere_n2_kg();
+	planet["surface_temp_c"] = surface_temp_c();
 	planet["position_m"] = Vector3();
-	planet["velocity_m_s"] = Vector3(0.0, 0.0, v_orbit);
+	planet["velocity_m_s"] = ORBIT_VELOCITY_DIR * v_orbit;
 	planet["spin_axis"] = spin;
 	planet["spin_l_kg_m2_s"] = spin_l;
 	planet["gridded"] = true;
 
 	Dictionary moon;
-	moon["mass_kg"] = LUNAR_MASS_KG;
+	moon["mass_kg"] = body_mass_kg("moon");
 	moon["position_m"] = moon_dir * LUNAR_SEPARATION_AT_EPOCH_M;
 	moon["velocity_m_s"] = spin.cross(moon_dir).normalized() * v_moon;
 	moon["spin_axis"] = Vector3();
@@ -233,12 +374,16 @@ double LABodySeeds::seed_radius_m(const String &p_key) {
 	if (memo.has(p_key)) {
 		return double(memo[p_key]);
 	}
-	const double m = double(of(p_key).get("mass_kg", 0.0));
+	if (p_key == "planet") {
+		const double r_planet = planet_seed().r_m;
+		memo[p_key] = (std::isfinite(r_planet) && r_planet > 0.0) ? r_planet : -1.0;
+		return double(memo[p_key]);
+	}
+	const double m = body_mass_kg(p_key);
 	if (m <= 0.0) {
 		return -1.0;
 	}
-	const double t_c = double(la_gd_const(FIELD_GD, "INITIAL_TEMP"));
-	const double r = LAPlanetComposition::radius_for_mass(m, t_c);
+	const double r = LAPlanetComposition::radius_for_mass(m, planet_seed().t_c);
 	const double out = (std::isfinite(r) && r > 0.0) ? r : -1.0;
 	memo[p_key] = out;
 	return out;
@@ -248,6 +393,16 @@ void LABodySeeds::_bind_methods() {
 	ClassDB::bind_static_method("LABodySeeds", D_METHOD("astronomical_unit_m"),
 			&LABodySeeds::astronomical_unit_m);
 	ClassDB::bind_static_method("LABodySeeds", D_METHOD("spin_axis"), &LABodySeeds::spin_axis);
+	ClassDB::bind_static_method("LABodySeeds", D_METHOD("obliquity_deg"), &LABodySeeds::obliquity_deg);
+	ClassDB::bind_static_method("LABodySeeds", D_METHOD("orbital_normal"), &LABodySeeds::orbital_normal);
+	ClassDB::bind_static_method("LABodySeeds", D_METHOD("surface_albedo"), &LABodySeeds::surface_albedo);
+	ClassDB::bind_static_method("LABodySeeds", D_METHOD("surface_temp_c"), &LABodySeeds::surface_temp_c);
+	ClassDB::bind_static_method("LABodySeeds", D_METHOD("surface_pressure_pa"),
+			&LABodySeeds::surface_pressure_pa);
+	ClassDB::bind_static_method("LABodySeeds", D_METHOD("atmosphere_n2_kg"),
+			&LABodySeeds::atmosphere_n2_kg);
+	ClassDB::bind_static_method("LABodySeeds", D_METHOD("archean_pn2_bound_bar"),
+			&LABodySeeds::archean_pn2_bound_bar);
 	ClassDB::bind_static_method("LABodySeeds", D_METHOD("rows"), &LABodySeeds::rows);
 	ClassDB::bind_static_method("LABodySeeds", D_METHOD("of", "key"), &LABodySeeds::of);
 	ClassDB::bind_static_method("LABodySeeds", D_METHOD("luminosity_at_epoch_w"),

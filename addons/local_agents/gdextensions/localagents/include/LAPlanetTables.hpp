@@ -66,6 +66,12 @@ public:
 	static Dictionary upload_body_field(RenderingDevice *p_rd, const Dictionary &p_bufs, Object *p_grid,
 			const Vector3 &p_centre, double p_radius_m, double p_t_c);
 	static PackedFloat32Array geotherm_k(double p_radius_m, double p_t_c);
+	// W/m^2 the body's own radiogenic decay drives through its surface.
+	static double surface_heat_flux_w_m2(double p_mass_kg, double p_radius_m);
+	// Peridotite's solidus and liquidus at the potential-temperature reference pressure, C, and the
+	// potential temperature whose melt fraction between them is the rheological transition, K.
+	static PackedFloat64Array peridotite_melting_interval_c();
+	static double mantle_potential_temp_k();
 	static void seed(Object *p_field, double p_t_c, const PackedFloat32Array &p_t_rock);
 
 protected:

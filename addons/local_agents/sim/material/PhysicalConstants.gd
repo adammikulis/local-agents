@@ -553,8 +553,6 @@ const TOPOGRAPHY_SELF_AFFINE_CROSSOVER_M: float = 1.0e5
 ## The continent-ocean dichotomy is a degree-2 pattern (Wieczorek 2007).
 const TOPOGRAPHY_DOMINANT_HARMONIC_DEGREE: int = 2
 
-## Mantle potential temperature, K: 1280 C (McKenzie & Bickle 1988, J. Petrol. 29:625).
-const MANTLE_POTENTIAL_TEMP_K: float = 1553.15
 
 ## Temperature at which a solid first glows visibly, C (Draper 1847: 798 K).
 const DRAPER_POINT_C: float = 525.0

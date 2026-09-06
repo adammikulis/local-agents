@@ -478,6 +478,13 @@ kind = "headless"
 marker = "^element-composition check passed"
 
 [[gate]]
+name = "check_seed_decisions"
+script = "scripts/check_seed_decisions.sh"
+kind = "headless"
+marker = "^check_seed_decisions: OK"
+mutation = "perl -0pi -e 's/RHEOLOGICAL_MOBILE_CRYSTAL_FRAC: float = 0.4/RHEOLOGICAL_MOBILE_CRYSTAL_FRAC: float = 1.5/' addons/local_agents/sim/material/PhysicalConstants.gd"
+
+[[gate]]
 name = "check_faint_young_sun"
 script = "scripts/check_faint_young_sun.sh"
 kind = "headless"

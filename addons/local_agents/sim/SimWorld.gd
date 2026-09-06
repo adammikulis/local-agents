@@ -147,7 +147,7 @@ func seed_radius() -> float:
 ## Edge of one field cell, metres: the box spans the body plus its air column, cut grid_res ways.
 func field_cell_size_m() -> float:
 	return 2.0 * (seed_radius() + LAFieldGridBudget.air_extent_m(
-		body_seed, seed_radius(), LAMaterialField3D.INITIAL_TEMP)) / float(maxi(grid_res, 1))
+		body_seed, seed_radius(), LABodySeeds.surface_temp_c())) / float(maxi(grid_res, 1))
 
 
 func _build_sphere() -> bool:
@@ -189,8 +189,8 @@ func _build_sphere() -> bool:
 		if not _material.has_meta(LAFieldBoundary3D.META_FACES) \
 				and LAFieldBoundary3D.explicit_spec() == "":
 			_material.set_meta(LAFieldBoundary3D.META_FACES, "space,space,space,space,space,space")
-		var air_m: float = LAFieldGridBudget.air_extent_m(body_seed, seed_radius(), LAMaterialField3D.INITIAL_TEMP)
-		var rock_m: float = LAFieldGridBudget.rock_extent_m(seed_radius(), LAMaterialField3D.INITIAL_TEMP)
+		var air_m: float = LAFieldGridBudget.air_extent_m(body_seed, seed_radius(), LABodySeeds.surface_temp_c())
+		var rock_m: float = LAFieldGridBudget.rock_extent_m(seed_radius(), LABodySeeds.surface_temp_c())
 		if not is_finite(air_m) or not is_finite(rock_m):
 			push_error("GRID_EXTENT_UNSOLVED: the seeded air has no Knudsen top (%s) or the geotherm no lid (%s), so the box has no extent to enclose." % [air_m, rock_m])
 			return false
@@ -202,7 +202,7 @@ func _build_sphere() -> bool:
 		# refined; the vacuum corners and the deep interior stay coarsest.
 		_material.setup_box(_body.center() - Vector3(half, half, half), dims, cell_m, _terrain,
 			_body.center(), rock_m, air_m,
-			LAFieldGridBudget.target_edge_m(body_seed, seed_radius(), LAMaterialField3D.INITIAL_TEMP), seed_radius())
+			LAFieldGridBudget.target_edge_m(body_seed, seed_radius(), LABodySeeds.surface_temp_c()), seed_radius())
 	if _material.has_method("sample_solidity"):
 		_material.sample_solidity()
 	if _sun != null and _material.has_method("set_sun"):

@@ -3,6 +3,7 @@
 
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
+#include <godot_cpp/variant/packed_float64_array.hpp>
 #include <godot_cpp/variant/packed_string_array.hpp>
 #include <godot_cpp/variant/vector3.hpp>
 
@@ -51,8 +52,20 @@ class LABodySeeds : public RefCounted {
 
 public:
 	static double astronomical_unit_m();
+	// The angle the spin axis makes with the orbital normal, degrees, and the two vectors it is between.
+	static double obliquity_deg();
+	static Vector3 orbital_normal();
 	// Obliquity: the DIRECTION of the planet's spin angular momentum, an initial condition like any other.
 	static Vector3 spin_axis();
+	// THE SEED'S SURFACE, solved once: the temperature at which the seeded column radiates what the star
+	// and the body's own decay deliver, the pressure its cited N2 stands the air at, and the albedo the
+	// balance is taken under. NAN and an error where the balance does not close.
+	static double surface_temp_c();
+	static double surface_pressure_pa();
+	static double surface_albedo();
+	// The N2 the seeded atmosphere holds, kg, and the partial-pressure bound it is drawn from, bar.
+	static double atmosphere_n2_kg();
+	static PackedFloat64Array archean_pn2_bound_bar();
 	static Dictionary rows();
 	static Dictionary of(const String &p_key);
 	static double luminosity_at_epoch_w();

@@ -286,7 +286,7 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `RIPPLE_DECAY` | 0.7 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldReport3D.gd` | `HEAVY_EVERY_FRAMES` | 64 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldReport3D.gd` | `CLIMATE_BANDS` | 6 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialField3D.gd` | `INITIAL_TEMP` | 15.0 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/gdextensions/localagents/src/LABodySystem.cpp` | `PLANET_OBLIQUITY_DEG` | 23.439279 | the angle between the spin axis and the orbital normal at the epoch is not measured; the present value (IERS Conventions 2010) is the declared initial condition | a giant-impact or obliquity-evolution solve that hands the epoch its own tilt |
 | `addons/local_agents/sim/material/MaterialField3D.gd` | `O2_AMBIENT` | 0.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialField3D.gd` | `FOG_MAX_TEMP` | 12.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/runtime/FieldPassProbe3D.gd` | `DEFAULT_STEPS` | 3 | how many steps `LA_PASS_PROBE` samples before it disarms; a diagnostic default, not a property of the world | delete when the probe is cheap enough to leave armed for a whole run |
