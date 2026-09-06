@@ -19,7 +19,7 @@ constexpr uint32_t kDraws = 4;
 
 // state_derive.glsl's per-channel substance table: PROP_STRIDE words per channel, then the detection
 // thresholds. scripts/check_kernel_properties.sh holds these to the kernel's own declarations.
-constexpr uint32_t kPropStride = 55;
+constexpr uint32_t kPropStride = 56;
 constexpr uint32_t kPropM = 0;
 constexpr uint32_t kPropMolPerKg = 1;
 constexpr uint32_t kPropEntry = 2;
@@ -31,8 +31,9 @@ constexpr uint32_t kPropTref = 7;
 constexpr uint32_t kPropLithic = 8;
 constexpr uint32_t kPropRadGroup = 9;
 constexpr uint32_t kPropCondensed = 10;
+constexpr uint32_t kPropKprime = 11;
 // The channel's own phase ladder, from PROP_LADDER: every condensed channel melts where its row says.
-constexpr uint32_t kPropLadder = 11;
+constexpr uint32_t kPropLadder = 12;
 constexpr uint32_t kThCSol = 0;
 constexpr uint32_t kThCLiq = 1;
 constexpr uint32_t kThCGas = 2;
@@ -126,6 +127,8 @@ std::vector<float> draw_props(Rng &rng) {
 		p[b + kPropLithic] = (condensed && rng.chance(0.5f)) ? 1.0f : 0.0f;
 		p[b + kPropRadGroup] = float(rng.below(5));
 		p[b + kPropCondensed] = condensed ? 1.0f : 0.0f;
+		// The span the measured rows cover, halite to orthoenstatite.
+		p[b + kPropKprime] = rng.range(3.3f, 8.7f);
 		// A LADDER PER CHANNEL. A condensed phase melts: a solidus, a liquidus at or above it, and the
 		// fusion enthalpy it costs to cross. Neither solid nor melt is compressed here, so the melting
 		// curve has no Clapeyron slope and the plateau stands at one temperature.

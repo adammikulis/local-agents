@@ -9,7 +9,7 @@ const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/st
 const FluxPassScript: GDScript = preload("res://addons/local_agents/sim/material/sphere_passes/FluxPass.gd")
 
 ## props row layout — state_derive.glsl PROP_*.
-const PROP_STRIDE: int = 55
+const PROP_STRIDE: int = 56
 const PROP_M: int = 0
 const PROP_MOL_PER_KG: int = 1
 const PROP_ENTRY: int = 2
@@ -26,9 +26,11 @@ const PROP_RAD_GROUP: int = 9
 ## 1 where the channel is a CONDENSED phase: it fills volume of its own and resists being squeezed. A
 ## dissolved solute rides in its solvent and does neither.
 const PROP_CONDENSED: int = 10
+## dK/dp of the bulk modulus above.
+const PROP_KPRIME: int = 11
 ## The channel substance's own phase ladder, laid out by LAMixtureEnthalpy::thermal_row — every condensed
 ## channel melts and boils where its table row says. state_derive.glsl PROP_LADDER, TH_*.
-const PROP_LADDER: int = 11
+const PROP_LADDER: int = 12
 
 ## Push-constant slots for distinct radiogenic trace mixes, re-evaluated at the run's epoch per step.
 const RAD_GROUPS: int = 4
@@ -180,6 +182,7 @@ func _props() -> PackedFloat32Array:
 		out[base + PROP_CONDENSED] = 0.0 if mol_per_kg > 0.0 \
 			or String(row.get("phase", "")) == "dissolved" else 1.0
 		out[base + PROP_BULK] = float(s.get("bulk_modulus_pa", s.get("bulk_modulus_solid_pa", 0.0)))
+		out[base + PROP_KPRIME] = float(s.get("bulk_modulus_deriv", s.get("bulk_modulus_solid_deriv", 0.0)))
 		out[base + PROP_TREF] = float(s.get("density_ref_t_c", 0.0))
 		out[base + PROP_LITHIC] = 1.0 if bool(row.get("lithic", false)) or bool(row.get("lattice", false)) else 0.0
 		out[base + PROP_RAD_GROUP] = float(_rad_group(s.get("traces", {})))

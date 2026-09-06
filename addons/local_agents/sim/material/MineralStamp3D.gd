@@ -2,10 +2,10 @@ class_name LAMineralStamp3D
 extends RefCounted
 
 
-# The rheological lock-up the GPU's own `solid` derive uses. One declaration, so the SDF cannot disagree
-# with the field about which cells are rock.
-const GROW_THRESHOLD: float = LAPhysical.RHEOLOGICAL_LOCKUP_CRYSTAL_FRAC
-const SHRINK_THRESHOLD: float = LAPhysical.RHEOLOGICAL_MOBILE_CRYSTAL_FRAC
+# The cementation thresholds the GPU's own `solid` derive uses. One declaration, so the SDF cannot
+# disagree with the field about which cells are rock.
+const GROW_THRESHOLD: float = LAPhysical.SEDIMENT_LOAD_BEARING_SOLID_FRAC
+const SHRINK_THRESHOLD: float = LAPhysical.SEDIMENT_RIGIDITY_SOLID_FRAC
 const SCAN_EVERY: int = 4                # throttle: at most one crossing scan per this many active frames
 const ACTIVE_WINDOW: int = 32            # frames to keep scanning after the last edit / found crossing
 const STAMP_BUDGET: int = 96             # max SDF edits emitted per scan (bounds the per-frame remesh burst)

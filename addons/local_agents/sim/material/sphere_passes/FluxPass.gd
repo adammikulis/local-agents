@@ -169,11 +169,8 @@ func _plan() -> Dictionary:
 	var radiate: PackedInt32Array = PackedInt32Array()
 	for row: Dictionary in _rows:
 		radiate.append(1 if int(row["mode"]) == LATransportRecords.RADIATE else 0)
-	var groups: Array = []
-	for group: PackedInt32Array in _row_groups:
-		groups.append(group)
-	return {"pipe": _pipe, "row_sets": _sets, "row_group": _row_group, "row_radiate": radiate,
-		"groups": groups, "args": _args_rid,
+	return {"pipe": _pipe, "rows": _rows, "row_sets": _sets, "row_group": _row_group,
+		"row_radiate": radiate, "groups": _row_groups, "args": _args_rid,
 		"wake_args": _wake_args_rid, "grain_set": _grain_set, "list_sets": _list_sets,
 		"queue_bin": ActiveScript.QUEUE_BIN, "slots": LevelsScript.SLOTS,
 		"group_count": group_count(), "flush_every": FLUSH_EVERY,
@@ -246,6 +243,8 @@ func pre_step(rd: RenderingDevice, ctx: Dictionary, cc: int, _groups: int) -> vo
 		offs.append(0)
 	for g in _row_groups.size():
 		for gi in _row_groups[g]:
+			if not LAProcessSet.is_active("transport", String(_rows[gi].get("label", ""))):
+				continue
 			usets.append(_sets[gi])
 			pcs.append(_pc(_rows[gi], cc, PASS_LEVEL_PEAK, dt_s, Vector3.ZERO, g, 0, 1, g))
 			wgs.append(0)

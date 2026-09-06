@@ -501,6 +501,12 @@ const SOLAR_EFFECTIVE_TEMPERATURE_K: float = 5772.0
 const RHEOLOGICAL_LOCKUP_CRYSTAL_FRAC: float = 0.6
 const RHEOLOGICAL_MOBILE_CRYSTAL_FRAC: float = 0.4
 
+## Cemented sediment becomes a load-bearing frame at the complement of a sand's critical porosity (Nur,
+## Mavko, Dvorkin & Galmudi 1998, The Leading Edge 17:357), and loses rigidity again at random loose
+## packing, the rigidity-percolation threshold (Onoda & Liniger 1990, Phys. Rev. Lett. 64:2727).
+const SEDIMENT_LOAD_BEARING_SOLID_FRAC: float = 0.6
+const SEDIMENT_RIGIDITY_SOLID_FRAC: float = 0.555
+
 ## Dynamic viscosity, Pa s. Kestin, Sokolov & Wakeham 1978, JPCRD 7:941 (water);
 ## Kadoya, Matsunaga & Nagashima 1985, ibid. 14:947 (air).
 const WATER_DYNAMIC_VISCOSITY_PA_S: float = 1.002e-3    # liquid water at 20 C
@@ -560,6 +566,3 @@ const TOPOGRAPHY_SELF_AFFINE_CROSSOVER_M: float = 1.0e5
 ## The continent-ocean dichotomy is a degree-2 pattern (Wieczorek 2007).
 const TOPOGRAPHY_DOMINANT_HARMONIC_DEGREE: int = 2
 
-
-## Temperature at which a solid first glows visibly, C (Draper 1847: 798 K).
-const DRAPER_POINT_C: float = 525.0

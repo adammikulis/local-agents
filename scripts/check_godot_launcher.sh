@@ -37,6 +37,14 @@ rg -q -e 'la_gpu_lock' "$LIB" || {
 	echo "FAIL  scripts/lib_godot.sh launches without taking the machine-wide GPU lock." >&2
 	launcher_fail=1
 }
+# THE SHOWN WINDOW IS THE MAINTAINER'S ALONE: only show_demo.sh may set LA_SHOW_WINDOW.
+shown_over="$(rg -n --no-heading -g '*.sh' -g '!show_demo.sh' -g '!lib_godot.sh' -g '!check_godot_launcher.sh' \
+	-e 'LA_SHOW_WINDOW=1' "$ROOT/scripts" "$ROOT/addons" 2>/dev/null || true)"
+if [ -n "$shown_over" ]; then
+	echo "FAIL  an automated script asks for the maintainer's visible window:" >&2
+	printf '%s\n' "$shown_over" >&2
+	launcher_fail=1
+fi
 lock_over="$(rg -n --no-heading -g '*.sh' -g '!check_godot_launcher.sh' -g '!lib_godot_lock.sh' \
 	-e 'la_sim_gpu\.lock' "$ROOT/scripts" 2>/dev/null || true)"
 if [ -n "$lock_over" ]; then

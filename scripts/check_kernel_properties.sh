@@ -42,6 +42,7 @@ for pair in "PROP_STRIDE:kPropStride" "PROP_M:kPropM" \
 		"PROP_MOL_PER_KG:kPropMolPerKg" "PROP_ENTRY:kPropEntry" "PROP_LAMBDA:kPropLambda" \
 		"PROP_FULL:kPropFull" "PROP_ALPHA:kPropAlpha" "PROP_BULK:kPropBulk" "PROP_TREF:kPropTref" \
 		"PROP_LITHIC:kPropLithic" "PROP_RAD_GROUP:kPropRadGroup" "PROP_CONDENSED:kPropCondensed" \
+		"PROP_KPRIME:kPropKprime" \
 		"PROP_LADDER:kPropLadder" "TH_C_SOL:kThCSol" "TH_C_LIQ:kThCLiq" "TH_C_GAS:kThCGas" \
 		"TH_RHO_SOL:kThRhoSol" "TH_RHO_LIQ:kThRhoLiq" "TH_FUSION_T0:kThFusionT0" \
 		"TH_FUSION_T1:kThFusionT1" "TH_L_FUS:kThLFus" "TH_NU:kThNu" "TH_HAS_FUSION:kThHasFusion" \
