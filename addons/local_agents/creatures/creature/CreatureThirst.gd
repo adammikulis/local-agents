@@ -2,8 +2,16 @@ class_name LACreatureThirst
 extends RefCounted
 
 
-const DRINK_OVER_TURNOVER: float = 60.0
+## An animal at a waterhole takes a whole day's water in one bout of a few minutes: a camel drinks about
+## 100 litres in ten (Schmidt-Nielsen 1964, Desert Animals, ch.3). The mouth rate is the daily turnover
+## the body loses over that bout.
+const DRINK_BOUT_S: float = 300.0
 const THIRSTY_FRACTION: float = 0.5        # below this, seeking water interrupts other drives
+
+
+## Moles of H2O a second a drinking animal takes in.
+static func drink_rate(c) -> float:
+	return float(c.thirst_rate) * LACreatureBodyMass.SECONDS_PER_DAY / DRINK_BOUT_S
 
 
 ## An animal standing in water drinks, whatever else it is doing: only SEEKING water competes with
@@ -38,7 +46,7 @@ static func handle_thirst(c, pos: Vector3, delta: float) -> String:
 static func drink(c, pos: Vector3, delta: float) -> float:
 	if c == null or delta <= 0.0:
 		return 0.0
-	var want: float = minf(float(c.thirst_rate) * DRINK_OVER_TURNOVER * delta,
+	var want: float = minf(drink_rate(c) * delta,
 		maxf(0.0, float(c.max_hydration) - float(c.hydration)))
 	if want <= 0.0:
 		return 0.0

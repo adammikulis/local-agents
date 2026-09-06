@@ -113,11 +113,6 @@ is an invented threshold. The design: kinematic until thrown; then a Jolt `Rigid
 `gravity_scale = 0` pushed each tick by `m·g(pos)` from `LABallistics.g_at` plus the seeded air's drag
 (bound, not copied), the impulse from the overpressure in its cell, kinematic again when asleep.
 
-## 13. A BODY'S MASS, CARBON, ENERGY AND RATES ARE NOT IN REAL UNITS
-
-`rg -n "MASS_UNIT_SCALE|TISSUE_PER_KG|RESP_K" addons/local_agents/creatures` finds a scale factor with
-no referent spent as mol/m³ of a cell. The species mass is the one input; the rest derives (Kleiber).
-
 ## 14. NOT EXAMINED UNTIL THE RUNG-2 DEMO IS APPROVED — rung 3
 
 - `scripts/check_bench_shock_tube.sh`: at a 10:1 Sod jump the rarefaction head stands outside the bound

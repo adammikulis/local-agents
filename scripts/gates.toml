@@ -154,6 +154,14 @@ mutation = "perl -0pi -e 's/LAFakes\\.draw\\(\"plant_carbon\", want_mass\\)/0.0/
 needs = ["import"]
 
 [[gate]]
+name = "check_creature_energy"
+script = "scripts/check_creature_energy.sh"
+kind = "gpu"
+marker = "^check_creature_energy: OK"
+mutation = "perl -0pi -e 's/const DRY_CARBON_FRAC: float = 0\\.45/const DRY_CARBON_FRAC: float = 0.45e-4/' addons/local_agents/creatures/creature/CreatureBodyMass.gd"
+needs = ["import"]
+
+[[gate]]
 name = "check_public_surface"
 script = "scripts/check_public_surface.sh"
 kind = "text"

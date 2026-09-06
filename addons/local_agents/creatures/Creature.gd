@@ -13,7 +13,7 @@ const PREDATOR_SIZE_RATIO: float = 1.2     # flee anything this many times my si
 # Turn rates + coast avoidance live in LACreatureLocomotion (which owns the movement step); the think and
 # physics-rate stride constants live in LACreatureLod (which owns the decision + update cadence).
 
-var energy: float = 100.0
+var energy: float = 100.0                    # the labile reserve, moles of carbon (fat + glycogen)
 var max_energy: float = 100.0
 var disease: LACreatureDisease = null
 var gut_microbiome: LACreatureMicrobiome = null  # adaptive gut flora — modulates digestive yield (LACreatureMicrobiome)
@@ -31,8 +31,8 @@ var _resp_capacity: float = 0.0             # last tick's AEROBIC CAPACITY per s
 var _resp_rate: float = 0.0                 # last tick's REALISED oxidation, per second — the measured metabolic
 
 var mass_kg: float = 0.5                     # real body mass in kilograms (species data; not the `size` gene)
-var structural_mass: float = 0.0             # bone/muscle/organ in simulation mass units (the non-labile half)
-var bite_rate: float = 1.0                   # mass units a mouth can process per second (∝ aerobic capacity)
+var structural_mass: float = 0.0             # bone/muscle/organ, moles of carbon (the non-labile half)
+var bite_rate: float = 1.0                   # moles of carbon a mouth takes per second while feeding
 
 var breath_capacity: float = 6.0
 var _breath: float = 6.0
@@ -42,11 +42,11 @@ var breathes: String = "air"
 # 0 HP = death). Bigger creatures carry more HP; set from `size` at spawn. ---
 var health: float = 100.0
 var max_health: float = 100.0
-var food_value: float = 55.0
+var food_value: float = 55.0             # moles of body carbon a predator can draw from this body
 var max_age: float = 90.0
 var hungry_at: float = 0.7
 
-var gut: float = 0.0                          # biomass currently buffered in the gut (energy-equivalent units)
+var gut: float = 0.0                          # moles of carbon buffered in the gut awaiting assimilation
 var gut_capacity: float = 0.0                 # max gut fill (set at spawn ~ max_energy * CAPACITY_FRAC)
 var gut_waste: float = 0.0                    # indigestible residue awaiting excretion (feeds LACreatureExcretion)
 var microbiome: float = 1.0                   # gut-flora digestive-efficiency scalar (herbivores ferment plants)
@@ -770,7 +770,7 @@ func nutrition() -> float:
 
 
 func body_mass() -> float:
-	return _carrion if _dead else LACreatureBodyMass.body_mass(self)
+	return _carrion if _dead else LACreatureBodyMass.body_carbon(self)
 
 
 func draw_body_mass(want: float) -> float:

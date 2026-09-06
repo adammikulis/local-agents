@@ -52,7 +52,7 @@ static func tick(c, delta: float) -> void:
 ## What this pregnancy costs the mother: the newborn's live mass times the overhead.
 static func gestation_cost(c) -> float:
 	var s: float = LACreatureLifeStage.NEWBORN_SCALE
-	return LACreatureBodyMass.live_mass(c.config) * s * s * s * GESTATION_OVERHEAD
+	return LACreatureBodyMass.live_carbon(c.config) * s * s * s * GESTATION_OVERHEAD
 
 
 ## True once this creature could start a pregnancy RIGHT NOW.

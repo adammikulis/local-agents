@@ -58,7 +58,7 @@ static func display_upkeep(c, delta: float) -> float:
 	var gene: float = _display_gene(c)
 	if gene <= 0.0:
 		return 0.0
-	return LACreatureRespiration.maintenance_rate(c) * DISPLAY_UPKEEP_OVER_MAINTENANCE * gene * gene * delta
+	return LACreatureRespiration.basal_carbon_rate(c) * DISPLAY_UPKEEP_OVER_MAINTENANCE * gene * gene * delta
 
 const DISPLAY_UPKEEP_OVER_MAINTENANCE: float = 0.9
 
