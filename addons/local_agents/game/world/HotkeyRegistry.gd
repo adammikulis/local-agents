@@ -38,6 +38,7 @@ static func hotkey_map() -> Array:
 	rows.append(_row("F", "view_fly", "Toggle fly mode", CAT_VIEW))
 	rows.append(_row("P", "view_solar", "Toggle solar-system view", CAT_VIEW))
 	rows.append(_row("K", "view_auto_spin", "Toggle planet auto-spin", CAT_VIEW))
+	rows.append(_row("Z", "view_frame_slice", "Frame the simulated slice", CAT_VIEW))
 
 	rows.append(_row("V", "overlay_scent", "Toggle scent overlay", CAT_OVERLAY))
 	rows.append(_row("T", "overlay_temp", "Toggle temperature heatmap", CAT_OVERLAY))

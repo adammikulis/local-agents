@@ -13,6 +13,8 @@ var _orbit_btn: Button = null
 var _geo_btn: Button = null
 var _fly_btn: Button = null
 var _spin_btn: Button = null
+var _frame_btn: Button = null     # one press: turn to the simulated box and frame it
+var _frame_div: Label = null
 var _alt_label: Label = null      # live "alt N m" readout (camera height above the ground under it)
 var _geo_hotkey: String = ""      # cached registry key labels folded into the gated tooltips
 var _solar_hotkey: String = ""
@@ -67,6 +69,7 @@ func _build_ui() -> void:
 	var geo_key: String = LAHotkeyRegistry.key_for_action("view_geosync")
 	var fly_key: String = LAHotkeyRegistry.key_for_action("view_fly")
 	var spin_key: String = LAHotkeyRegistry.key_for_action("view_auto_spin")
+	var frame_key: String = LAHotkeyRegistry.key_for_action("view_frame_slice")
 
 	var view_group: ButtonGroup = ButtonGroup.new()
 	_planet_btn = _make_button("Planet", view_group, box)
@@ -91,6 +94,16 @@ func _build_ui() -> void:
 
 	_add_divider(box)
 
+	# THE BOX THIS RUN SIMULATES. Shown only once the host reports a slice: a world with no box has none
+	# to frame. The field arrives after this bar is built, so refresh() decides.
+	_frame_btn = _make_button("Frame slice", null, box)
+	_frame_btn.toggle_mode = false
+	_frame_btn.visible = false
+	_frame_btn.tooltip_text = "Turn to the simulated box and frame it  (%s)" % frame_key
+	_frame_btn.pressed.connect(func() -> void: _host.frame_simulation())
+	_frame_div = _add_divider(box)
+	_frame_div.visible = false
+
 	_spin_btn = _make_button("Auto-spin", null, box)
 	_spin_btn.tooltip_text = "Turn the planet in front of you  (%s)" % spin_key
 	_spin_btn.toggled.connect(func(on: bool) -> void: _host.set_auto_spin(on))
@@ -99,10 +112,10 @@ func _build_ui() -> void:
 	_alt_label = Label.new()
 	_alt_label.text = "alt n/a"
 	_alt_label.add_theme_color_override("font_color", Color(0.72, 0.80, 0.92))
-	_alt_label.custom_minimum_size = Vector2(104.0, 0.0)
+	_alt_label.custom_minimum_size = Vector2(190.0, 0.0)
 	_alt_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_alt_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_alt_label.tooltip_text = "Camera height above the ground beneath it"
+	_alt_label.tooltip_text = "Camera height above the ground beneath it, and in flight its cruise speed"
 	box.add_child(_alt_label)
 
 	# Geosync / Solar tooltips (which fold in the campaign-lock state) are set by _apply_locks() below.
@@ -126,7 +139,18 @@ func _process(_delta: float) -> void:
 	var alt: float = NAN
 	if _body.has_method("altitude_at"):
 		alt = _body.altitude_at(_camera.global_position)
-	_alt_label.text = "alt %s" % _format_alt(alt)
+	var text: String = "alt %s" % _format_alt(alt)
+	# THE WHEEL SETS THE CRUISE SPEED, so in flight the bar says what it is set to. A dial with no
+	# readout is a dial the player cannot see move.
+	if _camera.has_method("is_fly") and _camera.is_fly() and _camera.has_method("fly_speed"):
+		text += "  %s" % _format_speed(_camera.fly_speed(false))
+	_alt_label.text = text
+
+
+func _format_speed(v: float) -> String:
+	if v >= 1000.0:
+		return "%.1f km/s" % (v / 1000.0)
+	return "%d m/s" % roundi(v)
 
 
 func _format_alt(alt: float) -> String:
@@ -149,11 +173,12 @@ func _make_button(text: String, group: ButtonGroup, parent: Control) -> Button:
 	return b
 
 
-func _add_divider(parent: Control) -> void:
+func _add_divider(parent: Control) -> Label:
 	var sep: Label = Label.new()
 	sep.text = "·"
 	sep.add_theme_color_override("font_color", Color(0.6, 0.65, 0.75))
 	parent.add_child(sep)
+	return sep
 
 
 ## Grey out the view-mode buttons whose capability is not yet earned (campaign). Geosync and the solar-system
@@ -168,9 +193,11 @@ func _apply_locks() -> void:
 
 
 ## Mirror the host's camera-mode state onto the buttons (no-signal so it doesn't re-fire the callbacks).
-func refresh(solar_view: bool, geosync: bool, fly: bool, auto_spin: bool) -> void:
+func refresh(solar_view: bool, geosync: bool, fly: bool, auto_spin: bool, has_slice: bool) -> void:
 	if _planet_btn == null:
 		return
+	_frame_btn.visible = has_slice
+	_frame_div.visible = has_slice
 	_planet_btn.set_pressed_no_signal(not solar_view)
 	_solar_btn.set_pressed_no_signal(solar_view)
 	_orbit_btn.set_pressed_no_signal(not geosync and not fly)
