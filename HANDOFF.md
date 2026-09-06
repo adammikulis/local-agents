@@ -55,16 +55,25 @@ no `[[gate]]` row, and its rung-2 arm compares one slab against the whole planet
 finds the datum's shell integral cut at a chosen radius, where the exobase is the radius the gas leaves.
 Reading: `shape_atmosphere` in `LAFieldLithostaticSeed.cpp` gives each cell `Π_a sinh(x_a)/x_a`.
 
-## 6. THE CRUST HAS TWO REPRESENTATIONS, AND THE SEA IS A SPHERE AT ONE RADIUS
+## 6. THE CRUST THE SEED LAYS IS A PLANE AT THE SIZE OF ITS OWN CELLS
 
-Maintainer's decision, standing: one substrate everywhere. The field is the only representation of
-matter; the ground and the water surface are detectors on it (an isosurface a compute kernel extracts
-into mesh buffers per block, which is also the collider); the generator is sampled into the field once
-at seed; a body of water is where the inventory settled under the solved gravity, one liquid in one
-channel. `rg -n "sea_radius|OceanPlane|_open_sea|sea_level_m|resample_terrain" addons/local_agents`
-finds the sea as a declared shell radius and the field sampling the generator after the seal.
+`LA_SHOTS="30:-3:0" scripts/shoot_demo.sh addons/local_agents/examples/SliceRung1Demo.tscn <dir>` shows a
+flat plain to the horizon on a box the site chooser stood on a coast with kilometres of relief across its
+footprint. Read the PNG.
+Reading: `detail_weight` in `LAPlanetShape.opts` is `(cross / lambda0) ^ TOPOGRAPHY_LONG_HURST`, which
+ties every wavelength under `TOPOGRAPHY_SELF_AFFINE_CROSSOVER_M` to the degree-2 amplitude through eight
+octaves of an l^-2 law.
 
-## 7. THE LEVEL BOUNDARY DRAWS AS A LINE ACROSS THE GROUND
+## 7. THE FINEST CELLS ARE A PENCIL DOWN THE BOX'S AXIS
+
+`scripts/check_slice_grading.sh` reads a cell count two orders under `docs/CELL_BUDGET`, so the demo box
+resolves a few hundred metres around its own axis and the rest of a fifteen-kilometre footprint at
+kilometres; `LA_SHOTS="600:-89:0" scripts/shoot_demo.sh addons/local_agents/examples/SliceRung1Demo.tscn
+<dir>` photographs the ground that gives.
+Reading: `build_graded_sampled` in `LAGridGeometry.cpp` refuses a leaf whose distance from the box's
+radial axis is past `p_cells_per_level * edge`.
+
+## 8. THE LEVEL BOUNDARY DRAWS AS A LINE ACROSS THE GROUND
 
 `scripts/shoot_demo.sh addons/local_agents/examples/SliceRung1Demo.tscn <dir>` carries thin dark lines
 running to the horizon in every pose under a kilometre, straight in world space and jointed at right
@@ -72,15 +81,13 @@ angles. Read the PNGs.
 Reading: `get_transvoxel_position` in `VoxelTerrainTriplanar.gdshader` moves a transition vertex onto
 the coarse surface and leaves its `NORMAL` at the fine one's.
 
-## 8. THE DEMO SITE HOLDS NO WATER A VIEWER CAN STAND BESIDE
+## 8b. THE LIQUID SHEET OPENS ALONG A LEVEL BOUNDARY, AND THE ROCK IS STILL MESHED OFF THE GENERATOR
 
-`LA_SHOTS="30:-3:0" scripts/shoot_demo.sh addons/local_agents/examples/SliceRung1Demo.tscn <dir>` shows
-the nearest free water surface a kilometre off and reads as an opaque dark plate with a straight edge;
-`scripts/sim_run.sh --slice --rung 1 --frames 4 --report water_liquid_total,wet_cells` counts what stands
-in the box.
-Reading: `coast_site` in `LAPlanetTables.cpp` bisects onto the waterline and then scores the site by
-`land_m + depth_m`, which is largest where the relief is steepest rather than where the box's own
-footprint is half wet.
+`scripts/check_mesh_detector.sh` holds the corners two cells put in two places to
+`docs/MESH_SEAM_CEILING`; zero is a watertight sheet. `rg -n "LA_APPROX: godot_voxel_mesher_over_generator"
+addons/local_agents` finds the ground still drawn by `VoxelLodTerrain` off the seed generator.
+Reading: `la_corner_r` in `addons/local_agents/sim/material/kernels3d/mesh_extract.glsl` reaches the fourth cell at a corner through a neighbour, and
+across a 2:1 boundary the two cells sharing that corner reach a different one.
 
 ## 9. PHYSICS IS NOT IN THE ABLATION REGISTRY
 

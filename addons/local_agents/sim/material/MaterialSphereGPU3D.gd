@@ -15,7 +15,8 @@ const PASS_SCRIPTS: PackedStringArray = [
 	"res://addons/local_agents/sim/material/sphere_passes/PressurePass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/FluxPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/ReactionsPass.gd",
-	"res://addons/local_agents/sim/material/sphere_passes/ReducePass.gd"]
+	"res://addons/local_agents/sim/material/sphere_passes/ReducePass.gd",
+	"res://addons/local_agents/sim/material/sphere_passes/MeshExtractPass.gd"]
 
 static func available() -> bool:
 	var rd: RenderingDevice = RenderingServer.create_local_rendering_device()
@@ -411,6 +412,14 @@ func republish_latest() -> void:
 func list_indices(label: String) -> PackedInt32Array:
 	var v: Variant = _pass_results.get(label + "_list_idx", null)
 	return v if v is PackedInt32Array else PackedInt32Array()
+
+
+## The pass this world runs under `label` (its script's basename), or null where the rung holds none.
+func pass_named(label: String):
+	for i in _passes.size():
+		if _pass_names[i] == label:
+			return _passes[i]
+	return null
 
 
 ## The merged pass readings of the last drained step, and clears them.

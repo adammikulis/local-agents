@@ -2,15 +2,10 @@ class_name LAMaterialFieldRender3D
 extends MeshInstance3D
 
 
-const RENDER_MIN: float = 0.08 * LAMaterialField3D.MAX_MASS   # min water in a cell for its top face to render
 const WaterShader: Shader = preload("res://addons/local_agents/sim/shaders/VoxelWater.gdshader")
-const MeshBuilderScript: GDScript = preload("res://addons/local_agents/game/render/WaterSurfaceMesh.gd")
 
-const CAP_ANGLE: float = 0.8               # rebuild within this half-angle of the camera radial — a small NEAR patch
-                                           # (nearly flat, so the flat Y-up shader stays correct; far sea = the sphere)
-const MAX_MASS: float = LAMaterialField3D.MAX_MASS  # a full cell of water — for the sub-cell height fraction
 const REBUILD_PERIOD: float = 0.22         # ~4.5 Hz geometry rebuild (stale a couple frames is imperceptible)
-const RECENTER_DOT: float = 0.999          # rebuild early if the camera radial rotates past this (recentre the cap)
+const RECENTER_DOT: float = 0.999          # rebuild early if the camera radial rotates past this
 const RIPPLE_MAX: int = 16                 # ring-buffer length; the shader's copy is generated
 const RIPPLE_SPEED: float = 9.0            # ring expansion (world units / s)
 const RIPPLE_DECAY: float = 0.7            # amplitude e-fold time (1/s)
@@ -18,7 +13,6 @@ const RIPPLE_DECAY: float = 0.7            # amplitude e-fold time (1/s)
 var _f = null                              # LAMaterialField3D
 var _camera: Node3D = null
 var _center: Vector3 = Vector3.ZERO
-var _builder: RefCounted = null
 var _mesh: ArrayMesh = null
 var _mat: ShaderMaterial = null
 var _ripples: Array = []                   # [{pos:Vector3, age:float, strength:float}]
@@ -31,8 +25,6 @@ func setup(field, camera: Node3D, terrain, _sun, center: Vector3, transparent: b
 	_f = field
 	_camera = camera
 	_center = center
-	_builder = MeshBuilderScript.new()
-
 	_mesh = ArrayMesh.new()
 	mesh = _mesh
 	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -99,23 +91,35 @@ func _process(delta: float) -> void:
 	_rebuild(radial)
 
 
-func _rebuild(radial: Vector3) -> void:
-	var inv_xform: Transform3D = global_transform.affine_inverse()
-	var out: Dictionary = _builder.build(_f, inv_xform, radial, cos(CAP_ANGLE), RENDER_MIN, MAX_MASS)
+## THE MESH THE DETECTOR EXTRACTED, taken as it stands. Nothing here decides where the surface is.
+func _rebuild(_radial: Vector3) -> void:
+	var det = _f._gpu.pass_named("MeshExtractPass") if _f._gpu != null else null
 	if _mesh.get_surface_count() > 0:
 		_mesh.clear_surfaces()
-	if int(out["count"]) == 0 or (out["indices"] as PackedInt32Array).size() == 0:
+	if det == null or det.verts.size() < 9 or det.indices.size() < 3:
 		return
+	var inv_xform: Transform3D = global_transform.affine_inverse()
+	var n: int = det.verts.size() / 3
+	var verts: PackedVector3Array = PackedVector3Array()
+	var normals: PackedVector3Array = PackedVector3Array()
+	var colors: PackedColorArray = PackedColorArray()
+	verts.resize(n)
+	normals.resize(n)
+	colors.resize(n)
+	for i in n:
+		verts[i] = inv_xform * Vector3(det.verts[i * 3], det.verts[i * 3 + 1], det.verts[i * 3 + 2])
+		normals[i] = Vector3.UP                      # placeholder; VoxelWater.gdshader recomputes NORMAL
+		colors[i] = Color(0.5, 0.5, 0.0, 0.0)
 	var arrays: Array = []
 	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = out["verts"]
-	arrays[Mesh.ARRAY_NORMAL] = out["normals"]
-	arrays[Mesh.ARRAY_COLOR] = out["colors"]
-	arrays[Mesh.ARRAY_INDEX] = out["indices"]
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_COLOR] = colors
+	arrays[Mesh.ARRAY_INDEX] = det.indices
 	_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	if OS.has_environment("LA_WATER_DEBUG"):
-		print("WATER_SURFACE={verts:%d, tris:%d, wet:%d}" % [int(out["count"]),
-			(out["indices"] as PackedInt32Array).size() / 3, _f.wet_cell_count()])
+	if OS.get_environment("LA_WATER_DEBUG") != "":
+		print("WATER_SURFACE={verts:%d, tris:%d, wet:%d}" % [n, det.indices.size() / 3,
+			_f.wet_cell_count()])
 
 
 func _age_ripples(delta: float) -> void:

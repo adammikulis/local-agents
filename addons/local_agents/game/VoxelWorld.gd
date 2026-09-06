@@ -69,7 +69,7 @@ var _frame_dt_accum: float = 0.0
 
 
 func _planet_opts() -> Dictionary:
-	return {"radius": planet_radius(), "caves_enabled": true, "seed": 1337}
+	return {"radius": planet_radius(), "seed": 1337}
 
 
 func _ready() -> void:

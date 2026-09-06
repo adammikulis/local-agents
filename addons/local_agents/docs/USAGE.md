@@ -445,7 +445,7 @@ plus a camera, a light and a harness, and its script contains no world-building 
 | --- | --- | --- |
 | `world_type` | both | `SPHERE` (planet in a box field) or `FLAT` (ground plane plus a box field) |
 | `build_on_ready` | both | build automatically, or call `spawn_world()` yourself |
-| `body_seed`, `caves_enabled`, `tides_enabled` | SPHERE | which body is seeded, and its toggles |
+| `body_seed`, `tides_enabled` | SPHERE | which body is seeded, and its toggles |
 | `grid_res` | SPHERE | field cells along one edge of the box |
 | `sun_enabled` | SPHERE | build the child sun that drives the field's solar pass |
 | `flat_extent`, `flat_cell_size`, `ground_y` | FLAT | box extent, field cell size, floor height |
@@ -508,7 +508,7 @@ they differ only in geometry.
 up_at(pos) -> Vector3                          # local "up" at a world point
 planet_center() -> Vector3                     # the centre all radial math is measured from
 planet_radius() -> float                       # distance from that centre to the ground datum
-sea_radius() -> float                          # radius of the sea shell (<= 0 or -INF means no sea)
+water_surface_radius(dir) -> float             # where free water stands along dir (NAN where dry)
 surface_point(dir) -> Vector3                  # where the ray centre->dir meets the ground (NAN-vec if none)
 surface_radius(dir) -> float                   # distance centre->that point (NAN if none)
 ground_point(pos) -> Vector3                   # the ground point directly below a world point
@@ -516,18 +516,17 @@ altitude_at(pos) -> float                      # height above local ground (> 0 
 is_planet() -> bool                            # radial-up planet, false for flat
 is_ready_at(pos) -> bool                       # is the ground under pos queryable yet
 raycast_terrain(from, dir, max) -> Dictionary  # {hit, position, normal}
-carve_sphere(pos, r) -> void                   # destructive edit, a no-op on flat ground
 ```
 
 `LAFlatGroundTerrain` is the plane `y == ground_y` with +Y up, and it is the standalone library
 terrain. It puts its synthetic planet centre 100000 units below the plane, which makes the radial up
 `Vector3.UP` to within about 1e-5 while `surface_point()` still solves the exact ray-plane crossing,
 so the sphere movement path runs unchanged on flat ground without losing horizontal precision. It has
-no sea, so land walkers never hit coast avoidance.
+no standing water, so land walkers never hit coast avoidance.
 
-`LAVoxelTerrainService` is the cubed-sphere planet, owned by `LAPlanetBody`, and it adds the voxel
-operations the flat adapter has no use for: `fill_sphere()`, `fill_box()`, `sdf_at()`,
-`is_solid()`, `attach_viewer()` and `build_planet()`.
+`LAVoxelTerrainService` is the planet's own shape, owned by `LAPlanetBody`, and it adds what the flat
+adapter has no use for: `sdf_at()`, `is_solid()`, `surface_radii()`, `water_radii()`, `attach_viewer()`
+and `build_planet()`. It is the SEED's shape: nothing reads it once the field is sealed.
 
 `Creature.setup()` defaults `terrain` to a fresh `LAFlatGroundTerrain` when none is injected, so a
 bare creature never null-derefs its movement path.

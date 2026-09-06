@@ -53,13 +53,6 @@ Moving a provider inside the cache is a CADENCE change and forbidden as a speed 
 it cheap instead: a provider reads rows the device already folded, it does not walk cells.
 
 
-## 1c. One surface-cell list would empty the remaining full-grid walks
-
-`WaterSurfaceMesh.build` walks every cell to find the skin `state_derive.glsl` already classes in
-`surface_class`. It is a stream compaction, so no reduce `Op` expresses it — it is the active-cell list
-again. Build it once per step and it becomes O(surface cells), about N^(2/3).
-
-
 ## 2b. The dispatch budget, and where it is spent
 
 `ReducePass` sweeps the whole grid once per `LAProcessSet.reduce_rows()` row, each dispatch followed by

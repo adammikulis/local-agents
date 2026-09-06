@@ -71,7 +71,7 @@ func build_planet(parent: Node3D, opts: Dictionary = {}) -> void:
 	_planet_gen = pg
 	_fill_water((float(body["hydrosphere_kg"]) - float(body["groundwater_kg"])) / rho_w)
 
-	var mesher: VoxelMesherTransvoxel = VoxelMesherTransvoxel.new()
+	var mesher: VoxelMesherTransvoxel = VoxelMesherTransvoxel.new()   # LA_APPROX: godot_voxel_mesher_over_generator
 	# TRANSVOXEL'S TRANSITION CELLS CLOSE THE STEP BETWEEN TWO LEVELS OF DETAIL; the terrain shader moves
 	# their vertices onto the coarse surface.
 	mesher.transitions_enabled = true

@@ -261,9 +261,7 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MaterialEjecta3D.gd` | `PARCELS_PER_EJECT` | 6 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/game/render/WaterParticles.gd` | `MAX_PARTICLES` | 12000 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/game/render/WaterParticles.gd` | `LIFETIME` | 7.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/game/render/WaterParticles.gd` | `CAP_ANGLE` | 1.4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldConservation3D.gd` | `REFERENCE_STEPS` | 600 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `CAP_ANGLE` | 0.8 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `REBUILD_PERIOD` | 0.22 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `RECENTER_DOT` | 0.999 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `RIPPLE_MAX` | 16 | presentation or diagnostic buffer length, not physics | not owed: presentation may choose numbers, but it may not write the field |

@@ -194,7 +194,9 @@ concentration and abiotic organic synthesis are 0.4. `docs/0.5_CREATURE_FEATURES
 ## Emergent-everything
 
 Named phenomena have zero dedicated code. One substrate: matter with pressure, temperature, phase,
-gravity, momentum and chemistry. A named phenomenon is a detector, never a cause — the tell is a verb in a
+gravity, momentum and chemistry. The field is the only representation of matter; the ground and every
+water surface are detectors on it; the terrain generator is the seed's shape and nothing reads it after
+the seal. A named phenomenon is a detector, never a cause — the tell is a verb in a
 function name. A genuine external cause (a meteor) is the exception. When the detector reads nothing,
 fix the physics that cannot run. Behaviour comes from local rules driven by config and properties, never
 `if identity == X`. Anything that diffuses, advects, flows, deposits or decays over space is a channel or

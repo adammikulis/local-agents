@@ -1,0 +1,5 @@
+# Shared corners of the liquid surface mesh that the two cells meeting there put in two places, on the
+# demo slice. A RATCHET: it may fall and may never rise. Zero is a watertight sheet, and the way there is
+# one vertex per corner of the dual grid instead of one per cell: across a 2:1 level boundary the two
+# cells reach the fourth cell at their shared corner through different coarse neighbours.
+9

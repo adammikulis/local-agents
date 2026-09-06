@@ -52,6 +52,19 @@ var _drawn: int = 0
 var _capacity: int = 0
 
 
+## Cells a column walk climbs before it gives up on finding the ground.
+const GROUND_MARCH_CELLS: int = 64
+
+
+## Radius of the ground under a world point: the bottom of the open cell resting on rock in its column.
+## The body's own mean radius stands in where the column leaves the box still in air.
+func _ground_radius(world_pos: Vector3) -> float:
+	var c: int = LAFieldGeometry.ground(_f, _f.world_to_cell(world_pos), GROUND_MARCH_CELLS)
+	if c < 0:
+		return _crust_radius
+	return LAFieldGeometry.radius_of(_f, c) - 0.5 * _f._grid.cell_edge(c)
+
+
 func setup(field, camera: Node3D, centre: Vector3, crust_radius: float) -> void:
 	_f = field
 	_camera = camera
@@ -162,8 +175,10 @@ func _rebuild(cam_pos: Vector3, _radial: Vector3) -> void:
 	var wind: bool = source == SOURCE_WIND
 	if wind and not _f._mirrors.has("vel_x"):
 		return
-	# The lattice about the eye, in the grid's own frame, spaced off the eye's height over the body.
-	var alt: float = maxf((cam_pos - _centre).length() - _crust_radius, 1.0)
+	# The lattice about the eye, in the grid's own frame, spaced off the eye's height over the GROUND
+	# under it, which the field carries per cell.
+	var ground_r: float = _ground_radius(cam_pos)
+	var alt: float = maxf((cam_pos - _centre).length() - ground_r, 1.0)
 	# Never coarser than the grid's own coarse cell, or the lattice steps over whole cells of it.
 	var spacing: float = minf(LATTICE_SPACING_FRAC * alt, float(grid.cell_size))
 	var half: int = LATTICE_SIDE / 2
@@ -208,7 +223,7 @@ func _rebuild(cam_pos: Vector3, _radial: Vector3) -> void:
 		var pos2: Vector3 = centres[c2]
 		var span: float = GLYPH_SUBTEND_RAD * cam_pos.distance_to(pos2)
 		var frac: float = minf(mag2 / _ref, 1.0)
-		var alt_c: float = (pos2 - _centre).length() - _crust_radius
+		var alt_c: float = (pos2 - _centre).length() - ground_r
 		alt_span = maxf(alt_span, absf(alt_c))
 		xforms.append(Transform3D(_aim(v2, mag2, span * THICK_FRAC, span * frac), pos2))
 		# A stable per-cell stripe offset, so a lattice of equal glyphs does not march in lockstep.

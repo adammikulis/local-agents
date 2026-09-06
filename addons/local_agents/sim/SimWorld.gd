@@ -30,7 +30,6 @@ const SLOW_BUILD_CELLS: int = 250000
 ## mass and composition that row declares, and after the seal it is measured off the matter itself.
 @export var body_seed: String = "planet"
 ## Carve winding cave tunnels into the crust while the terrain generates.
-@export var caves_enabled: bool = true
 @export var tides_enabled: bool = false
 
 @export_subgroup("Field grid")
@@ -159,7 +158,7 @@ func _build_sphere() -> bool:
 	_body.name = "PlanetBody"
 	add_child(_body)
 	_body.setup({
-		"radius": seed_radius(), "seed_key": body_seed, "caves_enabled": caves_enabled,
+		"radius": seed_radius(), "seed_key": body_seed,
 		"tides_enabled": tides_enabled, "seed": world_seed,
 	})
 	_terrain = _body.terrain()

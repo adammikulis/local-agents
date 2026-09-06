@@ -595,6 +595,12 @@ kind = "headless"
 marker = "^check_voxel_grid: OK"
 
 [[gate]]
+name = "check_mesh_detector"
+script = "scripts/check_mesh_detector.sh"
+kind = "gpu"
+marker = "^check_mesh_detector: OK"
+
+[[gate]]
 name = "check_hypsometry"
 script = "scripts/check_hypsometry.sh"
 kind = "headless"

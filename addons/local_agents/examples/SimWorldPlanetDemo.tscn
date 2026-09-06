@@ -12,7 +12,6 @@ unique_name_in_owner = true
 script = ExtResource("2_simworld")
 world_type = 0
 build_on_ready = true
-caves_enabled = true
 grid_res = 16
 sun_enabled = true
 auto_spawn = true

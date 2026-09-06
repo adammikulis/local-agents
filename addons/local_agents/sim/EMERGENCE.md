@@ -40,7 +40,7 @@ its own from the universal rules?* If it needs its own `*Volcano.gd`, `_is_erupt
   and sprints away, intensity falling off with distance. Any future loud/violent event can reuse the
   same channel — no new per-event creature code.
 - **The world is data, edited live.** Terrain is a signed-distance field; destruction is just
-  `carve_sphere`. Craters, debris, and exposed strata are consequences of the edit, not pre-authored.
+  the field's own cells. Craters, debris and exposed strata are consequences of the edit, not authored.
 - **Animals are cues to resources, not just competitors ("watch the vultures").** A carcass
   advertises itself: the corpse deposits a decaying carrion/food scent into the shared `MaterialScent3D`
   channels of `LAMaterialField3D` (the old `LAScentField` markers are retired).
@@ -109,7 +109,7 @@ to visuals that seed a source and *read back* the feature the field produces.
   smell would.
 - **An eruption is observed, never caused (`LAFieldPhenomena`).** There is no `Volcano.gd` and no vent
   seed. Melt rises because overpressure drives it, cold seawater quenches it into conserved `rock_fill`,
-  the pile accumulates through the `mineral_total` ledger, and `MineralStamp3D` turns a `rock_fill`
+  the pile accumulates through the `mineral_total` ledger, and the mesh detector turns a `rock_fill`
   0.5-crossing into walkable terrain. The detector reads melt standing in an open cell and calls that an
   eruption; a marker follows it. *Steam blasts, geysers and lava bombs are the same pressure-release rule
   at other thresholds — free, once the rule exists.*
