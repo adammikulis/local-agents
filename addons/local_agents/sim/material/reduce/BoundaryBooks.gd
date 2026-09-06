@@ -12,10 +12,6 @@ var _n: LAFieldLedger = null
 
 var missing: PackedStringArray:
 	get: return _n.boundary_missing()
-var heat_net: float:
-	get: return _n.boundary_heat_net()
-var heat_gross: float:
-	get: return _n.boundary_heat_gross()
 
 
 func _init() -> void:

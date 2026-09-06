@@ -23,6 +23,18 @@ float la_bm_strain(float p_pa, float k0, float kprime) {
 	float a = 1.5 * (kprime - 4.0);
 	float lo = -0.45;
 	float hi = 1.5;
+	// P(f) rises only between its turning points, 9a f^2 + (7 + 2a) f + 1 = 0; outside them the sign test
+	// below brackets a root that is not the state. Native twin LASubstances::bm_strain.
+	float disc = (7.0 + 2.0 * a) * (7.0 + 2.0 * a) - 36.0 * a;
+	if (a != 0.0 && disc > 0.0) {
+		float s = sqrt(disc);
+		float r1 = (-(7.0 + 2.0 * a) + s) / (18.0 * a);
+		float r2 = (-(7.0 + 2.0 * a) - s) / (18.0 * a);
+		lo = r1 < 0.0 ? max(lo, r1) : lo;
+		hi = r1 < 0.0 ? hi : min(hi, r1);
+		lo = r2 < 0.0 ? max(lo, r2) : lo;
+		hi = r2 < 0.0 ? hi : min(hi, r2);
+	}
 	float f = clamp(p_pa / (3.0 * k0), lo, hi);
 	for (int i = 0; i < 20; ++i) {
 		float r = la_bm_p(f, k0, a) - p_pa;
