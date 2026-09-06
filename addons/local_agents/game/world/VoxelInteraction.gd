@@ -20,6 +20,7 @@ var _game_hud: CanvasLayer = null   # LAGameHud — the objective/summary overla
 var _audio = null
 var _brush = null            # LAVoxelSpawnBrush
 var _companion = null        # LACompanionController — routes tame/command input to bonded creatures (set by the root)
+var _test_masses = null      # LATestMass3D — the probes the G key releases; null where gravity is not solved
 
 const BEFRIEND_GAIN: float = 0.25   # bond gained per B-press (feed/pet) — a couple of presses tames a creature
 
@@ -54,6 +55,20 @@ func setup(world, terrain, camera: Camera3D, ecology: Node, hud: CanvasLayer, au
 ## the instance it created — this node holds no cyclic type reference).
 func set_game_hud(game_hud: CanvasLayer) -> void:
 	_game_hud = game_hud
+
+
+## Wire the probes the drop key releases. A world with no solved gravity offers no drop at all.
+func set_test_masses(probes) -> void:
+	_test_masses = probes if probes != null and probes.has_method("active") and probes.active() else null
+
+
+## Release a test mass where the eye stands. It falls under the solved field and stops on the ground.
+func drop_test_mass() -> void:
+	if _test_masses == null or _camera == null:
+		return
+	var id: int = _test_masses.drop_at(_camera.global_position)
+	if _hud != null and _hud.has_method("set_status"):
+		_hud.set_status("Test mass %d released — watch the line it leaves." % id)
 
 
 ## Wire the companion controller (composition root passes it) so the tame/command keys route through one owner.
@@ -100,6 +115,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	# hang off the same toggle set as those systems come online.
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_T:
 		_world.toggle_temp_view()
+		return
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_G \
+			and _test_masses != null:
+		drop_test_mass()
 		return
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_M:
 		if _hud != null and _hud.has_method("toggle_audio_menu"):

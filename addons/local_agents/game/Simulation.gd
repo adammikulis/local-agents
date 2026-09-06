@@ -14,6 +14,7 @@ extends Node3D
 @onready var _events: Node = $EventTracker
 @onready var _moon: LAMoon = $Moon
 @onready var _orbits: LASystemOrbits = $SystemOrbits
+@onready var _test_masses: LATestMasses = $TestMasses
 @onready var _impacts: LAMeteorImpacts = $MeteorImpacts
 @onready var _markers: LAPhenomenaMarkers = $PhenomenaMarkers
 @onready var _spawn: LAVoxelSpawnController = $SpawnController
@@ -85,6 +86,7 @@ func _wire_loop() -> void:
 	_loop.seeding.connect(_on_seeding)
 	_loop.stepped.connect(_on_step)
 	_loop.stepped.connect(Callable(_material.step_driver(), "step").unbind(1))
+	_subscribe("test_mass", _test_masses)
 	_subscribe("ecology", _ecology)
 	_subscribe("events", _events)
 	_subscribe("timeline", _timeline)
@@ -189,6 +191,7 @@ func _validate_grid(grid: LAVoxelGrid) -> void:
 
 
 func _build_system() -> void:
+	_test_masses.setup(_body, _material)
 	_orbits.setup(_body, _star, _material)
 	_orbits.set_moon(_moon)
 	LASimReport.register(Callable(_orbits, "report"))
@@ -218,14 +221,14 @@ func set_probe_flags(overview: bool, farview: bool, auto_meteor: bool, auto_sele
 func _on_step(_step: int) -> void:
 	var dt: float = LAMaterialFieldSphereStep3D.SIM_SECONDS_PER_STEP
 	_clock.advance()
+	var spin: float = _body.angular_velocity_rad_s()
+	if _spawn.is_spawned() and is_finite(spin):
+		_body.rotate(_body.spin_axis(), spin * dt)
 	_orbits.update(dt)
 	# The sun's world direction, published to ecology so night is a place on the sphere rather than a clock.
 	if _ecology.has_method("set_sun"):
 		var centre: Vector3 = _body.center()
 		_ecology.set_sun((_star.global_position - centre).normalized(), centre)
-	var spin: float = _body.angular_velocity_rad_s()
-	if _spawn.is_spawned() and is_finite(spin):
-		_body.rotate(_body.spin_axis(), spin * dt)
 	_spawn.try_spawn(_overview, _farview, _auto_meteor, _auto_select)
 
 
@@ -241,6 +244,7 @@ func ecology() -> Node: return _ecology
 func material_field() -> Node: return _material
 func moon() -> LAMoon: return _moon
 func orbits() -> LASystemOrbits: return _orbits
+func test_masses() -> LATestMasses: return _test_masses
 func meteor_impacts() -> LAMeteorImpacts: return _impacts
 func phenomena_markers() -> LAPhenomenaMarkers: return _markers
 func spawn_controller() -> LAVoxelSpawnController: return _spawn

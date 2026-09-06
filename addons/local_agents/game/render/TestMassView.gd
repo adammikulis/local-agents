@@ -1,0 +1,98 @@
+class_name LATestMassView
+extends Node3D
+
+## THE TEST MASSES, DRAWN: a marker where each probe is and the column it fell down, from the release
+## point to where it stands now. The integrator carries the release point in the body's own frame, so
+## the column stays over the ground it was dropped from while the planet turns under it.
+
+const MARKER_COLOUR: Color = Color(1.0, 0.55, 0.10)
+const TRAIL_COLOUR: Color = Color(1.0, 0.80, 0.38)
+## Marker radius and column width as fractions of the distance from the eye, so a probe two kilometres
+## away and one at your feet are both a few pixels across, and the smallest either is drawn, metres.
+const MARKER_SUBTEND: float = 0.006
+const TRAIL_SUBTEND: float = 0.003
+const MIN_SIZE_M: float = 0.4
+
+var _probes: Node = null
+var _camera: Camera3D = null
+var _markers: MultiMeshInstance3D = null
+var _trails: MultiMeshInstance3D = null
+
+
+func setup(probes: Node, camera: Camera3D) -> void:
+	_probes = probes
+	_camera = camera
+	name = "TestMassView"
+	_markers = _instances(_sphere(), MARKER_COLOUR)
+	_trails = _instances(BoxMesh.new(), TRAIL_COLOUR)
+	visible = _probes != null and _probes.has_method("rows")
+
+
+func _process(_delta: float) -> void:
+	if not visible or _camera == null or not is_instance_valid(_camera):
+		return
+	var rows: Array = _probes.rows()
+	var eye: Vector3 = _camera.global_position
+	for mm: MultiMesh in [_markers.multimesh, _trails.multimesh]:
+		if mm.instance_count < rows.size():
+			mm.instance_count = rows.size()
+		mm.visible_instance_count = rows.size()
+	for i in range(rows.size()):
+		var pos: Vector3 = rows[i]["position"]
+		var from: Vector3 = rows[i]["from"]
+		var dist: float = maxf(eye.distance_to(pos), 1.0)
+		var r: float = maxf(MIN_SIZE_M, MARKER_SUBTEND * dist)
+		_markers.multimesh.set_instance_transform(i,
+			Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * r), pos))
+		# The column is measured from the part of it the eye is nearest, or standing beside its foot
+		# makes a two-kilometre wall of a line that is a few pixels wide from anywhere else.
+		var near: float = maxf(eye.distance_to(_nearest_on(from, pos, eye)), 1.0)
+		_trails.multimesh.set_instance_transform(i, _column(from, pos,
+			maxf(MIN_SIZE_M, TRAIL_SUBTEND * near)))
+
+
+## The point of segment [a, b] closest to `p`.
+static func _nearest_on(a: Vector3, b: Vector3, p: Vector3) -> Vector3:
+	var along: Vector3 = b - a
+	var len2: float = along.length_squared()
+	if len2 <= 0.0:
+		return a
+	return a + along * clampf((p - a).dot(along) / len2, 0.0, 1.0)
+
+
+## A box spanning `a` to `b`, `w` across: the path the probe took, given a width the eye can find.
+static func _column(a: Vector3, b: Vector3, w: float) -> Transform3D:
+	var along: Vector3 = b - a
+	var len_m: float = along.length()
+	if len_m <= 0.0:
+		return Transform3D(Basis.IDENTITY.scaled(Vector3.ZERO), a)
+	var y: Vector3 = along / len_m
+	var ref: Vector3 = Vector3.UP if absf(y.y) < 0.95 else Vector3.RIGHT
+	var x: Vector3 = ref.cross(y).normalized()
+	return Transform3D(Basis(x * w, y * len_m, y.cross(x) * w), 0.5 * (a + b))
+
+
+func _instances(mesh: Mesh, col: Color) -> MultiMeshInstance3D:
+	var node: MultiMeshInstance3D = MultiMeshInstance3D.new()
+	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var mm: MultiMesh = MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.mesh = mesh
+	mm.instance_count = 0
+	node.multimesh = mm
+	var mat: StandardMaterial3D = StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = col
+	mat.disable_receive_shadows = true
+	node.material_override = mat
+	add_child(node)
+	return node
+
+
+static func _sphere() -> SphereMesh:
+	var m: SphereMesh = SphereMesh.new()
+	m.radius = 1.0
+	m.height = 2.0
+	m.radial_segments = 12
+	m.rings = 6
+	return m

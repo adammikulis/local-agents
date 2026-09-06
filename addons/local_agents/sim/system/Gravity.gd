@@ -67,11 +67,6 @@ static func _ensure(tree: SceneTree) -> void:
 		publish(tree)
 
 
-static func reference_body(tree: SceneTree) -> Object:
-	_ensure(tree)
-	return _frame_of(_nodes)
-
-
 static func acceleration_at(tree: SceneTree, pos: Vector3, exclude: Object = null) -> Vector3:
 	_ensure(tree)
 	return LABallistics.acceleration_at(pos, _nodes.find(exclude) if exclude != null else -1)
@@ -112,10 +107,12 @@ static func system_mu(tree: SceneTree) -> float:
 
 
 ## The field's own state, handed over whenever it re-solves: the grid, the drained gravity mirror, the
-## solid mask and the channel mirrors a medium's mass density is summed from.
+## solid mask, the channel mirrors a medium's mass density is summed from, and the body frame the grid
+## is laid in — a free body flies in the world's frame and the box rides the body's.
 static func publish_field(field) -> void:
 	if field == null or field._grid == null or field._gravity == null:
 		LABallistics.clear_field()
 		return
+	field.sync_body_frame()
 	LABallistics.set_field(field._grid, field._gravity.mirror(), field._solid,
-		LAFieldCellMass3D.mirrors(field))
+		LAFieldCellMass3D.mirrors(field), field._body_basis, field.centre())

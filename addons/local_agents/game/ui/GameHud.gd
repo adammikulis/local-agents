@@ -23,6 +23,7 @@ const NOTABLE_CAP_LABELS: Dictionary = {
 @onready var _summary_col: VBoxContainer = $GameHudRoot/Summary/Margin/Col
 
 var _rung_readout: LAProcessRungReadout = null
+var _test_mass_readout: LATestMassReadout = null
 
 var _progression: LAGameProgression = null
 var _connected: bool = false
@@ -40,6 +41,16 @@ func _ready() -> void:
 	_connect_progression()
 	_refresh()
 	print("GAME_HUD={ready:true, progression:%s}" % str(_progression != null))
+
+
+## The probe readout, built only for a world that solves a gravity field for one to fall through.
+func set_test_masses(probes: Node, drop: Callable) -> void:
+	if probes == null or not probes.has_method("active") or not probes.active():
+		return
+	_test_mass_readout = LATestMassReadout.new()
+	_test_mass_readout.setup(probes)
+	_test_mass_readout.drop_requested.connect(drop)
+	_summary_col.add_child(_test_mass_readout)
 
 
 ## Show/hide the whole gamified overlay.
@@ -145,6 +156,8 @@ func _refresh_summary() -> void:
 		_rung_readout = LAProcessRungReadout.new()
 		_summary_col.add_child(_rung_readout)
 	_rung_readout.refresh()
+	if _test_mass_readout != null:
+		_test_mass_readout.refresh()
 	var snap: Dictionary = LASimReport.snapshot(true)
 	var creatures: int = int(snap.get("creatures", 0))
 	var top_gen: int = int(snap.get("max_generation", 0))

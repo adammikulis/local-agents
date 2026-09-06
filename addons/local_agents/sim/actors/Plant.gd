@@ -393,10 +393,6 @@ func _food_capacity() -> float:
 	return nectar if flower else FOOD_CAPACITY
 
 
-func is_flower() -> bool:
-	return flower
-
-
 func has_seed() -> bool:
 	return _seed_ready
 

@@ -527,9 +527,6 @@ func spawn_nest(site: Vector3, nest_species: String, owner_family: int, in_tree:
 # Animal-call relay lives in LAEcologyStimulus (the broadcast bus); thin forwarder for the caller creature.
 func broadcast_call(world_pos: Vector3, from_species: String, call_type: String, caller) -> void:
 	_stimulus.broadcast_call(world_pos, from_species, call_type, caller)
-
-
-# Grow a plant at world_pos if the plant population is under its cap. Called by wildfire ash regrowth. (It
 # also claimed LAMaterialScent3D called it where soil fertility is richest. That module never called this.)
 func seed_plant_at(world_pos: Vector3) -> void:
 	var cap: int = int(_plant_config().get("pop_cap", 120))

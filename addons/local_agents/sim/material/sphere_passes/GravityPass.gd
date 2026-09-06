@@ -219,6 +219,12 @@ func _push(mode: int, colour: int, cc: int) -> PackedByteArray:
 	return pc
 
 
+## The last drained readings. A world at rest dispatches nothing, and the field it stands in is still
+## the field it solved, so the gauges are republished from here rather than going absent.
+func latest() -> Dictionary:
+	return _last
+
+
 ## Read at the drain, and only on the steps a solve ran: g changes nowhere else.
 func _drain(rd: RenderingDevice) -> Dictionary:
 	if not _read_due or not _moments.is_valid():

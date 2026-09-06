@@ -55,6 +55,10 @@ func build(world: Node, sim: LASimulation, render: LARenderLayer, input: LAVoxel
 
 	_brush.setup(_world, terrain, camera, sim.ecology(), _hud, _audio, sim.actors_root())
 	_interaction.setup(_world, terrain, camera, sim.ecology(), _hud, _audio, _brush)
+	# The test masses: the readout and its drop button, offered only where gravity is solved.
+	_interaction.set_test_masses(sim.test_masses())
+	if _game_hud.has_method("set_test_masses"):
+		_game_hud.set_test_masses(sim.test_masses(), Callable(_interaction, "drop_test_mass"))
 	_interaction.set_game_hud(_game_hud)
 	_companion.setup(camera, terrain, _hud)
 	_interaction.set_companion(_companion)

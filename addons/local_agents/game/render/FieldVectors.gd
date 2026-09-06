@@ -18,19 +18,22 @@ const GRAVITY_PASS: String = "GravityPass.gd"
 const MOMENTUM_TRANSPORT: String = "mom_flux"
 
 ## PRESENTATION SCALE for the wind ramp, m/s: a jet stream. At it the glyph is full length and the ramp
-## is saturated. The gravity ramp has no constant — it saturates at the body's own measured surface
-## gravity, so a glyph there reads as a fraction of standing weight.
+## is saturated. The gravity ramp has no constant: it saturates at the largest |g| among the glyphs this
+## rebuild drew, which the legend prints, so nothing stands in for a magnitude nobody measured.
 const WIND_REF_M_S: float = 70.0
 
-## Half-angle of the camera-centred cap the glyphs are built over, radians. Outside it a cell is on the
-## far side of the body.
-const CAP_ANGLE: float = 0.8
-## A glyph subtending less than this, in radians, is under a pixel of the frame: not decimation, absence.
-const MIN_SUBTEND_RAD: float = 0.002
+## THE GLYPH IS DRAWN AT A FIXED ANGLE, radians: a quiver reads the same from a metre up and from orbit,
+## and cell-sized arrows are a wall of fill from anywhere inside the box.
+const GLYPH_SUBTEND_RAD: float = 0.05
+## THE SAMPLE IS A LATTICE ABOUT THE EYE, this many points on a side, spaced at a fraction of the eye's
+## own height over the body. Every cell of a graded box is millions of glyphs and a walk nobody affords;
+## what is asked for instead is the field where the viewer is standing, at the density it reads at.
+const LATTICE_SIDE: int = 15
+const LATTICE_SPACING_FRAC: float = 0.25
 const REBUILD_PERIOD: float = 0.22
 const RECENTER_DOT: float = 0.999
-## Glyph girth as a fraction of the cell edge.
-const THICK_FRAC: float = 0.22
+## Glyph girth as a fraction of its own length: an arrow's head is a quarter of the arrow.
+const THICK_FRAC: float = 1.25
 const STRIPES: int = 6
 
 ## Which vector field the glyphs draw: "wind", "gravity", or "off".
@@ -117,36 +120,27 @@ func drawn() -> int:
 
 
 func _apply_source() -> void:
-	_ref = 0.0
-	if source == SOURCE_WIND:
-		_ref = WIND_REF_M_S
-	elif source == SOURCE_GRAVITY:
-		_ref = _gravity_reference()
-	visible = _ref > 0.0
-	# The body measures its own gravity after the seal, so a gravity source keeps looking until it can.
-	set_process(_ref > 0.0 or source == SOURCE_GRAVITY)
+	_ref = WIND_REF_M_S if source == SOURCE_WIND else 0.0
+	visible = source != SOURCE_OFF
+	set_process(visible)
 	if not visible:
 		_drawn = 0
 		if _mm != null:
 			_mm.visible_instance_count = 0
 		return
-	_mat.set_shader_parameter("v_ref", _ref)
+	if _ref > 0.0:
+		_mat.set_shader_parameter("v_ref", _ref)
 	_accum = REBUILD_PERIOD
-
-
-## The field's own mean |g|, m/s^2, reduced on the device. A body has no one surface gravity; the ramp
-## saturates at what the solve actually produced. 0 before it has solved.
-func _gravity_reference() -> float:
-	return float(_f._gravity.mean_g()) if _f != null and _f._gravity != null else 0.0
 
 
 func _process(delta: float) -> void:
 	if _f == null or _camera == null or not is_instance_valid(_camera):
 		return
-	if _ref <= 0.0:
-		_apply_source()
-		return
-	var cam_pos: Vector3 = _camera.global_position
+	# THE LATTICE IS LAID IN THE BODY'S FRAME. The glyphs are built from the grid's own cell centres and
+	# vectors, so the node carries the field -> world map and the eye comes the other way through it.
+	var frame: Basis = _f._body_basis
+	global_transform = Transform3D(frame, _centre - frame * _centre)
+	var cam_pos: Vector3 = _f.point_to_field(_camera.global_position)
 	var radial: Vector3 = (cam_pos - _centre).normalized()
 	_accum += delta
 	if _accum < REBUILD_PERIOD and _last_radial.dot(radial) > RECENTER_DOT:
@@ -156,52 +150,66 @@ func _process(delta: float) -> void:
 	_rebuild(cam_pos, radial)
 
 
-func _rebuild(cam_pos: Vector3, radial: Vector3) -> void:
+func _rebuild(cam_pos: Vector3, _radial: Vector3) -> void:
 	var grid = _f._grid
 	if grid == null:
 		return
 	var n: int = int(grid.cell_count)
 	var solid: PackedByteArray = _f._solid
-	if solid.size() != n:
+	var centres: PackedVector3Array = grid.centres
+	if solid.size() != n or centres.size() != n:
 		return
 	var wind: bool = source == SOURCE_WIND
 	if wind and not _f._mirrors.has("vel_x"):
 		return
-	# THE GRADED GRID'S OWN CELLS: every leaf's centre and edge read once as an array, never a per-cell
-	# call that recomputes the edge from its level.
-	var edges: PackedFloat32Array = grid.cell_edges()
-	var centres: PackedVector3Array = grid.centres
-	if edges.size() != n or centres.size() != n:
+	# The lattice about the eye, in the grid's own frame, spaced off the eye's height over the body.
+	var alt: float = maxf((cam_pos - _centre).length() - _sea_radius, 1.0)
+	# Never coarser than the grid's own coarse cell, or the lattice steps over whole cells of it.
+	var spacing: float = minf(LATTICE_SPACING_FRAC * alt, float(grid.cell_size))
+	var half: int = LATTICE_SIDE / 2
+	var seen: Dictionary = {}
+	var picked: PackedInt32Array = PackedInt32Array()
+	var vecs: PackedVector3Array = PackedVector3Array()
+	var ref: float = 0.0
+	for ix in range(-half, half + 1):
+		for iy in range(-half, half + 1):
+			for iz in range(-half, half + 1):
+				var at: Vector3 = cam_pos + Vector3(ix, iy, iz) * spacing
+				var c: int = grid.cell_at(at)
+				if c < 0 or seen.has(c) or solid[c] != 0:
+					continue
+				seen[c] = true
+				var v: Vector3 = _vector_at(c, wind)
+				var mag: float = v.length()
+				if mag <= 0.0:
+					continue           # nothing to aim a glyph along; an arrow there would be invented
+				picked.append(c)
+				vecs.append(v)
+				ref = maxf(ref, mag)
+	# The ramp's own top: the wind's declared jet, or the largest field magnitude actually drawn.
+	if _ref <= 0.0 or not wind:
+		_ref = ref
+	_drawn = 0
+	visible = _ref > 0.0
+	if not visible:
+		_mm.visible_instance_count = 0
 		return
-	var cap: float = cos(CAP_ANGLE)
-	var reach: float = float(_camera.far) if _camera is Camera3D else INF
+	_mat.set_shader_parameter("v_ref", _ref)
+	var alt_span: float = 1.0
 	var xforms: Array = []
 	var customs: Array = []
-	var alt_span: float = 1.0
-	for c in n:
-		if solid[c] != 0:
-			continue
-		var pos: Vector3 = centres[c]
-		var off: Vector3 = pos - _centre
-		var r: float = off.length()
-		if r <= 0.0 or off.dot(radial) / r < cap:
-			continue
-		var dist: float = cam_pos.distance_to(pos)
-		var edge: float = edges[c]
-		# The grid's own refinement IS the level of detail: one glyph per leaf, and a leaf too small or
-		# too far to cover a pixel is not drawn at all.
-		if dist > reach or edge / maxf(dist, 1.0e-3) < MIN_SUBTEND_RAD:
-			continue
-		var v: Vector3 = _vector_at(c, wind)
-		var mag: float = v.length()
-		if mag <= 0.0:
-			continue                       # nothing to aim a glyph along; an arrow there would be invented
-		var frac: float = minf(mag / _ref, 1.0)
-		var alt: float = r - _sea_radius
-		alt_span = maxf(alt_span, absf(alt))
-		xforms.append(Transform3D(_aim(v, mag, edge * THICK_FRAC, edge * frac), pos))
+	for i in picked.size():
+		var c2: int = picked[i]
+		var v2: Vector3 = vecs[i]
+		var mag2: float = v2.length()
+		var pos2: Vector3 = centres[c2]
+		var span: float = GLYPH_SUBTEND_RAD * maxf(cam_pos.distance_to(pos2), 1.0)
+		var frac: float = minf(mag2 / _ref, 1.0)
+		var alt_c: float = (pos2 - _centre).length() - _sea_radius
+		alt_span = maxf(alt_span, absf(alt_c))
+		xforms.append(Transform3D(_aim(v2, mag2, span * THICK_FRAC, span * frac), pos2))
 		# A stable per-cell stripe offset, so a lattice of equal glyphs does not march in lockstep.
-		customs.append(Color(mag, float(c % 97) / 97.0, maxf(alt, 0.0), edge * frac))
+		customs.append(Color(mag2, float(c2 % 97) / 97.0, maxf(alt_c, 0.0), span * frac))
 	_drawn = xforms.size()
 	_mat.set_shader_parameter("alt_fade_m", alt_span)
 	if _drawn > _capacity:
