@@ -2,7 +2,6 @@ class_name LAMeteor
 extends Node3D
 
 
-const BODY_RADIUS: float = 1.4
 const FX_LINGER: float = 1.8               # seconds of FX after impact before free
 ## Transient cavity depth over its diameter (Melosh 1989, Impact Cratering, ch. 7).
 const TRANSIENT_DEPTH_PER_DIAMETER: float = 1.0 / 3.0
@@ -28,8 +27,9 @@ var _glow: OmniLight3D = null
 var _trail: GPUParticles3D = null
 var _picker: StaticBody3D = null
 
-# Per-meteor size, drawn on launch: the impactor's own diameter, in body radii.
-var _size: float = 1.0
+# The rock itself, fixed on launch: the mass the measured flux delivered and the ball that mass makes.
+var _mass_kg: float = 0.0
+var _radius_m: float = 0.0
 
 
 func _ready() -> void:
@@ -54,51 +54,82 @@ func _radius() -> float:
 	var sin_theta: float = clampf(-_impact_velocity.normalized().dot(up), 0.0, 1.0)
 	if sin_theta <= 0.0:
 		return 0.0
-	var l: float = 2.0 * BODY_RADIUS * _size
+	var l: float = 2.0 * _radius_m
 	return 0.5 * 1.161 * pow(l, 0.78) * pow(v, 0.44) * pow(g, -0.22) * pow(sin_theta, 1.0 / 3.0)
 
 
-func launch(target: Vector3, from_pos: Vector3 = Vector3(INF, INF, INF), size_scale: float = 1.0) -> void:
+## False when this world could not say what arrives or how fast, in which case nothing was launched.
+func launch(target: Vector3, from_pos: Vector3 = Vector3(INF, INF, INF), size_scale: float = 1.0) -> bool:
 	_target = target
-	# The caller's size hint scales the rock the brush flings.
-	_size = clampf(LASimRng.for_domain("planet").randf_range(0.55, 2.3) * size_scale, 0.2, 8.0)
+	# DECISION: the caller's hint is a player's hand picking a bigger rock; an ambient arrival passes 1.0
+	# and is the flux law's own draw.
+	var energy_j: float = _draw_energy_j(LASimRng.for_domain("planet")) * size_scale
 	var velocity: Vector3 = Vector3.ZERO
 	if is_finite(from_pos.x) and is_finite(from_pos.y) and is_finite(from_pos.z):
 		# Player-fired: leave the camera along the aim ray at the local circular-orbit speed and coast.
-		var aim: Vector3 = target - from_pos
-		if aim.length() < 0.001:
+		var aim: Vector3 = (target - from_pos).normalized()
+		if aim == Vector3.ZERO:
 			aim = Vector3.DOWN
-		aim = aim.normalized()
 		_spawned_at = from_pos + aim * 3.0
-		velocity = aim * LAGravity.circular_speed(get_tree(), _spawned_at)
+		var speed: float = LAGravity.circular_speed(get_tree(), _spawned_at)
+		if not _size_from(energy_j, speed):
+			return false
+		velocity = aim * speed
 	else:
-		var approach: Dictionary = _approach(target)
+		var approach: Dictionary = _approach(target, energy_j)
 		if approach.is_empty():
-			queue_free()
-			return
+			return false
 		_spawned_at = approach["release"] as Vector3
 		velocity = approach["velocity"] as Vector3
 	global_position = _spawned_at
-	_body_id = LABallistics.drop(_spawned_at, velocity, _impact_mass_kg(), BODY_RADIUS * _size)
-	# Bigger rock = bigger visual body, glow and trail.
-	if _body != null:
-		_body.scale = Vector3.ONE * _size
-	if _glow != null:
-		_glow.omni_range = 30.0 * _size
+	_body_id = LABallistics.drop(_spawned_at, velocity, _mass_kg, _radius_m)
+	_scale_visual()
 	_state = State.FALLING
 	if _trail != null:
 		_trail.emitting = true
+	return true
+
+
+## ONE ARRIVAL'S ENERGY, J: the measured bolide flux N(>E) (Brown et al. 2002, Nature 420:294) inverted
+## at a uniform draw, over the energies it was fitted across.
+static func _draw_energy_j(rng: LASimRng) -> float:
+	var a: float = LAPhysical.BOLIDE_FLUX_EXPONENT
+	var u: float = rng.randf()
+	return pow(u * pow(LAPhysical.BOLIDE_FIT_KT[0], -a)
+		+ (1.0 - u) * pow(LAPhysical.BOLIDE_FIT_KT[1], -a), -1.0 / a) * LAPhysical.KILOTON_TNT_J
+
+
+## The rock that carries `energy_j` at `speed`, and the ball an ordinary chondrite of that mass makes.
+func _size_from(energy_j: float, speed: float) -> bool:
+	if not (energy_j > 0.0 and speed > 0.0):
+		push_error("LAMeteor: an arrival with no speed carries no energy, so it has no mass.")
+		return false
+	_mass_kg = 2.0 * energy_j / (speed * speed)
+	_radius_m = pow(3.0 * _mass_kg / (4.0 * PI * LAPhysical.CHONDRITE_DENSITY_KG_M3), 1.0 / 3.0)
+	return true
+
+
+## The mesh is authored at one size; the rock has its own. Presentation, read off the mesh's own bounds.
+func _scale_visual() -> void:
+	var authored: float = (_body.mesh.get_aabb().size.x * 0.5
+		if _body != null and _body.mesh != null else 0.0)
+	if authored > 0.0:
+		_body.scale = Vector3.ONE * (_radius_m / authored)
 
 
 ## WHERE A ROCK COMES IN AND HOW FAST: the incidence angle follows the sin(2 theta) law an isotropic flux
 ## makes on a sphere (Melosh 1989, ch. 2), and the release point is the first altitude above the target
 ## that carries no air.
-func _approach(target: Vector3) -> Dictionary:
+func _approach(target: Vector3, energy_j: float) -> Dictionary:
 	var up0: Vector3 = _up_at(target)                            # publishes the system this reads back
 	var i: int = LABallistics.dominant(target)
 	var mu: float = LABallistics.body_mu(i) if i >= 0 else 0.0
-	if mu <= 0.0:
+	var r0: float = (target - LABallistics.body_center(i)).length() if i >= 0 else 0.0
+	if mu <= 0.0 or r0 <= 0.0:
 		push_error("LAMeteor: no body with a measured mass at %s, so no arrival speed can be read." % target)
+		return {}
+	# The rock is what carries the drawn energy in at the speed a zero-excess arrival reaches the ground.
+	if not _size_from(energy_j, sqrt(2.0 * mu / r0)):
 		return {}
 	var tangent: Vector3 = up0.cross(Vector3.RIGHT)
 	if tangent.length() < 0.01:
@@ -127,7 +158,7 @@ func _air_top(target: Vector3, up0: Vector3) -> float:
 	if not LABallistics.has_field():
 		return 0.0
 	var ceiling: float = LABallistics.body_radius(LABallistics.dominant(target))
-	var altitude: float = 2.0 * BODY_RADIUS * _size
+	var altitude: float = 2.0 * _radius_m
 	while altitude < ceiling:
 		if LABallistics.medium_density_at(target + up0 * altitude) <= 0.0:
 			return altitude
@@ -223,16 +254,6 @@ func on_bodies_landed(rows: Array) -> void:
 		return
 
 
-func _impact_mass_kg() -> float:
-	var r: float = BODY_RADIUS * _size
-	return LAPhysical.ROCK_DENSITY_KG_M3 * (4.0 / 3.0) * PI * r * r * r
-
-
-func _impact_energy_j() -> float:
-	var speed: float = _impact_velocity.length()
-	return 0.5 * _impact_mass_kg() * speed * speed
-
-
 ## Radial "up" (away from the nearest gravity body's core) at a world point — the dominant body, else the
 ## terrain planet, else world up. Used for the ballistic spawn + orientation so nothing assumes world +Y.
 func _up_at(pos: Vector3) -> Vector3:
@@ -253,20 +274,17 @@ func _on_impact() -> void:
 	# Momentum into the planet's orbit: the rock's own mass times its impact velocity.
 	var orbits: Node = get_tree().get_first_node_in_group("system_orbits")
 	if orbits != null and orbits.has_method("apply_impulse"):
-		orbits.apply_impulse(_impact_velocity * _impact_mass_kg())
+		orbits.apply_impulse(_impact_velocity * _mass_kg)
 
 	var r: float = _radius()
 	# Big splash if it struck water.
 	if _ecology != null and _ecology.has_method("material_field"):
 		var water: Object = _ecology.material_field()
 		if water != null and water.has_method("is_water_at") and water.is_water_at(_impact_point):
-			water.splash(_impact_point, 3.5 * _size)
+			water.splash(_impact_point, r)
 			# White-hot rock hitting water flashes to steam — sizzle + a steam hiss.
 			LAAudioDirector.emit(get_tree(), "sizzle", _impact_point)
 			LAAudioDirector.emit(get_tree(), "steam", _impact_point)
-	# Terror shockwave: everything that hears/feels the impact panics and flees.
-	if _ecology != null and _ecology.has_method("broadcast_scare"):
-		_ecology.broadcast_scare(_impact_point, r * 6.0, 1.0)
 	if _ecology != null and _ecology.has_method("material_field") and r > 0.0:
 		_spend_impact(_ecology.material_field(), r)
 
@@ -294,7 +312,8 @@ func _spend_impact(field: Object, crater_r: float) -> void:
 	var centroid: Vector3 = _impact_point - _up_at(_impact_point) * float(cav["centroid_m"])
 	var want_kg: float = LAPhysical.ROCK_DENSITY_KG_M3 * float(cav["volume_m3"])
 	var thrown_j: float = field.eject(centroid, want_kg, speed)
-	var share: Dictionary = partition(_impact_energy_j(), 2.0 * thrown_j / (speed * speed), g, crater_r)
+	var arrived_j: float = 0.5 * _mass_kg * _impact_velocity.length_squared()
+	var share: Dictionary = partition(arrived_j, 2.0 * thrown_j / (speed * speed), g, crater_r)
 	if float(share["heat_j"]) < 0.0:
 		push_error("LAMeteor: a %.1f m crater's ejecta wants more than the impact arrived with." % crater_r)
 		return
