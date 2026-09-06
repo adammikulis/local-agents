@@ -54,7 +54,7 @@ const SLOT: Dictionary = {
 	"reaction_defs": 160,
 	# the selftest probes
 	# water_rho is kg/m^3 the cell's own liquid water stands at
-	"stack_probe": 161, "enthalpy_probe": 162, "water_rho": 173
+	"stack_probe": 161, "enthalpy_probe": 162, "water_rho": 173, "tide_bodies": 174
 }
 
 ## The slots each kernel's translation unit declares, its includes with it. A pass binds this
@@ -101,8 +101,8 @@ const IN_KERNEL: Dictionary = {
 		"h2o_liquid", "h2o_vapour", "water_rho", "silicate_melt", "vel_x", "vel_y", "vel_z", "speed", "lat",
 		"alt", "mach", "gas_r", "gas_gamma", "k_cond", "cap_sensible", "cap_lith", "h_h2o", "h_h2o_vap",
 		"h_silicate", "h_sensible", "lattice_frac", "lithic_frac", "lithic_kg", "org_hc", "org_oc", "org_fresh",
-		"bodyf_x", "bodyf_y", "bodyf_z", "g_rest", "ke_j_m3", "pe_j_m3", "mom_orphan", "nonfinite",
-		"unconverged", "rad_w_m3", "gravity", "grav_phi", "grav_ref", "derive_props", "level_idx", "level_args"],
+		"bodyf_x", "bodyf_y", "bodyf_z", "g_rest", "ke_j_m3", "pe_j_m3", "mom_orphan", "nonfinite", "unconverged",
+		"rad_w_m3", "gravity", "grav_phi", "grav_ref", "tide_bodies", "derive_props", "level_idx", "level_args"],
 }
 
 

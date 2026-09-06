@@ -177,5 +177,6 @@
 #define LA_BIND_STACK_PROBE         161
 #define LA_BIND_ENTHALPY_PROBE      162
 #define LA_BIND_WATER_RHO           173
+#define LA_BIND_TIDE_BODIES         174
 
 #endif

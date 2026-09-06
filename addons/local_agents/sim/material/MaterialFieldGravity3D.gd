@@ -22,6 +22,8 @@ func setup(field) -> void:
 func solve_step(step_index: int) -> void:
 	_bind()
 	var on: bool = _pass != null and LAProcessSet.is_active("pass", PASS_FILE)
+	# The bodies moved, so the tide they raise moved: refilled before the derive reads it.
+	LABallistics.upload_tide(_f._gpu._rd, _f._gpu._bufs.get("tide_bodies", RID()))
 	if on and (_switched_off or step_index % _pass.SOLVE_EVERY == 0):
 		solve()
 	_switched_off = not on
@@ -124,14 +126,6 @@ func down_table() -> PackedInt32Array:
 func mean_g() -> float:
 	_bind()
 	return float(_pass.mean_g()) if _pass != null else 0.0
-
-
-## The unit vector gravity points along at a cell — what "down" means here. Zero where g vanishes, and
-## zero before the first solve has been drained.
-func down_at(c: int) -> Vector3:
-	var v: Vector3 = g_vec_at(c)
-	var l: float = v.length()
-	return (v / l) if l > 0.0 else Vector3.ZERO
 
 
 ## The solved (or, in slice mode, declared-monopole) acceleration at a cell, m/s^2.

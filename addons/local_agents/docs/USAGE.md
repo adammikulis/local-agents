@@ -445,7 +445,7 @@ plus a camera, a light and a harness, and its script contains no world-building 
 | --- | --- | --- |
 | `world_type` | both | `SPHERE` (planet in a box field) or `FLAT` (ground plane plus a box field) |
 | `build_on_ready` | both | build automatically, or call `spawn_world()` yourself |
-| `body_seed`, `caves_enabled`, `tides_enabled` | SPHERE | which body is seeded, and its toggles |
+| `body_seed`, `caves_enabled` | SPHERE | which body is seeded, and its toggles |
 | `grid_res` | SPHERE | field cells along one edge of the box |
 | `sun_enabled` | SPHERE | build the child sun that drives the field's solar pass |
 | `flat_extent`, `flat_cell_size`, `ground_y` | FLAT | box extent, field cell size, floor height |

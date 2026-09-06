@@ -2,6 +2,7 @@
 #define LOCAL_AGENTS_LA_BALLISTICS_HPP
 
 #include <godot_cpp/classes/ref_counted.hpp>
+#include <godot_cpp/classes/rendering_device.hpp>
 #include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/basis.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
@@ -37,6 +38,23 @@ public:
 	// The Newtonian sum, frame-corrected. p_exclude drops one row from the direct term (a body does not
 	// pull on itself).
 	static Vector3 acceleration_at(const Vector3 &p_at, int p_exclude);
+
+	// THE TIDE. What every body but the frame's pulls at this point, LESS what it pulls at the frame
+	// body's own centre: the uniform part is that body's free fall and moves nothing standing on it.
+	// Murray & Dermott 1999, Solar System Dynamics, section 4.2.
+	static Vector3 tidal_at(const Vector3 &p_at);
+	// The tide at the sub-body point of the strongest raiser, over its own leading term 2 G M R / d^3.
+	// Above 1 and, by section 4.2's next order, under 1 + 3R/d. NAN with no frame body or no radius.
+	static double tide_peak_ratio();
+	// The potential the acceleration above is minus the gradient of, J/kg. Same section 4.2.
+	static double tidal_potential_at(const Vector3 &p_at);
+	// How many bodies can raise a tide here: every one LABodySeeds declares but the one the grid rides.
+	static int tide_rows();
+	// The rows for a kernel, in the FIELD's own frame: slot 0 how many rows follow, then 4 floats per
+	// body from slot 4 on — the offset from the frame body's centre, then GM. Sized for tide_rows().
+	static PackedFloat32Array tide_table();
+	// That table into a device buffer. A world whose gravity is switched off uploads a table of no rows.
+	static void upload_tide(RenderingDevice *p_rd, const RID &p_buffer);
 
 	// The field's own state, republished when it re-solves: the grid, the drained gravity mirror
 	// (flat cell*3, m/s^2), the solid mask (1 = rock), LAFieldCellMass3D.mirrors() for the medium's

@@ -199,4 +199,5 @@ func report() -> Dictionary:
 		"irradiance_w_m2": irr,
 		"orbit_status": status(),
 		"moon_dist_m": _moon_state.distance(),
+		"tide_peak_ratio": LABallistics.tide_peak_ratio(),
 	}

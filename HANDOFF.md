@@ -122,6 +122,10 @@ is an invented threshold. The design: kinematic until thrown; then a Jolt `Rigid
   above its bar on a land column; its vent arm reads an energy residual near a tenth of the turnover.
 - `scripts/sim_run.sh --rung 3 --frames 3 --report nonfinite_cells,mach_max` refuses a water record at
   light speed by the second frame; `LA_PASS_PROBE=mach LA_PASS_PROBE_STEPS=1` names the cell.
+- `scripts/sim_run.sh --rung 3 --frames 8 --report energy_run_drift_rel,energy_potential` books no term
+  for the work the tide does on matter that moves in it, so tidal heating leaves the energy book as
+  drift. Reading: `bodyf_x` in `MomentumRows.gd` books the impulse `g_eff` deposits and no row books
+  its energy.
 - Maintainer's decision, standing: the acoustic part of the momentum equation goes implicit (one
   Helmholtz solve per field step on `gravity_poisson.glsl`'s operator shape), the step is derived from
   the advective CFL, `SIM_SECONDS_PER_STEP` and the acoustic temporal levels are deleted; declared in
