@@ -1,25 +1,30 @@
 class_name LATestMassView
 extends Node3D
 
-## THE TEST MASSES, DRAWN: a marker where each probe is and the column it fell down, from the release
-## point to where it stands now. The integrator carries the release point in the body's own frame, so
-## the column stays over the ground it was dropped from while the planet turns under it.
+## THE TEST MASSES, DRAWN: a sphere where each probe is and the path it has taken, sampled where the
+## integrator put it each step. The integrator carries the release point in the body's own frame, so the
+## path stays over the ground it left while the planet turns under it.
 
 const MARKER_COLOUR: Color = Color(1.0, 0.55, 0.10)
 const TRAIL_COLOUR: Color = Color(1.0, 0.80, 0.38)
-## Marker radius and column width as fractions of the distance from the eye, so a probe two kilometres
+## Marker radius and trail width as fractions of the distance from the eye, so a probe two kilometres
 ## away and one at your feet are both a few pixels across.
 const MARKER_SUBTEND: float = 0.006
 const TRAIL_SUBTEND: float = 0.003
-## A COLUMN IS DRAWN IN PIECES, each sized at its OWN distance from the eye. One box over a two-kilometre
-## fall has one width, so standing at its foot puts a wall across the frame and standing off it leaves
-## nothing to see; in pieces the line recedes the way a line does.
-const TRAIL_PIECES: int = 24
+## Samples one probe's path keeps. At the cap every second sample is dropped, so the whole arc stays and
+## only its resolution halves.
+const TRAIL_SAMPLES: int = 96
+## A drawn piece spans at most this much of its own distance from the eye, so a long leg passing close by
+## is cut into pieces that each recede rather than standing as one slab across the frame.
+const PIECE_SUBTEND: float = 0.25
+const PIECE_MAX: int = 48
 
 var _probes: Node = null
 var _camera: Camera3D = null
 var _markers: MultiMeshInstance3D = null
 var _trails: MultiMeshInstance3D = null
+## probe id -> the world points it has stood at, release point first.
+var _paths: Dictionary = {}
 
 
 func setup(probes: Node, camera: Camera3D) -> void:
@@ -36,18 +41,78 @@ func _process(_delta: float) -> void:
 		return
 	var rows: Array = _probes.rows()
 	var eye: Vector3 = _camera.global_position
+	_sample(rows)
 	_fit(_markers.multimesh, rows.size())
-	_fit(_trails.multimesh, rows.size() * TRAIL_PIECES)
 	for i in range(rows.size()):
 		var pos: Vector3 = rows[i]["position"]
-		var from: Vector3 = rows[i]["from"]
 		_markers.multimesh.set_instance_transform(i, Transform3D(
 			Basis.IDENTITY.scaled(Vector3.ONE * MARKER_SUBTEND * eye.distance_to(pos)), pos))
-		for k in TRAIL_PIECES:
-			var a: Vector3 = from.lerp(pos, float(k) / float(TRAIL_PIECES))
-			var b: Vector3 = from.lerp(pos, float(k + 1) / float(TRAIL_PIECES))
-			_trails.multimesh.set_instance_transform(i * TRAIL_PIECES + k,
-				_column(a, b, TRAIL_SUBTEND * eye.distance_to(0.5 * (a + b))))
+	_draw_paths(eye)
+
+
+## Where each probe stands this frame, appended to its own path. A path lives as long as the probe the
+## integrator hands back.
+func _sample(rows: Array) -> void:
+	var live: Dictionary = {}
+	for row: Dictionary in rows:
+		var id: int = int(row["id"])
+		live[id] = true
+		var path: PackedVector3Array = _paths.get(id, PackedVector3Array())
+		if path.is_empty():
+			path.append(row["from"] as Vector3)
+		var pos: Vector3 = row["position"]
+		if path[path.size() - 1].distance_to(pos) > 0.0:
+			path.append(pos)
+		if path.size() > TRAIL_SAMPLES:
+			path = _decimate(path)
+		_paths[id] = path
+	for id: int in _paths.keys():
+		if not live.has(id):
+			_paths.erase(id)
+
+
+## Every second point dropped, the last one kept: the same arc at half the samples.
+static func _decimate(path: PackedVector3Array) -> PackedVector3Array:
+	var out: PackedVector3Array = PackedVector3Array()
+	for i in range(0, path.size() - 1, 2):
+		out.append(path[i])
+	out.append(path[path.size() - 1])
+	return out
+
+
+## THE PATH IS DRAWN IN PIECES, each sized at its OWN distance from the eye. One box over a two-kilometre
+## fall has one width, so standing at its foot puts a wall across the frame and standing off it leaves
+## nothing to see; in pieces the line recedes the way a line does.
+func _draw_paths(eye: Vector3) -> void:
+	var pieces: Array[Transform3D] = []
+	for id: int in _paths:
+		var path: PackedVector3Array = _paths[id]
+		for i in range(path.size() - 1):
+			_cut(pieces, eye, path[i], path[i + 1])
+	_fit(_trails.multimesh, pieces.size())
+	for k in range(pieces.size()):
+		_trails.multimesh.set_instance_transform(k, pieces[k])
+
+
+## One leg of the path, cut into pieces short enough that each is drawn at its own distance.
+static func _cut(out: Array[Transform3D], eye: Vector3, a: Vector3, b: Vector3) -> void:
+	var span: float = a.distance_to(b)
+	if span <= 0.0:
+		return
+	var n: int = clampi(int(ceil(span / maxf(_near(eye, a, b) * PIECE_SUBTEND, 1.0))), 1, PIECE_MAX)
+	for k in n:
+		var p0: Vector3 = a.lerp(b, float(k) / float(n))
+		var p1: Vector3 = a.lerp(b, float(k + 1) / float(n))
+		out.append(_column(p0, p1, TRAIL_SUBTEND * eye.distance_to(0.5 * (p0 + p1))))
+
+
+## Distance from the eye to the nearest point of the segment a-b.
+static func _near(eye: Vector3, a: Vector3, b: Vector3) -> float:
+	var along: Vector3 = b - a
+	var l2: float = along.length_squared()
+	if l2 <= 0.0:
+		return eye.distance_to(a)
+	return eye.distance_to(a + along * clampf((eye - a).dot(along) / l2, 0.0, 1.0))
 
 
 ## Room for `want` instances, and that many drawn.

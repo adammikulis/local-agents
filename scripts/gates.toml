@@ -646,6 +646,14 @@ marker = "^check_test_mass: OK"
 mutation = "perl -0pi -e 's/GRAVITATIONAL_CONSTANT: float = [0-9.e-]+/GRAVITATIONAL_CONSTANT: float = 0.0/' addons/local_agents/sim/material/PhysicalConstants.gd"
 
 [[gate]]
+name = "check_lob"
+script = "scripts/check_lob.sh"
+kind = "gpu"
+needs = "import"
+marker = "^check_lob: OK"
+mutation = "perl -0pi -e 's/GRAVITATIONAL_CONSTANT: float = [0-9.e-]+/GRAVITATIONAL_CONSTANT: float = 0.0/' addons/local_agents/sim/material/PhysicalConstants.gd"
+
+[[gate]]
 name = "check_finite_channels"
 script = "scripts/check_finite_channels.sh"
 kind = "gpu"

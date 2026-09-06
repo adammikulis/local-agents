@@ -9,6 +9,14 @@ const THROW_MIN_SPEED: float = 4.0           # below this a release is a gentle 
 const THROW_MAX_SPEED: float = 40.0          # clamp on horizontal throw speed
 const THROW_ARC: float = 0.4                 # upward velocity as a fraction of throw speed
 
+# --- the orb the hand lobs into the world (R) --------------------------------
+# The speed dial the player sets: a human overarm throw to start, a doubling per bracket press, and a
+# doubling per CHARGE_DOUBLE_S held. Presentation — the orb is a probe and its speed is the thrower's.
+const ORB_SPEED_DEFAULT: float = 30.0        # m/s, a human overarm throw
+const ORB_SPEED_MIN: float = 5.0             # m/s, a gentle underarm toss
+const ORB_SPEED_MAX: float = 2000.0          # m/s, far past any hand and still well under orbit
+const CHARGE_DOUBLE_S: float = 0.5           # seconds held per doubling of the charge
+
 signal selection_changed(node: Node)         # the selected entity changed (or null on deselect)
 
 var _world = null            # LAVoxelWorld (dynamic; method calls only)
@@ -37,6 +45,10 @@ var _grab_press_msec: int = 0
 var _hold_point: Vector3 = Vector3.ZERO      # world point the hand holds at
 var _hold_velocity: Vector3 = Vector3.ZERO   # smoothed hand velocity → throw impulse
 
+var _charging: bool = false                  # the lob key is down
+var _charge_msec: int = 0                    # when it went down
+var _orb_speed: float = ORB_SPEED_DEFAULT    # m/s the next orb leaves the hand at
+
 
 func setup(world, terrain, camera: Camera3D, ecology: Node, hud: CanvasLayer, audio, brush) -> void:
 	_world = world
@@ -60,6 +72,8 @@ func set_game_hud(game_hud: CanvasLayer) -> void:
 ## Wire the probes the drop key releases. A world with no solved gravity offers no drop at all.
 func set_test_masses(probes) -> void:
 	_test_masses = probes if probes != null and probes.has_method("active") and probes.active() else null
+	if _test_masses != null:
+		_test_masses.set_throw_speed_m_s(_orb_speed)
 
 
 ## Release a test mass where the eye stands. It falls under the solved field and stops on the ground.
@@ -69,6 +83,40 @@ func drop_test_mass() -> void:
 	var id: int = _test_masses.drop_at(_camera.global_position)
 	if _hud != null and _hud.has_method("set_status"):
 		_hud.set_status("Test mass %d released — watch the line it leaves." % id)
+
+
+## Lob an orb from the eye along the look direction, at the charged speed over the ground. It is a probe:
+## it writes no channel and only reads where the field takes it.
+func lob_orb() -> void:
+	if _test_masses == null or _camera == null:
+		return
+	var aim: Vector3 = -_camera.global_transform.basis.z
+	var id: int = _test_masses.throw_orb(_camera.global_position, aim * _orb_speed)
+	if _hud != null and _hud.has_method("set_status"):
+		_hud.set_status("Orb %d away at %.0f m/s — watch it start to fall." % [id, _orb_speed])
+
+
+## Set the speed the next orb leaves at, by doubling or halving. One press is one octave, so the whole
+## range from a toss to a shot is a handful of presses.
+func set_orb_speed(faster: bool) -> void:
+	_orb_speed = clampf(_orb_speed * (2.0 if faster else 0.5), ORB_SPEED_MIN, ORB_SPEED_MAX)
+	if _test_masses != null:
+		_test_masses.set_throw_speed_m_s(_orb_speed)
+	if _hud != null and _hud.has_method("set_status"):
+		_hud.set_status("Orb speed %.0f m/s (hold R to charge, R release to lob)." % _orb_speed)
+
+
+## The live charge, so the readout shows what the next lob would leave at. No simulated quantity is
+## integrated here: the dial is set by how long a hand held a key, which is real time.
+func _process(_delta: float) -> void:
+	if _charging and _test_masses != null:
+		_test_masses.set_throw_speed_m_s(_charged_speed())
+
+
+## One doubling per CHARGE_DOUBLE_S held, off the speed the brackets set.
+func _charged_speed() -> float:
+	var held_s: float = float(Time.get_ticks_msec() - _charge_msec) / 1000.0
+	return clampf(_orb_speed * pow(2.0, held_s / CHARGE_DOUBLE_S), ORB_SPEED_MIN, ORB_SPEED_MAX)
 
 
 ## Wire the companion controller (composition root passes it) so the tame/command keys route through one owner.
@@ -120,6 +168,17 @@ func _unhandled_input(event: InputEvent) -> void:
 			and _test_masses != null:
 		drop_test_mass()
 		return
+	# R: hold to charge the throw, release to lob. A world with no probes offers neither.
+	if event is InputEventKey and not event.echo and event.keycode == KEY_R and _test_masses != null:
+		if event.pressed:
+			_charging = true
+			_charge_msec = Time.get_ticks_msec()
+		else:
+			_orb_speed = _charged_speed()
+			_charging = false
+			lob_orb()
+		get_viewport().set_input_as_handled()
+		return
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_M:
 		if _hud != null and _hud.has_method("toggle_audio_menu"):
 			_hud.toggle_audio_menu()
@@ -164,10 +223,14 @@ func _unhandled_input(event: InputEvent) -> void:
 			_select_nearest_companion()
 			get_viewport().set_input_as_handled()
 			return
-	# [ / ]: shrink / grow the spawn brush from the keyboard (same action as Ctrl + wheel).
+	# [ / ]: with nothing armed to paint, set the orb speed; otherwise shrink / grow the spawn brush
+	# from the keyboard (same action as Ctrl + wheel).
 	if event is InputEventKey and event.pressed and not event.echo \
 			and (event.keycode == KEY_BRACKETLEFT or event.keycode == KEY_BRACKETRIGHT):
-		_brush.adjust_radius(event.keycode == KEY_BRACKETRIGHT)
+		if _test_masses != null and _brush.armed_kind() == "":
+			set_orb_speed(event.keycode == KEY_BRACKETRIGHT)
+		else:
+			_brush.adjust_radius(event.keycode == KEY_BRACKETRIGHT)
 		return
 	# Palette / selection hotkeys: Esc -> Select, digit keys arm a palette entry (Shift for the impact
 	# cluster), Tab / Shift+Tab cycle the selection through on-screen entities. The key->kind mapping and

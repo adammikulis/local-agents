@@ -96,16 +96,28 @@ the real row will answer, offered in the HUD as a stand-in.
 Reading: `dispatch_slab` in `GravityPass.gd` issues `MODE_FIELD_STATS` without the `MODE_MOMENTS` sweep
 that `PRE_MODES` runs before it.
 
-## 11. A FALL IS OVER BETWEEN TWO RENDERED FRAMES, AND ONE DRAG COEFFICIENT SERVES EVERY SPEED
+## 11. OUTSIDE THE SLICE BOX A FREE BODY FALLS UNDER THE BOX'S OWN MASS, NOT THE PLANET'S
+
+`scripts/check_lob.sh` is red: an orb released two kilometres above the box's outward face reads a
+gravity far below the one the same box holds half a cell inside that wall, pointing well off the local
+down, and never enters the box at all.
+Reading: `measure` in `LABodySystem.cpp` sets `mass_kg` from the field's own cells whatever `whole`
+reads, so on a slice `LAGravity.publish` hands `LABallistics.set_system` the box's matter as the body.
+
+## 12. A FALL IS OVER BETWEEN TWO RENDERED FRAMES, AND ONE DRAG COEFFICIENT SERVES EVERY SPEED
 
 `scripts/shoot_demo.sh addons/local_agents/examples/SliceRung1Demo.tscn <dir>` photographs a test mass
 already landed: the world advances 43.2 simulated seconds per rendered frame, so a two-kilometre fall is
-over between two frames and nothing is seen falling. `SPHERE_CD` in `LABallistics.cpp` is the hypersonic
-limit at every Reynolds and Mach number, so a body the air has already slowed is over-braked
-(`newtonian_sphere_drag` in `docs/APPROXIMATIONS.md`).
-Reading: `stride_m` in `LABallistics.cpp` reads no sound speed and no viscosity.
+over between two frames and nothing is seen falling. `LA_RUN_TIMEOUT=110 scripts/run_sim_offscreen.sh
+--path . addons/local_agents/examples/SliceRung1Demo.tscn -- --sandbox --shoot=/tmp/l.png
+--shots=1200:-25:0 --shoot-frames=150 --lob=200,2000` photographs a lobbed orb the same way, its whole
+arc drawn as one straight segment between the hand and the ground. `SPHERE_CD` in `LABallistics.cpp` is
+the hypersonic limit at every Reynolds and Mach number, so a body the air has already slowed is
+over-braked (`newtonian_sphere_drag` in `docs/APPROXIMATIONS.md`).
+Reading: `step` in `LABallistics.cpp` returns only the end of each stride loop, so the arc `advance`
+integrated is thrown away and nothing downstream can draw it.
 
-## 12. A THROWN BODY FALLS UNDER THE ENGINE'S GRAVITY, NOT THE FIELD'S
+## 13. A THROWN BODY FALLS UNDER THE ENGINE'S GRAVITY, NOT THE FIELD'S
 
 `rg -n "gravity_scale" addons/local_agents/creatures/creature/CreatureRagdoll.gd` reads `1.0`, so the
 live gravity switch never reaches a flung or dying creature; `impulse.length() > 3.0` in `Creature.gd`
