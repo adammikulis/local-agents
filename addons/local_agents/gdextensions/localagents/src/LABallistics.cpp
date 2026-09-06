@@ -5,6 +5,7 @@
 #include "LAFieldLithostaticSeed.hpp"
 #include "LAGridGeometry.hpp"
 #include "LAPhysicalRead.hpp"
+#include "LAProcessSet.hpp"
 
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
@@ -418,6 +419,11 @@ bool LABallistics::rock_at(const Vector3 &p_at) {
 }
 
 Vector3 LABallistics::g_at(const Vector3 &p_at) {
+	// The gravity switch, not the gravity record: a world that never solves a potential still has the
+	// system's point masses, but a world whose gravity is switched OFF has no pull anywhere.
+	if (!LAProcessSet::is_switched_on("pass", "GravityPass.gd")) {
+		return Vector3();
+	}
 	if (tb().grid && tb().gravity.size() > 0) {
 		const Vector3 at = to_field(Dvec(p_at)).v3();
 		const int c = LAGridGeometry::cell_at(tb().grid, at);

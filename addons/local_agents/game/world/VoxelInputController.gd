@@ -33,7 +33,7 @@ var _streamer_avatar_flavor: String = "male"
 var _shoot_path: String = ""
 var _shoot_frames: int = 150
 var _run_frames: int = 0
-var _ablate_sweep: int = 0              # --ablate-sweep=N: each adopted module off for N frames in turn
+var _ablate_sweep: int = 0              # --ablate-sweep=N: each LAAblate switch off for N frames in turn
 var _perf_frames: int = 0               # --perf-frames=N: GPU-timed fps bench (see parse_cmdline + VoxelWorld._process)
 var _smoke: bool = false                # --smoke: boot the MINIMAL (Potato/Low) config for fast parse+run checks
 var _cognition_stats: bool = false      # --cognition-stats: print fast/slow brain + genetics metrics
@@ -132,7 +132,7 @@ func parse_cmdline() -> void:
 			_streamer_enabled = false
 			Engine.set_meta("la_smoke", true)
 		elif arg == "--planet-only" or arg == "--no-fauna":
-			_ablate_life(LAAblate.LIFE_PLANET_ONLY if arg == "--planet-only" else LAAblate.LIFE_NO_FAUNA)
+			_ablate_life(LAAblate.life_planet_only() if arg == "--planet-only" else LAAblate.life_no_fauna())
 			_streamer_enabled = false          # nothing alive to commentate on
 		elif arg.begins_with("--quality="):
 			# Explicit graphics-quality preset for reproducible perf comparisons (potato/low/medium/high/ultra) —
@@ -772,7 +772,7 @@ func ui() -> bool: return _ui
 func declare_ui(on: bool) -> void: _ui = on
 func declare_life(mode: String) -> void:
 	_ablate_life(mode)
-	if mode != LAAblate.LIFE_FULL:
+	if mode != LAAblate.life_full():
 		_streamer_enabled = false
 func render() -> bool: return _render
 func streamer_persona() -> String: return _streamer_persona
@@ -802,9 +802,9 @@ func local_hour() -> float: return _local_hour
 ## THE STRONGEST ABLATION ANY FLAG ASKS FOR WINS. Both flags name overlapping worlds, so taking the last
 ## one let `--planet-only --no-fauna` put the plants back that --planet-only had just removed.
 func _ablate_life(want: String) -> void:
-	var have: String = String(Engine.get_meta("la_life_mode", LAAblate.LIFE_FULL))
-	if have == LAAblate.LIFE_PLANET_ONLY or want == LAAblate.LIFE_PLANET_ONLY:
-		want = LAAblate.LIFE_PLANET_ONLY
+	var have: String = String(Engine.get_meta("la_life_mode", LAAblate.life_full()))
+	if have == LAAblate.life_planet_only() or want == LAAblate.life_planet_only():
+		want = LAAblate.life_planet_only()
 	Engine.set_meta("la_life_mode", want)
 func debug_field() -> String: return _debug_field
 func debug_behaviors() -> String: return _debug_behaviors

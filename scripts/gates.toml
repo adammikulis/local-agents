@@ -643,6 +643,13 @@ marker = "^check_ballistics: OK"
 mutation = "perl -0pi -e 's/GRAVITATIONAL_CONSTANT: float = [0-9.e-]+/GRAVITATIONAL_CONSTANT: float = 0.0/' addons/local_agents/sim/material/PhysicalConstants.gd"
 
 [[gate]]
+name = "check_live_toggles"
+script = "scripts/check_live_toggles.sh"
+kind = "gpu"
+marker = "^check_live_toggles: OK"
+mutation = "perl -0pi -e 's/not LAAblate\\.step_switches\\(_f\\._gpu\\._step_index\\)/true/' addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd"
+
+[[gate]]
 name = "check_test_mass"
 script = "scripts/check_test_mass.sh"
 kind = "gpu"

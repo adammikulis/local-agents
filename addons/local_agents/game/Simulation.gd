@@ -141,6 +141,7 @@ func _build_field() -> void:
 			target_m, float(_body.radius()))
 	_validate_grid(_material._grid)
 	LASimReport.register(Callable(_material, "report"))
+	LASimReport.register(func() -> Dictionary: return {"process_live": LAProcessSet.live_mask()})
 	LASimReport.register(func() -> Dictionary: return _body_block())
 	LASimReport.register(func() -> Dictionary: return LASimReportSources.population(self), true)
 	LASimReport.register(func() -> Dictionary: return LASimReportSources.cognition(self), true)

@@ -90,19 +90,18 @@ addons/local_agents` finds the ground still drawn by `VoxelLodTerrain` off the s
 Reading: `la_corner_r` in `addons/local_agents/sim/material/kernels3d/mesh_extract.glsl` reaches the fourth cell at a corner through a neighbour, and
 across a 2:1 boundary the two cells sharing that corner reach a different one.
 
-## 9. PHYSICS IS NOT IN THE ABLATION REGISTRY
-
-`scripts/sim_run.sh --slice --rung 1 --ablate=gravity --frames 4` refuses the name: `LAAblate.names()`
-lists presentation modules only and `LAProcessSet` resolves the rung once at launch. A process the rung
-contains switches through the same `set_on`, the sweep measures its cost the same way, `LAAblate` moves
-from `creatures/sim/SimAblate.gd` to `sim/`. A body released with gravity off keeps the ground's
-tangential velocity and departs along the tangent; state the expression `LABallistics.drop` gives it.
-
-## 10. THE SURFACE IS STILL: EVERY WEATHER-SHAPED STAND-IN IS ABSENT RATHER THAN FAKED
+## 9. THE SURFACE IS STILL: EVERY WEATHER-SHAPED STAND-IN IS ABSENT RATHER THAN FAKED
 
 `docs/FAKES.md` carries what creatures need and nothing the surface shows: `wind_field` (deleted by
 ACOUSTIC), `rain` (WATER), `streams` (ADVECT), `diurnal_heat` (RADIATION), each read through the query
 the real row will answer, offered in the HUD as a stand-in.
+
+## 10. THE SLICE'S OWN GRAVITY READS ZERO IN THE REPORT WHILE A MASS FALLS AT ~9.5 m/s^2 IN IT
+
+`scripts/sim_run.sh --slice --rung 1 --frames 4 --report gravity_mean_g,gravity_solves` reads
+`gravity_mean_g` 0 in the box where `scripts/check_test_mass.sh` measures `g_release` near 9.5.
+Reading: `dispatch_slab` in `GravityPass.gd` issues `MODE_FIELD_STATS` without the `MODE_MOMENTS` sweep
+that `PRE_MODES` runs before it.
 
 ## 11. A FALL IS OVER BETWEEN TWO RENDERED FRAMES, AND ONE DRAG COEFFICIENT SERVES EVERY SPEED
 
@@ -181,8 +180,9 @@ finds a draw cap read off the graphics preset and a MultiMesh built under `sim/`
 
 `scripts/agent_harness.sh sim --rung=N --frames 20` runs a world holding only the processes up to rung N;
 `scripts/agent_harness.sh ladder` names the first red rung; `scripts/shoot_demo.sh <scene> [outdir]`
-renders the poses `--shots=alt:pitch:yaw;...` declares (look at the PNGs); `--ablate=a,b` switches names
-off and `--ablate-sweep=N` measures each one's frame cost. A lane runs `LA_NO_GPU=1 scripts/agent_harness.sh lint`
+renders the poses `--shots=alt:pitch:yaw;...` declares (look at the PNGs); `--ablate=name[@step]` switches
+one off (`+name@step` back on), process or module alike, and `--ablate-sweep=N` measures its frame
+cost. A lane runs `LA_NO_GPU=1 scripts/agent_harness.sh lint`
 plus its own gates; the full lint is `scripts/integrate.sh`'s, one landing at a time, and a source-file
 merge conflict is resolved by hand. Worktrees come from `scripts/new_worktree.sh`; without its kernel
 import the GPU field is dead and the report looks fine. Mutation-test every gate you write, both ways.

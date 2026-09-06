@@ -46,7 +46,6 @@ var _bufs: Dictionary = {}          # channel/buffer name → its one RID
 var _passes: Array = []
 var _pass_names: PackedStringArray = []   # parallel to _passes — short label per pass, for GPU per-pass timing
 var _ctx: Dictionary = {}
-var _moving: bool = false           # a pass in this world writes matter or energy
 var _buf_owner: Dictionary = {}     # _bufs key -> what claimed it, so a collision can name both claimants
 var _pass_results: Dictionary = {}  # merged _drain() readings of the last drained step
 var _pending: bool = false          # a step() submit is in flight, not yet synced/read
@@ -165,10 +164,8 @@ func setup(field) -> void:
 	# read back. Every declaration lands before any _setup, so a pass may bind another pass's buffer.
 	for i in _passes.size():
 		_allocate_declared(_passes[i], _pass_names[i])
-		_moving = _moving or _passes[i].get("MOVES_STATE") == true
 		if _pass_names[i] == "InjectPass":
 			_inject = _passes[i]
-	_moving = _moving or LAProcessSet.has_record("derive", "lithify")
 	for p2 in _passes:
 		p2.setup(_rd, _bufs, _cc)
 	# The boundary books are per-step rates: cleared before every step, summed by their reduce rows after.
@@ -259,9 +256,10 @@ func set_crust_radius(m: float) -> void:
 	_ctx["crust_radius"] = m
 
 
-## Whether anything can write matter or energy this step: a writer pass, or a CPU mirror marked dirty.
+## Whether anything can write matter or energy this step: a LIVE writer pass, or a CPU mirror marked
+## dirty. A writer switched off writes nothing, so the world it leaves behind is at rest.
 func state_moves() -> bool:
-	return _moving or _h_dirty or _water_dirty or _solid_dirty
+	return (_driver != null and _driver.moves_state(_passes)) or _h_dirty or _water_dirty or _solid_dirty
 
 
 ## Mark the CPU enthalpy mirror dirty so the next begin_frame re-uploads it.
@@ -277,20 +275,12 @@ func step() -> void:
 		_pending = false
 	_ctx["step_index"] = _step_index
 	_ctx["dt_s"] = LAMaterialFieldSphereStep3D.real_seconds_per_step()
-	_pre_step()
+	_driver.pre_step(_passes, _ctx, _cc, _groups)
 	_driver.clear_buffers(_bnd_rids, _cc * 4)
 	# Deferred sync — drained at the next begin_frame, so the GPU overlaps the CPU frame work.
 	_driver.step(_passes, _pass_names, _ctx, _cc, _groups, _step_probe)
 	_pending = true
 	_step_index += 1
-
-
-## A pass that must READ the device before the step records takes its own submit here. The step's first
-## act is a sync, so nothing is in flight and the reading is of the state this step starts in.
-func _pre_step() -> void:
-	for p in _passes:
-		if p.has_method("pre_step"):
-			p.pre_step(_rd, _ctx, _cc, _groups)
 
 
 ## Signature: `probe.call(pass_index: int, pass_name: String)`, pass_index -1 = before any pass ran.
