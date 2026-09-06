@@ -1,7 +1,8 @@
 class_name LAAblationSweep
 extends Node
 
-## Every adopted module off in turn for `frames_per_stage` render frames, after a baseline with all on.
+## Every LAAblate switch off in turn for `frames_per_stage` render frames, after a baseline with all on:
+## a physics process the rung contains and a presentation module are measured the same way.
 ## Prints ABLATION={...} per stage and ABLATION_SWEEP=[...] at the end, then quits.
 
 var _sim = null
@@ -57,7 +58,8 @@ func _process(_delta: float) -> void:
 
 func _close_stage() -> void:
 	var name: String = "baseline" if _stage < 0 else _names[_stage]
-	var row: Dictionary = {"off": name, "frames": _frames, "mean_ms": float(_sum_us) / float(maxi(_frames, 1)) / 1000.0,
+	var row: Dictionary = {"off": name, "kind": "" if _stage < 0 else LAAblate.kind_of(name),
+		"frames": _frames, "mean_ms": float(_sum_us) / float(maxi(_frames, 1)) / 1000.0,
 		"max_ms": float(_max_us) / 1000.0, "slow_frames": _slow}
 	_rows.append(row)
 	print("ABLATION=", JSON.stringify(row))
