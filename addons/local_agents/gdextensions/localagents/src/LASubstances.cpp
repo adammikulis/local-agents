@@ -8,6 +8,7 @@
 #include <godot_cpp/core/error_macros.hpp>
 #include <godot_cpp/variant/array.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -31,7 +32,9 @@ constexpr double IRON_SOLID_DENSITY_AT_MELT_KG_M3 = 7265.0;
 constexpr double IRON_MELT_C = 1538.0;
 constexpr double IRON_SOLID_EXPANSION_PER_K = 3.54e-5;    // alpha-Fe at 25 C, CRC 97th ed., linear x3
 constexpr double IRON_SOLID_BULK_MODULUS_PA = 1.662e11;   // Guinan & Beshers 1968, JPCS 29:541
+constexpr double IRON_SOLID_BULK_MODULUS_DERIV = 5.16;    // bcc Fe, Holland & Powell 2011, JMG 29:333 (ds62 iron)
 constexpr double IRON_LIQUID_BULK_MODULUS_PA = 1.097e11;  // liquid Fe at 1 bar, Anderson & Ahrens 1994, JGR 99:4273
+constexpr double IRON_LIQUID_BULK_MODULUS_DERIV = 4.66;   // K'_S0, Anderson & Ahrens 1994, JGR 99:4273
 constexpr double IRON_LIQUID_SPECIFIC_HEAT_J_KGK = 824.0; // Desai 1986, J. Phys. Chem. Ref. Data 15:967
 constexpr double IRON_SOLID_SPECIFIC_HEAT_J_KGK = 449.0;  // alpha-Fe at 25 C, CRC 97th ed.
 constexpr double IRON_LATENT_FUSION_J_KG = 2.473e5;       // Desai 1986, dHfus 13.81 kJ/mol
@@ -43,6 +46,7 @@ constexpr double IRON_CONDUCTIVITY_W_MK = 80.4;           // Fe at 300 K, CRC 97
 
 constexpr double OLIVINE_DENSITY_KG_M3 = 3355.0;   // San Carlos Fo90, Abramson et al. 1997, JGR 102:12253
 constexpr double OLIVINE_BULK_MODULUS_PA = 1.294e11; // adiabatic K_S, Abramson et al. 1997
+constexpr double OLIVINE_BULK_MODULUS_DERIV = 4.29;  // dK_S/dP, Abramson et al. 1997, JGR 102:12253
 constexpr double OLIVINE_EXPANSION_PER_K = 2.7e-5;   // forsterite, Bouhifd et al. 1996, GRL 23:1143
 constexpr double FORSTERITE_CP_J_MOLK = 117.9;       // Robie & Hemingway 1995
 constexpr double FAYALITE_CP_J_MOLK = 132.9;         // Robie & Hemingway 1995
@@ -52,9 +56,12 @@ constexpr double OLIVINE_CONDUCTIVITY_W_MK = 4.7;    // Fo90, Horai 1971, JGR 76
 
 constexpr double ENSTATITE_DENSITY_KG_M3 = 3204.0;   // Smyth & McCormick 1995, AGU Handbook
 constexpr double ENSTATITE_BULK_MODULUS_PA = 1.078e11; // Bass 1995, AGU Handbook
+constexpr double ENSTATITE_BULK_MODULUS_DERIV = 8.65;  // Holland & Powell 2011, JMG 29:333 (ds62 en)
 constexpr double ENSTATITE_CP_J_MOLK = 82.1;         // Krupka et al. 1985, Am. Min. 70:249
 constexpr double ENSTATITE_MOLAR_MASS_KG_MOL = 0.1003875; // MgSiO3 endmember
 constexpr double ENSTATITE_MELT_C = 1557.0;          // incongruent point, Bowen & Andersen 1914
+// Richet & Bottinga 1986, at protoenstatite's congruent point (Thieblot et al. 1999, Am Min 84:848).
+constexpr double ENSTATITE_FUSION_J_MOL = 7.30e4;
 constexpr double ENSTATITE_CONDUCTIVITY_W_MK = 4.5;  // Horai 1971
 
 constexpr double ANORTHITE_DENSITY_KG_M3 = 2760.0;   // Smyth & McCormick 1995
@@ -67,6 +74,9 @@ constexpr double ANORTHITE_FUSION_J_MOL = 1.33e5;    // Richet & Bottinga 1984
 constexpr double ALBITE_FUSION_J_MOL = 6.45e4;
 constexpr double ANORTHITE_BULK_MODULUS_PA = 8.4e10; // Bass 1995
 constexpr double ALBITE_BULK_MODULUS_PA = 5.7e10;
+// Holland & Powell 2011, JMG 29:333 (ds62 an, ab).
+constexpr double ANORTHITE_BULK_MODULUS_DERIV = 4.09;
+constexpr double ALBITE_BULK_MODULUS_DERIV = 5.91;
 constexpr double ANORTHITE_CONDUCTIVITY_W_MK = 1.88; // Horai 1971
 constexpr double ALBITE_CONDUCTIVITY_W_MK = 2.08;
 
@@ -76,14 +86,29 @@ constexpr double HALITE_FUSION_J_MOL = 2.816e4;      // CRC 97th ed.
 constexpr double HALITE_CP_J_MOLK = 50.5;            // CRC 97th ed., 298 K
 constexpr double HALITE_EXPANSION_PER_K = 1.19e-4;   // CRC linear 39.6e-6 x3
 constexpr double HALITE_BULK_MODULUS_PA = 2.44e10;   // Spetzler et al. 1972
+constexpr double HALITE_BULK_MODULUS_DERIV = 5.0;    // Holland & Powell 2011, JMG 29:333 (ds62 hlt)
 constexpr double CALCITE_BULK_MODULUS_PA = 7.33e10;  // Redfern & Angel 1999, Contrib Mineral Petrol 134:102
-constexpr double APATITE_BULK_MODULUS_PA = 9.3e10;   // fluorapatite, Brunet et al. 1999, Eur J Mineral 11:1023
+constexpr double CALCITE_BULK_MODULUS_DERIV = 4.06;  // Holland & Powell 2011, JMG 29:333 (ds62 cc)
+// Fluorapatite to 61 GPa, V0 fixed: Rucks et al. 2023, Am Min 108:1683.
+constexpr double APATITE_BULK_MODULUS_PA = 9.70e10;
+constexpr double APATITE_BULK_MODULUS_DERIV = 3.3;
 constexpr double ORGANIC_BULK_MODULUS_PA = 5.0e9;    // kerogen, Yu et al. 2018, Fuel 224:412
+// A polymeric solid: the Tait form V = V0[1 - C ln(1 + p/B)] with the universal C = 0.0894 for
+// polymer PVT (Zoller & Walsh 1995) gives dK/dp = 1/C - 1.
+constexpr double ORGANIC_BULK_MODULUS_DERIV = 10.19;
 constexpr double HALITE_CONDUCTIVITY_W_MK = 6.5;     // single crystal, Urquhart & Bauer 2015
 
 constexpr double APATITE_DENSITY_KG_M3 = 3190.0;     // fluorapatite, Handbook of Mineralogy
 constexpr double APATITE_CP_J_MOLK = 370.0;          // 298 K, Dachs, Harlov & Benisek 2010
 constexpr double APATITE_CONDUCTIVITY_W_MK = 1.38;   // Horai 1971
+
+// Pressure derivative of the bulk modulus for the phases whose K0 lives in LAPhysical.
+// Water: the modified-Tait exponent n = dK/dp (Cole 1948, Underwater Explosions, Princeton).
+// Ice Ih: dK_T/dp over 0-100 MPa at 260 K from IAPWS-06 kappa_T (Feistel & Wagner 2006, JPCRD 35:1021).
+constexpr double WATER_BULK_MODULUS_DERIV = 7.15;
+constexpr double ICE_BULK_MODULUS_DERIV = 5.2;
+constexpr double QUARTZ_BULK_MODULUS_DERIV = 5.99;   // alpha-quartz, Angel et al. 1997, J Appl Cryst 30:461
+constexpr double ROCK_BULK_MODULUS_DERIV = 4.1;      // wollastonite, Holland & Powell 2011, JMG 29:333 (ds62 wo)
 
 // HIGHER heating value per kg of each element in a solid fuel -- Channiwala & Parikh 2002, Fuel
 // 81:1051-1063, "A unified correlation for estimating HHV of solid, liquid and gaseous fuels", eq. 1.
@@ -294,6 +319,7 @@ Dictionary water_entry() {
 	d["density_ref_t_c"] = pc("LAB_REFERENCE_TEMP_C");
 	d["expansion_per_k"] = pc("WATER_VOLUME_EXPANSION_PER_K");
 	d["bulk_modulus_pa"] = pc("WATER_BULK_MODULUS_PA");
+	d["bulk_modulus_deriv"] = WATER_BULK_MODULUS_DERIV;
 	d["viscosity_pa_s"] = pc("WATER_DYNAMIC_VISCOSITY_PA_S");
 	d["viscosity_ref_t_c"] = WATER_VISCOSITY_REF_T_C;
 	d["viscosity_vogel_b_k"] = WATER_VISCOSITY_VOGEL_B_K;
@@ -302,6 +328,7 @@ Dictionary water_entry() {
 	d["density_solid_ref_t_c"] = pc("WATER_FREEZE_C");
 	d["expansion_solid_per_k"] = pc("ICE_VOLUME_EXPANSION_PER_K");
 	d["bulk_modulus_solid_pa"] = pc("ICE_BULK_MODULUS_PA");
+	d["bulk_modulus_solid_deriv"] = ICE_BULK_MODULUS_DERIV;
 	d["specific_heat"] = pc("WATER_SPECIFIC_HEAT_J_KGK");
 	d["specific_heat_solid"] = pc("ICE_SPECIFIC_HEAT_J_KGK");
 	d["specific_heat_gas"] = pc("VAPOUR_SPECIFIC_HEAT_J_KGK");
@@ -346,6 +373,7 @@ Dictionary organic_entry(const char *p_element_symbol, double p_entropy_j_kgk, c
 	}
 	d["conductivity"] = pc("THERMAL_CONDUCT_ORGANIC_W_MK");
 	d["bulk_modulus_pa"] = ORGANIC_BULK_MODULUS_PA;
+	d["bulk_modulus_deriv"] = ORGANIC_BULK_MODULUS_DERIV;
 	return d;
 }
 
@@ -364,6 +392,7 @@ Dictionary cellulose_entry() {
 	d["albedo"] = pc("ALBEDO_VEGETATION");
 	d["conductivity"] = pc("THERMAL_CONDUCT_CELLULOSE_W_MK");
 	d["bulk_modulus_pa"] = ORGANIC_BULK_MODULUS_PA;
+	d["bulk_modulus_deriv"] = ORGANIC_BULK_MODULUS_DERIV;
 	return d;
 }
 
@@ -378,6 +407,7 @@ Dictionary silicate_entry() {
 	d["density_ref_t_c"] = pc("LAB_REFERENCE_TEMP_C");
 	d["expansion_per_k"] = pc("ROCK_VOLUME_EXPANSION_PER_K");
 	d["bulk_modulus_pa"] = pc("ROCK_BULK_MODULUS_PA");
+	d["bulk_modulus_deriv"] = ROCK_BULK_MODULUS_DERIV;
 	d["tensile_strength_pa"] = pc("BASALT_TENSILE_STRENGTH_PA");
 	d["specific_heat"] = pc("ROCK_SPECIFIC_HEAT_J_KGK");
 	d["melt_c"] = pc("BASALT_SOLIDUS_C");
@@ -412,6 +442,7 @@ Dictionary silica_entry() {
 	d["density_ref_t_c"] = pc("LAB_REFERENCE_TEMP_C");
 	d["expansion_per_k"] = pc("QUARTZ_VOLUME_EXPANSION_PER_K");
 	d["bulk_modulus_pa"] = pc("QUARTZ_BULK_MODULUS_PA");
+	d["bulk_modulus_deriv"] = QUARTZ_BULK_MODULUS_DERIV;
 	d["specific_heat"] = pc("QUARTZ_SPECIFIC_HEAT_J_KGK");
 	d["conductivity"] = pc("THERMAL_CONDUCT_ROCK_W_MK");
 	d["emissivity"] = pc("BASALT_EMISSIVITY");
@@ -432,6 +463,7 @@ Dictionary carbonate_entry() {
 	d["density_ref_t_c"] = pc("LAB_REFERENCE_TEMP_C");
 	d["expansion_per_k"] = pc("CALCITE_VOLUME_EXPANSION_PER_K");
 	d["bulk_modulus_pa"] = CALCITE_BULK_MODULUS_PA;
+	d["bulk_modulus_deriv"] = CALCITE_BULK_MODULUS_DERIV;
 	d["specific_heat"] = pc("CALCITE_SPECIFIC_HEAT_J_KGK");
 	d["conductivity"] = pc("THERMAL_CONDUCT_ROCK_W_MK");
 	d["emissivity"] = pc("BASALT_EMISSIVITY");
@@ -498,7 +530,9 @@ void add_planet_minerals() {
 	metal_extra["density_solid_ref_t_c"] = IRON_MELT_C;
 	metal_extra["expansion_solid_per_k"] = IRON_SOLID_EXPANSION_PER_K;
 	metal_extra["bulk_modulus_solid_pa"] = IRON_SOLID_BULK_MODULUS_PA;
+	metal_extra["bulk_modulus_solid_deriv"] = IRON_SOLID_BULK_MODULUS_DERIV;
 	metal_extra["bulk_modulus_pa"] = IRON_LIQUID_BULK_MODULUS_PA;
+	metal_extra["bulk_modulus_deriv"] = IRON_LIQUID_BULK_MODULUS_DERIV;
 	metal_extra["specific_heat_solid"] = IRON_SOLID_SPECIFIC_HEAT_J_KGK;
 	metal_extra["melt_c"] = IRON_MELT_C;
 	metal_extra["latent_fusion_j_kg"] = IRON_LATENT_FUSION_J_KG;
@@ -520,6 +554,7 @@ void add_planet_minerals() {
 	Dictionary ol_extra;
 	ol_extra["expansion_per_k"] = OLIVINE_EXPANSION_PER_K;
 	ol_extra["bulk_modulus_pa"] = OLIVINE_BULK_MODULUS_PA;
+	ol_extra["bulk_modulus_deriv"] = OLIVINE_BULK_MODULUS_DERIV;
 	ol_extra["melt_c"] = FORSTERITE_MELT_C;
 	ol_extra["latent_fusion_j_kg"] = FORSTERITE_FUSION_J_MOL / mm_ol;
 	t["olivine"] = entry(f_ol, OLIVINE_DENSITY_KG_M3,
@@ -529,7 +564,9 @@ void add_planet_minerals() {
 	const Dictionary f_px = LAPlanetComposition::pyroxene_formula();
 	Dictionary px_extra;
 	px_extra["bulk_modulus_pa"] = ENSTATITE_BULK_MODULUS_PA;
+	px_extra["bulk_modulus_deriv"] = ENSTATITE_BULK_MODULUS_DERIV;
 	px_extra["melt_c"] = ENSTATITE_MELT_C;
+	px_extra["latent_fusion_j_kg"] = ENSTATITE_FUSION_J_MOL / ENSTATITE_MOLAR_MASS_KG_MOL;
 	t["pyroxene"] = entry(f_px, ENSTATITE_DENSITY_KG_M3,
 			ENSTATITE_CP_J_MOLK / ENSTATITE_MOLAR_MASS_KG_MOL, ENSTATITE_CONDUCTIVITY_W_MK,
 			rock.merged(px_extra, true));
@@ -540,6 +577,7 @@ void add_planet_minerals() {
 	const double mm_pl = LAElementAbundances::molar_mass(f_pl);
 	Dictionary pl_extra;
 	pl_extra["bulk_modulus_pa"] = x * ANORTHITE_BULK_MODULUS_PA + (1.0 - x) * ALBITE_BULK_MODULUS_PA;
+	pl_extra["bulk_modulus_deriv"] = x * ANORTHITE_BULK_MODULUS_DERIV + (1.0 - x) * ALBITE_BULK_MODULUS_DERIV;
 	pl_extra["melt_c"] = ALBITE_MELT_C;
 	pl_extra["liquidus_c"] = ANORTHITE_MELT_C;
 	pl_extra["latent_fusion_j_kg"] = (x * ANORTHITE_FUSION_J_MOL + (1.0 - x) * ALBITE_FUSION_J_MOL) / mm_pl;
@@ -556,6 +594,7 @@ void add_planet_minerals() {
 	hal_extra["density_ref_t_c"] = pc("LAB_REFERENCE_TEMP_C");
 	hal_extra["expansion_per_k"] = HALITE_EXPANSION_PER_K;
 	hal_extra["bulk_modulus_pa"] = HALITE_BULK_MODULUS_PA;
+	hal_extra["bulk_modulus_deriv"] = HALITE_BULK_MODULUS_DERIV;
 	hal_extra["melt_c"] = HALITE_MELT_C;
 	hal_extra["latent_fusion_j_kg"] = HALITE_FUSION_J_MOL / mm_hal;
 	hal_extra["traces"] = shell_tr;
@@ -565,6 +604,7 @@ void add_planet_minerals() {
 	const Dictionary f_ap = LAPlanetComposition::apatite_formula();
 	Dictionary ap_extra = rock.duplicate();
 	ap_extra["bulk_modulus_pa"] = APATITE_BULK_MODULUS_PA;
+	ap_extra["bulk_modulus_deriv"] = APATITE_BULK_MODULUS_DERIV;
 	t["apatite"] = entry(f_ap, APATITE_DENSITY_KG_M3,
 			APATITE_CP_J_MOLK / LAElementAbundances::molar_mass(f_ap), APATITE_CONDUCTIVITY_W_MK, ap_extra);
 }
@@ -596,6 +636,17 @@ double dget(const Dictionary &p_d, const char *p_key, double p_default) {
 	return double(p_d.get(p_key, p_default));
 }
 
+// The pressure derivative of a declared bulk modulus. A row carrying the modulus and no derivative has
+// that phase's stiffening UNMEASURED; no value stands in for it.
+double kprime(const Dictionary &p_s, const String &p_id, const char *p_k_key, const char *p_kp_key) {
+	if (!p_s.has(p_k_key)) {
+		return 0.0;
+	}
+	ERR_FAIL_COND_V_MSG(!p_s.has(p_kp_key), 0.0, "LASubstances(\"" + p_id + "\"): the table gives "
+			+ p_k_key + " and no " + p_kp_key + ".");
+	return double(p_s[p_kp_key]);
+}
+
 // Specific volume of a condensed phase, m^3/kg: the reference volume opened up by thermal expansion and
 // squeezed by pressure. A coefficient the table does not carry leaves its term out.
 // Eulerian finite strain f at a pressure, from third-order Birch-Murnaghan (Birch 1947, Phys. Rev. 71:809):
@@ -611,10 +662,28 @@ double bm_strain(double p_p_pa, double p_k0_pa, double p_kprime) {
 		return 3.0 * p_k0_pa * f * std::pow(1.0 + 2.0 * f, 2.5)
 				* (1.0 + 1.5 * (p_kprime - 4.0) * f);
 	};
-	// f = -0.5 is V0/V -> 0 and f above 1 is a compression no rock reaches; the root is inside.
+	// P(f) rises only between its turning points, 9a f^2 + (7 + 2a) f + 1 = 0 with a = 3/2 (K0' - 4);
+	// outside them the third-order form is not invertible and bisection lands on a root that is not the
+	// state. K0' > 4 turns back at a small NEGATIVE f, K0' < 4 at a positive one.
 	double lo = -0.45;
 	double hi = 1.5;
-	if (p_p_pa < pressure_at(lo) || p_p_pa > pressure_at(hi)) {
+	const double a = 1.5 * (p_kprime - 4.0);
+	const double disc = (7.0 + 2.0 * a) * (7.0 + 2.0 * a) - 36.0 * a;
+	if (a != 0.0 && disc > 0.0) {
+		const double r1 = (-(7.0 + 2.0 * a) + std::sqrt(disc)) / (18.0 * a);
+		const double r2 = (-(7.0 + 2.0 * a) - std::sqrt(disc)) / (18.0 * a);
+		if (r1 < 0.0) {
+			lo = std::max(lo, r1);
+		} else {
+			hi = std::min(hi, r1);
+		}
+		if (r2 < 0.0) {
+			lo = std::max(lo, r2);
+		} else {
+			hi = std::min(hi, r2);
+		}
+	}
+	if (!(hi > lo) || p_p_pa < pressure_at(lo) || p_p_pa > pressure_at(hi)) {
 		return 0.0;
 	}
 	for (int i = 0; i < 60; ++i) {
@@ -628,7 +697,6 @@ double bm_strain(double p_p_pa, double p_k0_pa, double p_kprime) {
 	return 0.5 * (lo + hi);
 }
 
-// LA_APPROX: second_order_birch_murnaghan
 // Liquid water, kg/m^3: the saturated liquid from the triple point to the critical point (IAPWS SR1-86).
 double water_liquid_density(double p_t_c) {
 	const double t_k = std::min(std::max(p_t_c, pc("WATER_TRIPLE_T_C")), pc("WATER_CRITICAL_T_C")) + pc("KELVIN_OFFSET");
@@ -939,14 +1007,14 @@ double LASubstances::density(const String &p_id, double p_t_c, double p_p_pa) {
 	const double rho_liq = dget(s, "density", 0.0);
 	const double v_liq = specific_volume(rho_liq, dget(s, "density_ref_t_c", lab_t),
 			dget(s, "expansion_per_k", 0.0), dget(s, "bulk_modulus_pa", 0.0),
-			dget(s, "bulk_modulus_deriv", 4.0), p_t_c, p_p_pa, p_id == "h2o");
+			kprime(s, p_id, "bulk_modulus_pa", "bulk_modulus_deriv"), p_t_c, p_p_pa, p_id == "h2o");
 	if (!s.has("density_solid")) {
 		return v_liq > 0.0 ? 1.0 / v_liq : 0.0;
 	}
 	const double v_sol = specific_volume(dget(s, "density_solid", 0.0),
 			dget(s, "density_solid_ref_t_c", lab_t), dget(s, "expansion_solid_per_k", 0.0),
 			dget(s, "bulk_modulus_solid_pa", 0.0),
-			dget(s, "bulk_modulus_solid_deriv", dget(s, "bulk_modulus_deriv", 4.0)), p_t_c, p_p_pa);
+			kprime(s, p_id, "bulk_modulus_solid_pa", "bulk_modulus_solid_deriv"), p_t_c, p_p_pa);
 	// Across the melting interval both phases are present and VOLUMES add, so the specific volumes mix by
 	// the melt fraction. Outside it one end of the lever carries everything.
 	const double solidus = melt_c_at(p_id, p_p_pa, 0.0);

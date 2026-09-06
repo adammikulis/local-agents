@@ -165,18 +165,17 @@ layout(push_constant, std430) uniform Params {
 	uint act_base;          // where this row group's sorted list starts, in cells
 } params;
 
-// No row of LASubstances measures a pressure derivative of its bulk modulus, so every phase squeezes at
-// the value Birch-Murnaghan reduces to its second order at.
-const float LA_KPRIME = 4.0;   // LASubstances.bulk_modulus_deriv
-const float SOLID_IN = 0.6;    // LAPhysical.RHEOLOGICAL_LOCKUP_CRYSTAL_FRAC
+const float SOLID_IN = 0.6;    // LAPhysical.SEDIMENT_LOAD_BEARING_SOLID_FRAC
 const float ICE_ALPHA = 1.6e-4;        // LAPhysical.ICE_VOLUME_EXPANSION_PER_K
 const float ICE_T_REF_C = 0.0;         // LAPhysical.WATER_FREEZE_C
 const float WATER_COMPRESS = 4.525e-10;     // LAPhysical.WATER_ISOTHERMAL_COMPRESSIBILITY_PER_PA
 const float ICE_BULK = 8.4e9;          // LAPhysical.ICE_BULK_MODULUS_PA
-const float SOLID_OUT = 0.4;   // LAPhysical.RHEOLOGICAL_MOBILE_CRYSTAL_FRAC
+const float WATER_KPRIME = 7.15;       // LASubstances.h2o.bulk_modulus_deriv
+const float ICE_KPRIME = 5.2;          // LASubstances.h2o.bulk_modulus_solid_deriv
+const float SOLID_OUT = 0.555; // LAPhysical.SEDIMENT_RIGIDITY_SOLID_FRAC
 
 // One row of `props` per channel, built from LASubstances by StateDerivePass. A channel amount is mol/m^3.
-const int PROP_STRIDE = 12;        // StateDerivePass.PROP_STRIDE
+const int PROP_STRIDE = 13;        // StateDerivePass.PROP_STRIDE
 // The (T, p) solve's budget: under-relaxed, so a pair on a latent plateau converges onto it.
 const int LA_STATE_STEPS = 64;
 const float LA_STATE_TOL = 1.0e-6;
@@ -192,6 +191,7 @@ const int PROP_TREF = 8;           // C the reference density is quoted at
 const int PROP_LITHIC = 9;         // 1 = a rock or metal phase; the solid flag reads their summed volume
 const int PROP_RAD_GROUP = 10;
 const int PROP_CONDENSED = 11;     // fills volume of its own and resists being squeezed
+const int PROP_KPRIME = 12;        // dK/dp of the bulk modulus above
 
 float rad_w_kg(int group) {
 	if (group == 1) { return params.rad_w_kg_1; }
@@ -287,10 +287,11 @@ CondVol la_condensed_volumes(uint g, float vol, float cem, float p_pa, float p_r
 		float alpha = props[base + PROP_ALPHA];
 		// The expansivity falls under pressure as alpha * K_T stays constant (Anderson 1995),
 		// K_T = K0 + K0' P.
-		float strain = la_bm_strain(dp, kk, LA_KPRIME);
+		float kp = props[base + PROP_KPRIME];
+		float strain = la_bm_strain(dp, kk, kp);
 		float w0 = raw * la_bm_squeeze(strain) * (1.0 - sl);
-		float w1 = w0 * alpha * ((kk > 0.0 && dp > 0.0) ? kk / (kk + LA_KPRIME * dp) : 1.0);
-		float k_t = la_bm_k_t(strain, kk, LA_KPRIME);
+		float w1 = w0 * alpha * ((kk > 0.0 && dp > 0.0) ? kk / (kk + kp * dp) : 1.0);
+		float k_t = la_bm_k_t(strain, kk, kp);
 		v.b0 += w0;
 		v.b1 += w1;
 		v.b2 += w1 * tr;
@@ -310,9 +311,9 @@ CondVol la_condensed_volumes(uint g, float vol, float cem, float p_pa, float p_r
 		}
 		// THE LATTICE STANDS UNDER THE ROCK'S OWN PRESSURE, not the pore fluid's: a cemented frame
 		// carries the column over it.
-		float strain_l = la_bm_strain(dp_l, kk, LA_KPRIME);
+		float strain_l = la_bm_strain(dp_l, kk, kp);
 		float wl0 = raw * la_bm_squeeze(strain_l) * sl;
-		float wl1 = wl0 * alpha * ((kk > 0.0 && dp_l > 0.0) ? kk / (kk + LA_KPRIME * dp_l) : 1.0);
+		float wl1 = wl0 * alpha * ((kk > 0.0 && dp_l > 0.0) ? kk / (kk + kp * dp_l) : 1.0);
 		v.l0 += wl0;
 		v.l1 += wl1;
 		v.l2 += wl1 * tr;
@@ -830,13 +831,14 @@ void main() {
 		// THE ROOM'S OWN STARTING ITERATE, the cell less its lattice: what the fluid's condensed phases
 		// take out of it is what the loop below settles. Never carried from another pressure.
 		room_gas = max(vol - lat_vol, 0.0);
+		float room_prev = -1.0;
 		// The free water's own squeeze here: the strain is a function of p, so the room loop re-reads it.
-		float f_bm_liq = la_bm_strain(p_pa - LA_P_STD, 1.0 / WATER_COMPRESS, LA_KPRIME);
-		float f_bm_ice = la_bm_strain(p_pa - LA_P_STD, ICE_BULK, LA_KPRIME);
+		float f_bm_liq = la_bm_strain(p_pa - LA_P_STD, 1.0 / WATER_COMPRESS, WATER_KPRIME);
+		float f_bm_ice = la_bm_strain(p_pa - LA_P_STD, ICE_BULK, ICE_KPRIME);
 		float sq_liq = la_bm_squeeze(f_bm_liq);
 		float sq_ice = la_bm_squeeze(f_bm_ice);
-		float kt_liq = la_bm_k_t(f_bm_liq, 1.0 / WATER_COMPRESS, LA_KPRIME);
-		float kt_ice = la_bm_k_t(f_bm_ice, ICE_BULK, LA_KPRIME);
+		float kt_liq = la_bm_k_t(f_bm_liq, 1.0 / WATER_COMPRESS, WATER_KPRIME);
+		float kt_ice = la_bm_k_t(f_bm_ice, ICE_BULK, ICE_KPRIME);
 		bool settled = false;
 		for (int k = 0; k < LA_STATE_STEPS; ++k) {
 			pinned = false;
@@ -873,8 +875,11 @@ void main() {
 			c_comp = (cv.c0 + t_c * cv.c1 - cv.c2) + cw;
 			float room_next = max(vol - b_vol, 0.0);
 			// The gas pressure is n R T over this room, so the room settles to the pressure's own
-			// tolerance, or to float precision where the room is gone.
-			settled = abs(room_next - room_gas) <= max(LA_STATE_TOL * room_gas, 2.0 * LA_FLOAT_EPS * vol);
+			// tolerance -- or, where it is a difference of volumes of the CELL's order and resolves no
+			// finer than they do, to the float32 fixed point or two-cycle the iteration lands in.
+			settled = abs(room_next - room_gas) <= LA_STATE_TOL * room_gas
+				|| room_next == room_gas || room_next == room_prev;
+			room_prev = room_gas;
 			room_gas = room_next;
 			if (settled) {
 				break;
@@ -972,7 +977,7 @@ void main() {
 	h2o_vapour[g] = f_vapour;
 	// The state its own water stands at: the IAPWS liquid curve at this temperature, squeezed here.
 	float v_liq_here = la_water_liquid_v_m3_kg(t_c)
-		* la_bm_squeeze(la_bm_strain(p_pa - LA_P_STD, 1.0 / WATER_COMPRESS, LA_KPRIME));
+		* la_bm_squeeze(la_bm_strain(p_pa - LA_P_STD, 1.0 / WATER_COMPRESS, WATER_KPRIME));
 	water_rho[g] = v_liq_here > 0.0 ? 1.0 / v_liq_here : 0.0;
 	liquid[g] = max(h2o[g], 0.0) * f_liquid;
 	// The condensed FLUID's bulk modulus: its own volume over its own compressibility, the grains out.
