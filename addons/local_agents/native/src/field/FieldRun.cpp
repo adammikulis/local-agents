@@ -35,28 +35,6 @@ bool content_hash(const std::string &path, uint64_t &out) {
 	return true;
 }
 
-std::vector<std::string> split_commas(const std::string &s) {
-	std::vector<std::string> out;
-	std::string cur;
-	for (char c : s) {
-		if (c == ',') {
-			if (!cur.empty()) { out.push_back(cur); }
-			cur.clear();
-		} else {
-			cur.push_back(c);
-		}
-	}
-	if (!cur.empty()) { out.push_back(cur); }
-	return out;
-}
-
-// The kernel a pass name dispatches. A pass the plan does not carry is a pass this run cannot make.
-const char *kernel_of(const std::string &pass) {
-	if (pass == "derive") { return "state_derive"; }
-	if (pass == "reduce") { return "reduce"; }
-	return nullptr;
-}
-
 double fold_rows(const std::vector<float> &parts, uint32_t groups, uint32_t row, uint32_t fold,
 		bool &present) {
 	present = false;
@@ -113,30 +91,29 @@ int field_run(la::Device &dev, const RunArgs &args) {
 		return 2;
 	}
 	if (args.steps == 0 || args.steps > plan.steps.size()) {
-		std::fprintf(stderr, "lasim: the plan records %zu steps; --steps %u asks for another run.\n",
+		std::fprintf(stderr, "lasim: the plan records %zu steps; --step %u asks for another run.\n",
 				plan.steps.size(), args.steps);
 		return 2;
 	}
 
-	const std::vector<std::string> passes = split_commas(args.passes);
+	// EVERY KERNEL THE PLAN DISPATCHES, taken off the plan itself: the recorded steps are the one
+	// declaration of which passes this run is, so nothing on the command line restates them.
 	std::vector<std::string> want_kernels;
-	for (const std::string &p : passes) {
-		const char *k = kernel_of(p);
-		if (k == nullptr) {
-			std::fprintf(stderr, "lasim: no pass named '%s'.\n", p.c_str());
-			return 2;
-		}
-		want_kernels.emplace_back(k);
-	}
-	// Every dispatch the plan records must be one of the passes asked for, or the run is not the run named.
 	for (const std::vector<la::PlanDispatch> &step : plan.steps) {
 		for (const la::PlanDispatch &d : step) {
 			if (std::find(want_kernels.begin(), want_kernels.end(), d.kernel) == want_kernels.end()) {
-				std::fprintf(stderr, "lasim: the plan dispatches '%s', which --passes %s does not name.\n",
-						d.kernel.c_str(), args.passes.c_str());
-				return 2;
+				want_kernels.push_back(d.kernel);
 			}
 		}
+	}
+	if (want_kernels.empty()) {
+		std::fprintf(stderr, "lasim: the plan records no dispatch, so this run steps nothing.\n");
+		return 2;
+	}
+	std::string pass_list;
+	for (const std::string &k : want_kernels) {
+		if (!pass_list.empty()) { pass_list += ","; }
+		pass_list += k;
 	}
 
 	std::map<std::string, la::KernelId> kernels;
@@ -208,7 +185,7 @@ int field_run(la::Device &dev, const RunArgs &args) {
 				"\"cells\":%u,\"world\":\"%s\",\"channels_loaded\":%u}\n",
 			dev.name(), dev.backend() == la::Backend::Metal ? "metal" : "vulkan",
 			(unsigned long long)blob_hash, (unsigned long long)snap_hash, (unsigned long long)plan_hash,
-			args.passes.c_str(), args.steps, snap.cells, snap.world_key.c_str(), loaded);
+			pass_list.c_str(), args.steps, snap.cells, snap.world_key.c_str(), loaded);
 
 	for (uint32_t s = 0; s < args.steps; ++s) {
 		la::List list = dev.begin();

@@ -16,8 +16,7 @@ const char *kUsage =
 		"Usage: lasim [--backend metal|vulkan] [--device N] [--kernels FILE]\n"
 		"             [--selftest-device | --selftest-kernels]\n"
 		"             [--property-tests [--seed N] [--only NAME]]\n"
-		"             [--load SNAPSHOT --plan PLAN --passes derive,reduce [--steps N]\n"
-		"              [--mirrors FILE] [--report]]\n";
+		"             [--load SNAPSHOT --plan PLAN [--step N] [--mirrors FILE] [--report]]\n";
 
 // The blob sits beside the binary, which is where the build writes it.
 std::string blob_beside(const char *argv0) {
@@ -72,11 +71,9 @@ int main(int argc, char **argv) {
 			run.snapshot = argv[++i];
 		} else if (a == "--plan" && i + 1 < argc) {
 			run.plan = argv[++i];
-		} else if (a == "--passes" && i + 1 < argc) {
-			run.passes = argv[++i];
 		} else if (a == "--mirrors" && i + 1 < argc) {
 			run.mirrors = argv[++i];
-		} else if (a == "--steps" && i + 1 < argc) {
+		} else if (a == "--step" && i + 1 < argc) {
 			run.steps = uint32_t(std::strtoul(argv[++i], nullptr, 10));
 		} else if (a == "--report") {
 			run.report = true;
@@ -88,13 +85,13 @@ int main(int argc, char **argv) {
 			return 2;
 		}
 	}
-	const bool want_field = !run.snapshot.empty() || !run.plan.empty() || !run.passes.empty();
+	const bool want_field = !run.snapshot.empty() || !run.plan.empty();
 	if (!want_device && !want_kernels && !want_properties && !want_field) {
 		std::fputs(kUsage, stderr);
 		return 2;
 	}
-	if (want_field && (run.snapshot.empty() || run.plan.empty() || run.passes.empty())) {
-		std::fputs("lasim: a field run needs --load, --plan and --passes together.\n", stderr);
+	if (want_field && (run.snapshot.empty() || run.plan.empty())) {
+		std::fputs("lasim: a field run needs --load and --plan together.\n", stderr);
 		return 2;
 	}
 	if (blob.empty()) { blob = blob_beside(argv[0]); }

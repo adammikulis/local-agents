@@ -121,6 +121,23 @@ static func lists() -> Array:
 	]
 
 
+## THE GRAIN PROLOGUE, which derives where a cell's loose mineral sits before anything donates. It
+## carries mineral grains, so the Stokes law reads silicate's density off `substance`.
+static func grain_row() -> Dictionary:
+	return {"channel": "silicate", "substance": "silicate", "mode": POTENTIAL}
+
+
+## One record per detector list: the append's predicate reads `drive`, which binds the list's `prim`
+## channel through `channel`.
+static func list_rows() -> Array:
+	var out: Array = []
+	for row: Dictionary in lists():
+		out.append({"label": String(row["label"]), "channel": String(row["prim"]), "substance": "",
+			"mode": POTENTIAL, "emit_idx": bool(row.get("emit_idx", false)),
+			"list": String(row["label"])})
+	return out
+
+
 ## The compacted-index and dispatch-args buffer keys of one detector list; empty for no such label.
 static func list_buffers(label: String) -> Dictionary:
 	for row: Dictionary in lists():

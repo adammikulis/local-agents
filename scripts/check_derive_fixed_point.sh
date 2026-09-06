@@ -12,6 +12,7 @@ SCRIPT_DIR="$REPO_ROOT/scripts"
 . "$SCRIPT_DIR/lib_godot_lock.sh"
 . "$SCRIPT_DIR/lib_lasim.sh"
 . "$SCRIPT_DIR/lib_lasim_oracle.sh"
+. "$SCRIPT_DIR/lib_capture.sh"
 require_tool python3
 require_tool cmake
 GODOT="${GODOT:-godot}"
@@ -106,7 +107,7 @@ lock_rc=$?
 [ "$lock_rc" -eq 1 ] && { echo "check_derive_fixed_point: the GPU lock did not come free." >&2; exit 2; }
 
 run() {  # run <tag> <snapshot> <plan> <steps> <mirrors>
-	if ! la_lasim --load "$2" --plan "$3" --passes derive --steps "$4" --mirrors "$5" \
+	if ! la_lasim --load "$2" --plan "$3" --step "$4" --mirrors "$5" \
 			> "$WORK/$1.log" 2>&1; then
 		echo "check_derive_fixed_point: lasim did not complete the $1 arm." >&2
 		tail -25 "$WORK/$1.log" >&2
@@ -227,9 +228,9 @@ RC=$?
 [ "$RC" -eq 0 ] || exit "$RC"
 
 # THE SEEDED WORLD, not a rig's own inputs: the same derive over the matter the seed actually laid must
-# write finite state in every cell. Rung 1 is the lowest that publishes the count.
-world="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --rung 1 --frames 4 \
-	--report nonfinite_cells 2>&1)"
+# write finite state in every cell. Rung 1 is the lowest that publishes the count. Off the shared lint
+# capture where there is one, so a lint does not launch an engine per gate for one reading.
+world="$(la_report nonfinite_cells --path "$REPO_ROOT" --rung 1 --frames 4 2>&1)"
 nf="$(printf '%s\n' "$world" | sed -n "s/^nonfinite_cells  *= *//p" | head -1 \
 	| sed -e "s/.*'cur': *//" -e 's/[,}].*//')"
 printf 'DERIVE_SEEDED_WORLD={"nonfinite_cells":%s}\n' "${nf:-null}"
