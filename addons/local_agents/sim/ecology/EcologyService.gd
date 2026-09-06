@@ -408,6 +408,14 @@ func _instance_actor(kind: String, placed: Vector3, genome = null, family_id: in
 	return node
 
 
+## Whether the field steps the cell a living thing was put in. Outside the box no cell answers, so the
+## temperature it stands in and the biomass at its feet are unmeasured and nothing the substrate does
+## reaches it.
+func holds(pos: Vector3) -> bool:
+	return _material != null and _material.has_method("world_to_cell") \
+		and int(_material.world_to_cell(pos)) >= 0
+
+
 ## Which tree grows here. Conifer or broadleaf is a genome under a climate, not a coin; the coin stands in
 ## for that until the loci do.
 func _tree_config() -> Dictionary:

@@ -34,6 +34,7 @@ static func emit_population_trace(w, frame: int) -> void:
 	counts["creatures"] = tree.get_nodes_in_group("creature").size()
 	counts["plants"] = tree.get_nodes_in_group("plant").size()
 	counts["trees"] = tree.get_nodes_in_group("tree").size()
+	_emit_in_box(w, tree)
 	var deaths: Dictionary = {}
 	var snap: Dictionary = LASimReport.snapshot(true)
 	var ev = snap.get("events", {})
@@ -110,6 +111,25 @@ static func emit_population_trace(w, frame: int) -> void:
 	var cloud_cover: float = _num(snap, "cloud_cover")
 	var open_sea_t: float = _num(snap, "open_sea_temp_mean")
 	print("POP_TRACE={\"frame\":%d,\"counts\":%s,\"temp_mean\":%.1f,\"surf_mean\":%.1f,\"surf_max\":%.1f,\"t_eq\":%.1f,\"t_pole\":%.1f,\"rab_e\":%.2f,\"rab_gut\":%.2f,\"rab_bio\":%.4f,\"t_min\":%.1f,\"t_max\":%.1f,\"snow\":%d,\"ice\":%d,\"sea_ice\":%d,\"cloud_cover\":%.3f,\"sea_t\":%.1f,\"charge_peak\":%.2f,\"bolts\":%d,\"moisture\":%.0f,\"cloud_cells\":%d,\"deaths\":%s}" % [frame, JSON.stringify(counts), temp_mean, surf_mean, surf_max, t_eq, t_pole, rab_e, rab_g, rab_b, t_min, t_max, snow_c, ice_c, sea_ice, cloud_cover, open_sea_t, charge_peak, bolts, rain, clouds, JSON.stringify(deaths)])
+
+
+## WHERE THE LIVING THINGS ARE, against where the field steps matter. A body in no cell reads no
+## temperature and no food at its feet, so what the substrate does never reaches it.
+static func _emit_in_box(w, tree: SceneTree) -> void:
+	var mat = w._material if "_material" in w else null
+	if mat == null or not mat.has_method("world_to_cell"):
+		return
+	var inside: int = 0
+	var outside: int = 0
+	for grp in ["creature", "plant", "tree"]:
+		for n in tree.get_nodes_in_group(grp):
+			if not (is_instance_valid(n) and n is Node3D):
+				continue
+			if int(mat.world_to_cell((n as Node3D).global_position)) >= 0:
+				inside += 1
+			else:
+				outside += 1
+	print('LIFE_IN_BOX={"in":%d,"out":%d}' % [inside, outside])
 
 
 ## A reading the run never published is NAN, never zero.

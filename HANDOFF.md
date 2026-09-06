@@ -67,9 +67,7 @@ finds the sea as a declared shell radius and the field sampling the generator af
 ## 7. THE DEMO SITE'S THREE GATES ARE RED ON THEIR BRANCH
 
 Branch `demo-site` (coast site, sea plate deleted, body/world frame fix) is unlanded:
-`scripts/check_life_demo.sh`, `scripts/check_sparse_edit.sh`, `scripts/check_slice_exterior.sh` are red
-there. On `LifeDemo.tscn` every creature's `world_to_cell(global_position)` returns −1: seed every living
-thing inside the box and assert its cell index ≥ 0 in `check_life_demo.sh`.
+`scripts/check_sparse_edit.sh` and `scripts/check_slice_exterior.sh` are red there.
 
 ## 8. THE EYE IS NOT FRAMED OR GROUNDED OFF THE SLICE'S AXES
 

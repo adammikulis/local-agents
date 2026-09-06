@@ -279,8 +279,10 @@ func _generated_surface_radius(dir: Vector3) -> float:
 	var r_a: float = r_top
 	var r_b: float = r_bot
 	var r_hit: float = NAN
+	# The generator is sampled in the terrain's OWN space; every caller here speaks world.
 	for stride in [GEN_RAY_COARSE, GEN_RAY_STRIDE, GEN_RAY_REFINE]:
-		var hit: float = _generator.raycast_sdf_approx(_center + d * r_a, _center + d * r_b, stride)
+		var hit: float = _generator.raycast_sdf_approx(
+			_terrain.to_local(_center + d * r_a), _terrain.to_local(_center + d * r_b), stride)
 		if hit < 0.0:
 			return r_hit
 		r_hit = r_a - hit

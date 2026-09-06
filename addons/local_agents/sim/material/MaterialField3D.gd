@@ -134,6 +134,13 @@ func point_to_field(world_pos: Vector3) -> Vector3:
 	return pivot + _body_basis_inv * (world_pos - pivot)
 
 
+## A field-frame POINT back in world coordinates. The grid is laid in the body's frame, so anything that
+## reads a cell's position to place something in the world comes back through here.
+func field_to_point(field_pos: Vector3) -> Vector3:
+	var pivot: Vector3 = centre()
+	return pivot + _body_basis * (field_pos - pivot)
+
+
 ## Radius of the sea shell, model units, measured from `centre()`.
 func sea_radius() -> float:
 	if _terrain != null and _terrain.has_method("sea_radius"):

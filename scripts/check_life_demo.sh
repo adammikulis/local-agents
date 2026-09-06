@@ -37,6 +37,12 @@ def last(prefix):
 report = last("SIM_REPORT=")
 pops = every("POP_TRACE=")
 pop = pops[-1] if pops else None
+placed = last("LIFE_IN_BOX=")
+if placed is None:
+    print("check_life_demo: the run published no LIFE_IN_BOX, so where it put life went unmeasured.",
+          file=sys.stderr)
+    print("\n".join(text.splitlines()[-25:]), file=sys.stderr)
+    sys.exit(2)
 if report is None or pop is None:
     print("check_life_demo: the run published no %s (exit %d)."
           % ("SIM_REPORT" if report is None else "POP_TRACE", rc), file=sys.stderr)
@@ -53,9 +59,16 @@ def load(line, what):
 
 snap = load(report, "SIM_REPORT")
 trace = load(pop, "POP_TRACE")
+box = load(placed, "LIFE_IN_BOX")
 gauges = snap.get("gauges", {})
 
 fails = []
+# EVERY LIVING THING STANDS WHERE THE FIELD STEPS MATTER. Outside the box no cell answers, so the
+# temperature it stands in and the food at its feet are unmeasured and nothing the substrate does reaches
+# it. An empty seeding is not a pass: a world that placed nothing measured nothing.
+if int(box.get("out", -1)) != 0 or int(box.get("in", 0)) <= 0:
+    fails.append("the seeding put %s living thing(s) outside the field box and %s inside it"
+                 % (box.get("out"), box.get("in")))
 # NOTHING THREW. A demo that errors every frame is not a demo, whatever its counts say.
 errs = [l for l in text.splitlines() if "SCRIPT ERROR" in l]
 if errs:
@@ -103,8 +116,9 @@ worst = float(fps.get("min", 0.0)) if isinstance(fps, dict) else 0.0
 if worst < min_fps:
     fails.append("the worst frame of the run fell below %g fps, which is not watchable" % min_fps)
 
-print("LIFE_DEMO={\"kinds\":%s,\"fakes\":%s,\"sealed\":%s,\"errors\":%d}"
+print("LIFE_DEMO={\"kinds\":%s,\"in_box\":%s,\"outside_box\":%s,\"fakes\":%s,\"sealed\":%s,\"errors\":%d}"
       % (json.dumps({k: int(counts.get(k, 0)) for k in ("creatures", "plants", "trees", "fish")}),
+         box.get("in"), box.get("out"),
          json.dumps(sorted(fakes.keys())), str("WORLD_SEALED=" in text).lower(), len(errs)))
 if rc != 0:
     fails.append("the run exited %d" % rc)
