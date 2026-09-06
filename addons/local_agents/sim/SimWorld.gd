@@ -245,7 +245,7 @@ func spawn_life() -> void:
 		counts = initial_counts
 	if world_type == WorldType.SPHERE:
 		_ecology.spawn_initial(counts)
-		_ecology.populate_environment(0, forest_clusters)
+		_ecology.populate_environment(forest_clusters)
 	else:
 		_scatter_flat(counts)
 

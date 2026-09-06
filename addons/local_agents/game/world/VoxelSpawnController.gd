@@ -12,13 +12,11 @@ const INITIAL_COUNTS: Dictionary = {
 	"rabbit": 50, "mouse": 12, "fox": 10, "bird": 55, "swallow": 10, "villager": 12, "vulture": 12,
 	"beetle": 10, "ant": 12, "grasshopper": 10, "butterfly": 10, "fly": 12, "bee": 14,
 }
-const ROCK_COUNT: int = 60
 const FOREST_CLUSTERS: int = 16
 
 const CAMPAIGN_INITIAL_COUNTS: Dictionary = {
 	"rabbit": 12,
 }
-const CAMPAIGN_ROCK_COUNT: int = 10
 const CAMPAIGN_FOREST_CLUSTERS: int = 0
 
 var _world: Node = null
@@ -79,11 +77,11 @@ func try_spawn(_overview: bool, _farview: bool, _auto_meteor: bool, _auto_select
 	if _is_campaign():
 		if not no_fauna:
 			_ecology.spawn_initial(CAMPAIGN_INITIAL_COUNTS)
-		_ecology.populate_environment(CAMPAIGN_ROCK_COUNT, 0 if no_flora else CAMPAIGN_FOREST_CLUSTERS)
+		_ecology.populate_environment(0 if no_flora else CAMPAIGN_FOREST_CLUSTERS)
 	else:
 		if not no_fauna:
 			_ecology.spawn_initial(INITIAL_COUNTS)
-		_ecology.populate_environment(ROCK_COUNT, 0 if no_flora else FOREST_CLUSTERS)
+		_ecology.populate_environment(0 if no_flora else FOREST_CLUSTERS)
 		if not no_fauna and _ecology.has_method("stock_initial_aquatic"):
 			_ecology.stock_initial_aquatic()
 	# NOTHING RE-FRAMES THE VIEW HERE: the render layer framed the camera off the body or off the slice

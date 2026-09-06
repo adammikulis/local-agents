@@ -168,6 +168,9 @@ func _rebuild(cam_pos: Vector3, _radial: Vector3) -> void:
 	var spacing: float = minf(LATTICE_SPACING_FRAC * alt, float(grid.cell_size))
 	var half: int = LATTICE_SIDE / 2
 	var seen: Dictionary = {}
+	# THE EYE'S OWN CELL IS NOT DRAWN: the eye stands inside that glyph rather than looking at it, and a
+	# glyph subtending a fixed angle at no distance covers the frame.
+	seen[grid.cell_at(cam_pos)] = true
 	var picked: PackedInt32Array = PackedInt32Array()
 	var vecs: PackedVector3Array = PackedVector3Array()
 	var ref: float = 0.0
@@ -203,7 +206,7 @@ func _rebuild(cam_pos: Vector3, _radial: Vector3) -> void:
 		var v2: Vector3 = vecs[i]
 		var mag2: float = v2.length()
 		var pos2: Vector3 = centres[c2]
-		var span: float = GLYPH_SUBTEND_RAD * maxf(cam_pos.distance_to(pos2), 1.0)
+		var span: float = GLYPH_SUBTEND_RAD * cam_pos.distance_to(pos2)
 		var frac: float = minf(mag2 / _ref, 1.0)
 		var alt_c: float = (pos2 - _centre).length() - _sea_radius
 		alt_span = maxf(alt_span, absf(alt_c))

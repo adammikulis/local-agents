@@ -14,6 +14,7 @@ var _gen_opts: Dictionary = {}             # the dict build_planet handed LASphe
 var _center: Vector3 = Vector3.ZERO
 var _planet_radius: float = 0.0
 var _sea_radius: float = 0.0
+var _coast_dir: Vector3 = Vector3.ZERO   # the coast site the last box asked for
 
 ## Planet centre in world space (origin by default). Only meaningful in planet mode.
 func planet_center() -> Vector3:
@@ -63,6 +64,9 @@ func build_planet(parent: Node3D, opts: Dictionary = {}) -> void:
 	_generator = gen
 
 	var mesher: VoxelMesherTransvoxel = VoxelMesherTransvoxel.new()
+	# TRANSVOXEL'S TRANSITION CELLS CLOSE THE STEP BETWEEN TWO LEVELS OF DETAIL; the terrain shader moves
+	# their vertices onto the coarse surface.
+	mesher.transitions_enabled = true
 
 	var terrain: VoxelLodTerrain = VoxelLodTerrain.new()
 	terrain.name = "VoxelTerrain"
@@ -76,13 +80,7 @@ func build_planet(parent: Node3D, opts: Dictionary = {}) -> void:
 		tm.set_shader_parameter("planet_enabled", 1.0)
 		tm.set_shader_parameter("planet_center", _center)
 		tm.set_shader_parameter("planet_sea_radius", _sea_radius)
-	# THE LOD PYRAMID SPANS THE BODY OR ITS FAR SIDE IS NEVER MESHED. The coarsest level reaches
-	# lod_distance * 2^(lod_count-1) metres, and the body is metres of real radius, so the count is read
-	# off the radius rather than typed. A viewer sees the whole body: the far limb stands 2R away.
-	var lod_dist: float = float(opts.get("lod_distance", 56.0))
-	terrain.lod_distance = lod_dist
-	terrain.lod_count = clampi(int(ceil(log(maxf(_planet_radius, lod_dist) / lod_dist) / log(2.0))) + 1,
-		1, MAX_LOD)
+	terrain.lod_count = _lod_count_for(terrain.lod_distance)
 	terrain.view_distance = int(opts.get("view_distance", 8000))
 	terrain.generate_collisions = true
 	terrain.collision_layer = 1
@@ -114,6 +112,13 @@ func generator_options() -> Dictionary:
 func set_shader_param(param: String, value) -> void:
 	if _terrain != null and _terrain.material is ShaderMaterial:
 		(_terrain.material as ShaderMaterial).set_shader_parameter(param, value)
+
+## THE LOD PYRAMID SPANS THE BODY OR ITS FAR SIDE IS NEVER MESHED. The coarsest level reaches
+## lod_distance * 2^(lod_count-1) metres and the far limb stands 2R away, so the count is read off the
+## radius rather than typed.
+func _lod_count_for(lod_dist: float) -> int:
+	return clampi(int(ceil(log(maxf(_planet_radius, lod_dist) / lod_dist) / log(2.0))) + 1, 1, MAX_LOD)
+
 
 ## How far the terrain streams and draws around a viewer, in metres — the draw-distance setting.
 func set_view_distance(metres: float) -> void:
@@ -169,48 +174,10 @@ func is_solid(pos: Vector3) -> bool:
 	return sdf_at(pos) < 0.0
 
 
-# A low-poly rock baked to a VoxelMeshSDF once, reused for every polygon stamp (do_mesh).
-var _rock_sdf: VoxelMeshSDF = null
+## Solidification: add SDF matter inside the sphere. The inverse of carve_sphere, at the same seam.
+func fill_sphere(world_pos: Vector3, radius: float) -> void:
+	_edit_sphere(world_pos, radius, VoxelTool.MODE_ADD)
 
-func _rock_mesh_sdf() -> VoxelMeshSDF:
-	if _rock_sdf != null:
-		return _rock_sdf
-	var m: BoxMesh = BoxMesh.new()               # an angular block → faceted rock once rotated
-	m.size = Vector3(2.0, 2.0, 2.0)
-	var sdf: VoxelMeshSDF = VoxelMeshSDF.new()
-	sdf.set_mesh(m)
-	sdf.set_cell_count(24)
-	sdf.bake()
-	_rock_sdf = sdf
-	return _rock_sdf
-
-
-## Stamp an oriented faceted ROCK (a POLYGON mesh, not a sphere) into the terrain: up-axis aligned to
-## `normal` with a random spin, scaled by `size` and flattened, so solidified lava reads as angular
-## rock conforming to the slope it cooled on — never round blobs or axis-aligned Minecraft steps.
-func fill_rock(world_pos: Vector3, size: float, normal: Vector3) -> void:
-	if _terrain == null:
-		return
-	var vt: VoxelTool = _terrain.get_voxel_tool()
-	if vt == null:
-		return
-	var sdf: VoxelMeshSDF = _rock_mesh_sdf()
-	if sdf == null:
-		return
-	var up: Vector3 = normal.normalized()
-	if up.length() < 0.5:
-		up = Vector3.UP
-	var ref: Vector3 = Vector3.FORWARD if absf(up.dot(Vector3.FORWARD)) < 0.9 else Vector3.RIGHT
-	var right: Vector3 = up.cross(ref).normalized()
-	var fwd: Vector3 = right.cross(up).normalized()
-	var b: Basis = Basis(right, up, fwd)
-	b = b.rotated(up, LASimRng.for_domain("planet").randf() * TAU)   # spin so no two rocks align
-	b = b.scaled(Vector3(size, size * 0.55, size))      # flatter than tall → a crust, not a boulder
-	vt.set_channel(VoxelBuffer.CHANNEL_SDF)
-	vt.set_mode(VoxelTool.MODE_ADD)
-	# do_mesh takes a LOCAL/voxel-space transform; compose with the terrain's inverse world transform so the
-	# rock lands correctly on a rotated/spinning body (no-op at identity).
-	vt.do_mesh(sdf, _terrain.global_transform.affine_inverse() * Transform3D(b, world_pos), 0.0)
 
 ## Physics-space raycast against the terrain body (collision_mask=1).
 ## Returns {"hit": bool, "position": Vector3, "normal": Vector3}.
@@ -234,33 +201,48 @@ func raycast_terrain(from: Vector3, dir: Vector3, max_distance: float) -> Dictio
 func ground_point(pos: Vector3) -> Vector3:
 	return surface_point(pos - _center)
 
-## PLANET: world radius of the solid surface along `dir`, solved from the SDF the body is generated from,
-## so one direction gives one radius whatever a viewer has streamed. NAN when there is no terrain.
+## PLANET: world radius of the solid surface along the WORLD direction `dir`, solved from the SDF the body
+## is generated from, so one direction gives one radius whatever a viewer has streamed. NAN without terrain.
 func surface_radius(dir: Vector3) -> float:
 	return _generated_surface_radius(dir)
 
 
-# Dry land is where the solid surface stands above the sea shell.
-const LAND_SAMPLES: int = 128
+## The same radius along a direction fixed IN THE BODY: a place on the planet, which the world direction
+## sweeps past as the body turns.
+func body_surface_radius(body_dir: Vector3) -> float:
+	return _generated_surface_radius(to_world_dir(body_dir))
 
 
-## A direction from the centre where dry land stands above the sea shell, preferring the hemisphere
-## `prefer` points into. Vector3.UP when the sweep finds none: this world's surface is all ocean.
-func land_direction(prefer: Vector3 = Vector3.ZERO) -> Vector3:
-	if _generator == null:
-		return Vector3.UP
-	# A Fibonacci sphere: even coverage from one deterministic sequence, no clustering at the poles.
-	var golden: float = PI * (3.0 - sqrt(5.0))
-	var found: Vector3 = Vector3.UP
-	for i in range(LAND_SAMPLES):
-		var y: float = 1.0 - 2.0 * (float(i) + 0.5) / float(LAND_SAMPLES)
-		var d: Vector3 = Vector3(cos(golden * i), 0.0, sin(golden * i)) * sqrt(maxf(0.0, 1.0 - y * y)) + Vector3.UP * y
-		if surface_radius(d) <= _sea_radius:
-			continue
-		found = d
-		if prefer.length() < 0.001 or d.dot(prefer.normalized()) > 0.4:
-			break
-	return found
+## The body's own frame is the frame its SDF is written in; the world frame is that one turned by the
+## body's rotation. A direction given in one means a different place on the planet in the other.
+func to_world_dir(body_dir: Vector3) -> Vector3:
+	return body_dir if _terrain == null \
+		else (_terrain.global_transform.basis.orthonormalized() * body_dir)
+
+
+## WHERE TO STAND A DEMO BOX SO IT HOLDS A SHORE, solved in LAPlanetComposition over a few hundred
+## directions at seed time. Vector3.ZERO when this body's surface holds none; asked with no footprint,
+## the site the last box chose.
+func coast_site_dir(footprint_m: float) -> Vector3:
+	if footprint_m <= 0.0:
+		return _coast_dir
+	print("SITE_CHOOSER_STANDIN=%s" % JSON.stringify({
+		"file": "addons/local_agents/gdextensions/localagents/src/LAPlanetTables.cpp",
+		"expr": "LAPlanetComposition::coast_site: la_surface_radius(dir) - p_sea_r_m",
+		"replaced_by": "the hydrosphere fill's own liquid-at-surface columns"}))
+	var g: Dictionary = LAPlanetComposition.coast_site(self, _planet_radius, _sea_radius, footprint_m)
+	_coast_dir = g.get("dir", Vector3.ZERO)
+	return _coast_dir
+
+
+## The coast site as a WORLD direction now: the body-frame site turned by the body's own rotation.
+func coast_site_world_dir() -> Vector3:
+	return Vector3.ZERO if _coast_dir == Vector3.ZERO else to_world_dir(_coast_dir)
+
+
+## What the crust under a footprint at `d` is: the site rule is read off this reading.
+func footprint_ground(d: Vector3, footprint_m: float) -> Dictionary:
+	return LAPlanetComposition.footprint_ground(self, d, _planet_radius, _sea_radius, footprint_m)
 
 
 # Bracket the SDF crossing coarsely over the whole relief band, then twice across the bracket it found.
@@ -308,10 +290,16 @@ func altitude_at(pos: Vector3) -> float:
 func meshed_resolution_at(world_pos: Vector3) -> float:
 	if _terrain == null:
 		return INF
-	var e: float = float(_terrain.get_mesh_block_size())
-	var box: AABB = AABB(_terrain.to_local(world_pos) - Vector3(e, e, e), Vector3(e, e, e) * 2.0)
+	# THE BLOCK'S OWN MESH STATE, not whether its voxels are loaded: a loaded block whose surface the
+	# mesher has not built yet draws nothing, and a shot taken against it photographs absent ground.
+	var bs: int = int(_terrain.get_mesh_block_size())
+	var local: Vector3 = _terrain.to_local(world_pos)
 	for lod in range(_terrain.lod_count):
-		if _terrain.is_area_meshed(box, lod):
+		var step: float = float(bs << lod)
+		var bp: Vector3i = Vector3i(int(floor(local.x / step)), int(floor(local.y / step)),
+			int(floor(local.z / step)))
+		var info: Dictionary = _terrain.debug_get_mesh_block_info(bp, lod)
+		if bool(info.get("meshed", false)) and bool(info.get("visible", false)):
 			return pow(2.0, float(lod))
 	return INF
 

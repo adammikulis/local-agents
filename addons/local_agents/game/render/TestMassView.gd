@@ -8,10 +8,13 @@ extends Node3D
 const MARKER_COLOUR: Color = Color(1.0, 0.55, 0.10)
 const TRAIL_COLOUR: Color = Color(1.0, 0.80, 0.38)
 ## Marker radius and column width as fractions of the distance from the eye, so a probe two kilometres
-## away and one at your feet are both a few pixels across, and the smallest either is drawn, metres.
+## away and one at your feet are both a few pixels across.
 const MARKER_SUBTEND: float = 0.006
 const TRAIL_SUBTEND: float = 0.003
-const MIN_SIZE_M: float = 0.4
+## A COLUMN IS DRAWN IN PIECES, each sized at its OWN distance from the eye. One box over a two-kilometre
+## fall has one width, so standing at its foot puts a wall across the frame and standing off it leaves
+## nothing to see; in pieces the line recedes the way a line does.
+const TRAIL_PIECES: int = 24
 
 var _probes: Node = null
 var _camera: Camera3D = null
@@ -33,31 +36,25 @@ func _process(_delta: float) -> void:
 		return
 	var rows: Array = _probes.rows()
 	var eye: Vector3 = _camera.global_position
-	for mm: MultiMesh in [_markers.multimesh, _trails.multimesh]:
-		if mm.instance_count < rows.size():
-			mm.instance_count = rows.size()
-		mm.visible_instance_count = rows.size()
+	_fit(_markers.multimesh, rows.size())
+	_fit(_trails.multimesh, rows.size() * TRAIL_PIECES)
 	for i in range(rows.size()):
 		var pos: Vector3 = rows[i]["position"]
 		var from: Vector3 = rows[i]["from"]
-		var dist: float = maxf(eye.distance_to(pos), 1.0)
-		var r: float = maxf(MIN_SIZE_M, MARKER_SUBTEND * dist)
-		_markers.multimesh.set_instance_transform(i,
-			Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * r), pos))
-		# The column is measured from the part of it the eye is nearest, or standing beside its foot
-		# makes a two-kilometre wall of a line that is a few pixels wide from anywhere else.
-		var near: float = maxf(eye.distance_to(_nearest_on(from, pos, eye)), 1.0)
-		_trails.multimesh.set_instance_transform(i, _column(from, pos,
-			maxf(MIN_SIZE_M, TRAIL_SUBTEND * near)))
+		_markers.multimesh.set_instance_transform(i, Transform3D(
+			Basis.IDENTITY.scaled(Vector3.ONE * MARKER_SUBTEND * eye.distance_to(pos)), pos))
+		for k in TRAIL_PIECES:
+			var a: Vector3 = from.lerp(pos, float(k) / float(TRAIL_PIECES))
+			var b: Vector3 = from.lerp(pos, float(k + 1) / float(TRAIL_PIECES))
+			_trails.multimesh.set_instance_transform(i * TRAIL_PIECES + k,
+				_column(a, b, TRAIL_SUBTEND * eye.distance_to(0.5 * (a + b))))
 
 
-## The point of segment [a, b] closest to `p`.
-static func _nearest_on(a: Vector3, b: Vector3, p: Vector3) -> Vector3:
-	var along: Vector3 = b - a
-	var len2: float = along.length_squared()
-	if len2 <= 0.0:
-		return a
-	return a + along * clampf((p - a).dot(along) / len2, 0.0, 1.0)
+## Room for `want` instances, and that many drawn.
+static func _fit(mm: MultiMesh, want: int) -> void:
+	if mm.instance_count < want:
+		mm.instance_count = want
+	mm.visible_instance_count = want
 
 
 ## A box spanning `a` to `b`, `w` across: the path the probe took, given a width the eye can find.

@@ -16,6 +16,8 @@ const REPLAY_ENV: String = "LA_SLICE_REPLAY"
 ## A torus needs only two cells across it, or a cell faces itself on both sides.
 const MIN_REPLAY_CELLS: int = 2 * LAFieldBoundary3D.RIM_CELLS
 const MIN_WRAP_CELLS: int = 2
+## `site=coast` in an offset field stands the box on a shore the terrain picks, in place of `surface`.
+const SITE_COAST: String = "site=coast"
 
 var error: String = ""
 var offset: Vector3 = Vector3.ZERO
@@ -25,6 +27,9 @@ var cell_size: float = 0.0
 var fine_size: float = 0.0
 ## Offset axis given as `surface`, resolved against the body in apply(); -1 when the spec was all numbers.
 var surface_axis: int = -1
+## Whether the offset axis was spelt SITE_COAST rather than a bare `surface`, which stands on the pole.
+var coast: bool = false
+var _terrain = null                   # set by apply(), the only caller that has one
 ## Face slot -> Array of per-sample states, fed through replay(); empty outside replay mode.
 var replay_series: Dictionary = {}
 ## Field steps one replay sample spans.
@@ -48,7 +53,7 @@ static func parse(spec: String) -> LAFieldSlice3D:
 
 
 func _parse(spec: String) -> bool:
-	var p: Dictionary = LAGridGeometry.parse_slice_spec(spec)
+	var p: Dictionary = LAGridGeometry.parse_slice_spec(_strip_site(spec))
 	if p.has("error"):
 		return _fail(String(p["error"]))
 	offset = p["offset"]
@@ -59,8 +64,20 @@ func _parse(spec: String) -> bool:
 	return true
 
 
-## The box-centre offset with `surface` filled in from the body's own radius. ONE declaration: apply() and
-## the capture path both read the offset through here, or one of them places the box somewhere else.
+## Read a `site=coast` offset field off the spec and hand the numeric grammar `surface` in its place.
+func _strip_site(spec: String) -> String:
+	var f: PackedStringArray = spec.split(",")
+	for i in mini(f.size(), 3):
+		if f[i].strip_edges().to_lower() != SITE_COAST:
+			continue
+		coast = true
+		f[i] = "surface"
+		return ",".join(f)
+	return spec
+
+
+## The box-centre offset with `surface` filled in from the body's radius. ONE declaration: apply() and the
+## capture path both read it through here, or one of them places the box somewhere else.
 func resolved_offset(body) -> Vector3:
 	return offset if _resolve_offset(body) else Vector3.ZERO
 
@@ -72,9 +89,30 @@ func _resolve_offset(body) -> bool:
 	if not is_finite(r) or r <= 0.0:
 		return _fail("the box asks for the body's surface and no body has measured a radius for it")
 	offset[surface_axis] = 1.0
-	offset = offset.normalized() * r      # a body-frame direction, not a world displacement
+	# WHERE THE BOX STANDS AND WHAT THE GROUND UNDER IT IS: the site rule is held to this reading, never
+	# to the name the site was asked for by. Body-frame directions throughout, not world displacements.
+	var g: Dictionary = LAPlanetComposition.site_box(_terrain, coast, offset, dims, cell_size, surface_axis)
+	if g.has("error"):
+		return _fail(String(g["error"]))
+	offset = Vector3(g["dir"]) * r
+	dims = g["dims"]
 	surface_axis = -1
+	g["fine_m"] = fine_size
+	print("SLICE_SITE=%s" % JSON.stringify(g))
 	return true
+
+
+## THE BOX FACE POINTING AWAY FROM THE BODY CENTRE, as an `LAVoxelGrid` face slot; its opposite, slot ^ 1,
+## stands under the box, and slot >> 1 is the axis the box is tall along. ONE declaration; a reader that
+## picks +Y instead reads a horizontal face wherever the site is off a pole.
+func up_slot() -> int:
+	return LAFieldGeometry.slot_toward(offset)
+
+
+## The terrain a `site=` box reads its place off. apply() supplies the field's own; a box parsed outside
+## a field is handed one here, or its site resolves to nothing.
+func bind_terrain(terrain) -> void:
+	_terrain = terrain
 
 
 ## Lay the field over the slice box against the real terrain, and configure its face boundary.
@@ -85,6 +123,7 @@ func apply(field, body, terrain) -> bool:
 		return _fail("a slice needs a declared body: its centre and radius locate the box and the monopole gravity")
 	if terrain == null or not terrain.has_method("is_solid"):
 		return _fail("a slice seeds from the real terrain, and none was supplied")
+	_terrain = terrain
 	if not _resolve_offset(body):
 		return false
 	field._slice = self
@@ -122,8 +161,8 @@ func _rim_fits(modes: PackedStringArray) -> bool:
 
 ## Sides WRAP; the vertical pair takes the captured exterior, or stays SHUT when no capture is supplied.
 func _configure_boundary(field) -> void:
-	var d_down: int = LAFieldGeometry.slot_toward(-offset)
-	var d_up: int = LAVoxelGrid.opposite_slot(d_down)
+	var d_up: int = up_slot()
+	var d_down: int = LAVoxelGrid.opposite_slot(d_up)
 	if LAFieldBoundary3D.explicit_spec() != "":
 		print("SLICE_BOUNDARY={\"faces\":\"%s\",\"note\":\"explicit\"}" % LAFieldBoundary3D.explicit_spec())
 		return

@@ -388,10 +388,12 @@ func _apply_fly_view() -> void:
 		return
 	set_fly(true)
 	var center: Vector3 = _body.center()
-	# LAND, NOT THE +Y POLE. The sea shell sits at the mean radius, so most directions are open ocean and
-	# a fixed pole framed the demo over water.
-	var sunward: Vector3 = (_star.global_position - center).normalized() if _star != null else Vector3.ZERO
-	var toward: Vector3 = _terrain.land_direction(sunward) if _terrain.has_method("land_direction") else Vector3.UP
+	# THE COAST, NOT THE +Y POLE: most bearings on this body are open water. World frame, as `surface_point`
+	# and the rig both are.
+	var toward: Vector3 = _terrain.coast_site_world_dir() if _terrain.has_method("coast_site_world_dir") \
+		else Vector3.UP
+	if toward == Vector3.ZERO:
+		toward = Vector3.UP
 	var sp: Vector3 = _terrain.surface_point(toward) if _terrain.has_method("surface_point") else (center + toward * 200.0)
 	if is_nan(sp.x):
 		return
@@ -499,14 +501,17 @@ func _fire_schedule(frame: int, spawned: bool) -> void:
 				# DIFFUSE recharge only. Whether anything warm seeps back out is the rock's answer, not ours.
 				hfield.add_water_pooled(hsurf, 0.5 * LAMaterialField3D.MAX_MASS, cs * 3.5)
 
-	# Rock Stage C proof: deposit rock into a VOID cell ~3 units above the top surface, then confirm the
-	# rock_fill 0.5-crossing GROWS terrain (is_solid flips false->true at the stamp point).
+	# Rock Stage C proof: deposit rock into the VOID cell over the surface, then confirm the rock_fill
+	# 0.5-crossing GROWS terrain (is_solid flips false->true at the stamp point).
 	if _stamp_test and spawned and _material != null:
 		if not _stamp_test_deposited and frame >= 90:
-			var sp: Vector3 = _terrain.surface_point(Vector3.UP)
+			# WHERE THIS RUN'S FIELD STANDS. A box centred on the body holds every direction, so any one
+			# serves; a slice's box holds one, and a fixed axis names a place outside it.
+			var dir: Vector3 = LAFieldGeometry.field_dir(_material)
+			var sp: Vector3 = _terrain.surface_point(dir if dir != Vector3.ZERO else Vector3.UP)
 			if not is_nan(sp.x) and _material.get("_stamp") != null:
-				_stamp_test_target = sp + (sp - _body.center()).normalized() * 3.0
-				_material._stamp.debug_deposit(_stamp_test_target, 1.0)
+				_stamp_test_target = sp
+				_material._stamp.debug_deposit(sp, 1.0)
 				_stamp_test_deposited = true
 				_stamp_test_deposit_frame = frame
 				print("STAMP_TEST_DEPOSIT={pos:%v, before_solid:%s}" % [_stamp_test_target, str(_terrain.is_solid(_stamp_test_target))])
@@ -553,17 +558,16 @@ func _fire_schedule(frame: int, spawned: bool) -> void:
 			_camera.look_at(star_pos, Vector3.UP)
 			_face_sun_done = true
 
-	# --water-cam: hover the camera just above sea level looking ACROSS the water toward a nearby shore, so the
-	# dynamic fluid surface (waves/foam/salinity) fills the frame — the close-up render proof I otherwise can't
-	# frame. Sits inside FAR_ALT so the dynamic surface (not the far sphere) draws.
-	if _water_cam and not _water_cam_done and _shoot_path != "" and _camera != null and _body != null:
+	# --water-cam: hover the camera over the water looking ACROSS it toward a nearby shore, so the free
+	# fluid surface fills the frame.
+	if _water_cam and not _water_cam_done and _shoot_path != "" and _camera != null and _body != null \
+			and _body.has_method("sea_radius"):
 		if frame >= _shoot_frames - 60:
 			var wc_center: Vector3 = _body.center()
-			var sea_r: float = _body.sea_radius() if _body.has_method("sea_radius") else 500.0
+			var sea_r: float = _body.sea_radius()
 			var wdir: Vector3 = Vector3(0.42, 0.36, 0.83).normalized()      # a fixed spot on the planet
 			var wtan: Vector3 = wdir.cross(Vector3.UP).normalized()
-			# Low aerial oblique (inside FAR_ALT so the dynamic water surface draws), gazing DOWN-and-across so the
-			# land below — its lakes and valley rivers — fills the frame.
+			# Low aerial oblique, gazing down and across onto the ground below.
 			_camera.global_position = wc_center + wdir * (sea_r + 115.0)
 			var look_dir: Vector3 = (wdir * 0.45 + wtan * 0.7).normalized()  # steeper downward gaze onto the ground
 			_camera.look_at(wc_center + look_dir * (sea_r + 5.0), wdir)      # up = local radial

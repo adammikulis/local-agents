@@ -45,7 +45,34 @@ vec3 heat_ramp(float t) {
 varying vec3 v_world_pos;
 varying vec3 v_world_normal;
 
+// TRANSVOXEL'S TRANSITION CELLS, AS THE MESHER BUILT THEM. Each vertex carries a secondary position and
+// the sides its cell and it touch; the block's mask says which of those face a coarser neighbour. The
+// terrain finds this uniform by name and gives each block its own material to set it on, so declaring it
+// `instance` hides it from that search and every transition triangle then collapses onto the block
+// origin. Verbatim from godot_voxel's own API shader.
+uniform int u_transition_mask;
+
+float get_transvoxel_secondary_factor(int idata) {
+	int transition_mask = u_transition_mask & 0xff;
+	int cell_border_mask = idata & 63;
+	int vertex_border_mask = (idata >> 8) & 63;
+	int m = transition_mask & cell_border_mask;
+	float t = float(m != 0);
+	t *= float((vertex_border_mask & ~transition_mask) == 0);
+	return t;
+}
+
+vec3 get_transvoxel_position(vec3 vertex_pos, vec4 fdata) {
+	int idata = floatBitsToInt(fdata.a);
+	vec3 pos = mix(vertex_pos, fdata.xyz, get_transvoxel_secondary_factor(idata));
+	// A vertex of a transition the block is not showing collapses, so its triangle is degenerate.
+	int itransition = (idata >> 16) & 0xff;
+	pos *= float(itransition == 0 || (itransition & u_transition_mask) != 0);
+	return pos;
+}
+
 void vertex() {
+	VERTEX = get_transvoxel_position(VERTEX, CUSTOM0);
 	v_world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	v_world_normal = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
 }

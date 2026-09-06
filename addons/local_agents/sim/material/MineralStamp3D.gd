@@ -15,6 +15,9 @@ var _window: int = 0                     # frames left in the active scan window
 var _tick: int = 0                       # cadence counter toward SCAN_EVERY
 var _cursor: int = 0                     # cell the next scan resumes at
 
+## Cells the test hook marches up from a surface point to find the void over it.
+const VOID_MARCH_CELLS: int = 16
+
 # Telemetry / proof (read by SIM_REPORT + the --stamp-test harness).
 var grows: int = 0                       # total GROW stamps emitted over the run
 var shrinks: int = 0                     # total SHRINK stamps emitted over the run
@@ -49,7 +52,7 @@ func maybe_scan() -> void:
 # cache and emit a GROW/SHRINK SDF edit for each, up to STAMP_BUDGET. Gated to the active window + cadence.
 func _scan() -> void:
 	var terrain = _f._terrain
-	if terrain == null or not terrain.has_method("fill_rock") or not terrain.has_method("carve_sphere"):
+	if terrain == null or not terrain.has_method("fill_sphere") or not terrain.has_method("carve_sphere"):
 		return
 	var n: int = _f._cell_count
 	var sil: PackedFloat32Array = _f._mirrors.array("silicate")
@@ -61,7 +64,7 @@ func _scan() -> void:
 	var full_sil: float = LASubstances.full_mol_m3("silicate")
 	if full_sil <= 0.0:
 		return
-	var size: float = _f._cell_size * 0.7          # SDF edit extent ~ one cell (fill_rock scales by this)
+	var size: float = _f._cell_size * 0.7          # SDF edit extent ~ one cell
 	var budget: int = STAMP_BUDGET
 	var found: int = 0
 	# H₂O the solidity change has to account for (see _settle_h2o). Gathered here, queued once at the end.
@@ -78,7 +81,7 @@ func _scan() -> void:
 		if not was_solid and rf >= GROW_THRESHOLD:
 			var wp: Vector3 = _f.cell_world_pos_linear(c)
 			last_grow_before_solid = terrain.is_solid(wp)
-			terrain.fill_rock(wp, size, LAFieldGeometry.up(_f, c))
+			terrain.fill_sphere(wp, size)
 			last_grow_after_solid = terrain.is_solid(wp)
 			last_grow_pos = wp
 			solid[c] = 1
@@ -150,11 +153,24 @@ func _open_neighbour(c: int, solid: PackedByteArray) -> int:
 	return lo if lo >= 0 and lo < solid.size() and solid[lo] == 0 else -1
 
 
-## TEST HOOK (--stamp-test): raise a void cell's mineral to `amount` as consolidated rock, so the next scan
-## fires a GROW stamp. The gain is a sourceless add, booked as created. Not used in normal play.
+## The empty cell over a surface point: up out of the rock, then out of any crust standing loose in the
+## open cells over it. -1 when the march leaves the box still in matter.
+func _void_over(world_pos: Vector3) -> int:
+	var at: int = LAFieldGeometry.air_above(_f, _f.world_to_cell(world_pos), VOID_MARCH_CELLS)
+	for _k in VOID_MARCH_CELLS:
+		if at < 0 or _f._mirrors.at("silicate", at) <= 0.0:
+			return at
+		at = LAFieldGeometry.above(_f, at)
+	return -1
+
+
+## TEST HOOK (--stamp-test): raise the void cell over `world_pos` to `amount` of consolidated rock, so the
+## next scan fires a GROW stamp. The gain is a sourceless add, booked as created. Not used in normal play.
 func debug_deposit(world_pos: Vector3, amount: float) -> void:
-	var c: int = _f.world_to_cell(world_pos)
-	if c < 0 or c >= _f._cell_count or not _f._mirrors.has("silicate"):
+	var c: int = _void_over(world_pos) if _f._mirrors.has("silicate") else -1
+	if c < 0:
+		push_error("LAMineralStamp3D: no empty cell stands over %v inside this field's box within %d cells, so nothing was deposited."
+			% [world_pos, VOID_MARCH_CELLS])
 		return
 	var want: float = clampf(amount, 0.0, 1.0) * LASubstances.full_mol_m3("silicate")
 	var have: float = _f._mirrors.at("silicate", c)

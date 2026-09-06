@@ -64,21 +64,23 @@ at seed; a body of water is where the inventory settled under the solved gravity
 channel. `rg -n "sea_radius|OceanPlane|_open_sea|sea_level_m|resample_terrain" addons/local_agents`
 finds the sea as a declared shell radius and the field sampling the generator after the seal.
 
-## 7. THE DEMO SITE'S THREE GATES ARE RED ON THEIR BRANCH
+## 7. THE LEVEL BOUNDARY DRAWS AS A LINE ACROSS THE GROUND
 
-Branch `demo-site` (coast site, sea plate deleted, body/world frame fix) is unlanded:
-`scripts/check_sparse_edit.sh` and `scripts/check_slice_exterior.sh` are red there. Until it lands the
-demo box stands on the body's pole: `scripts/sim_run.sh --slice --rung 1 --frames 4 --report
-water_liquid_total,wet_cells` reads no free water surface anywhere in it.
+`scripts/shoot_demo.sh addons/local_agents/examples/SliceRung1Demo.tscn <dir>` carries thin dark lines
+running to the horizon in every pose under a kilometre, straight in world space and jointed at right
+angles. Read the PNGs.
+Reading: `get_transvoxel_position` in `VoxelTerrainTriplanar.gdshader` moves a transition vertex onto
+the coarse surface and leaves its `NORMAL` at the fine one's.
 
-## 8. THE EYE IS NOT FRAMED OR GROUNDED OFF THE SLICE'S AXES
+## 8. THE DEMO SITE HOLDS NO WATER A VIEWER CAN STAND BESIDE
 
-`LA_SLICE_BOX="-0.6129,surface,0,3,24,3,5120,10" scripts/check_ground_drawn.sh` reads `cam_in_slice=false`;
-`scripts/agent_harness.sh ground` exits 2 with `ground_meshed=false` while the box arm
-(`LA_GROUND_SLICE="0,surface,0,3,24,3,5120,10"`) exits 0; `LA_SHOTS="30:-3:0" scripts/shoot_demo.sh
-addons/local_agents/examples/SliceRung0Demo.tscn <dir>` carries one-pixel dark lines to the horizon.
-Reading: `is_area_meshed` in the terrain service answers whether a block is loaded, not whether the
-mesher shows it; `mesher.transitions_enabled` is true there.
+`LA_SHOTS="30:-3:0" scripts/shoot_demo.sh addons/local_agents/examples/SliceRung1Demo.tscn <dir>` shows
+the nearest free water surface a kilometre off and reads as an opaque dark plate with a straight edge;
+`scripts/sim_run.sh --slice --rung 1 --frames 4 --report water_liquid_total,wet_cells` counts what stands
+in the box.
+Reading: `coast_site` in `LAPlanetTables.cpp` bisects onto the waterline and then scores the site by
+`land_m + depth_m`, which is largest where the relief is steepest rather than where the box's own
+footprint is half wet.
 
 ## 9. PHYSICS IS NOT IN THE ABLATION REGISTRY
 

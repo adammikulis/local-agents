@@ -206,7 +206,6 @@ const AIR_MOLAR_DENSITY_MOL_M3: float = AIR_DENSITY_KG_M3 / MOLAR_MASS_DRY_AIR_K
 
 ## Litter, mol C per mol N (Batjes 1996).
 const LITTER_C_TO_N: float = 20.0
-const AIR_MASS_HORIZON: float = 38.0
 
 const LIGHTNING_FLASH_J: float = 1.0e9
 

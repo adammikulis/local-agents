@@ -197,9 +197,7 @@ func _place_on_surface(world_pos: Vector3):
 	return p
 
 
-func populate_environment(rock_count: int, forest_clusters: int) -> void:
-	for i in rock_count:
-		spawn("rock", _random_spawn_point())
+func populate_environment(forest_clusters: int) -> void:
 	for c in forest_clusters:
 		var center: Vector3 = _best_forest_center(FOREST_CLUSTER_TRIES)
 		if is_nan(center.x):

@@ -41,10 +41,9 @@ SLICE_STATE=""
 SLICE_CAPTURE=""
 # THE SEEDING IS A FUNCTION OF THE TREE, SO IT IS WALKED ONCE AND READ BACK. --reseed walks it again.
 FROM_SEAL=1
-# The default slice box, declared HERE and nowhere else: ox,oy,oz,nx,ny,nz,cell_m,fine_m, standing on
-# the surface at +Y. `surface` is resolved by the world against the body's own radius. A 15 km footprint,
-# a 123 km column, 10 m at the ground.
-DEFAULT_SLICE_BOX="0,surface,0,3,24,3,5120,10"
+# The default slice box, declared HERE and nowhere else: ox,oy,oz,nx,ny,nz,cell_m,fine_m. `site=coast`
+# is resolved by the world against its own terrain. A 15 km footprint, a 123 km column, 10 m at the ground.
+DEFAULT_SLICE_BOX="0,site=coast,0,3,24,3,5120,10"
 REPORT_KEYS="conservation,conservation_failed,conservation_audited,energy_run_drift,energy_held_first,energy_residual,energy_booked,o2_first,o2_total,mineral_first,mineral_total,h2o_first,h2o_total,element_C_total_first,element_C_total,temp_ground_mean,phenomena_kinds,field_ms,transport_levels"
 EXTRA=()
 
@@ -92,8 +91,8 @@ if [ "$FAUNA" -eq 1 ] && [ "$FULL" -eq 0 ]; then
 	echo "         so --fauna would change nothing and the run would not be the arm you asked for." >&2
 	exit 2
 fi
-# --- SLICE / CAPTURE ENV. The default box stands on the surface at +Y. `surface` is resolved by the world
-# against the body's own radius: nothing out here has to know how big the planet is.
+# --- SLICE / CAPTURE ENV. Where the box stands is resolved by the world against its own body and terrain:
+# nothing out here has to know how big the planet is or where its shores are.
 if [ "$SLICE" -eq 1 ] || [ -n "$SLICE_CAPTURE" ]; then
   [ -n "$SLICE_BOX" ] || SLICE_BOX="$DEFAULT_SLICE_BOX"
 fi

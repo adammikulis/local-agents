@@ -22,17 +22,19 @@ const FIELD_VIEWS: Array = [
 	["Charge", "charge", "charge"], ["Fertility", "fertility", "fertility"],
 ]
 
-# [display label, scene group to light up]
+# [display label, scene group to light up, what the site must hold for it]
 const HIGHLIGHTS: Array = [
-	["Rabbits", "species_rabbit"], ["Foxes", "species_fox"], ["Birds", "species_bird"],
-	["Vultures", "species_vulture"], ["Villagers", "species_villager"], ["Fish", "species_fish"],
-	["Plants", "species_plant"], ["Nests", "nest"],
+	["Rabbits", "species_rabbit", ""], ["Foxes", "species_fox", ""], ["Birds", "species_bird", ""],
+	["Vultures", "species_vulture", ""], ["Villagers", "species_villager", ""],
+	["Fish", "species_fish", LAWorldOffers.NEEDS_OPEN_WATER],
+	["Plants", "species_plant", ""], ["Nests", "nest", ""],
 ]
 
-# [display label, behavior category]. Idle/Wander has no tint, so it is omitted.
+# [display label, behavior category, what the site must hold for it]. Idle/Wander has no tint.
 const BEHAVIORS: Array = [
-	["Foraging", "foraging"], ["Hunting", "hunting"], ["Fleeing", "fleeing"],
-	["Drinking", "drinking"], ["Sleeping", "sleeping"], ["Nesting / Mating", "nesting"],
+	["Foraging", "foraging", ""], ["Hunting", "hunting", ""], ["Fleeing", "fleeing", ""],
+	["Drinking", "drinking", LAWorldOffers.NEEDS_OPEN_WATER], ["Sleeping", "sleeping", ""],
+	["Nesting / Mating", "nesting", ""],
 ]
 
 # [display label, LALLMControl.HL_* tint category]. Routed through behavior_toggled.
@@ -66,11 +68,15 @@ func _ready() -> void:
 		_add_section("HIGHLIGHT · SPECIES")
 		for row in HIGHLIGHTS:
 			var group: String = row[1]
+			if not _site_holds(String(row[2])):
+				continue
 			_add_check(row[0], func(on: bool) -> void: highlight_toggled.emit(group, on))
 
 		_add_section("HIGHLIGHT · BEHAVIOR")
 		for brow in BEHAVIORS:
 			var bkey: String = brow[1]
+			if not _site_holds(String(brow[2])):
+				continue
 			_add_check(brow[0], func(on: bool) -> void: behavior_toggled.emit(bkey, on))
 
 		_add_section("HIGHLIGHT · LOCAL MODEL")
@@ -109,6 +115,12 @@ func _ready() -> void:
 	shot.add_theme_font_size_override("font_size", 12)
 	shot.pressed.connect(func() -> void: screenshot_requested.emit())
 	_body.add_child(shot)
+
+
+## Whether the site this world was laid on holds what a row declares it needs. A row declaring nothing
+## needs nothing.
+func _site_holds(need: String) -> bool:
+	return true if need == "" else LAWorldOffers.has_open_water()
 
 
 func _toggle_collapsed() -> void:
