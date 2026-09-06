@@ -3,9 +3,11 @@ extends RefCounted
 
 
 
-const CAPACITY_FRAC: float = 0.85       # gut capacity as a fraction of max_energy (biomass units == energy units)
+const CAPACITY_FRAC: float = 0.85       # gut capacity as a fraction of max_energy (both are moles of carbon)
 const DIGEST_RATE: float = 0.22         # fraction of current gut biomass digested per second
 
+## Assimilation efficiency: the fraction of ingested carbon that crosses the gut wall rather than passing
+## as faeces (Peters 1983, The Ecological Implications of Body Size, ch.9).
 const BASE_EFFICIENCY: float = 0.82
 const MICROBIOME_HERBIVORE: float = 1.12   # gut-flora bonus for a plant-fermenting herbivore (-> ~0.92 efficiency)
 const MICROBIOME_DEFAULT: float = 1.0      # carnivore / omnivore / scavenger: no cellulose flora, base rate
@@ -26,8 +28,14 @@ static func setup(c) -> void:
 
 
 const DIETS_THAT_GRAZE: PackedStringArray = ["herbivore", "grazer", "filter_feeder"]
-const FORAGE_WATER_PER_MASS: float = 3.0   # fresh plant matter is ~0.75 water by mass
-const FLESH_WATER_PER_MASS: float = 2.3    # vertebrate soft tissue is ~0.70 water by mass
+## Moles of water that come in with each mole of carbon. Three-quarters of fresh plant matter is water
+## (Larcher 2003, Physiological Plant Ecology, ch.4) and its dry mass carries the same carbon fraction a
+## body's does; flesh is that body, so its ratio is the composition LACreatureBodyMass already declares.
+const FORAGE_WATER_FRAC: float = 0.75
+const FORAGE_WATER_PER_CARBON: float = (FORAGE_WATER_FRAC / LAPhysical.MOLAR_MASS_WATER_KG_MOL) \
+	/ ((1.0 - FORAGE_WATER_FRAC) * LACreatureBodyMass.DRY_CARBON_FRAC / LAPhysical.MOLAR_MASS_CARBON_KG_MOL)
+const FLESH_WATER_PER_CARBON: float = LACreatureBodyMass.WATER_MOL_PER_KG \
+	/ LACreatureBodyMass.CARBON_MOL_PER_KG
 
 static func ambient_graze(c, pos: Vector3, delta: float) -> void:
 	if c == null or delta <= 0.0 or c._material == null:
@@ -46,7 +54,7 @@ static func ambient_graze(c, pos: Vector3, delta: float) -> void:
 		return
 	ingest(c, got, {"type": LAFood.TYPE_CARBS, "state": LAFood.STATE_LIVING, "value": got})
 	if c._material.has_method("drink_water") and c.hydration < c.max_hydration:
-		var thirsty_for: float = minf(got * FORAGE_WATER_PER_MASS, float(c.max_hydration) - float(c.hydration))
+		var thirsty_for: float = minf(got * FORAGE_WATER_PER_CARBON, float(c.max_hydration) - float(c.hydration))
 		if thirsty_for > 0.0:
 			c.hydration += c._material.drink_water(pos, thirsty_for)
 

@@ -6,7 +6,6 @@ const COMBUST_TEMP: float = 200.0          # °C — organic tissue catches FIRE
 
 const EVAPORATIVE_OVER_TURNOVER: float = 0.15
 
-const BREATHE_MIN_O2: float = 0.3          # O2 below this can't sustain a lung (water displaces it, or fire smoke)
 const BREATH_REFILL: float = 25.0          # breath reserve refilled per sec while in the breathing medium
 const FRAILTY_ONSET: float = 0.5           # senescence factor above which frailty begins draining health
 const FRAILTY_HP_FRAC: float = 0.06        # fraction of max_health drained per second at full (factor→1) frailty
@@ -72,8 +71,9 @@ static func tick_exertion(c, delta: float) -> void:
 		c.lactate = maxf(0.0, c.lactate - LACTATE_CLEAR * (1.0 - exert * 0.6) * delta)
 
 
-## Altitude falls out of the 3D read (a bird high above water reads air; a diver's head cell reads water) — no
-## depth column, no can_fly. Returns true if the creature died. One rule = drowning + smoke + beached gills.
+## The reserve of medium a body carries when it is out of its own: a lung's held breath, a gill's wet
+## surface. Altitude falls out of the 3D read — no depth column, no can_fly. How much oxygen the medium
+## then holds is LACreatureRespiration's; this is only whether the animal is in it.
 static func tick_breath(c, pos: Vector3, delta: float) -> bool:
 	if c._material == null:
 		return false
@@ -84,7 +84,7 @@ static func tick_breath(c, pos: Vector3, delta: float) -> bool:
 	if c.breathes == "water":
 		can_breathe = c._material.is_submerged_at(head.x, head.y, head.z)              # gills: must be in water
 	else:
-		can_breathe = c._material.breathable_o2_at(head.x, head.y, head.z) >= BREATHE_MIN_O2   # lungs: need air
+		can_breathe = not c._material.is_submerged_at(head.x, head.y, head.z)          # lungs: must be in air
 	if can_breathe:
 		c._breath = minf(c._breath + BREATH_REFILL * delta, c.breath_capacity)
 		return false
