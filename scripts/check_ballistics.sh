@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Free fall against t = sqrt(2h/g) and v = sqrt(2gh); the same fall under gravity_poisson.glsl solved,
 # against the work that field does along the path; a closed orbit over four periods against the
-# semi-implicit bound 2 omega dt; the seeded world's own reading of g. Controls: no gravity never lands,
-# no central mass never orbits. Needs a device, so it runs through run_sim_offscreen.sh and its GPU lock.
-# EXIT 0 within tolerance - 1 the integrator is wrong - 2 could not run.
+# semi-implicit bound 2 omega dt; an escape-speed entry against the drag law's path integral over a
+# column of the seeded air; the world's own reading of g. Controls: no gravity never lands, no central
+# mass never orbits, no air never brakes. Device needed. EXIT 0 ok - 1 the integrator is wrong - 2 not run.
 set -uo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_capture.sh"
@@ -45,6 +45,15 @@ const B_DT: float = 1.0
 const C_R: float = 4.2e7                 # m
 const C_STEPS_PER_PERIOD: int = 4000
 const C_PERIODS: int = 4
+# E. an entry at escape speed through a column of the seeded air.
+const E_NX: int = 4
+const E_NY: int = 640
+const E_NZ: int = 4
+const E_CELL: float = 125.0              # m
+const E_IMPACTOR_R: float = 1.0          # m; one ordinary-chondrite ball
+# Drag coefficient of a sphere in the Newtonian (hypersonic) limit, derived here so the reference does not
+# read the integrator's own: Cp = 2 cos^2 phi over the forward hemisphere, 2 * 2 * int cos^3 sin dphi.
+const E_SPHERE_CD: float = 2.0 * 2.0 * (1.0 / 4.0)
 
 var _rd: RenderingDevice = null
 var _owned: Array[RID] = []
@@ -240,6 +249,31 @@ func _init() -> void:
 	if worst_control <= bound:
 		fail += 1
 
+	# ---- E. an entry at escape speed through the seeded air ---------------------------------------
+	var air: Dictionary = _entry(true)
+	var vac: Dictionary = _entry(false)
+	if air.is_empty() or vac.is_empty():
+		_fail("the seed publishes no air column (R T / M, surface pressure, planet mass and radius), so"
+			+ " an entry through it cannot be measured.")
+		return
+	var e_fail: int = 0
+	if int(air["sub_steps"]) <= 1:
+		e_fail += 1
+	if absf(float(air["got_ln"]) - float(air["law_ln"])) > float(air["bound"]):
+		e_fail += 1
+	if int(air["cells"]) <= 1:
+		e_fail += 1
+	if absf(float(air["booked_j"]) - float(air["lost_j"])) > 1.0e-9 * absf(float(air["lost_j"])):
+		e_fail += 1
+	# CONTROL: the same entry with the air taken out of the box brakes nothing and books nothing.
+	if float(vac["got_ln"]) != 0.0 or int(vac["cells"]) != 0:
+		e_fail += 1
+	print(('BALLISTICS_ENTRY={"got_ln":%.6f,"law_ln":%.6f,"bound":%.6f,"sub_steps":%d,"cells":%d,'
+		+ '"booked_j":%s,"lost_j":%s,"vacuum_ln":%.6f,"vacuum_cells":%d,"failures":%d}')
+		% [air["got_ln"], air["law_ln"], air["bound"], air["sub_steps"], air["cells"],
+			air["booked_j"], air["lost_j"], vac["got_ln"], vac["cells"], e_fail])
+	fail += e_fail
+
 	print('BALLISTICS={"fall_t_err_s":%.6f,"fall_v_rel":%.6f,"fall_dt_s":%.4f,"no_g_landed":%s,'
 		% [t_err, v_rel, A_DT, str(bool(control[0])).to_lower()]
 		+ '"solved_v_rel":%.6f,"solved_landed":%s,"orbit_drift":%.6f,"orbit_bound":%.6f,'
@@ -250,6 +284,82 @@ func _init() -> void:
 			_rd.free_rid(r2)
 	_rd.free()
 	quit(1 if fail > 0 else 0)
+
+
+## ONE ENTRY at the escape speed of the seeded planet, straight down a column of the seeded air, with no
+## gravity in the box: what brakes the body is the ram drag and nothing else, so the drag law's own path
+## integral over the column this laid is the answer to compare against.
+func _entry(with_air: bool) -> Dictionary:
+	LABallistics.clear()
+	LABallistics.clear_field()
+	LABallistics.set_system([])
+	var t_c: float = LABodySeeds.surface_temp_c()
+	var rt: float = LAFieldLithostaticSeed.seeded_air_rt_over_m(t_c)       # R T / M, m^2/s^2
+	var p0: float = LABodySeeds.surface_pressure_pa()
+	var m_body: float = float(LABodySeeds.of("planet").get("mass_kg", 0.0))
+	var r_body: float = LABodySeeds.seed_radius_m("planet")
+	if not (rt > 0.0 and p0 > 0.0 and m_body > 0.0 and r_body > 0.0):
+		return {}
+	var mu: float = LAPhysical.GRAVITATIONAL_CONSTANT * m_body
+	var h_scale: float = rt * r_body * r_body / mu                         # R T / M over g, m
+	var rho0: float = p0 / rt                                              # kg/m^3 at the datum
+	var molar: float = LAPhysical.GAS_CONSTANT_J_MOL_K * (t_c + LAPhysical.KELVIN_OFFSET) / rt
+	var grid = LAVoxelGrid.new()
+	var origin: Vector3 = Vector3(-0.5 * float(E_NX) * E_CELL, 0.0, -0.5 * float(E_NZ) * E_CELL)
+	grid.build(E_NX, E_NY, E_NZ, E_CELL, origin)
+	var amount: PackedFloat32Array = PackedFloat32Array()
+	amount.resize(grid.cell_count)
+	var zero_g: PackedFloat32Array = PackedFloat32Array()
+	zero_g.resize(grid.cell_count * 3)
+	var open: PackedByteArray = PackedByteArray()
+	open.resize(grid.cell_count)
+	# Each cell carries the barometric column's own AVERAGE over its thickness, so the cells sum to the
+	# exact integral of the profile and the seeding quadrature is not part of what is measured.
+	for c in grid.cell_count:
+		var lo: float = grid.cell_world_pos(c).y - 0.5 * E_CELL
+		amount[c] = _shell(rho0, h_scale, lo) / (E_CELL * molar)
+	var mirrors: Array = [[amount, molar]] if with_air else []
+	LABallistics.set_field(grid, zero_g, open, mirrors, Basis.IDENTITY, Vector3.ZERO)
+	var start: Vector3 = Vector3(origin.x + 1.5 * E_CELL, (float(E_NY) - 0.5) * E_CELL,
+		origin.z + 1.5 * E_CELL)
+	var v0: float = sqrt(2.0 * mu / r_body)
+	var mass: float = LAPhysical.CHONDRITE_DENSITY_KG_M3 * (4.0 / 3.0) * PI * pow(E_IMPACTOR_R, 3.0)
+	var id: int = LABallistics.drop(start, Vector3(0.0, -v0, 0.0), mass, E_IMPACTOR_R)
+	# `drop` takes a Vector3, which Godot carries at single precision: the speed the body actually left
+	# with is the one it reads back, not the one that was asked for.
+	v0 = float(LABallistics.state(id)["speed"])
+	# The crossing this arm measures: the column's own height over the speed the body entered it at.
+	LABallistics.step(float(E_NY) * E_CELL / v0)
+	var rows: Array = LABallistics.drag_work()
+	var st: Dictionary = LABallistics.state(id)
+	var v1: float = float(st["speed"])
+	var booked: float = 0.0
+	for row in rows:
+		booked += float(row["joules"])
+	LABallistics.release(id)
+	LABallistics.clear_field()
+	# The drag law over the column the body crossed: ln(v0/v) = Cd A / 2m times the integral of rho along
+	# the path, the exact solution of dv/dt = -k v^2 down a straight line with nothing else acting.
+	var column: float = 0.5 * E_CELL * float(amount[grid.cell_count - 1]) * molar
+	for j in E_NY - 1:
+		column += _shell(rho0, h_scale, float(j) * E_CELL)
+	var law_ln: float = k_over_m(mass) * column if with_air else 0.0
+	return {"got_ln": log(v0 / v1), "law_ln": law_ln,
+		# A stride reads the density of the cell it ENDS in, so the rectangle rule is out by at most one
+		# cell of the exponential column.
+		"bound": law_ln * (exp(E_CELL / h_scale) - 1.0),
+		"sub_steps": int(st["sub_steps"]), "cells": rows.size(),
+		"booked_j": booked, "lost_j": 0.5 * mass * (v0 * v0 - v1 * v1)}
+
+
+## Kilograms of air per m^2 standing between `lo` and one cell above it in a barometric column.
+func _shell(rho0: float, h_scale: float, lo: float) -> float:
+	return rho0 * h_scale * (exp(-lo / h_scale) - exp(-(lo + E_CELL) / h_scale))
+
+
+## Cd A / 2m of the impactor, 1/m.
+func k_over_m(mass: float) -> float:
+	return E_SPHERE_CD * PI * E_IMPACTOR_R * E_IMPACTOR_R / (2.0 * mass)
 
 
 ## Largest relative departure of the orbital radius over C_PERIODS, for a central body of `mass_kg`.
@@ -277,6 +387,13 @@ out="$(LA_DONE_RE='^BALLISTICS=' "$REPO_ROOT/scripts/run_sim_offscreen.sh" \
   --path "$REPO_ROOT" -s "res://addons/local_agents/tests/zz_ballistics_gate.gd" 2>&1)"
 rc=$?
 rm -f "$PROBE" "$PROBE.uid"
+entry="$(printf '%s\n' "$out" | grep -m1 '^BALLISTICS_ENTRY=')"
+if [ -z "$entry" ]; then
+  echo "ERROR: the probe produced no BALLISTICS_ENTRY line — the escape-speed entry went unmeasured." >&2
+  printf '%s\n' "$out" | tail -20 >&2
+  exit 2
+fi
+echo "$entry"
 line="$(printf '%s\n' "$out" | grep -m1 '^BALLISTICS=')"
 if [ -z "$line" ]; then
   echo "ERROR: the probe produced no BALLISTICS line — refusing to report a pass." >&2
@@ -295,6 +412,12 @@ if [ "$rc" -ne 0 ]; then
   echo "mass with no gravity never reaches the ground; solved_v_rel is the impact speed against the work"
   echo "the solved field does along the same path; orbit_drift must stay under orbit_bound over four"
   echo "periods while no_mass_drift, the same orbit with the central mass taken away, must not."
+  echo
+  echo "BALLISTICS_ENTRY: a rock entering the seeded air at escape speed must lose the kinetic energy the"
+  echo "drag law says it must over the column it crossed (got_ln against law_ln, inside bound), booked to"
+  echo "the CELLS it passed (cells > 1, booked_j equal to lost_j), and it must take more than one sub-step"
+  echo "to do it: at the field's own step one stride crosses the whole atmosphere and nothing rams"
+  echo "anything. vacuum_ln, the same entry with the air taken out of the box, must be exactly zero."
   exit 1
 fi
 

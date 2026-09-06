@@ -4,7 +4,7 @@
 # WHAT IT CHECKS:
 #   1. every record declares k_timebase (per_real_second / per_step) and k_units, and the declaration
 #      matches its rate model (LAReactionDefs.check_rate_units, the same check the runtime refusal calls);
-#   2. no record module folds real_seconds_per_step into its own k — LAReactionDefs.serialize() is the ONE
+#   2. no record module folds seconds_per_step into its own k — LAReactionDefs.serialize() is the ONE
 #      place the step quantum enters a rate, so it cannot be counted twice;
 #   3. reactions_sphere3d.glsl declares no dt push-constant member — a kernel-side dt would double-count
 #      every per-second record.
@@ -30,9 +30,9 @@ KERNEL="$REPO_ROOT/addons/local_agents/sim/material/kernels3d/reactions_sphere3d
 FAIL=0
 
 # --- 2. Record modules may not fold the step quantum themselves -------------------------------------------
-FOLDS="$(rg -n "real_seconds_per_step" "$REACTIONS_DIR" --glob '*Records.gd' || true)"
+FOLDS="$(rg -n "seconds_per_step" "$REACTIONS_DIR" --glob '*Records.gd' || true)"
 if [ -n "$FOLDS" ]; then
-  echo "rate-units check FAILED: a record module folds real_seconds_per_step into its own k. The step" >&2
+  echo "rate-units check FAILED: a record module folds seconds_per_step into its own k. The step" >&2
   echo "quantum enters a rate exactly once, in LAReactionDefs.serialize(); declare the record" >&2
   echo "k_timebase = per_real_second instead." >&2
   printf '%s\n' "$FOLDS" >&2

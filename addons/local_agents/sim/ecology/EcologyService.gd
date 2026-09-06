@@ -441,12 +441,6 @@ func damage_sphere(world_pos: Vector3, radius: float) -> void:
 	_stimulus.damage_sphere(world_pos, radius)
 
 
-func broadcast_scare(world_pos: Vector3, radius: float, base_intensity: float = 1.0) -> void:
-	_stimulus.broadcast_scare(world_pos, radius, base_intensity)
-
-
-
-
 ## ONE simulated step. LASimLoop drives it; nothing here reads a frame delta.
 func on_sim_step(step: int) -> void:
 	if terrain == null or actors_root == null:

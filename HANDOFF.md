@@ -96,13 +96,14 @@ tangential velocity and departs along the tangent; state the expression `LABalli
 ACOUSTIC), `rain` (WATER), `streams` (ADVECT), `diurnal_heat` (RADIATION), each read through the query
 the real row will answer, offered in the HUD as a stand-in.
 
-## 11. A FREE BODY IS INTEGRATED AT THE FIELD'S STEP, AND IMPACTORS ARE SIZED BY AN INVENTED DRAW
+## 11. A FALL IS OVER BETWEEN TWO RENDERED FRAMES, AND ONE DRAG COEFFICIENT SERVES EVERY SPEED
 
-`LABallistics::step(dt_s)` takes the whole field step in one go, so a body crossing the atmosphere rams
-it at one density for the whole crossing. `rg -n "randf_range\(0.55" addons/local_agents/sim/actors/Meteor.gd`
-finds the impactor size drawn from an invented range (the measured law: Brown et al. 2002,
-N(>E) ∝ E^-0.9, a cited chondrite density). `LAMeteorImpacts.arrive()` counts a rock `launch()` refused.
-`SPHERE_CD` in `LABallistics.cpp` is the hypersonic limit at every Re.
+`scripts/shoot_demo.sh addons/local_agents/examples/SliceRung1Demo.tscn <dir>` photographs a test mass
+already landed. `LABallistics::step(dt_s)` takes the whole field step in one go, so a body crossing the
+atmosphere rams it at one density for the whole crossing. `SPHERE_CD` in `LABallistics.cpp` is the
+hypersonic limit at every Reynolds and Mach number, so a body the air has already slowed is over-braked
+(`newtonian_sphere_drag` in `docs/APPROXIMATIONS.md`).
+Reading: `stride_m` in `LABallistics.cpp` reads no sound speed and no viscosity.
 
 ## 12. A THROWN BODY FALLS UNDER THE ENGINE'S GRAVITY, NOT THE FIELD'S
 

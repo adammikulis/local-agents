@@ -3,7 +3,7 @@ extends SceneTree
 ## THE RATE-UNITS GATE'S RUNNER — sibling of check_reaction_balance.gd. Every record must declare its
 ## rate_k's units and timebase, and the declaration must match its rate model
 ## (LAReactionDefs.check_rate_units). The shell wrapper holds the structural half: record modules may not
-## fold real_seconds_per_step (serialize() is the one fold point) and the kernel carries no dt.
+## fold seconds_per_step (serialize() is the one fold point) and the kernel carries no dt.
 ## Prints RATE_UNITS={"records":N,"violations":M} as its last line; zero records examined must FAIL.
 ## (Explicit types only, no ':=' inferred typing.)
 
