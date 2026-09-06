@@ -43,7 +43,10 @@ static func arrive(actors_root: Node3D, terrain, ecology, target: Vector3, from_
 	var m: MeteorScript = MeteorScript.new()
 	actors_root.add_child(m)
 	m.setup(terrain, ecology)
-	m.launch(target, from_pos, size_scale)
+	# ONLY A ROCK THAT LAUNCHED IS A ROCK THAT ARRIVED.
+	if not m.launch(target, from_pos, size_scale):
+		m.queue_free()
+		return false
 	_arrived += 1
 	return true
 
@@ -71,24 +74,24 @@ func set_presentation(camera: Camera3D) -> void:
 
 ## One arrival from outside. Its approach direction is drawn from the seeded planet stream and the impact
 ## point is that direction's own surface, so the run needs no camera and one seed lands one rock in one place.
-func fire_ambient_meteor(size_scale: float = 1.0) -> void:
+func fire_ambient_meteor() -> void:
 	if not offered():
 		return
 	var target: Vector3 = _arrival_point()
 	if is_nan(target.x):
 		return
-	_drop(target, size_scale)
+	_drop(target)
 
 
 ## A volley: independent arrivals, each drawn from the same stream, not a spread around one aimed point.
-func fire_barrage(count: int = 18, size_scale: float = 5.5) -> void:
+func fire_barrage(count: int = 18) -> void:
 	if not offered():
 		return
 	for i in count:
 		var target: Vector3 = _arrival_point()
 		if is_nan(target.x):
 			continue
-		_drop(target, size_scale)
+		_drop(target)
 
 
 ## Fling one toward `target` FROM an explicit world position. It then coasts under real N-body gravity.
@@ -96,9 +99,9 @@ func fire_meteor_at(target: Vector3, from_pos: Vector3, size_scale: float = 1.0)
 	arrive(_actors_root, _terrain, _ecology, target, from_pos, size_scale)
 
 
-## An arrival with no launch point: it falls in along the direction it came from.
-func _drop(target: Vector3, size_scale: float) -> void:
-	arrive(_actors_root, _terrain, _ecology, target, Vector3(INF, INF, INF), size_scale)
+## An arrival with no launch point: it falls in along the direction it came from, at the flux's own draw.
+func _drop(target: Vector3) -> void:
+	arrive(_actors_root, _terrain, _ecology, target, Vector3(INF, INF, INF), 1.0)
 
 
 func _arrival_point() -> Vector3:
