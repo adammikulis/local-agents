@@ -1,187 +1,230 @@
 #!/usr/bin/env bash
-# ONE STATE PER CELL. The derive solves the temperature at a pressure and states a pressure from that
-# temperature; run it twice on the state it just wrote and it must return the same pair. A derive that
-# moves is a world whose seed is undone by its own first step.
-# EXIT 0 the derive is a fixed point * 1 it moves * 2 could not run.
+# ONE STATE PER CELL: the derive is a function of the cell's matter and energy and of nothing else. Run
+# under `lasim`, at MTLMathModeSafe -- Godot compiles with fast math, and a solve stopping on a residual
+# lands elsewhere under each. (A) a second derive returns the state the first wrote; (B) the same matter
+# from another starting iterate returns it too; (C) the seeded world's derive writes finite state.
+# EXIT 0 the derive is a function of the cell * 1 it is not * 2 could not run.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$REPO_ROOT/scripts"
+. "$SCRIPT_DIR/lib_require.sh"
+. "$SCRIPT_DIR/lib_godot_lock.sh"
+. "$SCRIPT_DIR/lib_lasim.sh"
+. "$SCRIPT_DIR/lib_lasim_oracle.sh"
+require_tool python3
+require_tool cmake
 GODOT="${GODOT:-godot}"
-command -v "$GODOT" >/dev/null 2>&1 || { echo "ERROR: godot not on PATH — a gate that cannot run FAILS." >&2; exit 2; }
-PASS="$REPO_ROOT/addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd"
-[ -f "$PASS" ] || { echo "ERROR: StateDerivePass.gd missing." >&2; exit 2; }
-[ -f "$REPO_ROOT/scripts/run_sim_offscreen.sh" ] || { echo "ERROR: run_sim_offscreen.sh missing." >&2; exit 2; }
+command -v "$GODOT" >/dev/null 2>&1 || { echo "check_derive_fixed_point: no godot on PATH." >&2; exit 2; }
 
-PROBE="$REPO_ROOT/addons/local_agents/tests/zz_derive_fixed_point.gd"
-trap 'rm -f "$PROBE" "$PROBE.uid"' EXIT INT TERM
-cat > "$PROBE" <<'GD'
-extends SceneTree
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/la_derive_fixed.XXXXXX")" || {
+	echo "check_derive_fixed_point: no writable temp directory." >&2; exit 2; }
+lock_rc=1
+cleanup() {
+	la_lasim_oracle_clean
+	rm -rf "$WORK"
+	[ "$lock_rc" -eq 0 ] && la_gpu_unlock
+}
+trap cleanup EXIT INT TERM
 
-const QuietWindow: GDScript = preload("res://addons/local_agents/runtime/QuietWindow.gd")
-const PASS_PATH: String = "res://addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd"
+la_lasim_oracle_write
+la_lasim_build || exit 2
+# THE ORACLE FIRST, AND OUTSIDE THE GPU LOCK: a Godot launch takes the extension lock before the GPU
+# lock, so holding this one across it deadlocks against a lane holding the other. lasim takes the GPU
+# lock alone. (`la_lock_order_ok` is not on this tree yet; this is the ordering it states.)
+la_lasim_oracle_run "$WORK" 2 || exit 2
 
-const CELL: float = 2000.0
-## Relative move a second pass may make: float32 on the pressure, and the ladder's own last bit on T.
-const TOL_REL: float = 1.0e-5
-const TOL_K: float = 1.0e-3
+# THE SAME MATTER, A DIFFERENT PLACE TO START FROM. The recorded plan carries every buffer the passes
+# bound, and the snapshot the pressures the seed laid; both are rewritten here so arm B hands the solve
+# another iterate over a state that has not moved.
+python3 - "$WORK/plan_derive.lapl" "$WORK/plan_shifted.lapl" "$WORK/field.lafs" "$WORK/field_shifted.lafs" <<'PY'
+import struct, sys
 
-var _rd: RenderingDevice = null
-var _owned: Array[RID] = []
-var _fails: int = 0
+def shift_plan(src, dst, names):
+	raw = bytearray(open(src, "rb").read())
+	at = 20
+	touched = 0
+	for _ in range(struct.unpack_from("<I", raw, 16)[0]):
+		n = struct.unpack_from("<I", raw, at)[0]
+		at += 4
+		name = raw[at:at + n].decode("utf-8")
+		at += n
+		elems = struct.unpack_from("<I", raw, at)[0]
+		at += 8
+		if name in names:
+			lo, hi = names[name]
+			for i in range(elems):
+				struct.pack_into("<f", raw, at + i * 4, lo + (hi - lo) * ((i * 37 % 101) / 100.0))
+			touched += 1
+		at += elems * 4
+	if touched != len(names):
+		sys.exit("the plan carries %d of the %d buffers arm B shifts" % (touched, len(names)))
+	open(dst, "wb").write(bytes(raw))
 
-
-## A buffer holding the values it is given, rather than n copies of one.
-func _write_f32(vals: PackedFloat32Array) -> RID:
-	var b: PackedByteArray = vals.to_byte_array()
-	return _rd.storage_buffer_create(b.size(), b)
-
-
-func _f32(n: int, v: float = 0.0) -> RID:
-	var a: PackedFloat32Array = PackedFloat32Array()
-	a.resize(maxi(n, 1))
-	a.fill(v)
-	var b: PackedByteArray = a.to_byte_array()
-	var r: RID = _rd.storage_buffer_create(b.size(), b)
-	_owned.append(r)
-	return r
-
-
-func _upload(rid: RID, vals: PackedFloat32Array) -> void:
-	var b: PackedByteArray = vals.to_byte_array()
-	_rd.buffer_update(rid, 0, b.size(), b)
-
-
-func _init() -> void:
-	QuietWindow.apply_if_automated()
-	_rd = RenderingServer.create_local_rendering_device()
-	if _rd == null:
-		printerr("no RenderingDevice — headless has no compute device, so this gate cannot run.")
-		quit(2)
-		return
-	_run()
-	for r in _owned:
-		if r.is_valid():
-			_rd.free_rid(r)
-	quit(1 if _fails > 0 else 0)
-
-
-## A column of cells spanning air, an air/water mix and brim-full water, each at a different pressure:
-## the gas branch of the equation of state, the mixed one and the condensed one.
-func _run() -> void:
-	var grid: LAVoxelGrid = LAVoxelGrid.new()
-	grid.build(12, 1, 1, CELL, Vector3(-6.0 * CELL, -0.5 * CELL, -0.5 * CELL))
-	var cc: int = grid.cell_count
-	var scr: GDScript = load(PASS_PATH)
-	var p: RefCounted = scr.new()
-	var bufs: Dictionary = {}
-	for name in LAChannels.channels():
-		bufs[String(name)] = _f32(cc)
-	for name in LAChannels.derived_buffers():
-		bufs[String(name)] = _f32(cc)
-	var want: Dictionary = p._buffers(cc)
-	for name in want:
-		var spec: Variant = want[name]
-		bufs[String(name)] = _f32(int(spec["n"]) if spec is Dictionary else int(spec))
-	var nbr_bytes: PackedByteArray = grid.neighbours.to_byte_array()
-	var nbr: RID = _rd.storage_buffer_create(nbr_bytes.size(), nbr_bytes)
-	_owned.append(nbr)
-	bufs["nbr"] = nbr
-	# THE FACE LIST'S OWN GEOMETRY: where a cell's faces begin, the face pointing back, and its edge.
-	var off_b: PackedByteArray = grid.slot_off.to_byte_array()
-	var par_b: PackedByteArray = grid.partners.to_byte_array()
-	var edge_b: PackedByteArray = grid.cell_edges().to_byte_array()
-	bufs["slot_off"] = _rd.storage_buffer_create(off_b.size(), off_b)
-	bufs["face_partner"] = _rd.storage_buffer_create(par_b.size(), par_b)
-	bufs["cell_edge"] = _rd.storage_buffer_create(edge_b.size(), edge_b)
-	_owned.append(bufs["slot_off"])
-	_owned.append(bufs["face_partner"])
-	_owned.append(bufs["cell_edge"])
-	bufs["gravity"] = _f32(cc * 3)
-	bufs["g_rest"] = _f32(cc * 3)
-	bufs["pos"] = _f32(cc * 3)
-	bufs["cell_edge"] = _write_f32(grid.cell_edges())
-
-	var full_h2o: float = LASubstances.full_mol_m3("h2o")
-	var h2o: PackedFloat32Array = PackedFloat32Array()
-	var n2: PackedFloat32Array = PackedFloat32Array()
-	var h: PackedFloat32Array = PackedFloat32Array()
-	var pres: PackedFloat32Array = PackedFloat32Array()
-	for c in cc:
-		var wet: float = float(c) / float(cc - 1)
-		h2o.append(wet * full_h2o)
-		n2.append(40.0 * (1.0 - wet))
-		pres.append(101325.0 * pow(10.0, 3.0 * wet))
-		var kg: float = wet * full_h2o * LAPhysical.MOLAR_MASS_WATER_KG_MOL
-		h.append(kg * LASubstances.enthalpy_at("h2o", 15.0, pres[c]))
-	_upload(bufs["h2o"], h2o)
-	_upload(bufs["n2"], n2)
-	_upload(bufs["e_j_m3"], h)
-	_upload(bufs["pressure"], pres)
-
-	p.setup(_rd, bufs, cc)
-	var groups: int = int(ceil(float(cc) / 64.0))
-	var ctx: Dictionary = {"cell_size": CELL, "centre": Vector3.ZERO, "spin": Vector3.ZERO,
-		"spin_rate_rad_s": 0.0, "sea_radius": 0.0, "step_index": 0.0, "dt_s": 1.0}
-	var t1: PackedFloat32Array = _pass_once(p, ctx, cc, groups, bufs, "temp")
-	var p1: PackedFloat32Array = _rd.buffer_get_data(bufs["pressure"]).to_float32_array()
-	var t2: PackedFloat32Array = _pass_once(p, ctx, cc, groups, bufs, "temp")
-	var p2: PackedFloat32Array = _rd.buffer_get_data(bufs["pressure"]).to_float32_array()
-	p.dispose(_rd)
-
-	var worst_t: float = 0.0
-	var worst_p: float = 0.0
-	var moved: int = 0
-	var live: int = 0
-	for c in cc:
-		if not is_finite(t1[c]) or not is_finite(p1[c]):
-			_fails += 1
+def shift_snapshot(src, dst, names):
+	raw = bytearray(open(src, "rb").read())
+	if struct.unpack_from("<I", raw, 0)[0] != 0x5346414C:
+		sys.exit(src + " is not a field snapshot")
+	cells = struct.unpack_from("<I", raw, 8)[0]
+	count = struct.unpack_from("<I", raw, 12)[0]
+	at = 16
+	def take():
+		nonlocal at
+		n = struct.unpack_from("<I", raw, at)[0]
+		at += 4
+		v = raw[at:at + n].decode("utf-8")
+		at += n
+		return v
+	take()
+	channels = [take() for _ in range(count)]
+	body = at
+	touched = 0
+	for i, name in enumerate(channels):
+		if name not in names:
 			continue
-		if p1[c] <= 0.0:
-			continue
-		live += 1
-		var dt: float = absf(t2[c] - t1[c])
-		var dp: float = absf(p2[c] - p1[c]) / maxf(absf(p1[c]), 1.0)
-		worst_t = maxf(worst_t, dt)
-		worst_p = maxf(worst_p, dp)
-		if dt > TOL_K or dp > TOL_REL:
-			moved += 1
-	if live <= 0:
-		printerr("no cell held a pressure, so the derive was never asked anything.")
-		_fails += 1
-	if moved > 0:
-		_fails += 1
-	print('DERIVE_FIXED_POINT={"cells":%d,"live":%d,"moved":%d,"worst_k":%s,"worst_p_rel":%s,"failures":%d}'
-		% [cc, live, moved, String.num(worst_t, 9), String.num(worst_p, 9), _fails])
-	if moved > 0:
-		printerr("The derive did not return the state it wrote: %d cell(s) moved. It solves T at a "
-			% moved + "pressure and states a pressure from that T, so the two must be solved together.")
+		lo, hi = names[name]
+		off = body + i * cells * 4
+		for c in range(cells):
+			struct.pack_into("<f", raw, off + c * 4, lo * (hi / lo) ** ((c * 53 % 97) / 96.0))
+		touched += 1
+	if touched != len(names):
+		sys.exit("the snapshot carries %d of the %d channels arm B shifts" % (touched, len(names)))
+	open(dst, "wb").write(bytes(raw))
 
-
-func _pass_once(p: RefCounted, ctx: Dictionary, cc: int, groups: int, bufs: Dictionary,
-		key: String) -> PackedFloat32Array:
-	var cl: int = _rd.compute_list_begin()
-	p.dispatch(_rd, cl, ctx, cc, groups)
-	_rd.compute_list_end()
-	_rd.submit()
-	_rd.sync()
-	return _rd.buffer_get_data(bufs[key]).to_float32_array()
-GD
-
-OUT="$(LA_DONE_RE='^DERIVE_FIXED_POINT=' "$REPO_ROOT/scripts/run_sim_offscreen.sh" \
-	--path "$REPO_ROOT" -s "res://addons/local_agents/tests/zz_derive_fixed_point.gd" 2>&1)"
-RC=$?
-printf '%s\n' "$OUT" | grep -E '^DERIVE_FIXED_POINT=|did not return|no cell held|no RenderingDevice' || true
-# A rig that printed no reading examined nothing, whatever it exited with.
-printf '%s\n' "$OUT" | grep -q '^DERIVE_FIXED_POINT=' || {
-	echo "check_derive_fixed_point: the rig published no reading, so the derive was never run." >&2
-	printf '%s\n' "$OUT" | tail -20 >&2
+# A temperature and a pressure the planet has, and neither the one the solve landed on.
+shift_plan(sys.argv[1], sys.argv[2], {"temp": (-90.0, 2400.0), "temp_lith": (-90.0, 2400.0),
+	"pressure": (1.0e3, 1.0e9), "p_fluid": (1.0e3, 1.0e9)})
+shift_snapshot(sys.argv[3], sys.argv[4], {"pressure": (1.0e3, 1.0e9), "p_fluid": (1.0e3, 1.0e9)})
+PY
+[ -s "$WORK/plan_shifted.lapl" ] && [ -s "$WORK/field_shifted.lafs" ] || {
+	echo "check_derive_fixed_point: arm B's starting iterate could not be written." >&2
 	exit 2
 }
-case "$RC" in
-	0) ;;
-	1) exit 1 ;;
-	*) printf '%s\n' "$OUT" | tail -20 >&2; exit 2 ;;
-esac
+
+la_gpu_lock
+lock_rc=$?
+[ "$lock_rc" -eq 1 ] && { echo "check_derive_fixed_point: the GPU lock did not come free." >&2; exit 2; }
+
+run() {  # run <tag> <snapshot> <plan> <steps> <mirrors>
+	if ! la_lasim --load "$2" --plan "$3" --passes derive --steps "$4" --mirrors "$5" \
+			> "$WORK/$1.log" 2>&1; then
+		echo "check_derive_fixed_point: lasim did not complete the $1 arm." >&2
+		tail -25 "$WORK/$1.log" >&2
+		exit 2
+	fi
+}
+run once "$WORK/field.lafs" "$WORK/plan_derive.lapl" 1 "$WORK/once.lafs"
+run twice "$WORK/field.lafs" "$WORK/plan_derive.lapl" 2 "$WORK/twice.lafs"
+run shifted "$WORK/field_shifted.lafs" "$WORK/plan_shifted.lapl" 1 "$WORK/shifted.lafs"
+
+[ "$lock_rc" -eq 0 ] && la_gpu_unlock
+lock_rc=1
+
+python3 - "$WORK" <<'PY'
+import math, os, struct, sys
+
+work = sys.argv[1]
+# What a second pass may move: float32 on the pressure, and the ladder's own last bit on T. The solve
+# accepts only once |dp| and |dT| between outer iterations are inside LA_STATE_TOL, so both are bounds
+# on the state and not on a residual.
+TOL_K = 1.0e-3
+TOL_REL = 1.0e-5
+ABSOLUTE = {"temp": TOL_K, "temp_lith": TOL_K}
+# A pressure read off a difference of two nearly-equal volumes does not land in the same place under
+# both math modes; check_derive_safe_math.sh owns those channels and ratchets them down.
+SAFE_MATH = ("pressure", "p_fluid", "k_cond")
+
+def mirrors(path):
+	raw = open(path, "rb").read()
+	at = 0
+	def u32():
+		nonlocal at
+		v = struct.unpack_from("<I", raw, at)[0]
+		at += 4
+		return v
+	def s():
+		nonlocal at
+		n = u32()
+		v = raw[at:at + n].decode("utf-8")
+		at += n
+		return v
+	if u32() != 0x5346414C:
+		sys.exit(path + " is not a field snapshot")
+	u32()
+	cells = u32()
+	count = u32()
+	s()
+	names = [s() for _ in range(count)]
+	return cells, names, raw[at:]
+
+def compare(arm, a_path, b_path):
+	a_cells, a_names, a_body = mirrors(a_path)
+	b_cells, b_names, b_body = mirrors(b_path)
+	if a_cells != b_cells or a_names != b_names:
+		print("FAIL  %s: %d cells over %d channels against %d over %d."
+			% (arm, b_cells, len(b_names), a_cells, len(a_names)), file=sys.stderr)
+		return 1, 0
+	moved = []
+	for i, name in enumerate(a_names):
+		if name in SAFE_MATH:
+			continue
+		off = i * a_cells * 4
+		x = struct.unpack_from("<%df" % a_cells, a_body, off)
+		y = struct.unpack_from("<%df" % a_cells, b_body, off)
+		absolute = ABSOLUTE.get(name)
+		out = 0
+		worst = 0.0
+		for u, v in zip(x, y):
+			if u == v or (math.isnan(u) and math.isnan(v)):
+				continue
+			if math.isinf(u) or math.isinf(v):
+				out += 1
+				continue
+			d = abs(u - v) if absolute is not None else abs(u - v) / max(abs(u), abs(v), 1.0)
+			worst = max(worst, d)
+			if d > (absolute if absolute is not None else TOL_REL):
+				out += 1
+		if out:
+			moved.append((name, out, worst, "K" if absolute is not None else "relative"))
+	if moved:
+		print("FAIL  %s: %d of %d channel(s) moved:" % (arm, len(moved), len(a_names)), file=sys.stderr)
+		for name, out, worst, unit in moved[:12]:
+			print("      %s: %d of %d cells, worst %s %.3g" % (name, out, a_cells, unit, worst),
+				file=sys.stderr)
+	return len(moved), len(a_names)
+
+# A CELL THAT GAVE UP PUBLISHES AN ITERATE, NOT A STATE, so the fixed point is asserted over a solve
+# that finished.
+cells, names, body = mirrors(os.path.join(work, "once.lafs"))
+if "unconverged" not in names or "k_cond" not in names:
+	print("check_derive_fixed_point: the mirrors carry no `unconverged` or no `k_cond`, so a cell that "
+		"gave up, or one whose pressure float32 cannot resolve, would be compared as though it had "
+		"solved exactly.", file=sys.stderr)
+	sys.exit(2)
+gave_up = struct.unpack_from("<%df" % cells, body, names.index("unconverged") * cells * 4)
+spent = sum(1 for v in gave_up if v != 0.0)
+if spent:
+	print("FAIL  %d of %d cells spent the solve's budget without meeting its own tolerance, so their "
+		"pressure is an iterate and not a state." % (spent, cells), file=sys.stderr)
+
+bad_a, n = compare("a second derive over the state the first wrote",
+	os.path.join(work, "once.lafs"), os.path.join(work, "twice.lafs"))
+bad_b, _ = compare("the same matter from a different starting iterate",
+	os.path.join(work, "once.lafs"), os.path.join(work, "shifted.lafs"))
+if n == 0:
+	print("check_derive_fixed_point: no channel was compared.", file=sys.stderr)
+	sys.exit(2)
+print("DERIVE_FIXED_POINT={\"channels\":%d,\"unconverged\":%d,\"moved_second_pass\":%d,"
+	"\"moved_other_start\":%d,\"held_by_safe_math_gate\":%d}"
+	% (n, spent, bad_a, bad_b, len(SAFE_MATH)))
+if bad_a or bad_b or spent:
+	print("The derive did not return the state its own matter states. It solves T at a pressure and "
+		"states a pressure from that T, so the two are solved together, and neither may be read back "
+		"off the state the last pass wrote.", file=sys.stderr)
+	sys.exit(1)
+PY
+RC=$?
+[ "$RC" -eq 0 ] || exit "$RC"
 
 # THE SEEDED WORLD, not a rig's own inputs: the same derive over the matter the seed actually laid must
 # write finite state in every cell. Rung 1 is the lowest that publishes the count.

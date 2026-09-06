@@ -85,9 +85,7 @@ layout(set = 0, binding = LA_BIND_ORG_O, std430) restrict buffer OrgO { float or
 #include "mixture_enthalpy.glsli"
 
 // --- THE PHASE RULE ----------------------------------------------------------------------------------------
-const float WATER_FREEZE_C = 0.0;        // LAPhysical.WATER_FREEZE_C — GATE_FREEZING's boundary
 const float KELVIN_0 = 273.15;           // LAPhysical.KELVIN_OFFSET
-const float RHO_WATER = 997.0;           // LAPhysical.WATER_DENSITY_KG_M3
 const float RHO_SILICATE = 2900.0;       // LASubstances.silicate.density
 const float M_SILICATE = 0.1161612;      // LASubstances.silicate.molar_mass
 const float M_H2O = 0.018015;            // LAPhysical.MOLAR_MASS_WATER_KG_MOL
@@ -134,8 +132,16 @@ float mole_frac_to_mol_m3(uint i, float frac) {
 	return frac * max(pressure[i], 0.0) / (R_GAS * max(temp[i] + KELVIN_0, 1.0));
 }
 
+// mol/m^3 a cell full of its own liquid water holds, at that cell's own temperature.
+float full_h2o_at(uint i) {
+	float v = la_water_liquid_v_m3_kg(temp[i]);
+	return v > 0.0 ? 1.0 / (v * M_H2O) : 0.0;
+}
+
 // Half a cell of standing liquid water in the neighbour above = no free surface here. mol/m^3.
-#define DROWNED_WATER (0.5 * RHO_WATER / M_H2O)
+float drowned_water(uint i) {
+	return 0.5 * full_h2o_at(i);
+}
 
 struct Reaction {
 	int   rate_model;
@@ -280,7 +286,7 @@ float bedrock_surface_wet(uint i) {
 		return 0.0;
 	}
 	float phi = silicate[uint(d)] * M_SILICATE / RHO_SILICATE;
-	float wet = clamp(h2o_liq(i) * M_H2O / RHO_WATER, 0.0, 1.0);
+	float wet = clamp(full_h2o_at(i) > 0.0 ? h2o_liq(i) / full_h2o_at(i) : 0.0, 0.0, 1.0);
 	return 6.0 * phi / grain[d] * vol_ratio(uint(d), i) * wet;
 }
 
@@ -359,7 +365,8 @@ bool gate_ok(int mask, uint i) {
 		return true;
 	}
 	if ((mask & GATE_FREEZING) != 0) {
-		if (temp[i] >= WATER_FREEZE_C) {
+		// The melting point this cell's water actually has: the ladder's own curve at this pressure.
+		if (temp[i] >= la_melt_c_at(la_h2o(), max(pressure[i], 0.0), 0.0)) {
 			return false;                   // above the phase boundary the condensate is liquid, not ice
 		}
 	}
@@ -373,7 +380,7 @@ bool gate_ok(int mask, uint i) {
 	if ((mask & GATE_AIR_ABOVE) != 0) {
 		// FREE SURFACE: the outward-radial neighbour must be AIR — open rock-free and not itself drowned.
 		int au = la_above(i);
-		if (au >= 0 && (solid[au] != 0.0 || h2o_liq(uint(au)) >= DROWNED_WATER)) {
+		if (au >= 0 && (solid[au] != 0.0 || h2o_liq(uint(au)) >= drowned_water(uint(au)))) {
 			return false;
 		}
 	}

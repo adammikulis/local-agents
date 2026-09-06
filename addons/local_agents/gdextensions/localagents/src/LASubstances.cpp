@@ -234,6 +234,16 @@ const GasRow GASES[] = {
 		"THERMAL_CONDUCT_CH4_GAS_W_MK", nullptr, nullptr },
 };
 
+// Viscosity against temperature. Water: the Vogel form on the measured reference, mu = mu_ref
+// 10^(B/(T-C) - B/(T_ref-C)), fitted 0-370 C (Seeton 2006, Tribol. Lett. 22:67). Nitrogen, and so the
+// air it dominates: Sutherland's law, mu = mu_ref (T_ref+S)/(T+S) (T/T_ref)^1.5 (Sutherland 1893,
+// Phil. Mag. 36:507). Each reference is the temperature LAPhysical measures that viscosity at.
+const double WATER_VISCOSITY_REF_T_C = 20.0;
+const double WATER_VISCOSITY_VOGEL_B_K = 247.8;
+const double WATER_VISCOSITY_VOGEL_C_K = 140.0;
+const double N2_VISCOSITY_REF_T_C = 15.0;
+const double N2_VISCOSITY_SUTHERLAND_K = 110.4;
+
 Dictionary gas_entry(const GasRow &p_g) {
 	Dictionary d;
 	d["formula"] = formula_of(p_g.formula, p_g.formula_n);
@@ -263,6 +273,12 @@ Dictionary gas_entry(const GasRow &p_g) {
 	d["latent_vaporisation_j_kg"] = pc(p_g.latent_vaporisation);
 	d["latent_vaporisation_ref_t_c"] = pc(p_g.latent_vaporisation_ref_t_c);
 	d["conductivity"] = pc(p_g.conductivity);
+	// The gas mixture's viscosity is read at the law of the gas that dominates it.
+	if (String(p_g.id) == "n2") {
+		d["viscosity_pa_s"] = pc("AIR_DYNAMIC_VISCOSITY_PA_S");
+		d["viscosity_ref_t_c"] = N2_VISCOSITY_REF_T_C;
+		d["viscosity_sutherland_k"] = N2_VISCOSITY_SUTHERLAND_K;
+	}
 	return d;
 }
 
@@ -278,6 +294,10 @@ Dictionary water_entry() {
 	d["density_ref_t_c"] = pc("LAB_REFERENCE_TEMP_C");
 	d["expansion_per_k"] = pc("WATER_VOLUME_EXPANSION_PER_K");
 	d["bulk_modulus_pa"] = pc("WATER_BULK_MODULUS_PA");
+	d["viscosity_pa_s"] = pc("WATER_DYNAMIC_VISCOSITY_PA_S");
+	d["viscosity_ref_t_c"] = WATER_VISCOSITY_REF_T_C;
+	d["viscosity_vogel_b_k"] = WATER_VISCOSITY_VOGEL_B_K;
+	d["viscosity_vogel_c_k"] = WATER_VISCOSITY_VOGEL_C_K;
 	d["density_solid"] = pc("ICE_DENSITY_KG_M3");
 	d["density_solid_ref_t_c"] = pc("WATER_FREEZE_C");
 	d["expansion_solid_per_k"] = pc("ICE_VOLUME_EXPANSION_PER_K");

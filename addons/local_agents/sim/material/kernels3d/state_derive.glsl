@@ -89,6 +89,10 @@ layout(set = 0, binding = LA_BIND_H2O_VAPOUR, std430) restrict writeonly buffer 
 // the same enthalpy ladder the temperature came off, never stored.
 layout(set = 0, binding = LA_BIND_SILICATE_MELT, std430) restrict buffer SilicateMelt { float silicate_melt[]; };
 
+// kg/m^3 the cell's own liquid water stands at. One liquid density per planet is a sea that cannot
+// stratify.
+layout(set = 0, binding = LA_BIND_WATER_RHO, std430) restrict writeonly buffer WaterRho { float water_rho[]; };
+
 // LIQUID water per cell: h2o times its liquid share. Read back every drain for the CPU consumers.
 layout(set = 0, binding = LA_BIND_LIQUID, std430) restrict writeonly buffer Liquid { float liquid[]; };
 
@@ -161,6 +165,9 @@ layout(push_constant, std430) uniform Params {
 	uint act_base;          // where this row group's sorted list starts, in cells
 } params;
 
+// No row of LASubstances measures a pressure derivative of its bulk modulus, so every phase squeezes at
+// the value Birch-Murnaghan reduces to its second order at.
+const float LA_KPRIME = 4.0;   // LASubstances.bulk_modulus_deriv
 const float SOLID_IN = 0.6;    // LAPhysical.RHEOLOGICAL_LOCKUP_CRYSTAL_FRAC
 const float ICE_ALPHA = 1.6e-4;        // LAPhysical.ICE_VOLUME_EXPANSION_PER_K
 const float ICE_T_REF_C = 0.0;         // LAPhysical.WATER_FREEZE_C
@@ -201,7 +208,7 @@ const int E_SILICATE = 1;          // LAMatterChannels.Entry.SILICATE
 const int E_SENSIBLE = 2;          // LAMatterChannels.Entry.SENSIBLE
 const int N_ENTRIES = 3;
 
-// A substance with no phase boundary in this planet's range: enthalpy is c*T and nothing else.
+// A substance with no phase boundary here: enthalpy is c*T. LA_APPROX: constant_specific_heat_per_phase
 SubstanceTh la_sensible_only(float c_j_kgk) {
 	return SubstanceTh(
 		c_j_kgk, c_j_kgk, c_j_kgk,
@@ -222,6 +229,95 @@ SubstanceTh la_sensible_only(float c_j_kgk) {
 		float[LA_MAX_EL](0.0, 0.0, 0.0),
 		float[LA_MAX_EL](0.0, 0.0, 0.0)
 	);
+}
+
+// Conductivity, W/m/K: Maxwell-Eucken (Maxwell 1873; Eucken 1932), one CONTINUOUS phase `l_c` with the
+// others dispersed in it, lambda = SUM f_i l_i b_i / SUM f_i b_i, b_i = 3 l_c / (l_i + 2 l_c). The
+// volume mean it replaces is the Wiener bound: parallel slabs, which grains in air are not.
+float la_mix_lambda(uint g, float cem, bool lattice, float l_c) {
+	if (l_c <= 0.0) {
+		return 0.0;
+	}
+	float num = 0.0;
+	float den = 0.0;
+	for (int i = 0; i < LA_CHANNEL_SLOTS; ++i) {
+		float f = max(channel_at(i, g), 0.0);
+		int base = i * PROP_STRIDE;
+		if (f <= 0.0 || props[base + PROP_FULL] <= 0.0) {
+			continue;
+		}
+		bool lithic = props[base + PROP_LITHIC] > 0.0;
+		float share = lattice ? (lithic ? cem : 0.0) : (lithic ? 1.0 - cem : 1.0);
+		float vf = f / props[base + PROP_FULL] * share;
+		float li = props[base + PROP_LAMBDA];
+		float b = 3.0 * l_c / (li + 2.0 * l_c);
+		num += vf * li * b;
+		den += vf * b;
+	}
+	return den > 0.0 ? num / den : 0.0;
+}
+
+// THE CONDENSED VOLUME AT ONE PRESSURE. v0(T) is linear in T, so each sum splits into a T-independent
+// pair the solve combines once it has a temperature; the PRESSURE is the one the solve is standing on,
+// so the state the derive states never depends on the pressure the last one wrote.
+struct CondVol {
+	float b0; float b1; float b2;   // the fluid's, its free water apart
+	float l0; float l1; float l2;   // the cemented lattice's
+	float g0; float g1; float g2;   // the loose lithic grains', inside b*
+	float c0; float c1; float c2;   // the fluid's compressibility, the grains out
+};
+
+CondVol la_condensed_volumes(uint g, float vol, float cem, float p_pa, float p_rock) {
+	CondVol v = CondVol(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+	float dp = max(p_pa, 0.0) - LA_P_STD;
+	float dp_l = max(p_rock, 0.0) - LA_P_STD;
+	for (int i = 0; i < LA_CHANNEL_SLOTS; ++i) {
+		float f = max(channel_at(i, g), 0.0);
+		int base = i * PROP_STRIDE;
+		// h2o is kept apart: its vapour share is gas, so the solve places its volume itself.
+		if (f <= 0.0 || props[base + PROP_CONDENSED] <= 0.0 || props[base + PROP_FULL] <= 0.0
+				|| int(props[base + PROP_ENTRY]) == E_H2O) {
+			continue;
+		}
+		bool lithic = props[base + PROP_LITHIC] > 0.0;
+		float sl = lithic ? cem : 0.0;
+		float tr = props[base + PROP_TREF];
+		float kk = props[base + PROP_BULK];
+		float raw = f / props[base + PROP_FULL] * vol;
+		float alpha = props[base + PROP_ALPHA];
+		// The expansivity falls under pressure as alpha * K_T stays constant (Anderson 1995),
+		// K_T = K0 + K0' P.
+		float strain = la_bm_strain(dp, kk, LA_KPRIME);
+		float w0 = raw * la_bm_squeeze(strain) * (1.0 - sl);
+		float w1 = w0 * alpha * ((kk > 0.0 && dp > 0.0) ? kk / (kk + LA_KPRIME * dp) : 1.0);
+		float k_t = la_bm_k_t(strain, kk, LA_KPRIME);
+		v.b0 += w0;
+		v.b1 += w1;
+		v.b2 += w1 * tr;
+		if (lithic) {
+			v.g0 += w0;
+			v.g1 += w1;
+			v.g2 += w1 * tr;
+		} else if (k_t > 0.0) {
+			// LOOSE GRAINS PRESS NOTHING: they take volume; the fluid alone is compressed. The
+			// compressibility is the one this phase has AT this pressure, not the one it has at rest.
+			v.c0 += w0 / k_t;
+			v.c1 += w1 / k_t;
+			v.c2 += w1 * tr / k_t;
+		}
+		if (sl <= 0.0) {
+			continue;
+		}
+		// THE LATTICE STANDS UNDER THE ROCK'S OWN PRESSURE, not the pore fluid's: a cemented frame
+		// carries the column over it.
+		float strain_l = la_bm_strain(dp_l, kk, LA_KPRIME);
+		float wl0 = raw * la_bm_squeeze(strain_l) * sl;
+		float wl1 = wl0 * alpha * ((kk > 0.0 && dp_l > 0.0) ? kk / (kk + LA_KPRIME * dp_l) : 1.0);
+		v.l0 += wl0;
+		v.l1 += wl1;
+		v.l2 += wl1 * tr;
+	}
+	return v;
 }
 
 // The enthalpy one mixture entry holds at the state the solve landed on, J.
@@ -516,21 +612,16 @@ void main() {
 	float cp_gas = 0.0;      // sum of m*cp over the non-condensable gases, J/K: the mixture gamma's cp
 	float m_gas = 0.0;       // kg of non-condensable gas
 	float n_gas_mol = 0.0;   // moles of non-condensable gas
-	float v_lambda = 0.0;    // volume-weighted conductivity of the fluid, W/m/K
-	float v_used = 0.0;
-	float v_lambda_l = 0.0;  // the lattice's
+	// The CONTINUOUS phase of each reservoir: the one that fills most of it, the fluid's taken over its
+	// non-grain phases so a grain pack's heat crosses the pore.
+	float host_f = 0.0; float host_lambda_f = 0.0;
+	float any_f = 0.0; float any_lambda_f = 0.0;
+	float host_l = 0.0; float host_lambda_l = 0.0;
 	float v_lat = 0.0;       // volume fraction of the cemented lattice
 	float v_lithic = 0.0;    // volume fraction of rock and metal phases: what the solid flag reads
 	float v_sil = 0.0;       // volume fraction of the silicate entry, the one phase here that melts
 	float rad_w = 0.0;       // radiogenic power of the cell's matter, W/m^3
-	// EOS sums: b* the unstressed condensed volume of everything but h2o, c* its compressibility, the
-	// fluid's at its own T and the lattice's (l*) at its.
-	float b0 = 0.0; float b1 = 0.0; float b2 = 0.0;
-	float l0 = 0.0; float l1 = 0.0; float l2 = 0.0;
-	// Loose lithic grains: they take volume in the fluid and are never squeezed, so k_cond leaves them out.
-	float g0 = 0.0; float g1 = 0.0; float g2 = 0.0;
 	float lith_frac = 0.0; float lith_kg = 0.0;
-	float c0 = 0.0; float c1 = 0.0; float c2 = 0.0;
 	float mol_h2o_f = 0.0;   // the free water's moles; the pore channel is the lattice's
 	float full_h2o = 0.0;
 	float cem = clamp(cement[g], 0.0, 1.0);
@@ -559,9 +650,11 @@ void main() {
 		}
 		cap_l += m * sl * props[base + PROP_C];
 		float vf = f / props[base + PROP_FULL];
-		v_lambda += vf * (1.0 - sl) * props[base + PROP_LAMBDA];
-		v_used += vf * (1.0 - sl);
-		v_lambda_l += vf * sl * props[base + PROP_LAMBDA];
+		float lam = props[base + PROP_LAMBDA];
+		float vf_f = vf * (1.0 - sl);
+		if (vf_f > any_f) { any_f = vf_f; any_lambda_f = lam; }
+		if (!lithic && vf_f > host_f) { host_f = vf_f; host_lambda_f = lam; }
+		if (vf * sl > host_l) { host_l = vf * sl; host_lambda_l = lam; }
 		v_lat += vf * sl;
 		v_lithic += lithic ? vf : 0.0;
 		if (props[base + PROP_CONDENSED] > 0.0 && !is_water) {
@@ -575,34 +668,10 @@ void main() {
 			cp_gas += m * props[base + PROP_C];
 			m_gas += m;
 		}
-		// v0(T) is linear in T, so its mass sum splits into three T-independent pieces gathered here
-		// and combined once each solve has a temperature. h2o is kept apart: its vapour share is gas.
+		// The free water's own moles. Its volume, and every other condensed volume, is read at the
+		// pressure the solve stands on: la_condensed_volumes.
 		if (props[base + PROP_CONDENSED] > 0.0 && props[base + PROP_FULL] > 0.0) {
-			float tr = props[base + PROP_TREF];
-			float kk = props[base + PROP_BULK];
-			// The expansivity falls under pressure as alpha * K_T stays constant, K_T = K0 + 4 P (BM2).
-			float dp = max(pressure[g], 0.0) - LA_P_STD;
-			float al = props[base + PROP_ALPHA] * ((kk > 0.0 && dp > 0.0) ? kk / (kk + 4.0 * dp) : 1.0);
-			float w0 = vf * vol;
-			float w1 = w0 * al;
 			mol_h2o_f += is_water ? f * vol * (1.0 - sl) : 0.0;
-			b0 += is_water ? 0.0 : w0 * (1.0 - sl);
-			b1 += is_water ? 0.0 : w1 * (1.0 - sl);
-			b2 += is_water ? 0.0 : w1 * tr * (1.0 - sl);
-			l0 += is_water ? 0.0 : w0 * sl;
-			l1 += is_water ? 0.0 : w1 * sl;
-			l2 += is_water ? 0.0 : w1 * tr * sl;
-			g0 += (lithic && !is_water) ? w0 * (1.0 - sl) : 0.0;
-			g1 += (lithic && !is_water) ? w1 * (1.0 - sl) : 0.0;
-			g2 += (lithic && !is_water) ? w1 * tr * (1.0 - sl) : 0.0;
-			// LOOSE GRAINS PRESS NOTHING: they take volume; the fluid alone is compressed in the rest.
-			if (kk > 0.0 && !is_water && !lithic) {
-				float q0 = w0 / kk;
-				float q1 = w1 / kk;
-				c0 += q0;
-				c1 += q1;
-				c2 += q1 * tr;
-			}
 		}
 	}
 
@@ -619,16 +688,11 @@ void main() {
 	subs_l[3] = la_sensible_only(0.0);
 	bool pinned_l = false;
 	float progress_l = 0.0;
-	float t_l = temp_lith[g];
-	// The lattice's pressure: the column in a locked cell; the fluid's plus half its own rock's weight in a cut cell.
-	float p_rock = solid[g] != 0.0 ? max(pressure[g], 0.0)
-		: max(pressure[g], 0.0) + 0.5 * total_l * inv_vol * length(g_eff) * cell_edge[g];
-	if (total_l > 0.0) {
-		t_l = la_mix_state(subs_l, mass_l, N_ENTRIES, e_lith_j_m3[g] * vol, p_rock, 0.0, 0.0, pinned_l, progress_l);
-	}
-	// Parallel mixing rule per reservoir: the fluxes through each constituent add.
-	conductivity[g] = (v_used > 0.0) ? v_lambda / v_used : 0.0;
-	conductivity_lith[g] = (v_lat > 0.0) ? v_lambda_l / v_lat : 0.0;
+	// Solved with the fluid below, at the pressure that solve is standing on.
+	float t_l = 0.0;
+	float p_rock = 0.0;
+	conductivity[g] = la_mix_lambda(g, cem, false, host_lambda_f > 0.0 ? host_lambda_f : any_lambda_f);
+	conductivity_lith[g] = la_mix_lambda(g, cem, true, host_lambda_l);
 	lattice_frac[g] = clamp(v_lat, 0.0, 1.0);
 	cap_lith[g] = cap_l * inv_vol;
 	float rho = total * inv_vol;     // kg/m^3, gas included: gravity pulls on all of it
@@ -640,7 +704,8 @@ void main() {
 	lithic_kg[g] = (lith_kg + pore_kg) * inv_vol;
 	vec3 v_frame = cross(omega, r_vec);
 	pe_j_m3[g] = rho * (params.grav_self * (grav_phi[g] + grav_ref[g]) - 0.5 * dot(v_frame, v_frame));
-	ke_j_m3[g] = 0.0;
+	float ke = 0.0;              // J/m^3 of bulk motion, the reservoir a lockup dissipates into
+	ke_j_m3[g] = ke;
 	float f_melt = 0.0;
 	vec3 v = vec3(0.0);
 	// No matter: the cell is EMPTY, and its DERIVED bulk state is none. Momentum with no mass to carry it
@@ -661,6 +726,7 @@ void main() {
 		h2o_solid[g] = 0.0;
 		h2o_liquid[g] = 0.0;
 		h2o_vapour[g] = 0.0;
+		water_rho[g] = 0.0;
 		liquid[g] = 0.0;
 		silicate_melt[g] = 0.0;
 		h_h2o[g] = 0.0;
@@ -686,11 +752,22 @@ void main() {
 	// v = p/rho over the matter that moves: the lattice's grains stand still.
 	float rho_f = max(rho - lith_kg * inv_vol, 0.0);
 	v = rho_f > 0.0 ? vec3(mom_x[g], mom_y[g], mom_z[g]) / rho_f : vec3(0.0);
+	ke = 0.5 * rho_f * dot(v, v);
+	// LOCKED ROCK HOLDS NO BULK MOTION, and the motion it loses is heat: it joins the internal energy
+	// before this cell's temperature is read off it, so the state published is the one dissipation left.
+	if (solid[g] != 0.0) {
+		e_j_m3[g] += ke;
+		mom_x[g] = 0.0;
+		mom_y[g] = 0.0;
+		mom_z[g] = 0.0;
+		v = vec3(0.0);
+		ke = 0.0;
+	}
 	vel_x[g] = v.x;
 	vel_y[g] = v.y;
 	vel_z[g] = v.z;
 	speed[g] = length(v);
-	ke_j_m3[g] = 0.5 * rho_f * dot(v, v);
+	ke_j_m3[g] = ke;
 
 	SubstanceTh subs[LA_MIX_MAX];
 	subs[E_H2O] = la_h2o();
@@ -702,7 +779,9 @@ void main() {
 	float progress = 0.0;
 	float m_h2o = mass[E_H2O];
 	float mol_sil = subs[E_SILICATE].molar_mass > 0.0 ? mass[E_SILICATE] / subs[E_SILICATE].molar_mass : 0.0;
-	float t_c = temp[g];
+	// Solved below. The pressure a LOCKED cell's free fluid was sealed with is state; an open cell's is
+	// this solve's own last answer, a starting iterate the residual test below is free of.
+	float t_c = 0.0;
 	float p_pa = max(solid[g] != 0.0 ? p_fluid[g] : pressure[g], 0.0);
 	float e_fluid = e_j_m3[g];
 	// The fluid's room: the cell less what its condensed lithic matter fills. H = U + pV over it.
@@ -713,24 +792,51 @@ void main() {
 	float f_vap_sil = 0.0;
 	float b_vol = 0.0;
 	float c_comp = 0.0;
+	float vw = 0.0;          // m^3 of condensed h2o, its liquid and its ice each at its own density
+	float cw = 0.0;
 	// THE GAS ROOM: the cell less every condensed volume, where the vapour stands at saturation. The
 	// lattice's volume is its grains and the water in its pores, liquid or ice by its own melting point.
-	float lat_vol = l0 + t_l * l1 - l2 + pore_m3;
-	float room_gas = max(vol - (b0 + t_c * b1 - b2) - lat_vol - m_h2o * la_water_liquid_v_m3_kg(t_c), 0.0);
+	float lat_vol = 0.0;
+	float room_gas = 0.0;
+	CondVol cv = CondVol(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
 	// ONE STATE: the ladder gives T(h, p) and the EOS p(T) off the same matter, so they solve together.
 	float p_lo = 0.0;
 	float p_hi = 0.0;
 	bool has_lo = false;
 	bool has_hi = false;
 	float p_prev_it = p_pa;
+	float p_was = p_pa;      // the pair the previous outer iteration stood on
+	float t_was = 0.0;
 	float f_prev = 0.0;
 	bool converged = false;
-	if (total_f > 0.0) {
 	for (int it = 0; it < LA_STATE_STEPS; ++it) {
-		// T and the room settle together at this p, so the residual below is a function of p alone.
-		float vw = 0.0;
-		float cw = 0.0;
-		// T and the room settle together: the room at T, then T over that room, until neither moves.
+		// EVERY READING BELOW IS A FUNCTION OF THE CELL AND THIS PRESSURE. The lattice stands under the
+		// column in a locked cell, and under the fluid plus half its own rock's weight in a cut one.
+		p_rock = solid[g] != 0.0 ? max(pressure[g], 0.0)
+			: p_pa + 0.5 * total_l * inv_vol * length(g_eff) * cell_edge[g];
+		cv = la_condensed_volumes(g, vol, cem, p_pa, p_rock);
+		if (total_l > 0.0) {
+			t_l = la_mix_state(subs_l, mass_l, N_ENTRIES, e_lith_j_m3[g] * vol, p_rock, 0.0, 0.0,
+				pinned_l, progress_l);
+		}
+		lat_vol = cv.l0 + t_l * cv.l1 - cv.l2 + pore_m3;
+		if (total_f <= 0.0) {
+			// Bare lattice with no fluid: nothing to solve a fluid state for, and the rock's is the cell's.
+			converged = true;
+			t_c = t_l;
+			b_vol = lat_vol;
+			break;
+		}
+		// THE ROOM'S OWN STARTING ITERATE, the cell less its lattice: what the fluid's condensed phases
+		// take out of it is what the loop below settles. Never carried from another pressure.
+		room_gas = max(vol - lat_vol, 0.0);
+		// The free water's own squeeze here: the strain is a function of p, so the room loop re-reads it.
+		float f_bm_liq = la_bm_strain(p_pa - LA_P_STD, 1.0 / WATER_COMPRESS, LA_KPRIME);
+		float f_bm_ice = la_bm_strain(p_pa - LA_P_STD, ICE_BULK, LA_KPRIME);
+		float sq_liq = la_bm_squeeze(f_bm_liq);
+		float sq_ice = la_bm_squeeze(f_bm_ice);
+		float kt_liq = la_bm_k_t(f_bm_liq, 1.0 / WATER_COMPRESS, LA_KPRIME);
+		float kt_ice = la_bm_k_t(f_bm_ice, ICE_BULK, LA_KPRIME);
 		bool settled = false;
 		for (int k = 0; k < LA_STATE_STEPS; ++k) {
 			pinned = false;
@@ -758,13 +864,13 @@ void main() {
 			vw = 0.0;
 			cw = 0.0;
 			if (m_h2o > 0.0) {
-				float v_liq = la_water_liquid_v_m3_kg(t_c);
-				float v_ice = (1.0 + ICE_ALPHA * (t_c - ICE_T_REF_C)) / subs[E_H2O].rho_sol;
+				float v_liq = la_water_liquid_v_m3_kg(t_c) * sq_liq;
+				float v_ice = (1.0 + ICE_ALPHA * (t_c - ICE_T_REF_C)) / subs[E_H2O].rho_sol * sq_ice;
 				vw = m_h2o * (f_liquid * v_liq + f_solid * v_ice);
-				cw = m_h2o * (f_liquid * v_liq * WATER_COMPRESS + f_solid * v_ice / ICE_BULK);
+				cw = m_h2o * (f_liquid * v_liq / kt_liq + f_solid * v_ice / kt_ice);
 			}
-			b_vol = (b0 + t_c * b1 - b2) + lat_vol + vw;
-			c_comp = (c0 + t_c * c1 - c2) + cw;
+			b_vol = (cv.b0 + t_c * cv.b1 - cv.b2) + lat_vol + vw;
+			c_comp = (cv.c0 + t_c * cv.c1 - cv.c2) + cw;
 			float room_next = max(vol - b_vol, 0.0);
 			// The gas pressure is n R T over this room, so the room settles to the pressure's own
 			// tolerance, or to float precision where the room is gone.
@@ -785,9 +891,14 @@ void main() {
 			converged = true;
 			break;
 		}
-		float p_next = la_eos_p(vol, n_gas * LA_R_J_MOL_K * tk, b_vol, c_comp, LA_P_STD);
+		// Linearised about the pressure this iteration stands on, which is where B and C were read.
+		float p_next = la_eos_p(vol, n_gas * LA_R_J_MOL_K * tk, b_vol, c_comp, p_pa);
 		float f = p_next - p_pa;
-		if (abs(f) <= LA_STATE_TOL * max(p_pa, 1.0)) {
+		// THE STATE STOPPED MOVING, and not only the residual: a residual bound accepts anywhere inside
+		// its own ball, and which point it lands on depends on the arithmetic the driver compiled with.
+		bool still = it > 0 && abs(p_pa - p_was) <= LA_STATE_TOL * max(p_pa, 1.0)
+			&& abs(t_c - t_was) <= LA_STATE_TOL * max(abs(t_c), 1.0);
+		if (still && abs(f) <= LA_STATE_TOL * max(p_pa, 1.0)) {
 			converged = true;
 			break;
 		}
@@ -809,16 +920,16 @@ void main() {
 		}
 		p_prev_it = p_pa;
 		f_prev = f;
+		p_was = p_pa;
+		t_was = t_c;
 		p_pa = max(p_step, 0.0);
 	}
-	} else {
-		// Bare lattice with no fluid: nothing to solve a fluid state for, and the rock's is the cell's.
-		converged = true;
-		t_c = t_l;
-		b_vol = lat_vol;
+	// No lattice is no lattice temperature: the rock's reading is the cell's own.
+	if (total_l <= 0.0) {
+		t_l = t_c;
 	}
 	temp[g] = t_c;
-	temp_lith[g] = total_l > 0.0 ? t_l : t_c;
+	temp_lith[g] = t_l;
 	if (solid[g] == 0.0) {
 		pressure[g] = p_pa;
 	}
@@ -859,9 +970,13 @@ void main() {
 	h2o_solid[g] = f_solid;
 	h2o_liquid[g] = f_liquid;
 	h2o_vapour[g] = f_vapour;
+	// The state its own water stands at: the IAPWS liquid curve at this temperature, squeezed here.
+	float v_liq_here = la_water_liquid_v_m3_kg(t_c)
+		* la_bm_squeeze(la_bm_strain(p_pa - LA_P_STD, 1.0 / WATER_COMPRESS, LA_KPRIME));
+	water_rho[g] = v_liq_here > 0.0 ? 1.0 / v_liq_here : 0.0;
 	liquid[g] = max(h2o[g], 0.0) * f_liquid;
 	// The condensed FLUID's bulk modulus: its own volume over its own compressibility, the grains out.
-	float fluid_vol = b_vol - lat_vol - (g0 + t_c * g1 - g2);
+	float fluid_vol = b_vol - lat_vol - (cv.g0 + t_c * cv.g1 - cv.g2);
 	k_cond[g] = (c_comp > 0.0 && fluid_vol > 0.0) ? fluid_vol / c_comp : 0.0;
 	// The gas mixture's own specific gas constant and gamma, vapour included; its sound speed where gas
 	// stands, the condensed fluid's own where none does.
@@ -931,8 +1046,10 @@ void main() {
 	}
 
 	// QUASI-STATIC ROCK: the lattice carries its weight (LA_APPROX quasi_static_solid_pressure), so
-	// locked matter holds no bulk momentum and a cell that unlocks starts from rest.
+	// locked matter holds no bulk momentum and a cell that unlocks starts from rest. `ke` is what a cell
+	// the lithification above has just locked still carries; an already-locked one lost it above.
 	if (solid[g] != 0.0) {
+		e_j_m3[g] += ke;
 		mom_x[g] = 0.0;
 		mom_y[g] = 0.0;
 		mom_z[g] = 0.0;

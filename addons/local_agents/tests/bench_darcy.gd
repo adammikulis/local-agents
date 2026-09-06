@@ -17,6 +17,9 @@ const G: float = 9.80665
 const DT_S: float = 1.0
 const STEPS: int = 1
 ## Porosity and grain diameter per column, m.
+## The temperature the water in these pores stands at: the one closures.glsli's WATER_VISC_REF is
+## measured at, so the kernel reads the viscosity this gate's law is quoted with.
+const WATER_VISC_T_C: float = 20.0
 const POROSITY: Array = [0.10, 0.20, 0.30, 0.40, 0.40, 0.40]
 const GRAIN_M: Array = [4.0e-3, 4.0e-3, 4.0e-3, 4.0e-3, 6.0e-5, 2.0e-4]
 
@@ -56,8 +59,15 @@ func _init() -> void:
 	# Brim-full rock: the derive states `solid`, which is what makes the pore law run at all.
 	rig.fill("silicate", LASubstances.full_mol_m3("silicate"))
 	rig.fill("pressure", LAPhysical.STANDARD_PRESSURE_PA)
+	# ROCK AT 20 C, which is the temperature this bench's viscosity is quoted at. The cement below puts
+	# every grain in the LATTICE, so the lattice is the reservoir that carries the energy; a fluid
+	# reservoir holding a cemented rock's whole mass at zero kelvin is not a state this planet has.
+	var t_c: float = WATER_VISC_T_C
+	var mm: float = float(LASubstances.table()["silicate"]["molar_mass"])
+	var rock_kg: float = LASubstances.full_mol_m3("silicate") * mm
+	var p_pa: float = LAPhysical.STANDARD_PRESSURE_PA
 	rig.fill("e_j_m3", 0.0)
-	rig.fill("e_lith_j_m3", 0.0)
+	rig.fill("e_lith_j_m3", rock_kg * LASubstances.enthalpy_at("silicate", t_c, p_pa))
 	var ctx: Dictionary = {"cell_size": CELL, "centre": Vector3.ZERO, "spin": Vector3.ZERO,
 		"spin_rate_rad_s": 0.0, "sea_radius": 0.0, "gravity_self": 0.0, "dt_s": DT_S,
 		"sun_dir": Vector3.ZERO, "cell_size_min": CELL}
