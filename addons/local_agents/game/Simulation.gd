@@ -140,8 +140,6 @@ func _build_field() -> void:
 			_body.center(), rock_m, air_m,
 			target_m, float(_body.radius()))
 	_validate_grid(_material._grid)
-	if _material.has_method("sample_solidity"):
-		_material.sample_solidity()
 	LASimReport.register(Callable(_material, "report"))
 	LASimReport.register(func() -> Dictionary: return _body_block())
 	LASimReport.register(func() -> Dictionary: return LASimReportSources.population(self), true)

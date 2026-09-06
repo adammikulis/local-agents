@@ -202,8 +202,6 @@ func _build_sphere() -> bool:
 		_material.setup_box(_body.center() - Vector3(half, half, half), dims, cell_m, _terrain,
 			_body.center(), rock_m, air_m,
 			LAFieldGridBudget.target_edge_m(body_seed, seed_radius(), LABodySeeds.surface_temp_c()), seed_radius())
-	if _material.has_method("sample_solidity"):
-		_material.sample_solidity()
 	if _sun != null and _material.has_method("set_sun"):
 		_material.set_sun(_sun)
 	return true
