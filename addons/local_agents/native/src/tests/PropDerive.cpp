@@ -186,8 +186,8 @@ World load(Rig &rig, Rng &rng) {
 	rig.zero(LA_BIND_SOLID);
 	rig.zero(LA_BIND_REGOLITH);
 	rig.zero(LA_BIND_E_LITH_J_M3);
-	rig.zero(LA_BIND_LEVEL_IDX);
-	rig.zero(LA_BIND_LEVEL_ARGS);
+	rig.zero(LA_BIND_ACT_IDX);
+	rig.zero(LA_BIND_ACT_ARGS);
 
 	// A body that spins and carries a sea shell, so latitude and altitude are geometry and not absences.
 	std::vector<float> grav(size_t(n) * 3u, 0.0f);

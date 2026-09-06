@@ -933,8 +933,21 @@ double LAGridGeometry::weighted(const PackedFloat32Array &p_arr, const PackedFlo
 	return t;
 }
 
+double LAGridGeometry::max_magnitude(const PackedFloat32Array &p_flat3) {
+	const int n = p_flat3.size() / 3;
+	const float *r = p_flat3.ptr();
+	double worst = 0.0;
+	for (int i = 0; i < n; i++) {
+		const double x = r[i * 3], y = r[i * 3 + 1], z = r[i * 3 + 2];
+		worst = std::max(worst, x * x + y * y + z * z);
+	}
+	return std::sqrt(worst);
+}
+
 void LAGridGeometry::_bind_methods() {
 	BIND_CONSTANT(MAX_LEVEL);
+	ClassDB::bind_static_method("LAGridGeometry", D_METHOD("max_magnitude", "flat3"),
+			&LAGridGeometry::max_magnitude);
 	ClassDB::bind_static_method("LAGridGeometry", D_METHOD("edges", "grid"), &LAGridGeometry::edges);
 	ClassDB::bind_static_method("LAGridGeometry", D_METHOD("volumes", "grid"), &LAGridGeometry::volumes);
 	ClassDB::bind_static_method("LAGridGeometry", D_METHOD("level_counts", "grid"),

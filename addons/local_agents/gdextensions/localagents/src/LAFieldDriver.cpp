@@ -147,10 +147,14 @@ void LAFieldDriver::setup_transport(const Dictionary &p_plan) {
 	_hz_comp = plan_rid(p_plan, "hz_comp");
 	_hz_cond = plan_rid(p_plan, "hz_cond");
 	_hz_rhs = plan_rid(p_plan, "hz_rhs");
+	_hz_flux = plan_rid(p_plan, "hz_flux");
 	_hz_p = plan_rid(p_plan, "hz_p");
 	_slot_off = plan_rid(p_plan, "slot_off");
 	_nbr = plan_rid(p_plan, "nbr");
 	_cc = plan_int(p_plan, "cell_count", 0);
+	_hz_cell_bytes = plan_int(p_plan, "hz_cell_bytes", 0);
+	_hz_p_bytes = plan_int(p_plan, "hz_p_bytes", 0);
+	_hz_face_bytes = plan_int(p_plan, "hz_face_bytes", 0);
 	_hz_tol = p_plan.get("hz_tol", 0.0);
 	_hz_max_iter = plan_int(p_plan, "hz_max_iter", 0);
 	_slots = plan_int(p_plan, "slots", 0);
@@ -267,9 +271,11 @@ void LAFieldDriver::_solve_acoustic() {
 	}
 	const Dictionary r = LAAcousticSolve::solve_device(_rd, _slot_off, _nbr, _cc, _hz_comp, _hz_cond,
 			_hz_rhs, _hz_p, _hz_dt_s, _hz_tol, _hz_max_iter);
-	if (r.is_empty()) {
+	if (!r.has("residual_rel")) {
+		_hz_nonfinite = r.has("nonfinite_cell") ? (int)(int64_t)r["nonfinite_cell"] : -1;
 		return;
 	}
+	_hz_nonfinite = -1;
 	_hz_residual = r["residual_rel"];
 	_hz_iterations = (int)(int64_t)r["iterations"];
 }
@@ -286,6 +292,15 @@ double LAFieldDriver::step_seconds(const RID &p_dt_buf, const Array &p_pc_rows,
 		put_u32(unbounded.ptrw(), i * 4, 0x7f800000u);
 	}
 	_rd->buffer_update(p_dt_buf, 0, n * 4, unbounded);
+	// THE ACOUSTIC ROW IS THIS STEP'S. A cell outside the bubble is written by no predictor, so what
+	// it held last step would otherwise stand in the operator as a row nobody assembled.
+	if (_hz_cell_bytes > 0) {
+		_rd->buffer_clear(_hz_comp, 0, (uint32_t)_hz_cell_bytes);
+		_rd->buffer_clear(_hz_rhs, 0, (uint32_t)_hz_cell_bytes);
+		_rd->buffer_clear(_hz_p, 0, (uint32_t)_hz_p_bytes);
+		_rd->buffer_clear(_hz_cond, 0, (uint32_t)_hz_face_bytes);
+		_rd->buffer_clear(_hz_flux, 0, (uint32_t)_hz_face_bytes);
+	}
 	int64_t cl = _rd->compute_list_begin();
 	if (p_seed_workgroups > 0) {
 		_fire(cl, _grain_set, _block(p_pc_grain, SLOT_ACT_SEED), RID(), p_seed_workgroups);
@@ -313,6 +328,7 @@ Dictionary LAFieldDriver::acoustic_reading() const {
 	Dictionary out;
 	out["residual_rel"] = _hz_residual;
 	out["iterations"] = _hz_iterations;
+	out["nonfinite_cell"] = _hz_nonfinite;
 	return out;
 }
 
@@ -398,7 +414,9 @@ int64_t LAFieldDriver::run_transport(int64_t p_cl, const Array &p_pc_rows, const
 		if (closes && _hz_pipe.is_valid() && _hz_set.is_valid() && p_hz_pc.size() >= 12) {
 			std::memcpy(&_hz_dt_s_f, p_hz_pc.ptr() + 8, sizeof(float));
 			_hz_dt_s = double(_hz_dt_s_f);
-			_fire_on(cl, _hz_pipe, _hz_set, p_hz_pc, _args, _args_offset(g));
+			// EVERY CELL, not the bubble: a row the predictor left cleared is a row with no equation,
+			// and the solve has to see that rather than skip the cell.
+			_fire_on(cl, _hz_pipe, _hz_set, p_hz_pc, RID(), (_cc + 63) / 64);
 			_rd->compute_list_end();
 			_rd->submit();
 			_rd->sync();

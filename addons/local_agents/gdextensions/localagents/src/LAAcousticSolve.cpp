@@ -48,11 +48,22 @@ Dictionary LAAcousticSolve::solve(const PackedInt32Array &p_slot_off, const Pack
 	}
 	std::vector<double> p(cc), rhs(cc), r(cc), z(cc), d(cc), q(cc);
 	double rhs_max = 0.0;
+	int broken = -1;
 	for (int c = 0; c < cc; c++) {
 		const bool live = diag[c] > 0.0;
 		p[c] = live ? double(p_p[c]) : 0.0;
 		rhs[c] = live ? double(p_rhs[c]) : 0.0;
+		if (live && !std::isfinite(rhs[c] + p[c] + diag[c])) {
+			broken = c;
+			break;
+		}
 		rhs_max = std::max(rhs_max, std::abs(rhs[c]));
+	}
+	// A ROW THAT IS NOT A NUMBER IS NOT A ROW THAT FAILED TO CONVERGE. The state handed to the solve
+	// is broken; saying so names the cell instead of reporting a residual nobody can act on.
+	if (broken >= 0) {
+		out["nonfinite_cell"] = broken;
+		return out;
 	}
 	auto apply = [&](const std::vector<double> &x, std::vector<double> &y) {
 		for (int c = 0; c < cc; c++) {

@@ -80,6 +80,9 @@ public:
 	static double weighted(const PackedFloat32Array &p_arr, const PackedFloat32Array &p_vol,
 			const PackedByteArray &p_solid, bool p_mask_open);
 
+	// The longest vector in a flat cell*3 mirror. 0 for an empty or ragged one.
+	static double max_magnitude(const PackedFloat32Array &p_flat3);
+
 protected:
 	static void _bind_methods();
 };

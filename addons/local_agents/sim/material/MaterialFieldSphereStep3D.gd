@@ -174,10 +174,11 @@ func _seed_under_gravity() -> void:
 
 
 ## THE STEP THE BOX ITSELF AFFORDS, seconds: a body released from rest crosses the finest cell in
-## sqrt(2 L / g). 0 where nothing pulls, which FluxPass then reads as no bound of its own.
+## sqrt(2 L / g), at the LARGEST g the field solved. 0 where nothing pulls, which FluxPass then reads
+## as no bound of its own — and where transport exists, every cell states its own besides.
 func _fall_step_seconds() -> float:
 	var g: LAVoxelGrid = _f._grid
-	var gm: float = LABallistics.max_surface_gravity()
+	var gm: float = LAGridGeometry.max_magnitude(_f._gravity.mirror()) if _f._gravity != null else 0.0
 	var edge: float = 0.0 if g == null else g.cell_size * pow(0.5, float(g.max_level))
 	return 0.0 if gm <= 0.0 or edge <= 0.0 else sqrt(2.0 * COURANT * edge / gm)
 

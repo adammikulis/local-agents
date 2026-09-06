@@ -119,18 +119,28 @@ no referent spent as mol/m³ of a cell. The species mass is the one input; the r
 
 ## 14. NOT EXAMINED UNTIL THE RUNG-2 DEMO IS APPROVED — rung 3
 
+- `scripts/check_rung_acoustic.sh` reads `mach_max` non-finite on the demo slice, with `momentum_cells`
+  holding thousands of cells the derive reports empty (`pressure_empty` in its `PRESSURE_BROKEN` line).
+  `LA_PASS_PROBE=mach LA_PASS_PROBE_STEPS=1` names the cell.
+  Reading: `mach[g]` in `state_derive.glsl` divides `spd` by a `c_cell` that is zero where the cell holds
+  neither a gas mixture nor a condensed fluid.
 - `scripts/check_bench_shock_tube.sh`: at a 10:1 Sod jump the rarefaction head stands outside the bound
   and the overshoot grows as the grid halves; at a 1% jump every claim passes.
 - `scripts/sim_run.sh --rung 3 --frames 8` on the planet ends with `timeout waiting for fence`.
 - `LA_REST_CELL_M=68000 LA_REST_CELLS=8 scripts/check_atmosphere_at_rest.sh` reads a rest departure
-  above its bar on a land column; its vent arm reads an energy residual near a tenth of the turnover.
-- `scripts/sim_run.sh --rung 3 --frames 3 --report nonfinite_cells,mach_max` refuses a water record at
-  light speed by the second frame; `LA_PASS_PROBE=mach LA_PASS_PROBE_STEPS=1` names the cell.
+  above its bar on a land column.
+- `scripts/check_active_rows.sh` reads `settled_active` and `blob_reach` at zero and its seam arm reads
+  no crossing: the probe writes `rho_bulk`, `pressure` and `gas_r` into the buffers by hand and runs
+  `StateDerivePass` nowhere, so `temp` and `cap_sensible` stay zero and no row states a step.
+  Reading: `_build` in `scripts/check_active_rows.sh` calls `_write(bufs, "rho_bulk", ...)` and never
+  dispatches the derive; the arms need an `e_j_m3` the derive turns into the temperature they intend.
 
 ## 15. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the rows above it and their books
 
-- `scripts/check_bench_heat_slab.sh` (rung 4): a slab held between 20 and 520 °C leaves that range.
-  Reading: `la_row_need` in `flux.glsl` gates the conduction row on `cap_sensible[c] > 0`.
+- `scripts/check_bench_heat_slab.sh` (rung 4): its stress arm holds a slab between 20 and 520 °C and a
+  cell leaves that range; the two arms below it hold.
+  Reading: `la_row_dt` in `flux.glsl` states the conduction row's diffusive bound only where
+  `cap_lith[c]` or `cap_sensible[c]` is positive, so a conducting cell with neither states no step.
 - `scripts/check_bench_darcy.sh` (rung 5): six regolith columns under a head difference transfer zero.
 - `scripts/check_bench_grey_atmosphere.sh` (rung 7): identical neighbours exchange unevenly past the
   bound; the lit plate settles below the grey Eddington skin temperature.

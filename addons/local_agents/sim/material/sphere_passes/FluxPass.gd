@@ -64,6 +64,8 @@ var _row_groups: Array = []
 ## The step the listed cells afford, seconds: the shortest any row group asked for, read back before
 ## the step records. INF where no row's own closure constrains it.
 var _step_dt_s: float = INF
+## The step this pass last published: what the world ran on, not the bound the box states before it.
+var _dt_taken: float = 0.0
 var _args_rid: RID = RID()
 var _step_dt_rid: RID = RID()
 var _wake_args_rid: RID = RID()
@@ -199,7 +201,10 @@ func _plan() -> Dictionary:
 		"wake_args": _wake_args_rid, "grain_set": _grain_set, "list_sets": _list_sets,
 		"hz_pipe": _hz_pipe, "hz_set": _hz_set, "slots": ActiveScript.SLOTS,
 		"hz_comp": _hz_comp_rid, "hz_cond": _hz_cond_rid, "hz_rhs": _hz_rhs_rid, "hz_p": _hz_p_rid,
+		"hz_flux": _scr[SCRATCH.find("hz_flux")],
 		"slot_off": _slot_off_rid, "nbr": _nbr_rid, "cell_count": _cc,
+		"hz_cell_bytes": _cc * 4, "hz_p_bytes": (_cc + ghost_count) * 4,
+		"hz_face_bytes": face_count * 4,
 		"hz_tol": HZ_RESIDUAL_TOLERANCE, "hz_max_iter": HZ_MAX_ITERATIONS,
 		"group_count": group_count(), "flush_every": FLUSH_EVERY}
 
@@ -227,6 +232,11 @@ func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: i
 	var hz: Dictionary = _driver.acoustic_reading()
 	_hz_residual = float(hz["residual_rel"])
 	_hz_iterations = int(hz["iterations"])
+	var bad: int = int(hz["nonfinite_cell"])
+	if bad >= 0:
+		push_error("ACOUSTIC_ROW_NONFINITE: cell %d states a compliance, a source or a pressure that is "
+			% bad + "not a number, so the step it opened in is already broken and nothing solves it.")
+		return
 	if _hz_residual > HZ_RESIDUAL_TOLERANCE:
 		push_error(("The acoustic solve did not converge: the Helmholtz residual is still %f of its "
 			+ "source, so the momentum this step closes on is not the one continuity asks for.")
@@ -262,6 +272,7 @@ func pre_step(_rd2: RenderingDevice, ctx: Dictionary, cc: int, _groups: int) -> 
 	var fall: float = LAMaterialFieldSphereStep3D.seconds_per_step()
 	var dt: float = _step_dt_s if fall <= 0.0 else minf(_step_dt_s, fall)
 	if dt > 0.0 and is_finite(dt):
+		_dt_taken = dt
 		LAMaterialFieldSphereStep3D.publish_step_seconds(dt)
 		ctx["dt_s"] = dt
 
@@ -288,7 +299,7 @@ static func _group_row(row: Dictionary) -> bool:
 
 ## Cells each list holds after the last step; an `emit_idx` list also returns its occupied prefix.
 func _drain(rd: RenderingDevice) -> Dictionary:
-	var out: Dictionary = {"field_dt_s": LAMaterialFieldSphereStep3D.seconds_per_step(),
+	var out: Dictionary = {"field_dt_s": _dt_taken,
 		"acoustic_residual_rel": _hz_residual, "acoustic_cg_iterations": float(_hz_iterations),
 		"active_cells": _active_cells(rd)}
 	for r in _list_rows.size():

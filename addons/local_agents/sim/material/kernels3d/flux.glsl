@@ -879,8 +879,10 @@ void grain_state(uint g) {
 // summed. The acoustic signal is absent — the Helmholtz solve carries it. INF where nothing binds.
 float la_row_dt(uint c) {
 	float L = cell_edge[c];
-	if (no_matter(c) || collisionless(c) || L <= 0.0) {
-		return 1.0 / 0.0;   // nothing here moves, so nothing here asks for time
+	bool heat = params.mode == MODE_CONDUCT;
+	// Heat is not matter: it crosses rock, and a ballistic cell still holds a lattice that conducts.
+	if (no_matter(c) || L <= 0.0 || (collisionless(c) && !heat)) {
+		return 1.0 / 0.0;
 	}
 	float rate = 0.0;                      // 1/s: the fastest thing this row does to this cell
 	vec3 vc = vel_at(c);
@@ -890,21 +892,27 @@ float la_row_dt(uint c) {
 		float w = 0.0;
 		for (uint d = 0u; d < N_SLOTS; ++d) {
 			float vn = max(dot(vc, face_normal(d)), 0.0);
-			float gas = vn * max(face_gas_factor(c, d), 1.0);
 			// The band drains by the face's wet share over its own, and only through a face it can CROSS.
 			bool crossable = false;
+			bool to_space = false;
 			for (uint f = la_slot_lo(c, d); f < la_slot_hi(c, d); ++f) {
 				int nb = nbr[f];
 				if (nb < 0) {
 					nb = ghost[f];
 				}
-				if (nb == GHOST_SPACE || (nb >= 0 && (uint(nb) >= params.cell_count
-						|| (solid[nb] == 0.0 && !collisionless(uint(nb)))))) {
+				if (nb == GHOST_SPACE) {
+					crossable = true;
+					to_space = true;
+				} else if (nb >= 0 && (uint(nb) >= params.cell_count
+						|| (solid[nb] == 0.0 && !collisionless(uint(nb))))) {
 					crossable = true;
 				}
 			}
+			// A face onto vacuum is still explicit, so the layer's own signal speed stays in the bound.
+			float gas = (vn + (to_space ? face_c(c, d) : 0.0)) * max(face_gas_factor(c, d), 1.0);
 			float wet = (f_w > 0.0 && crossable) ? water_face(c, d, top).x : 0.0;
-			float water = vn * max(f_w > 0.0 ? wet / f_w : 0.0, 1.0);
+			float water = (vn + (to_space ? water_c(c) : 0.0))
+				* max(f_w > 0.0 ? wet / f_w : 0.0, 1.0);
 			w += max(gas, water);
 		}
 		rate = w / L;
@@ -924,7 +932,7 @@ float la_row_dt(uint c) {
 	}
 	rate = max(rate, v / L);
 	// Eddy mixing relaxes each pair exactly and asks no step; conduction still marches.
-	if (params.mode == MODE_CONDUCT) {
+	if (heat) {
 		bool lattice_row = (params.flags & TF_LATTICE) != 0u;
 		float cap = lattice_row ? cap_lith[c] : cap_sensible[c];
 		if (cap > 0.0) {
@@ -940,11 +948,9 @@ float la_row_dt(uint c) {
 		}
 	}
 	float dt = rate > 0.0 ? LA_COURANT_LIMIT / rate : 1.0 / 0.0;
-	// A body released from rest crosses L in sqrt(2 L / |a|); the slope closures reach their own
-	// speed from the same acceleration.
-	float gm = length(g_at(c));
-	if (gm > 0.0 && (params.law == LAW_SHALLOW || params.law == LAW_FILM
-			|| (params.flags & TF_VEL) != 0u)) {
+	// A body released from rest crosses L in sqrt(2 L / |a|); locked matter does not fall.
+	float gm = solid[c] == 0.0 ? length(g_at(c)) : 0.0;
+	if (gm > 0.0) {
 		dt = min(dt, sqrt(2.0 * LA_COURANT_LIMIT * L / gm));
 	}
 	// NO SIGNAL CROSSES A CELL FASTER THAN LIGHT: a state asking for less is not a timestep.

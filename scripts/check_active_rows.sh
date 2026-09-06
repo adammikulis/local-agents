@@ -296,8 +296,8 @@ func _seam() -> void:
 	_expect(absf(ratio - 8.0) < 1.0e-6,
 		"the seam box is not 2:1 in space, so no face carried a volume ratio and the books above "
 		+ "closed over a uniform grid.")
-	print('LEVEL_REFLUX={"cells":%d,"peak_level":%d,"levels_present":%d,"channels":%d,"vol_ratio":%.3f,"failures":%d}'
-		% [cc, peak, seen.size(), checked.size(), ratio, _fails])
+	print('SEAM_REFLUX={"cells":%d,"edges_present":%d,"channels":%d,"vol_ratio":%.3f,"failures":%d}'
+		% [cc, seen.size(), checked.size(), ratio, _fails])
 
 
 func _init() -> void:
@@ -389,9 +389,9 @@ out="$(LA_DONE_RE='^ACTIVE_ROWS=' LA_RUNG="${LA_RUNG:-5}" "$REPO_ROOT/scripts/ru
 rc=$?
 rm -f "$PROBE" "$PROBE.uid"
 line="$(printf '%s\n' "$out" | grep -m1 '^ACTIVE_ROWS=')"
-seam="$(printf '%s\n' "$out" | grep -m1 '^LEVEL_REFLUX=')"
+seam="$(printf '%s\n' "$out" | grep -m1 '^SEAM_REFLUX=')"
 if [ -z "$line" ] || [ -z "$seam" ]; then
-  echo "ERROR: the probe produced no ACTIVE_ROWS or no LEVEL_REFLUX line — an arm that did not run" >&2
+  echo "ERROR: the probe produced no ACTIVE_ROWS or no SEAM_REFLUX line — an arm that did not run" >&2
   echo "       examined nothing, so this refuses to report a pass." >&2
   printf '%s\n' "$out" | tail -20 >&2
   exit 2

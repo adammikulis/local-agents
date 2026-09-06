@@ -210,13 +210,12 @@ void load_world(Rig &rig, const Lattice &lat, Rng &rng, float spread, float g_ma
 	rig.zero(LA_BIND_BODYF_Y);
 	rig.zero(LA_BIND_BODYF_Z);
 
-	// EVERY CELL AWAKE AND LISTED, on one temporal level: the whole box steps together.
-	rig.zero(LA_BIND_TLEVEL);
+	// EVERY CELL AWAKE AND LISTED: the whole box steps together.
 	rig.zero(LA_BIND_ACT_QUIET);
 	rig.fill(LA_BIND_ACT_CLAIM, uint32_t(2)); // active_cells.glsli CLAIM_LISTED
-	rig.zero(LA_BIND_LEVEL_ARGS);
-	rig.zero(LA_BIND_LEVEL_IDX);
-	rig.zero(LA_BIND_LEVEL_PEAK);
+	rig.zero(LA_BIND_ACT_ARGS);
+	rig.zero(LA_BIND_ACT_IDX);
+	rig.zero(LA_BIND_STEP_DT);
 	rig.zero(LA_BIND_ACTIVE_ARGS);
 	rig.zero(LA_BIND_ACTIVE_IDX);
 	rig.zero(LA_BIND_ACT_QUEUE);
