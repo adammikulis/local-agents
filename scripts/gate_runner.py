@@ -23,6 +23,19 @@ SCRIPTS = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(SCRIPTS)
 GATES_TOML = os.path.join(SCRIPTS, "gates.toml")
 KINDS = ("text", "headless", "gpu")
+# What a --mutate scratch tree may be asked for. A bare string is one of them, not six letters: `list()`
+# on "import" spells it out character by character and the tree is then armed with nothing.
+NEEDS = ("import", "capture", "body")
+
+
+def needs_of(name, g):
+    raw = g.get("needs", [] if g["kind"] == "text" else ["import", "capture"])
+    out = [raw] if isinstance(raw, str) else list(raw)
+    unknown = [n for n in out if n not in NEEDS]
+    if unknown:
+        raise ValueError("gates.toml: %s declares needs %r, which the runner does not know. It would "
+                         "arm nothing and the gate would examine a dead tree." % (name, unknown))
+    return out
 
 
 def load_gates(path=GATES_TOML):
@@ -51,7 +64,7 @@ def load_gates(path=GATES_TOML):
             "mutation": g.get("mutation"),
             "args": list(g.get("args", [])),
             "env": dict(g.get("env", {})),
-            "needs": list(g.get("needs", [] if g["kind"] == "text" else ["import", "capture"])),
+            "needs": needs_of(name, g),
             "timeout_s": int(g.get("timeout_s", defaults.get("timeout_s", 900))),
         })
     if not gates:
