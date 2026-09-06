@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
-# THE SAME SEED MUST GIVE THE SAME PLANET. Two runs, one seed, one length -> diff every conserved total.
-#
-# Not in `lint` (four windowed runs, minutes). TWO ARMS: a run drawing nothing agrees with itself
-# however broken the streams are, so the second brings a rock in. POSITIVE CONTROL: it must draw MORE
-# from the planet stream. It compares EVERY reading the report publishes, because a conserved total is
-# invariant under WHERE a thing happened. What it separates, so the gate names the fix:
+# THE SAME SEED MUST GIVE THE SAME PLANET. Two runs, one seed, one length -> diff every reading.
+# Not in `lint` (four windowed runs, minutes). TWO ARMS: a world where nothing happens agrees with itself
+# however broken it is, so the event arm makes something happen -- `--stamp-test` deposits rock through the
+# injection queue at every rung that has a field. CONTROL: both event runs carry the deposit marker,
+# neither quiet run does, and the arms read differently somewhere. What the verdict separates:
 #   HORIZON  the runs covered different simulated time. --run-frames counts steps, so this is the loop.
 #   RNG      the seeded streams drew different values. Reported per domain from RNG_TRACE.
 #   SUBSTRATE  same horizon, same RNG draws, a different reading -> the step is order-dependent.
@@ -53,8 +52,8 @@ run_one() {
 echo "check_determinism: quiet arm x2 then event arm x2, ${FRAMES} frames, seed ${SEED}" >&2
 run_one "$QA"
 run_one "$QB"
-run_one "$EA" --auto-meteor
-run_one "$EB" --auto-meteor
+run_one "$EA" --stamp-test
+run_one "$EB" --stamp-test
 
 python3 - "$QA" "$QB" "$EA" "$EB" <<'PY'
 import json, re, sys
@@ -63,19 +62,21 @@ import json, re, sys
 HORIZON = ("field_step", "field_sim_s")
 # Readings OF THE HOST, not of the world: wall-clock costs, the frame rate they imply, driver memory.
 HOST = re.compile(r"(^|\.)(fps|video_mem_MB)(\.|$)|_ms(\.|$)")
-# The stream an arriving rock draws its size and approach from.
-EVENT_DOMAIN = "planet"
+# The line VoxelInputController prints when --stamp-test puts rock into a void cell.
+EVENT_MARKER = "STAMP_TEST_DEPOSIT="
 MAX_SHOWN = 12
 
 
 def load(path):
-    report, traces = None, []
+    report, traces, marks = None, [], 0
     for line in open(path, errors="replace"):
         if line.startswith("SIM_REPORT="):
             report = line[11:]
         elif line.startswith("RNG_TRACE="):
             traces.append(line[10:].strip())
-    return (json.loads(report) if report else None), traces
+        elif line.startswith(EVENT_MARKER):
+            marks += 1
+    return (json.loads(report) if report else None), traces, marks
 
 
 def flat(d, prefix=""):
@@ -89,50 +90,52 @@ def flat(d, prefix=""):
     return out
 
 
-# None only when the run published no trace at all. A run that traced and never touched the stream
-# drew zero from it, which is exactly what the quiet arm is supposed to read.
-def planet_draws(traces):
-    seen = False
-    for t in reversed(traces):
-        try:
-            doms = json.loads(t).get("domains", {})
-        except ValueError:
+def flat_readings(d):
+    out = {}
+    for k, v in flat(d).items():
+        if HOST.search(k) or k in HORIZON:
             continue
-        seen = True
-        d = doms.get(EVENT_DOMAIN, {})
-        if isinstance(d, dict) and "draws" in d:
-            return int(d["draws"])
-    return 0 if seen else None
+        out[k] = v
+    return out
 
 
 arms = {}
 for name, (pa, pb) in (("QUIET", (sys.argv[1], sys.argv[2])),
                        ("EVENT", (sys.argv[3], sys.argv[4]))):
-    a, ta = load(pa)
-    b, tb = load(pb)
+    a, ta, ma = load(pa)
+    b, tb, mb = load(pb)
     if a is None or b is None:
         which = "first" if a is None else "second"
         print("ERROR: the %s run of the %s arm printed no SIM_REPORT — refusing to call that "
               "determinism." % (which, name), file=sys.stderr)
         sys.exit(2)
-    arms[name] = (a, b, ta, tb)
+    arms[name] = (a, b, ta, tb, ma + mb)
 
-# POSITIVE CONTROL. A gate whose arm draws nothing cannot fail, so establish that the event arm drew.
-qd = planet_draws(arms["QUIET"][2])
-ed = planet_draws(arms["EVENT"][2])
-if qd is None or ed is None:
-    print("ERROR: no RNG_TRACE at all (needs a run of at least 180 frames). The event arm cannot be "
-          "shown to have drawn anything.", file=sys.stderr)
+# POSITIVE CONTROL. A gate whose event arm did nothing cannot fail: the two runs of an empty world agree
+# however broken the substrate is. So the event arm must have deposited, the quiet arm must not have, and
+# the two arms must read differently somewhere.
+if arms["QUIET"][4] != 0:
+    print("ERROR: the quiet arm carries %d '%s' line(s). It is supposed to be the arm where nothing "
+          "happens." % (arms["QUIET"][4], EVENT_MARKER), file=sys.stderr)
     sys.exit(2)
-if ed <= qd:
-    print("ERROR: the event arm drew no more from the '%s' stream than the quiet arm, so no ambient "
-          "event happened and this gate would pass on an empty world." % EVENT_DOMAIN, file=sys.stderr)
+if arms["EVENT"][4] < 2:
+    print("ERROR: the event arm carries %d '%s' line(s) across its two runs, not 2, so the injection never "
+          "happened and this gate would pass on an empty world." % (arms["EVENT"][4], EVENT_MARKER),
+          file=sys.stderr)
     sys.exit(2)
-print("CONTROL  the event arm drew %d more from the '%s' stream than the quiet arm" % (ed - qd, EVENT_DOMAIN))
+qr, er = flat_readings(arms["QUIET"][0]), flat_readings(arms["EVENT"][0])
+moved = sorted(k for k in set(qr) | set(er) if qr.get(k) != er.get(k))
+if not moved:
+    print("ERROR: the event arm deposited and not one reading the report publishes moved, so the injection "
+          "did not reach the books and the comparison below is between two identical empty worlds.",
+          file=sys.stderr)
+    sys.exit(2)
+print("CONTROL  the event arm deposited and %d reading(s) differ from the quiet arm (%s)"
+      % (len(moved), ", ".join(moved[:4])))
 
 fail = False
 for name in ("QUIET", "EVENT"):
-    a, b, ta, tb = arms[name]
+    a, b, ta, tb, _marks = arms[name]
 
     horizon_same = True
     for k in HORIZON:
@@ -178,7 +181,7 @@ for name in ("QUIET", "EVENT"):
         print("%-5s READING  and %d more" % (name, differing - shown))
 
 if not fail:
-    print("check_determinism: OK (same seed, same planet, to the digit, with and without an arrival)")
+    print("check_determinism: OK (same seed, same planet, to the digit, with and without a deposit)")
     sys.exit(0)
 sys.exit(1)
 PY

@@ -12,10 +12,6 @@ var _preset_group: ButtonGroup = null
 var _preset_buttons: Dictionary = {}     # GraphicsPreset -> Button
 var _preset_caption: Label = null
 
-var _grid_slider: HSlider = null
-var _grid_value: Label = null
-var _veg_slider: HSlider = null
-var _veg_value: Label = null
 var _draw_slider: HSlider = null
 var _draw_value: Label = null
 var _effects_option: OptionButton = null
@@ -46,12 +42,6 @@ func build(col: VBoxContainer) -> void:
 	_preset_caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	col.add_child(_preset_caption)
 
-	var grid: Dictionary = LASettingsWidgets.add_slider(col, "Field resolution",
-		"Field / render grid cells per axis, the single biggest GPU cost (per-cell compute + readback). GPU cost: very high.",
-		24.0, 192.0, 12.0, float(_settings.grid_resolution), Callable(self, "_fmt_int"), Callable(self, "_on_grid"))
-	_grid_slider = grid["slider"]
-	_grid_value = grid["value"]
-
 	_effects_option = LASettingsWidgets.add_option(col, "Effects / particle density",
 		"How many atmosphere / weather particles draw (rain, spray, dust). Visual only. GPU cost: medium.",
 		["Low", "Medium", "High"], int(_settings.effects_level), Callable(self, "_on_effects"))
@@ -76,12 +66,6 @@ func build(col: VBoxContainer) -> void:
 		"Distance haze that adds depth and hides terrain LOD pop. Visual only. GPU cost: low.",
 		["Off", "On"], 1 if _settings.fog_enabled else 0, Callable(self, "_on_fog"))
 
-	var veg: Dictionary = LASettingsWidgets.add_slider(col, "Vegetation density",
-		"Plant / foliage density scale. Visual + a little CPU to spawn. GPU cost: medium.",
-		0.30, 1.50, 0.05, _settings.vegetation_density, Callable(self, "_fmt_percent"), Callable(self, "_on_veg"))
-	_veg_slider = veg["slider"]
-	_veg_value = veg["value"]
-
 	var draw: Dictionary = LASettingsWidgets.add_slider(col, "Draw distance",
 		"Camera far-plane budget, how far the world stays visible before it is clipped. GPU cost: medium.",
 		2000.0, 20000.0, 500.0, _settings.draw_distance, Callable(self, "_fmt_metres"), Callable(self, "_on_draw"))
@@ -101,22 +85,6 @@ func _on_preset(preset: int) -> void:
 	_settings.apply_graphics_preset(preset as LAGameSettings.GraphicsPreset)
 	refresh()
 	_notify()
-
-
-func _on_grid(value: float) -> void:
-	_grid_value.text = _fmt_int(value)
-	if _suppress:
-		return
-	_settings.grid_resolution = int(round(value))
-	_after_individual()
-
-
-func _on_veg(value: float) -> void:
-	_veg_value.text = _fmt_percent(value)
-	if _suppress:
-		return
-	_settings.vegetation_density = value
-	_after_individual()
 
 
 func _on_draw(value: float) -> void:
@@ -185,10 +153,6 @@ func _notify() -> void:
 ## Push every settings value onto its control without re-firing the handlers, then reflect the preset.
 func refresh() -> void:
 	_suppress = true
-	_grid_slider.set_value_no_signal(float(_settings.grid_resolution))
-	_grid_value.text = _fmt_int(float(_settings.grid_resolution))
-	_veg_slider.set_value_no_signal(_settings.vegetation_density)
-	_veg_value.text = _fmt_percent(_settings.vegetation_density)
 	_draw_slider.set_value_no_signal(_settings.draw_distance)
 	_draw_value.text = _fmt_metres(_settings.draw_distance)
 	_effects_option.select(int(_settings.effects_level))
@@ -223,19 +187,15 @@ func _preset_name(preset: int) -> String:
 		_: return "Custom"
 
 
-## Verification aid: move the field-resolution slider off its preset value so the section flips to Custom,
+## Verification aid: move the draw-distance slider off its preset value so the section flips to Custom,
 ## driving the same value_changed handler a player drag would. Used by the --demo-custom shot.
 func demo_nudge() -> void:
-	if _grid_slider != null:
-		_grid_slider.value = float(clampi(_settings.grid_resolution + 12, 24, 192))
+	if _draw_slider != null:
+		_draw_slider.value = clampf(_settings.draw_distance + 2000.0, 2000.0, 20000.0)
 
 
 func _fmt_int(v: float) -> String:
 	return "%d" % int(round(v))
-
-
-func _fmt_percent(v: float) -> String:
-	return "%d%%" % int(round(v * 100.0))
 
 
 func _fmt_metres(v: float) -> String:

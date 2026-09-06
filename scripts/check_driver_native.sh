@@ -87,9 +87,6 @@ func _build() -> Dictionary:
 		bufs[String(name)] = _f32(_filled(cc, 0.0))
 	for name in LAChannels.derived_buffers():
 		bufs[String(name)] = _f32(_filled(cc, 0.0))
-	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "speed", "rad_w_m3",
-			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi", "grav_ref", "k_cond", "mom_orphan"]:
-		bufs[name] = _f32(_filled(cc, 0.0))
 	bufs["gravity"] = _f32(_filled(cc * 3, 0.0))
 	bufs["ground_d"] = _f32(_filled(cc, 0.0))
 	bufs["slot_off"] = _i32(grid.slot_off)

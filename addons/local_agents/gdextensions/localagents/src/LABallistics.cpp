@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <godot_cpp/core/math.hpp>
 #include <unordered_map>
 #include <vector>
 
@@ -77,12 +78,11 @@ double big_g() {
 	return g;
 }
 
-// Drag coefficient of a sphere in the Newtonian (hypersonic) limit: the surface integral of Cp = 2 sin^2
-// theta over the forward hemisphere, which is 1 for a sphere with no free parameter.
+// Drag coefficient of a sphere in the Newtonian (hypersonic) limit: Cp = 2 cos^2 phi from the
+// stagnation point, integrated over the forward hemisphere, 2 * 2 * int_0^{pi/2} cos^3 sin dphi.
 // LA_APPROX: newtonian_sphere_drag
-const double SPHERE_CD = 1.0;
+const double SPHERE_CD = 2.0 * 2.0 * (1.0 / 4.0);
 
-const double PI_D = 3.14159265358979323846;
 
 // The pull of one point mass, with Newton's shell theorem inside it: only the enclosed mass pulls, so the
 // acceleration falls linearly to zero at the centre instead of diverging.
@@ -420,7 +420,7 @@ Array LABallistics::step(double p_dt_s) {
 			const double rho = medium_density_at(b.pos.v3());
 			const double speed = b.vel.len();
 			if (rho > 0.0 && speed > 0.0) {
-				const double area = PI_D * b.radius_m * b.radius_m;
+				const double area = Math::PI * b.radius_m * b.radius_m;
 				const double k = 0.5 * rho * SPHERE_CD * area / b.mass_kg;
 				const double after = speed / (1.0 + k * speed * p_dt_s);
 				const double joules = 0.5 * b.mass_kg * (speed * speed - after * after);

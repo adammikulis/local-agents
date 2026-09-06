@@ -82,15 +82,6 @@ static func life_mode_note() -> String:
 	return life_mode()
 
 
-static var _spawn_scale: float = -1.0
-static func spawn_scale() -> float:
-	if _spawn_scale < 0.0:
-		_spawn_scale = 1.0
-		if OS.has_environment("LA_SPAWN_SCALE"):
-			_spawn_scale = maxf(0.05, float(OS.get_environment("LA_SPAWN_SCALE")))
-	return _spawn_scale
-
-
 static var _evo_fast: float = -1.0
 static func evo_fast() -> float:
 	if _evo_fast < 0.0:

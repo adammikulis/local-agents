@@ -151,17 +151,34 @@ print("    (drift %-12s is NOT the score: energy is not closed and must not be)"
       % ("%.4g" % d["energy_run_drift"] if isinstance(d.get("energy_run_drift"), (int, float)) else "n/a"))
 
 # --- 5. SEED MINIMALITY ----------------------------------------------------------------------------------
+# The manifest keys are `seed_<channel>` (LAMaterialFieldSeal3D.note_creation), so WHAT was asserted is
+# read off the channel names. The old ladder could only reach 0, 1 or 2: it tested one key and then gave up,
+# so deleting the water table or the seeded air could not move the score, which is the whole criterion.
 seed = d.get("world_seed") or {}
 asserted = {k: v for k, v in seed.items() if isinstance(v, (int, float)) and v != 0.0}
-# Scored on WHAT is asserted, not how many keys exist: an ocean placed is categorically different from a
-# composition given. Ordered from most to least telling.
+names = set(asserted)
+GASES = ("o2", "co2", "n2", "h2", "co", "so2", "h2s", "ch4")
+ocean = "seed_h2o" in names
+water_table = "seed_h2o_pore" in names
+air = any(("seed_" + g) in names for g in GASES)
+temperature = "seed_energy_j" in names
 if not d.get("world_sealed"):
-    s_score = 0
-elif "h2o" in asserted and isinstance(d.get("temp_ground_mean"), (int, float)):
-    s_score = 1
+    s_score = 0                     # nothing sealed, so nothing distinguishes seeded from emerged
+elif ocean and water_table and air and temperature:
+    s_score = 1                     # sea, water table, atmosphere and surface temperature all asserted
+elif ocean:
+    s_score = 2                     # ocean placed; the atmosphere and the water table emerge
+elif water_table or air:
+    s_score = 3                     # no ocean placed; water asserted only as vapour/ice
 else:
+    s_score = 4                     # a molten body and a bulk composition; the rest are outputs
+# 5 CANNOT EXCEED 2 UNTIL 2 IS AT 3 (PHYSICS_RUBRIC.md): an ocean condensing out of a steam atmosphere is a
+# latent-heat process, and without it a post-Theia seed fails for reasons that are not about the seed.
+if s_score > 2 and e_score < 3:
     s_score = 2
-print("criterion 5  SEED         score %d   %d asserted entries" % (s_score, len(asserted)))
+    print("criterion 5  (held at 2: criterion 2 is %d, and the rubric couples them)" % e_score)
+print("criterion 5  SEED         score %d   %d asserted entries: ocean %s, water table %s, air %s, heat %s"
+      % (s_score, len(asserted), ocean, water_table, air, temperature))
 for k in sorted(asserted):
     print("    %-14s %s" % (k, asserted[k]))
 print("    (4 = a molten body and a bulk composition; the ocean, air and crust are outputs)")
@@ -212,22 +229,34 @@ print("criterion 4  COMPUTED     score %d   %d of those recorded as a clamp, a f
 # The rubric's own bands are about ATTRIBUTION and about gates seen to fail, so both are counted, not judged.
 # A substance "drifts" if criterion 1 put it outside 0.1%; it "has attribution" if a per-pass probe covers it.
 PROBED = {"mineral": "LA_MINERAL_BUDGET", "h2o": "LA_H2O_BUDGET", "energy": "LA_ENERGY_BUDGET"}
-drifting = sorted(k for k, v in globals().get("worst_by", {}).items() if abs(v) > 0.001)
+measured_by = globals().get("worst_by", {})
+drifting = sorted(k for k, v in measured_by.items() if abs(v) > 0.001)
 unattributed = [k for k in drifting if k not in PROBED]
 gates = []
 gdir = os.path.join(root, "scripts")
 if os.path.isdir(gdir):
     gates = [f for f in os.listdir(gdir) if f.startswith("check_") and f.endswith(".sh")]
-if not drifting:
-    i_score = 4
-elif unattributed:
-    i_score = 2 if len(unattributed) > 1 else 3
+if not measured_by:
+    # "NOTHING DRIFTED" AND "NOTHING WAS MEASURED" ARE THE SAME EMPTY SET. Criterion 1 measured no
+    # substance, so an empty drift list said every gauge was believable and scored 4 on no data at all.
+    i_score = 0
+    print("criterion 6  INSTRUMENT   score 0   criterion 1 measured no substance, so no gauge was exercised")
 else:
-    i_score = 3
-print("criterion 6  INSTRUMENT   score %d   %d drifting substance(s), %d without per-pass attribution; %d gates"
-      % (i_score, len(drifting), len(unattributed), len(gates)))
-if unattributed:
-    print("    no per-pass probe: %s" % ", ".join(sorted(unattributed)))
+    if not drifting:
+        i_score = 4
+    elif unattributed:
+        i_score = 2 if len(unattributed) > 1 else 3
+    else:
+        i_score = 3
+    print("criterion 6  INSTRUMENT   score %d   %d of %d substance(s) drifting, %d without per-pass "
+          "attribution; %d gates" % (i_score, len(drifting), len(measured_by), len(unattributed), len(gates)))
+    if unattributed:
+        print("    no per-pass probe: %s" % ", ".join(sorted(unattributed)))
+# 1 IS GATED ON 6 (PHYSICS_RUBRIC.md): a substance with no per-pass probe has a global total, which says a
+# number moved and never where, so the matter score cannot exceed the instrument that took it.
+if m_score > i_score:
+    print("criterion 1  (held at %d: the rubric gates it on criterion 6)" % i_score)
+    m_score = i_score
 
 
 # --- 7. MOMENTUM BOOKED — *is the moving air and water accounted for like the matter and heat are?* --------
@@ -253,23 +282,39 @@ print("criterion 7  MOMENTUM     score %d   %s"
 PHENOMENA = ("Volcano", "Earthquake", "Tornado", "Hurricane", "Thunderstorm", "LightningStrike",
              "Flood", "Meteor")
 adir = os.path.join(root, "addons", "local_agents", "sim", "actors")
-phen_files, phen_symbols = [], 0
-SPECIAL = _re.compile(r"_is_erupting|BOMBS_PER_BURST|burst_timer|func erupt|PER_BURST|_burst\b", _re.I)
+phen_files = []
 if os.path.isdir(adir):
-    for f in sorted(os.listdir(adir)):
+    phen_files = [f for f in sorted(os.listdir(adir))
+                  if f.endswith(".gd") and any(f.startswith(n) for n in PHENOMENA)]
+# THE TELL IS A VERB IN A FUNCTION NAME (CLAUDE.md): a named phenomenon is a detector, never a cause. The
+# old symbol list named five identifiers that no longer exist anywhere, so this half of the score was a
+# constant 0 that read as progress. The whole sim tree is scanned instead of one directory of file names.
+NOUN = (r"(?:volcano|volcanic|erupt\w*|earthquake|quake|tornado|hurricane|cyclone|thunderstorm|lightning"
+        r"|bolt|flood|wildfire|fire|avalanche|tsunami|geyser|storm|blizzard|drought|landslide)")
+VERB = (r"(?:fire|spawn|trigger|cause|make|start|begin|emit|launch|ignite|strike|erupt|explode|inject"
+        r"|create|place|drop|raise)")
+CAUSE = _re.compile(r"^_?(?:%s)_\w*%s|^_?%s_(?:%s)\w*|^_?(?:erupt|explode|quake|flood)\b"
+                    % (VERB, NOUN, NOUN, VERB), _re.I)
+DEF = _re.compile(r"^\s*(?:static\s+)?func\s+(_?\w+)\s*\(")
+sdir = os.path.join(root, "addons", "local_agents", "sim")
+causes = []
+for dp, dns, fns in os.walk(sdir):
+    dns[:] = [x for x in dns if x not in (".godot", "thirdparty")]
+    for f in sorted(fns):
         if not f.endswith(".gd"):
             continue
-        if any(f.startswith(n) for n in PHENOMENA):
-            phen_files.append(f)
-            try:
-                phen_symbols += len(SPECIAL.findall(open(os.path.join(adir, f), errors="replace").read()))
-            except OSError:
-                pass
-em_score = count_band(len(phen_files) * 2 + phen_symbols, [12, 4, 0])
-print("criterion 8  EMERGENCE    score %d   %d named-phenomenon actor script(s), %d special-case symbol(s)"
-      % (em_score, len(phen_files), phen_symbols))
+        fp = os.path.join(dp, f)
+        for n, ln in enumerate(open(fp, errors="replace").read().splitlines(), 1):
+            g = DEF.match(ln)
+            if g and CAUSE.search(g.group(1)):
+                causes.append("%s:%d %s()" % (os.path.relpath(fp, root), n, g.group(1)))
+em_score = count_band(len(phen_files) * 2 + len(causes), [12, 4, 0])
+print("criterion 8  EMERGENCE    score %d   %d named-phenomenon actor script(s), %d verb-shaped cause(s) "
+      "under sim/" % (em_score, len(phen_files), len(causes)))
 if phen_files:
     print("    %s" % ", ".join(phen_files))
+for c in causes[:10]:
+    print("    %s" % c)
 
 # --- 9 and 10 need a SECOND run each, so they are reported as unmeasured unless the caller supplied one ----
 # A score that quietly skips the expensive half is the hand-entered problem again, so an absent comparison

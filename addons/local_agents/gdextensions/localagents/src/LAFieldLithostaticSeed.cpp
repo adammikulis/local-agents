@@ -470,15 +470,26 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c,
 	// THE DENSITY AT THE DATUM IS THE INVENTORY OVER THE SHELL THE LAW FILLS: n0 = N / (4 pi r_sea^2 H),
 	// H the radial integral of the profile in the body's own 1/r potential, taken until nothing is left.
 	const double gm = la_physical("GRAVITATIONAL_CONSTANT") * body_kg;
+	// The step starts at the datum's own scale height and halves until the shell holds to float precision.
 	double shell = 0.0;
 	{
-		const double dr = 100.0;
-		for (double r = r_sea + 0.5 * dr;; r += dr) {
-			const double f = std::exp(-(gm / r_sea - gm / r) / rt_over_m) * (r / r_sea) * (r / r_sea);
-			shell += f * dr;
-			if (f < 1.0e-30 || r > r_sea + 1.0e7) {
+		double dr = rt_over_m * r_sea * r_sea / gm;
+		double prev = -1.0;
+		for (;;) {
+			double sum = 0.0;
+			for (double r = r_sea + 0.5 * dr;; r += dr) {
+				const double f = std::exp(-(gm / r_sea - gm / r) / rt_over_m) * (r / r_sea) * (r / r_sea);
+				sum += f * dr;
+				if (f < 1.0e-30 || r > r_sea + 1.0e7) {
+					break;
+				}
+			}
+			if (prev >= 0.0 && std::abs(sum - prev) <= double(std::numeric_limits<float>::epsilon()) * sum) {
+				shell = sum;
 				break;
 			}
+			prev = sum;
+			dr *= 0.5;
 		}
 	}
 	const double area = 4.0 * 3.14159265358979 * r_sea * r_sea;

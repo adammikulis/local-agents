@@ -11,18 +11,15 @@ enum OceanQuality { OPAQUE, TRANSLUCENT }
 const SAVE_PATH: String = "user://game_settings.cfg"
 
 @export var graphics_preset: GraphicsPreset = GraphicsPreset.MEDIUM
-@export var grid_resolution: int = 72                              ## field cells per axis budget (÷3 = cells/face)
 @export var effects_level: EffectsLevel = EffectsLevel.MEDIUM      ## particle / effects density
 @export var shadow_quality: ShadowQuality = ShadowQuality.OFF      ## sun shadow map (off/low/high)
 @export var ssao_enabled: bool = false                            ## screen-space ambient occlusion (post FX)
 @export var glow_enabled: bool = false                            ## HDR bloom / glow (post FX)
 @export var ocean_quality: OceanQuality = OceanQuality.OPAQUE      ## opaque (cheap) vs translucent (overdraw)
 @export var fog_enabled: bool = true                              ## atmospheric distance fog (cheap)
-@export var vegetation_density: float = 1.0                        ## plant/foliage density scale (0.3..1.5)
 @export var draw_distance: float = 8000.0                          ## camera far-plane budget in metres
 
 @export var sim_preset: SimPreset = SimPreset.MEDIUM
-@export var actor_budget: int = 120           ## max concurrent creatures (spawn-count scale)
 @export var ai_tick_frames: int = 3           ## creatures re-decide every N frames (larger = cheaper CPU)
 @export var llm_cadence: float = 12.0         ## seconds between LLM cognition / narration calls
 
@@ -40,37 +37,37 @@ const SAVE_PATH: String = "user://game_settings.cfg"
 
 const GRAPHICS_PRESETS: Dictionary = {
 	GraphicsPreset.POTATO: {
-		"grid_resolution": 24, "effects_level": EffectsLevel.LOW, "shadow_quality": ShadowQuality.OFF,
+		"effects_level": EffectsLevel.LOW, "shadow_quality": ShadowQuality.OFF,
 		"ssao_enabled": false, "glow_enabled": false, "ocean_quality": OceanQuality.OPAQUE,
-		"fog_enabled": false, "vegetation_density": 0.40, "draw_distance": 4000.0,
+		"fog_enabled": false, "draw_distance": 4000.0,
 	},
 	GraphicsPreset.LOW: {
-		"grid_resolution": 48, "effects_level": EffectsLevel.LOW, "shadow_quality": ShadowQuality.OFF,
+		"effects_level": EffectsLevel.LOW, "shadow_quality": ShadowQuality.OFF,
 		"ssao_enabled": false, "glow_enabled": false, "ocean_quality": OceanQuality.OPAQUE,
-		"fog_enabled": true, "vegetation_density": 0.65, "draw_distance": 6000.0,
+		"fog_enabled": true, "draw_distance": 6000.0,
 	},
 	GraphicsPreset.MEDIUM: {
-		"grid_resolution": 72, "effects_level": EffectsLevel.MEDIUM, "shadow_quality": ShadowQuality.OFF,
+		"effects_level": EffectsLevel.MEDIUM, "shadow_quality": ShadowQuality.OFF,
 		"ssao_enabled": false, "glow_enabled": false, "ocean_quality": OceanQuality.OPAQUE,
-		"fog_enabled": true, "vegetation_density": 1.0, "draw_distance": 8000.0,
+		"fog_enabled": true, "draw_distance": 8000.0,
 	},
 	GraphicsPreset.HIGH: {
-		"grid_resolution": 96, "effects_level": EffectsLevel.HIGH, "shadow_quality": ShadowQuality.LOW,
+		"effects_level": EffectsLevel.HIGH, "shadow_quality": ShadowQuality.LOW,
 		"ssao_enabled": true, "glow_enabled": true, "ocean_quality": OceanQuality.TRANSLUCENT,
-		"fog_enabled": true, "vegetation_density": 1.20, "draw_distance": 12000.0,
+		"fog_enabled": true, "draw_distance": 12000.0,
 	},
 	GraphicsPreset.ULTRA: {
-		"grid_resolution": 128, "effects_level": EffectsLevel.HIGH, "shadow_quality": ShadowQuality.HIGH,
+		"effects_level": EffectsLevel.HIGH, "shadow_quality": ShadowQuality.HIGH,
 		"ssao_enabled": true, "glow_enabled": true, "ocean_quality": OceanQuality.TRANSLUCENT,
-		"fog_enabled": true, "vegetation_density": 1.50, "draw_distance": 16000.0,
+		"fog_enabled": true, "draw_distance": 16000.0,
 	},
 }
 
 const SIM_PRESETS: Dictionary = {
-	SimPreset.LOW: {"actor_budget": 48, "ai_tick_frames": 6, "llm_cadence": 24.0},
-	SimPreset.MEDIUM: {"actor_budget": 120, "ai_tick_frames": 3, "llm_cadence": 12.0},
-	SimPreset.HIGH: {"actor_budget": 240, "ai_tick_frames": 2, "llm_cadence": 8.0},
-	SimPreset.ULTRA: {"actor_budget": 360, "ai_tick_frames": 1, "llm_cadence": 5.0},
+	SimPreset.LOW: {"ai_tick_frames": 6, "llm_cadence": 24.0},
+	SimPreset.MEDIUM: {"ai_tick_frames": 3, "llm_cadence": 12.0},
+	SimPreset.HIGH: {"ai_tick_frames": 2, "llm_cadence": 8.0},
+	SimPreset.ULTRA: {"ai_tick_frames": 1, "llm_cadence": 5.0},
 }
 
 
@@ -80,14 +77,12 @@ func apply_graphics_preset(preset: GraphicsPreset) -> void:
 		graphics_preset = GraphicsPreset.CUSTOM
 		return
 	var row: Dictionary = GRAPHICS_PRESETS.get(preset, GRAPHICS_PRESETS[GraphicsPreset.MEDIUM])
-	grid_resolution = int(row["grid_resolution"])
 	effects_level = int(row["effects_level"]) as EffectsLevel
 	shadow_quality = int(row["shadow_quality"]) as ShadowQuality
 	ssao_enabled = bool(row["ssao_enabled"])
 	glow_enabled = bool(row["glow_enabled"])
 	ocean_quality = int(row["ocean_quality"]) as OceanQuality
 	fog_enabled = bool(row["fog_enabled"])
-	vegetation_density = float(row["vegetation_density"])
 	draw_distance = float(row["draw_distance"])
 	graphics_preset = preset
 
@@ -98,7 +93,6 @@ func apply_sim_preset(preset: SimPreset) -> void:
 		sim_preset = SimPreset.CUSTOM
 		return
 	var row: Dictionary = SIM_PRESETS.get(preset, SIM_PRESETS[SimPreset.MEDIUM])
-	actor_budget = int(row["actor_budget"])
 	ai_tick_frames = int(row["ai_tick_frames"])
 	llm_cadence = float(row["llm_cadence"])
 	sim_preset = preset
@@ -117,17 +111,17 @@ func resolve_sim_preset() -> void:
 
 func _graphics_knobs() -> Dictionary:
 	return {
-		"grid_resolution": grid_resolution, "effects_level": int(effects_level),
+		"effects_level": int(effects_level),
 		"shadow_quality": int(shadow_quality), "ssao_enabled": ssao_enabled,
 		"glow_enabled": glow_enabled, "ocean_quality": int(ocean_quality),
-		"fog_enabled": fog_enabled, "vegetation_density": vegetation_density,
+		"fog_enabled": fog_enabled,
 		"draw_distance": draw_distance,
 	}
 
 
 func _sim_knobs() -> Dictionary:
 	return {
-		"actor_budget": actor_budget, "ai_tick_frames": ai_tick_frames,
+		"ai_tick_frames": ai_tick_frames,
 		"llm_cadence": llm_cadence,
 	}
 
@@ -162,17 +156,14 @@ static func load_or_default() -> LAGameSettings:
 	if err != OK:
 		return settings
 	settings.graphics_preset = int(config.get_value("graphics", "preset", settings.graphics_preset)) as GraphicsPreset
-	settings.grid_resolution = int(config.get_value("graphics", "grid_resolution", settings.grid_resolution))
 	settings.effects_level = int(config.get_value("graphics", "effects_level", settings.effects_level)) as EffectsLevel
 	settings.shadow_quality = int(config.get_value("graphics", "shadow_quality", settings.shadow_quality)) as ShadowQuality
 	settings.ssao_enabled = bool(config.get_value("graphics", "ssao_enabled", settings.ssao_enabled))
 	settings.glow_enabled = bool(config.get_value("graphics", "glow_enabled", settings.glow_enabled))
 	settings.ocean_quality = int(config.get_value("graphics", "ocean_quality", settings.ocean_quality)) as OceanQuality
 	settings.fog_enabled = bool(config.get_value("graphics", "fog_enabled", settings.fog_enabled))
-	settings.vegetation_density = float(config.get_value("graphics", "vegetation_density", settings.vegetation_density))
 	settings.draw_distance = float(config.get_value("graphics", "draw_distance", settings.draw_distance))
 	settings.sim_preset = int(config.get_value("simulation", "preset", settings.sim_preset)) as SimPreset
-	settings.actor_budget = int(config.get_value("simulation", "actor_budget", settings.actor_budget))
 	settings.ai_tick_frames = int(config.get_value("simulation", "ai_tick_frames", settings.ai_tick_frames))
 	settings.llm_cadence = float(config.get_value("simulation", "llm_cadence", settings.llm_cadence))
 	settings.master_volume = float(config.get_value("audio", "master_volume", settings.master_volume))
@@ -190,17 +181,14 @@ static func load_or_default() -> LAGameSettings:
 func save() -> int:
 	var config: ConfigFile = ConfigFile.new()
 	config.set_value("graphics", "preset", int(graphics_preset))
-	config.set_value("graphics", "grid_resolution", grid_resolution)
 	config.set_value("graphics", "effects_level", int(effects_level))
 	config.set_value("graphics", "shadow_quality", int(shadow_quality))
 	config.set_value("graphics", "ssao_enabled", ssao_enabled)
 	config.set_value("graphics", "glow_enabled", glow_enabled)
 	config.set_value("graphics", "ocean_quality", int(ocean_quality))
 	config.set_value("graphics", "fog_enabled", fog_enabled)
-	config.set_value("graphics", "vegetation_density", vegetation_density)
 	config.set_value("graphics", "draw_distance", draw_distance)
 	config.set_value("simulation", "preset", int(sim_preset))
-	config.set_value("simulation", "actor_budget", actor_budget)
 	config.set_value("simulation", "ai_tick_frames", ai_tick_frames)
 	config.set_value("simulation", "llm_cadence", llm_cadence)
 	config.set_value("audio", "master_volume", master_volume)
@@ -215,11 +203,11 @@ func save() -> int:
 
 ## A compact human-readable snapshot (for logs / the settings-saved confirmation line).
 func summary() -> String:
-	return "gfx=%d grid=%d fx=%d shadow=%d ssao=%s glow=%s ocean=%d fog=%s veg=%.2f draw=%.0f | sim=%d actors=%d ai=%d llm=%.1f | rung=%d set=%d | vol[m=%.2f mu=%.2f s=%.2f] | ctrl[invx=%s invy=%s]" % [
-		int(graphics_preset), grid_resolution, int(effects_level), int(shadow_quality),
+	return "gfx=%d fx=%d shadow=%d ssao=%s glow=%s ocean=%d fog=%s draw=%.0f | sim=%d ai=%d llm=%.1f | rung=%d set=%d | vol[m=%.2f mu=%.2f s=%.2f] | ctrl[invx=%s invy=%s]" % [
+		int(graphics_preset), int(effects_level), int(shadow_quality),
 		str(ssao_enabled), str(glow_enabled), int(ocean_quality), str(fog_enabled),
-		vegetation_density, draw_distance,
-		int(sim_preset), actor_budget, ai_tick_frames, llm_cadence,
+		draw_distance,
+		int(sim_preset), ai_tick_frames, llm_cadence,
 		process_rung, process_records.size(),
 		master_volume, music_volume, sfx_volume,
 		str(invert_rotate_x), str(invert_rotate_y),

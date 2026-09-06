@@ -95,9 +95,19 @@ func _run(p_ghost: float, mode: int = LAFieldBoundary3D.CONSTANT, vel: Vector3 =
 		bufs[String(name)] = _f32(_filled(tc, 0.0), owned)
 	for name in LAChannels.derived_buffers():
 		bufs[String(name)] = _f32(_filled(tc, 0.0), owned)
-	for name in ["h_h2o", "h_silicate", "h_sensible", "cap_sensible", "k_cond", "speed", "rad_w_m3",
-			"bodyf_x", "bodyf_y", "bodyf_z", "grav_phi", "grav_ref", "gas_r", "gas_gamma", "ground_d"]:
-		bufs[name] = _f32(_filled(tc, 0.0), owned)
+	# EVERY DERIVED BUFFER FROM THE ONE DECLARATION -- StateDerivePass names them and gives their shapes.
+	# A list copied into a rig is a second declaration that goes stale: none of the copies carried
+	# "h_h2o_vap", which FieldBoundary3D writes on every constant face.
+	var sd: RefCounted = (load("res://addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd") as GDScript).new()
+	sd.ghost_count = ng
+	var derived: Dictionary = sd._buffers(cc)
+	for key in derived:
+		var spec: Variant = derived[key]
+		var dn: int = int(spec["n"]) if spec is Dictionary else int(spec)
+		if spec is Dictionary and bool(spec.get("ghosts", false)):
+			dn += ng
+		bufs[String(key)] = _f32(_filled(dn, 0.0), owned)
+	bufs["ground_d"] = _f32(_filled(tc, 0.0), owned)   # flux.glsl binding 99: the driver's own
 	bufs["gravity"] = _f32(_filled(tc * 3, 0.0), owned)
 	bufs["g_rest"] = _f32(_filled(tc * 3, 0.0), owned)
 	bufs["nbr"] = _i32(grid.neighbours, owned)

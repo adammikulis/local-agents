@@ -79,16 +79,23 @@ hist="$(cd "$TREE" && bash scripts/check_comment_history.sh 2>&1 | rg -N '^COMME
 [ -n "$hist" ] || { echo "write_ceilings: check_comment_history.sh printed no COMMENT_HISTORY= line." >&2; exit 2; }
 lower COMMENT_HISTORY_CEILING "$(field "$hist" count)"
 
+inv="$(cd "$TREE" && bash scripts/check_no_invented_fallback.sh 2>&1 | rg -N '^INVENTED_QUERIES=' || true)"
+[ -n "$inv" ] || { echo "write_ceilings: check_no_invented_fallback.sh printed no INVENTED_QUERIES= line." >&2; exit 2; }
+lower INVENTED_QUERY_CEILING "$(field "$inv" count)"
+
 blk="$(cd "$TREE" && bash scripts/check_comment_block.sh 2>&1 | rg -N '^COMMENT_BLOCK=' || true)"
 [ -n "$blk" ] || { echo "write_ceilings: check_comment_block.sh printed no COMMENT_BLOCK= line." >&2; exit 2; }
 lower COMMENT_BLOCK_CEILING "$(field "$blk" count)"
 
 # Uncited values in the authority files, which check_model_parameters.sh exempts from its own registry.
-uncited="$("$SCRIPT_DIR/check_cited_authority.sh" 2>/dev/null | rg -N -o '\(([0-9]+) uncited' -r '$1' | head -1)"
-if [ -z "$uncited" ]; then
-	uncited="$("$SCRIPT_DIR/check_cited_authority.sh" 2>&1 | rg -N -o 'FAIL  ([0-9]+) uncited' -r '$1' | head -1)"
-fi
-[ -n "$uncited" ] && lower UNCITED_AUTHORITY_CEILING "$uncited"
+# READ THE MACHINE LINES, not a prose message: the gate prints both counts unconditionally, pass or fail.
+cited="$(cd "$TREE" && bash scripts/check_cited_authority.sh 2>&1 || true)"
+au="$(printf '%s\n' "$cited" | rg -N '^UNCITED_AUTHORITY=' | head -1)"
+lt="$(printf '%s\n' "$cited" | rg -N '^UNCITED_LITERALS=' | head -1)"
+[ -n "$au" ] || { echo "write_ceilings: check_cited_authority.sh printed no UNCITED_AUTHORITY= line." >&2; exit 2; }
+[ -n "$lt" ] || { echo "write_ceilings: check_cited_authority.sh printed no UNCITED_LITERALS= line." >&2; exit 2; }
+lower UNCITED_AUTHORITY_CEILING "$(field "$au" count)"
+lower UNCITED_LITERAL_CEILING "$(field "$lt" count)"
 
 # A FLOOR, not a ceiling, and it moves the same way: down, and only here. It guards check_shaders_compile.sh
 # against scanning a tree whose kernels did not import, so it tracks the kernel count rather than leading it.

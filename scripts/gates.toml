@@ -44,6 +44,35 @@ name = "check_lock_reclaim"
 script = "scripts/check_lock_reclaim.sh"
 kind = "text"
 marker = "^check_lock_reclaim: OK"
+mutation = "perl -0pi -e 's/\\[ -z \"\\$ahead\" \\] && //' scripts/lib_godot_lock.sh"
+
+[[gate]]
+name = "check_gate_shapes"
+script = "scripts/check_gate_shapes.sh"
+kind = "text"
+marker = "^check_gate_shapes: OK"
+mutation = "git update-index --chmod=-x scripts/check_conservation.sh"
+
+[[gate]]
+name = "check_boundary_buffers"
+script = "scripts/check_boundary_buffers.sh"
+kind = "text"
+marker = "^check_boundary_buffers: OK"
+mutation = "python3 -c \"p='addons/local_agents/sim/material/FieldBoundary3D.gd'; s=open(p).read(); open(p,'w').write(s.replace('out[\\\"h_h2o_vap\\\"]', 'out[\\\"h_h2o_mutant\\\"] = 0.0\\n\\tout[\\\"h_h2o_vap\\\"]', 1))\""
+
+[[gate]]
+name = "check_settings_reach"
+script = "scripts/check_settings_reach.sh"
+kind = "text"
+marker = "^check_settings_reach: OK"
+mutation = "printf 'var mutant_draw: float = 0.0  # draw_distance\\n' >> addons/local_agents/sim/material/MaterialField3D.gd"
+
+[[gate]]
+name = "check_orphan_uid"
+script = "scripts/check_orphan_uid.sh"
+kind = "text"
+marker = "^check_orphan_uid: OK"
+mutation = "touch addons/local_agents/sim/zz_orphan_gate.gd.uid"
 
 [[gate]]
 name = "check_godot_launcher"
@@ -141,6 +170,7 @@ name = "check_model_parameters"
 script = "scripts/check_model_parameters.sh"
 kind = "text"
 marker = "^Model-parameters check passed"
+mutation = "printf '\\nconstexpr double MUTANT_RATE = 0.37;\\n' >> addons/local_agents/gdextensions/localagents/src/LABallistics.cpp"
 
 [[gate]]
 name = "check_model_parameters_ceiling"
@@ -153,7 +183,7 @@ name = "check_cited_authority"
 script = "scripts/check_cited_authority.sh"
 kind = "text"
 marker = "^check_cited_authority: OK"
-mutation = "printf 'const MUTANT_UNCITED: float = 1.5\\n' >> addons/local_agents/sim/material/PhysicalConstants.gd"
+mutation = "printf '\\nconst MUTANT_UNCITED: float = 1.5\\n' >> addons/local_agents/sim/material/PhysicalConstants.gd"
 
 [[gate]]
 name = "check_kernel_paths"

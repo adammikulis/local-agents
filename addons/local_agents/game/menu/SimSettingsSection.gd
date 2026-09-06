@@ -12,8 +12,6 @@ var _preset_group: ButtonGroup = null
 var _preset_buttons: Dictionary = {}     # SimPreset -> Button
 var _preset_caption: Label = null
 
-var _pop_slider: HSlider = null
-var _pop_value: Label = null
 var _ai_slider: HSlider = null
 var _ai_value: Label = null
 var _llm_slider: HSlider = null
@@ -38,12 +36,6 @@ func build(col: VBoxContainer) -> void:
 	_preset_caption = LAMenuStyle.make_caption("")
 	_preset_caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	col.add_child(_preset_caption)
-
-	var pop: Dictionary = LASettingsWidgets.add_slider(col, "Population budget",
-		"Maximum concurrent creatures. Every creature runs cognition and movement. CPU cost: high.",
-		20.0, 480.0, 10.0, float(_settings.actor_budget), Callable(self, "_fmt_int"), Callable(self, "_on_pop"))
-	_pop_slider = pop["slider"]
-	_pop_value = pop["value"]
 
 	var ai: Dictionary = LASettingsWidgets.add_slider(col, "AI tick rate",
 		"How often creatures re-decide, in frames. Fewer frames = smarter but heavier. CPU cost: high.",
@@ -71,14 +63,6 @@ func _on_preset(preset: int) -> void:
 	_settings.apply_sim_preset(preset as LAGameSettings.SimPreset)
 	refresh()
 	_notify()
-
-
-func _on_pop(value: float) -> void:
-	_pop_value.text = _fmt_int(value)
-	if _suppress:
-		return
-	_settings.actor_budget = int(round(value))
-	_after_individual()
 
 
 func _on_ai(value: float) -> void:
@@ -116,8 +100,6 @@ func _notify() -> void:
 
 func refresh() -> void:
 	_suppress = true
-	_pop_slider.set_value_no_signal(float(_settings.actor_budget))
-	_pop_value.text = _fmt_int(float(_settings.actor_budget))
 	_ai_slider.set_value_no_signal(float(_settings.ai_tick_frames))
 	_ai_value.text = _fmt_every_frames(float(_settings.ai_tick_frames))
 	_llm_slider.set_value_no_signal(_settings.llm_cadence)
@@ -147,11 +129,11 @@ func _preset_name(preset: int) -> String:
 		_: return "Custom"
 
 
-## Verification aid: move the population slider off its preset value so the section flips to Custom, driving
+## Verification aid: move the AI-tick slider off its preset value so the section flips to Custom, driving
 ## the same value_changed handler a player drag would. Used by the --demo-custom shot.
 func demo_nudge() -> void:
-	if _pop_slider != null:
-		_pop_slider.value = float(clampi(_settings.actor_budget + 80, 20, 480))
+	if _ai_slider != null:
+		_ai_slider.value = float(clampi(_settings.ai_tick_frames + 2, 1, 12))
 
 
 func _fmt_int(v: float) -> String:

@@ -121,8 +121,14 @@ func _build_field() -> void:
 			push_error("GRID_EXTENT_UNSOLVED: the seeded air has no Knudsen top (%s) or the geotherm no lid (%s), so the box has no extent to enclose." % [air_m, rock_m])
 			return
 		var extent_m: float = float(_body.radius()) + air_m
-		var cells: int = maxi(_settings_applier.grid_cells_per_edge(), 1)
-		var cell_m: float = 2.0 * extent_m / float(cells)
+		var target_m: float = LAFieldGridBudget.target_edge_m("planet", float(_body.radius()), LAMaterialField3D.INITIAL_TEMP)
+		if not (target_m > 0.0):
+			push_error("GRID_TARGET_UNKNOWN: the body declares no mass or radius, so the atmosphere's "
+				+ "scale height gives the grid no edge to refine to.")
+			return
+		# THE ROOT LATTICE RESOLVES THE AIR SHELL: a cell coarser than it cannot hold air. The grading
+		# refines the surface band toward target_m under docs/CELL_BUDGET.
+		var cell_m: float = air_m
 		if not _material.has_meta(LAFieldBoundary3D.META_FACES) \
 				and LAFieldBoundary3D.explicit_spec() == "":
 			_material.set_meta(LAFieldBoundary3D.META_FACES, "space,space,space,space,space,space")
@@ -130,7 +136,7 @@ func _build_field() -> void:
 		var half: float = 0.5 * float(dims.x) * cell_m
 		_material.setup_box(_body.center() - Vector3(half, half, half), dims, cell_m, _terrain,
 			_body.center(), rock_m, air_m,
-			LAFieldGridBudget.target_edge_m("planet", float(_body.radius()), LAMaterialField3D.INITIAL_TEMP), float(_body.radius()))
+			target_m, float(_body.radius()))
 	_validate_grid(_material._grid)
 	if _material.has_method("sample_solidity"):
 		_material.sample_solidity()
@@ -197,7 +203,6 @@ func _build_geology_and_life() -> void:
 		_material.set_lightning_visual(Callable(_markers, "show_bolt"))
 
 	_spawn.setup(self, _body, _terrain, _ecology, null, _material, null)
-	_spawn.set_spawn_scale(_settings_applier.spawn_scale())
 
 
 ## The CLI probe flags, set once. They arm harness hooks; nothing physical reads them.
