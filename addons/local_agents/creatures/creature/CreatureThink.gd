@@ -165,7 +165,7 @@ static func _transfer_prey_water(c, prey, meat: float) -> void:
 		return
 	if not ("hydration" in prey):
 		return
-	var want: float = minf(meat * LACreatureDigestion.FLESH_WATER_PER_MASS,
+	var want: float = minf(meat * LACreatureDigestion.FLESH_WATER_PER_CARBON,
 		maxf(0.0, float(c.max_hydration) - float(c.hydration)))
 	var got: float = minf(want, maxf(0.0, float(prey.hydration)))
 	if got <= 0.0:
