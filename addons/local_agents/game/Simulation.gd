@@ -115,23 +115,27 @@ func _build_field() -> void:
 			return
 	else:
 		# METRES: LAFieldGravity solves Poisson in SI on this grid.
-		var extent_m: float = float(_body.radius()) + LocalAgentSimWorld.MODELLED_ATMOSPHERE_HEIGHT_M
-		var target_m: float = LAFieldGridBudget.target_edge_m("planet", float(_body.radius()),
-			LAMaterialField3D.INITIAL_TEMP)
+		var air_m: float = LAFieldGridBudget.air_extent_m("planet", float(_body.radius()), LAMaterialField3D.INITIAL_TEMP)
+		var rock_m: float = LAFieldGridBudget.rock_extent_m(float(_body.radius()), LAMaterialField3D.INITIAL_TEMP)
+		if not is_finite(air_m) or not is_finite(rock_m):
+			push_error("GRID_EXTENT_UNSOLVED: the seeded air has no Knudsen top (%s) or the geotherm no lid (%s), so the box has no extent to enclose." % [air_m, rock_m])
+			return
+		var extent_m: float = float(_body.radius()) + air_m
+		var target_m: float = LAFieldGridBudget.target_edge_m("planet", float(_body.radius()), LAMaterialField3D.INITIAL_TEMP)
 		if not (target_m > 0.0):
 			push_error("GRID_TARGET_UNKNOWN: the body declares no mass or radius, so the atmosphere's "
 				+ "scale height gives the grid no edge to refine to.")
 			return
-		# THE ROOT LATTICE RESOLVES THE MODELLED ATMOSPHERE SHELL: a cell coarser than the shell cannot
-		# hold air at all. The grading then refines the surface band toward target_m under docs/CELL_BUDGET.
-		var cell_m: float = LocalAgentSimWorld.MODELLED_ATMOSPHERE_HEIGHT_M
+		# THE ROOT LATTICE RESOLVES THE AIR SHELL: a cell coarser than it cannot hold air. The grading
+		# refines the surface band toward target_m under docs/CELL_BUDGET.
+		var cell_m: float = air_m
 		if not _material.has_meta(LAFieldBoundary3D.META_FACES) \
 				and LAFieldBoundary3D.explicit_spec() == "":
 			_material.set_meta(LAFieldBoundary3D.META_FACES, "space,space,space,space,space,space")
 		var dims: Vector3i = LAVoxelGrid.dims_for(extent_m, cell_m)
 		var half: float = 0.5 * float(dims.x) * cell_m
 		_material.setup_box(_body.center() - Vector3(half, half, half), dims, cell_m, _terrain,
-			_body.center(), LocalAgentSimWorld.MODELLED_ATMOSPHERE_HEIGHT_M, LocalAgentSimWorld.MODELLED_ATMOSPHERE_HEIGHT_M,
+			_body.center(), rock_m, air_m,
 			target_m, float(_body.radius()))
 	_validate_grid(_material._grid)
 	if _material.has_method("sample_solidity"):
@@ -166,8 +170,6 @@ func _body_block() -> Dictionary:
 		"body_mass_kg": m.mass_kg,
 		"body_radius_m": m.surface_r_m,
 		"body_inertia_kg_m2": m.inertia_kg_m2,
-		"body_surface_g_m_s2": m.surface_gravity_m_s2(),
-		"body_air_r_j_kgk": m.gas_constant_j_kgk,
 		"body_day_s": _clock.day_length(),
 		"body_mass_by_channel": m.mass_by_channel,
 	}

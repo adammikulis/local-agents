@@ -86,7 +86,6 @@ func sample() -> void:
 
 
 func report() -> Dictionary:
-	var clock: LASimClock = LASimClock.active()
 	return {
 		# Equator-first, matching `clim_lat_mean`: [0] is 0-15 degrees, [BANDS-1] is 75-90. Duplicated so the
 		# emitted snapshot is a value, not a live reference this module goes on mutating.
@@ -104,7 +103,6 @@ func report() -> Dictionary:
 		"swing_subsolar_lat": snappedf(_subsolar_lat, 0.01),
 		"swing_subsolar_min": snappedf(_subsolar_min if _subsolar_min < 1.0e19 else 0.0, 0.01),
 		"swing_subsolar_max": snappedf(_subsolar_max if _subsolar_max > -1.0e19 else 0.0, 0.01),
-		"swing_season": clock.season() if clock != null else "",
 		"swing_stations": _cells.size(),
 	}
 
@@ -195,7 +193,7 @@ func _reset_day() -> void:
 		_day_max[i] = 0.0
 
 
-# --- The day, and the season -------------------------------------------------------------------------------
+# --- The day, and the sub-solar latitude -------------------------------------------------------------------------------
 
 ## Accumulate the sun's swept angle about the spin axis in the FIELD frame and close a day at a full turn.
 ## The sub-solar latitude is computed in the WORLD frame, where the spin does not enter it.

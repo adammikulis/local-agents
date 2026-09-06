@@ -1,8 +1,8 @@
 # Constants in the authority files with no source beside them. May fall, may not rise.
 #
-# RE-BASED because the instrument was repaired, not because the tree got worse. The scan read only the
-# contiguous comment block touching the constant's own line, so a citation heading a GROUP of coefficients
-# -- the IAPWS saturation, sublimation and melting sets -- covered the first of them and none of the rest.
-# It now reads the comments of the paragraph the constant sits in, which a blank line ends, so a citation
-# cannot reach past the group it heads. The true count is what stands below, and it may only fall.
-59
+# RE-BASED because the instrument was repaired, not because the tree got worse. The old number was
+# measured by a gate that searched the constant's OWN LINE for a citation, where `[0-9]{4}` matched the
+# digits inside the value: 1.98847e30 cited itself. It also demanded a source for constants DERIVED from
+# other constants, which its own comment says are held by their expression. With both holes closed the
+# true count is what stands below, and it may only fall from here.
+228

@@ -903,8 +903,7 @@ double planck_above(double x) {
 		sum += std::exp(-fn * x) * (x * x * x / fn + 3.0 * x * x / (fn * fn)
 				+ 6.0 * x / (fn * fn * fn) + 6.0 / (fn * fn * fn * fn));
 	}
-	constexpr double kPi = 3.14159265358979323846;
-	return 15.0 / std::pow(kPi, 4.0) * sum;
+	return 15.0 / std::pow(Math::PI, 4.0) * sum;
 }
 
 } // namespace

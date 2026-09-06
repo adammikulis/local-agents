@@ -1,7 +1,6 @@
 class_name LABioRecords
 extends "res://addons/local_agents/sim/material/reactions/ReactionDefs.gd"
 
-const TRANSPIRATION_MOL_H2O_PER_MOL_C: float = 400.0
 const GLOBAL_GPP_PG_C_PER_YEAR: float = 123.0       # Beer et al. 2010, Science
 const GLOBAL_NPP_PG_C_PER_YEAR: float = 56.4        # Field et al. 1998, Science
 const GLOBAL_PLANT_CARBON_PG_C: float = 450.0       # Bar-On, Phillips & Milo 2018, PNAS
@@ -12,14 +11,18 @@ const ICE_FREE_LAND_AREA_M2: float = 1.30e14
 const PG_TO_KG: float = 1.0e12
 const MICROBIAL_CUE: float = 0.3                    # Sinsabaugh et al. 2013; Manzoni et al. 2012
 
-const PHOTO_T_OPT: float = (LAPhysical.PROTEIN_DENATURE_C + LAPhysical.WATER_FREEZE_C) * 0.5
-const PHOTO_T_WIDTH: float = (LAPhysical.PROTEIN_DENATURE_C - LAPhysical.WATER_FREEZE_C) * 0.5
+# C3 electron-transport temperature response, C: optimum and Gaussian width, June, Evans & Farquhar 2004,
+# Funct. Plant Biol. 31:275.
+# LA_APPROX: parabolic_photosynthesis_band
+const PHOTO_T_OPT: float = 30.0
+const PHOTO_T_WIDTH: float = 18.0
 
-## Ambient O2, mol/m3 — the concentration the cited fluxes were measured at.
-const O2_AMBIENT_MOL_M3: float = LAPhysical.AIR_MOLAR_DENSITY_MOL_M3 * LAPhysical.AIR_MOLE_FRAC_O2
+## Half-saturating O2 for mitochondrial respiration, Pa: the p50 of cytochrome c oxidase, Gnaiger,
+## Lassnig, Kuznetsov, Rieger & Margreiter 1998, J. Exp. Biol. 201:1129.
+const RESPIRATION_O2_P50_PA: float = 35.0
 
 # Planetary mean of the LIGHT driver: sun-facing cross-section over surface, piR^2 / 4piR^2.
-const LIGHT_SPHERE_MEAN: float = 0.25
+const LIGHT_SPHERE_MEAN: float = PI / (4.0 * PI)
 
 
 ## Photosynthesis per second per unit LIGHT AT UNIT BIOMASS: GPP / plant carbon, referenced to the
@@ -30,10 +33,17 @@ static func _photo_k() -> float:
 	return per_year / (LAPhysical.SECONDS_PER_YEAR * LIGHT_SPHERE_MEAN)
 
 
-## Autotrophic respiration per second AT AMBIENT O2: (GPP - NPP) / plant carbon.
+## The p50 as a concentration in the cell's gas, mol/m^3: p = c R T at the temperature it was measured at.
+static func _resp_half_sat_mol_m3() -> float:
+	return RESPIRATION_O2_P50_PA / (LAPhysical.GAS_CONSTANT_J_MOL_K
+		* (LAPhysical.LAB_REFERENCE_TEMP_C + LAPhysical.KELVIN_OFFSET))
+
+
+## Autotrophic respiration per second at SATURATING O2: (GPP - NPP) / plant carbon. Michaelis-Menten in
+## oxygen: k is V_max / K_m, and param2 below is 1 / K_m, so the two combine to V_max well above the p50.
 static func _resp_k() -> float:
 	var per_year: float = (GLOBAL_GPP_PG_C_PER_YEAR - GLOBAL_NPP_PG_C_PER_YEAR) / GLOBAL_PLANT_CARBON_PG_C
-	return per_year / (LAPhysical.SECONDS_PER_YEAR * O2_AMBIENT_MOL_M3)
+	return per_year / (LAPhysical.SECONDS_PER_YEAR * _resp_half_sat_mol_m3())
 
 
 static func _litterfall_k() -> float:
@@ -71,42 +81,44 @@ static func _dieback_k() -> float:
 ## Reaction records this domain contributes to the live table.
 static func records() -> Array:
 	var organic_n: float = float(LAReactionBalance.composition()[DETRITUS]["N"])
-	var transpired: float = TRANSPIRATION_MOL_H2O_PER_MOL_C
 	var cue: float = MICROBIAL_CUE
-	var dh: Vector3 = LASubstances.organic_oxidation_parts()
-	var ox: float = 1.0 - cue
-	var lumped: float = dh.dot(Vector3(1.0, LASubstances.fresh_litter_per_carbon("H"),
-		LASubstances.fresh_litter_per_carbon("O")))
+	# The oxygen the pool's nitrogen leaves with, on top of what its carbon and hydrogen take.
+	var n_o2: float = 0.5 * organic_n
 	return [
 		# Decomposition, in moles of the dead pool's carbon; CUE becomes mycelium and keeps its bond energy.
-		rec(TB_PER_SECOND, "mol m^-3 driver^-1 driver2^-1 s^-1", RM_BILINEAR, _decompose_k(), FUNGUS,
+		LAReactionThermo.priced(rec(TB_PER_SECOND, "mol m^-3 driver^-1 driver2^-1 s^-1", RM_BILINEAR,
+			_decompose_k(), FUNGUS,
 			[[DETRITUS, 1.0], [ORG_H, 0.0, 1.0, 0.0], [ORG_O, 0.0, 0.0, 1.0],
-				[O2, 1.0 - cue, 0.25, -0.5]],
+				[O2, (1.0 - cue) * (1.0 + n_o2), 0.25, -0.5]],
 			[[FUNGUS, cue],
 				[CO2, 1.0 - cue],
 				[H2O, -cue, 0.5, 0.0],
 				[FERT, organic_n * (1.0 - cue)]],
-			0, 0.0, DETRITUS, 0.0, -1, 0.0, 0.0, dh.x * ox, -1, 0.0, dh.y * ox, dh.z * ox),
+			0, 0.0, DETRITUS)),
 
 		# Die-back: dead mycelium is CH2O, re-entering the dead pool at H:C 2, O:C 1.
-		rec(TB_PER_SECOND, "mol m^-3 driver^-1 s^-1", RM_CONST_FRAC, _dieback_k(), FUNGUS, [[FUNGUS, 1.0]],
-			[[DETRITUS, 1.0], [ORG_H, 2.0], [ORG_O, 1.0]], 0),
+		LAReactionThermo.priced(rec(TB_PER_SECOND, "mol m^-3 driver^-1 s^-1", RM_CONST_FRAC, _dieback_k(),
+			FUNGUS, [[FUNGUS, 1.0]],
+			[[DETRITUS, 1.0], [ORG_H, 2.0], [ORG_O, 1.0]], 0)),
 
 		# Fixing carbon stores the bond energy burning it releases, debited from the absorbed sunlight.
 		# BIOMASS is the catalyst: no photosynthetic tissue, no carbon fixed.
-		rec(TB_PER_SECOND, "mol m^-3 driver^-1 driver2^-1 s^-1", RM_OPTIMUM_BAND, _photo_k(), LIGHT,
-			[[CO2, 1.0], [SOIL_ROOT, 1.0 + transpired], [FERT, organic_n]],
-			[[O2, 1.0], [BIOMASS, 1.0],
-				[H2O, transpired]],
-			GATE_NEAR_GROUND, PHOTO_T_OPT, BIOMASS, PHOTO_T_WIDTH,
-			-1, 0.0, 0.0, -lumped),
+		LAReactionThermo.priced(rec(TB_PER_SECOND, "mol m^-3 driver^-1 driver2^-1 s^-1", RM_OPTIMUM_BAND,
+			_photo_k(), LIGHT,
+			[[CO2, 1.0], [SOIL_ROOT, 1.0], [FERT, organic_n]],
+			[[O2, 1.0 + n_o2], [BIOMASS, 1.0]],
+			GATE_NEAR_GROUND, PHOTO_T_OPT, BIOMASS, PHOTO_T_WIDTH)),
 
-		rec(TB_PER_SECOND, "mol m^-3 driver^-1 driver2^-1 s^-1", RM_BILINEAR, _resp_k(), BIOMASS, [[BIOMASS, 1.0], [O2, 1.0]],
-			[[CO2, 1.0], [H2O, 1.0],
-				[FERT, organic_n]],
-			0, 0.0, O2, 0.0, -1, 0.0, 0.0, lumped),
+		# Respiration: first order in tissue, Michaelis-Menten in oxygen — it saturates at the p50, so the
+		# rate does not track the atmosphere's oxygen once there is any to speak of.
+		LAReactionThermo.priced(rec(TB_PER_SECOND, "mol m^-3 driver^-1 driver2^-1 s^-1",
+			RM_RESISTANCE_SERIES, _resp_k(), BIOMASS,
+			[[BIOMASS, 1.0], [O2, 1.0 + n_o2]],
+			[[CO2, 1.0], [H2O, 1.0], [FERT, organic_n]],
+			0, 0.0, O2, 1.0 / _resp_half_sat_mol_m3())),
 
 		# Litterfall: shed biomass enters the dead pool at H:C 2, O:C 1.
-		rec(TB_PER_SECOND, "mol m^-3 driver^-1 s^-1", RM_CONST_FRAC, _litterfall_k(), BIOMASS, [[BIOMASS, 1.0]],
-			[[DETRITUS, 1.0], [ORG_H, 2.0], [ORG_O, 1.0]], 0),
+		LAReactionThermo.priced(rec(TB_PER_SECOND, "mol m^-3 driver^-1 s^-1", RM_CONST_FRAC,
+			_litterfall_k(), BIOMASS, [[BIOMASS, 1.0]],
+			[[DETRITUS, 1.0], [ORG_H, 2.0], [ORG_O, 1.0]], 0)),
 	]

@@ -63,7 +63,7 @@ if a is None or b is None:
 HOST = re.compile(r"(^|\.)(fps|video_mem_MB|frame_ms|process_ms|actors|draw_calls)(\.|$)|_ms(\.|$)")
 # The conserved totals. Not the whole probe any more, but the gate REFUSES TO RUN without them: a report
 # that publishes none of them is a report this gate cannot say anything about.
-CONSERVED = ("h2o_closed_total", "element_C_total", "mineral_total", "o2_total", "oxidant_all",
+CONSERVED = ("h2o_total", "element_C_total", "mineral_total", "o2_total", "oxidant_all",
              "nitrogen_all", "energy_stock")
 MIN_CONSERVED = 5
 MAX_SHOWN = 12

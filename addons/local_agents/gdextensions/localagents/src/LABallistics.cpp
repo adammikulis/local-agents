@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <godot_cpp/core/math.hpp>
 #include <unordered_map>
 #include <vector>
 
@@ -82,7 +83,6 @@ double big_g() {
 // LA_APPROX: newtonian_sphere_drag
 const double SPHERE_CD = 1.0;
 
-const double PI_D = 3.14159265358979323846;
 
 // The pull of one point mass, with Newton's shell theorem inside it: only the enclosed mass pulls, so the
 // acceleration falls linearly to zero at the centre instead of diverging.
@@ -420,7 +420,7 @@ Array LABallistics::step(double p_dt_s) {
 			const double rho = medium_density_at(b.pos.v3());
 			const double speed = b.vel.len();
 			if (rho > 0.0 && speed > 0.0) {
-				const double area = PI_D * b.radius_m * b.radius_m;
+				const double area = Math::PI * b.radius_m * b.radius_m;
 				const double k = 0.5 * rho * SPHERE_CD * area / b.mass_kg;
 				const double after = speed / (1.0 + k * speed * p_dt_s);
 				const double joules = 0.5 * b.mass_kg * (speed * speed - after * after);

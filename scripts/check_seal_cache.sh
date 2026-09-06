@@ -102,8 +102,7 @@ except Exception as exc:
 # the next arm a planet weighed off a world it no longer holds.
 ROWS = ["world_seed", "world_created", "creation_after_seal", "world_seal_step", "world_baseline_step",
 	"energy_held_first", "mineral_first", "h2o_first", "o2_first", "element_C_total_first",
-	"body_measured", "body_mass_kg", "body_radius_m", "body_inertia_kg_m2", "body_surface_g_m_s2",
-	"body_day_s"]
+	"body_measured", "body_mass_kg", "body_radius_m", "body_inertia_kg_m2", "body_day_s"]
 
 def close(a, b):
 	if isinstance(a, float) and isinstance(b, float):

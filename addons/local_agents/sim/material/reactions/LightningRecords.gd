@@ -8,9 +8,10 @@ static func _fix_k() -> float:
 
 
 static func records() -> Array:
-	var fert_per_n2: float = 2.0
+	# The stroke's heat splits N2 and O2 and the nitrogen leaves as monoxide, absorbing the bond energy.
 	return [
-		rec(TB_PER_STEP, "mol m^-3 driver^-1 step^-1", RM_CONST_FRAC, _fix_k(), DISCHARGE,
-			[[N2, 1.0]],
-			[[FERT, fert_per_n2]]),
+		LAReactionThermo.priced(rec(TB_PER_STEP, "mol m^-3 driver^-1 step^-1", RM_CONST_FRAC, _fix_k(),
+			DISCHARGE,
+			[[N2, 1.0], [O2, 1.0]],
+			[[FERT, 2.0]])),
 	]

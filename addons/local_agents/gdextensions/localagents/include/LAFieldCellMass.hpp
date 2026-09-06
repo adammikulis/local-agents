@@ -29,9 +29,6 @@ public:
 	static Array mirrors(Object *p_field);
 	// The channel names mirrors() returned, in the same order, so a per-mirror total can be named.
 	static PackedStringArray mirror_names(Object *p_field);
-	// The same, restricted to the channels that are gas: a mixture's specific gas constant is R over the
-	// mole-weighted molar mass of what is actually in the air.
-	static Array gas_mirrors(Object *p_field);
 	// THE ENTHALPY SEED, one pass over every cell: each ladder entry off its own curve at the cell's
 	// geotherm temperature and marched pressure, everything else sensible at its capacity. Returns
 	// {"h": J/m^3 per cell, "total_j": joules created}. p_profile is T(r) in kelvin over SAMPLES radii
