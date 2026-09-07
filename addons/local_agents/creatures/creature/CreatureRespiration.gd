@@ -131,12 +131,12 @@ static func tick(c, pos: Vector3, delta: float) -> bool:
 	if mass <= 0.0 or area <= 0.0:
 		return false
 
-	var ambient: float = float(c.body_temp)
-	if c._material != null:
-		ambient = c._material.temp_at(pos)
-	var tau: float = maxf(THERMAL_TAU_K * mass / area, 0.001)
-	var k: float = clampf(delta * evo / tau, 0.0, 1.0)     # clamped: a large step relaxes fully, never overshoots
-	c.body_temp = float(c.body_temp) + (ambient - float(c.body_temp)) * k
+	# A cell holding no matter is no medium: nothing touches the skin, so nothing carries heat off it.
+	var ambient: float = c._material.temp_at(pos) if c._material != null else NAN
+	if not is_nan(ambient):
+		var tau: float = maxf(THERMAL_TAU_K * mass / area, 0.001)
+		var k: float = clampf(delta * evo / tau, 0.0, 1.0)     # clamped: a large step relaxes fully, never overshoots
+		c.body_temp = float(c.body_temp) + (ambient - float(c.body_temp)) * k
 
 	var band: float = temp_band(float(c.body_temp), c)
 	var cold: float = clampf((band_optimum_c(c) - float(c.body_temp)) / maxf(band_width_c(c), 0.001), 0.0, 1.0)

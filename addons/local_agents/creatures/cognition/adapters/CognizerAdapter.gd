@@ -49,7 +49,9 @@ static func senses(c) -> Dictionary:
 		o2 = clampf(c._breath / c.breath_capacity, 0.0, 1.0)
 	var out: Dictionary = {"health": c.health, "fear": c._panic_timer, "o2": o2}
 	if c._material != null:
-		out["temp"] = float(c._material.temp_at(c.global_position))
+		var t: float = float(c._material.temp_at(c.global_position))
+		if not is_nan(t):
+			out["temp"] = t
 	return out
 
 

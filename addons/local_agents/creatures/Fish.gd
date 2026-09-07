@@ -534,6 +534,8 @@ func _physics_process(delta: float) -> void:
 	var pos: Vector3 = global_position
 	# A fish is an ectotherm: body temperature is the water's, so the burn rides this genome's band read there.
 	var water_c: float = float(material.temp_at(pos))
+	if is_nan(water_c):
+		return                                    # no water temperature here: nothing sets this body's rate
 	thermal_band = LACreatureRespiration.temp_band(water_c, self)
 	# An ectotherm's rate IS its body temperature's: the basal law read through this genome's band, and
 	# bounded by the oxygen the water actually holds.

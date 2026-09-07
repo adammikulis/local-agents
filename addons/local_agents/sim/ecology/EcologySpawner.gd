@@ -223,12 +223,11 @@ func _best_forest_center(tries: int) -> Vector3:
 	return best
 
 
-# Forest suitability: fixed biomass (weighted) plus warmth above the germination threshold.
+# Forest suitability: fixed biomass (weighted) plus warmth above the germination threshold. NAN where
+# nothing measured a temperature, so _best_forest_center's `>` never picks the site.
 func _forest_suitability(pos: Vector3) -> float:
-	var warmth: float = 0.0
-	if _eco._material != null and _eco._material.has_method("temp_at"):
-		warmth = _eco._material.temp_at(pos) - LAEcologyService.TREELINE_ISOTHERM_C
-	return _eco._biomass_at(pos) * FOREST_BIOMASS_WEIGHT + warmth
+	var t_c: float = _eco._material.temp_at(pos) if _eco._material != null else NAN
+	return _eco._biomass_at(pos) * FOREST_BIOMASS_WEIGHT + t_c - LAEcologyService.TREELINE_ISOTHERM_C
 
 
 # Place a shelter at `site`. Terrain-snapped on ground/water; kept at the caller's Y for tree roosts.

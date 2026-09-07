@@ -113,6 +113,15 @@ is an invented threshold. The design: kinematic until thrown; then a Jolt `Rigid
 `gravity_scale = 0` pushed each tick by `m·g(pos)` from `LABallistics.g_at` plus the seeded air's drag
 (bound, not copied), the impulse from the overpressure in its cell, kinematic again when asleep.
 
+## 13. A BODY STANDS IN A COARSE CELL OF THE GRADED GRID, NOT IN ONE THE SLICE REFINED
+
+`LA_LIFE_LOG=<f> scripts/check_life_demo.sh` passes with `LIFE_IN_BOX` reading nothing outside, while
+the same run's `grid_fine_edge_m` and `grid_level_counts` declare a refined region; a body's own cell
+is a coarse level whose centre is hundreds of metres from it and which holds rock and air at one
+temperature, so `temp_at`, `o2_at` and `is_water_at` answer about a volume the body is not in.
+Reading: `holds` in `EcologyService.gd` and `LIFE_IN_BOX` in `VoxelHarness.gd` both test
+`world_to_cell(pos) >= 0`, which is true in every cell of the graded grid.
+
 ## 14. NOT EXAMINED UNTIL THE RUNG-2 DEMO IS APPROVED — rung 3
 
 - `scripts/check_bench_shock_tube.sh`: at a 10:1 Sod jump the rarefaction head stands outside the bound

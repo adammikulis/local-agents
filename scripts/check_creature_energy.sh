@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# A BODY'S MASS IS THE ONE INPUT AND ITS ENERGY ECONOMY IS DERIVED FROM IT. Two arms: the LAW, every
-# species' body carbon, water, basal rate, mouth rate and drinking bout against the measured animal
-# physiology in check_creature_energy.gd; the WORLD, a life-demo run whose booked carbon a second is
-# the Kleiber rate of the animals alive to oxidise it.
+# A BODY'S MASS IS THE ONE INPUT AND ITS ENERGY ECONOMY IS DERIVED FROM IT. Three arms: the LAW, body
+# carbon, water, basal rate, mouth rate and drinking bout against measured animal physiology in
+# check_creature_energy.gd; the WORLD, a life-demo run whose booked carbon a second is the Kleiber rate
+# of the animals alive to oxidise it; the CAUSE, no body dead of a process its world does not contain.
 # EXIT 0 the economy is in real units * 1 it is not * 2 the gate could not run.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -115,8 +115,23 @@ if not (lo <= rate <= hi):
     fails.append("bodies booked %.6g mol of carbon a second; %d-%d animals at Kleiber's rate oxidise "
                  "%.6g to %.6g" % (rate, int(alive), int(spawned), lo, hi))
 
-print("CREATURE_ENERGY_WORLD={\"alive\":%d,\"spawned\":%d,\"seconds\":%g,\"o2_draws\":%d}"
-      % (int(alive), int(spawned), seconds, int(o2.get("draws", 0))))
+# --- ARM 3: THE CAUSE. A death names a mechanism, and the world must contain the process that runs it.
+# Each row is a death cause and the report field that reads true only when its process was reduced at
+# all. Combustion is a chemistry-rung reaction (LAProcessSet CHEMISTRY_REACTIONS "CombustionRecords.gd",
+# CHEMISTRY_REDUCE "fire_peak"/"fire_cells"), so below that rung `fire_live` is false and no body can
+# burn; a burned death there is a mechanism the creature code carried on its own.
+CAUSE_NEEDS = {"burned": "fire_live"}
+events = snap.get("events") or {}
+for cause, live_key in CAUSE_NEEDS.items():
+    n = int(events.get("death/%s" % cause, 0))
+    if n > 0 and not snap.get(live_key):
+        fails.append("%d body/bodies died '%s' in a world whose reduce never measured %s"
+                     % (n, cause, live_key))
+
+print("CREATURE_ENERGY_WORLD={\"alive\":%d,\"spawned\":%d,\"seconds\":%g,\"o2_draws\":%d,\"causes\":%s}"
+      % (int(alive), int(spawned), seconds, int(o2.get("draws", 0)),
+         json.dumps({k[6:]: int(v) for k, v in sorted(events.items())
+                     if k.startswith("death/") and ":" not in k})))
 if rc != 0:
     fails.append("the run exited %d" % rc)
 if law_fails:

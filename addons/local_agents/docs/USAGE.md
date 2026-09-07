@@ -56,12 +56,10 @@ chomp, an impact or a weather sound. A creature making a noise is a stimulus bro
 
 ### What deleting costs you
 
-Two files outside `game/` name a path inside it, and neither is a hard link. `examples/demos/
+One file outside `game/` names a path inside it, and it is not a hard link. `examples/demos/
 voxel_planet_game.tres` is the catalogue entry for the flagship scene: its `scene_path` is an
 `@export_file` String rather than a `PackedScene`, so the resource still loads and its launcher row
-reports "Its scene is missing" instead of breaking the menu. `creatures/Creature.gd` names the game's
-combustion visual through `LAOptionalScript.resolve`, which returns null when the file is gone, so a
-creature still dies burned without it.
+reports "Its scene is missing" instead of breaking the menu.
 
 Deleting `sim/` costs more than you might expect. Two example scenes name a `sim/` script on an
 `ext_resource` line:
@@ -555,10 +553,10 @@ stops happening. A creature without a field loses:
 - Chemical sense, the whole learned scent-valence path at `CreatureChemSense.gd:151`.
 - Waste and detritus deposits at `CreatureExcretion.gd:49-54`.
 - Wind push and water current at `CreatureFieldForces.gd:38-52`.
-- Every temperature effect. `CreatureMetabolism.tick_environment()` at `CreatureMetabolism.gd:89`
-  returns early, so nothing combusts, overheats or freezes. Herbivore digestion loses its temperature
-  term at `CreatureDigestion.gd:74-82`. Carcass decomposition falls back to the dry-land constant at
-  `CreatureRagdoll.gd:246-254` instead of reading warmth and snow depth.
+- Every temperature effect. `CreatureMetabolism.tick_environment()` returns early, so a body never
+  sheds heat as water, and `CreatureRespiration.tick()` never leaves the enzyme band. Herbivore
+  digestion loses its temperature term at `CreatureDigestion.gd:74-82`. Carcass decomposition falls
+  back to the dry-land constant at `CreatureRagdoll.gd:246-254` instead of reading warmth and snow.
 - Drowning, which reads `is_submerged_at()` at `CreatureMetabolism.gd:152`.
 - Fever heat radiated back into the world at `CreatureDisease.gd:103`.
 - Water-site nesting for aquatic nesters at `CreatureNesting.gd:67`.

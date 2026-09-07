@@ -89,17 +89,16 @@ func total_water() -> float:
 
 # --- Temperature query -------------------------------------------------------
 
-## Temperature °C at a world point. NAN outside the box: a point the field does not hold has no
-## temperature to read.
+## Temperature °C at a world point. NAN outside the box, and NAN at or below absolute zero: a cell
+## holding no matter has no temperature (`state_derive.glsl` writes -KELVIN_OFFSET there).
 func temp_at(pos: Vector3) -> float:
-	var c: int = _f.world_to_cell(pos)
-	return _f._mirrors.at("temp", c) if c >= 0 else NAN
+	var t: float = _f._mirrors.at("temp", _f.world_to_cell(pos))
+	return t if t > -LAPhysical.KELVIN_OFFSET else NAN
 
 
 ## Pressure at a world point, Pa. NAN outside the box or before the first readback.
 func pressure_at(pos: Vector3) -> float:
-	var c: int = _f.world_to_cell(pos)
-	return _f._mirrors.at("pressure", c) if c >= 0 else NAN
+	return _f._mirrors.at("pressure", _f.world_to_cell(pos))
 
 
 # --- Diagnostics -------------------------------------------------------------

@@ -157,7 +157,8 @@ func _update_slice() -> void:
 	for i in range(_slice_points.size()):
 		var t: float = _field.temp_at(_slice_points[i])
 		var f: float = clampf((t - ambient) / span, 0.0, 1.0)
-		_multimesh.set_instance_color(i, cold_color.lerp(hot_color, f))
+		# A cell with no matter has no temperature: drawn fully transparent rather than coloured cold.
+		_multimesh.set_instance_color(i, Color(0, 0, 0, 0) if is_nan(t) else cold_color.lerp(hot_color, f))
 
 
 # True once the slice exists and matches the current axis/position. Returns false when there is nothing

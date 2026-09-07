@@ -269,26 +269,6 @@ func set_material_field(w) -> void:
 	LACreatureBodyMass.note_spawn(self)
 
 
-# The game's LAFlameFX combustion visual, optional: a core creature dies-burned with the game deleted.
-const FLAME_FX_PATH: String = "res://addons/local_agents/game/render/FlameFX.gd"
-
-
-# Organic matter combusts — bursts into flame (not incandescent glow) and dies burned. The flame is
-# detached at the spot so it lingers as the body drops, rather than freeing with the creature.
-func _combust() -> void:
-	if _dying:
-		return
-	var parent: Node = get_parent()
-	var flame_script: GDScript = LAOptionalScript.resolve(FLAME_FX_PATH)
-	if parent != null and flame_script != null and flame_script.has_method("make"):
-		var flame: Node3D = flame_script.make()
-		parent.add_child(flame)
-		flame.global_position = global_position
-		var timer: SceneTreeTimer = get_tree().create_timer(2.5)
-		timer.timeout.connect(func(): if is_instance_valid(flame): flame.queue_free())
-	die("burned", Vector3(0.0, 2.0, 0.0))
-
-
 # A thrown rock struck me — I die (drop a corpse).
 func on_struck() -> void:
 	die("struck")
@@ -469,9 +449,8 @@ func _physics_process(delta: float) -> void:
 
 	LACreatureFieldForces.tick(self, delta)
 
-	# Temperature comfort + combustion, emergent from the shared field at my feet.
-	if LACreatureMetabolism.tick_environment(self, pos, delta):
-		return
+	# Evaporative cooling against the field at my feet.
+	LACreatureMetabolism.tick_environment(self, pos, delta)
 	# Breathing: drown when submerged past my breath reserve, or suffocate in O2-depleted smoke.
 	if LACreatureMetabolism.tick_breath(self, pos, delta):
 		return

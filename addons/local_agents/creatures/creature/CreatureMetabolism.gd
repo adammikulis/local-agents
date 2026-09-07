@@ -2,8 +2,6 @@ class_name LACreatureMetabolism
 extends RefCounted
 
 
-const COMBUST_TEMP: float = 200.0          # °C — organic tissue catches FIRE (in a wildfire/lava)
-
 const EVAPORATIVE_OVER_TURNOVER: float = 0.15
 
 const BREATH_REFILL: float = 25.0          # breath reserve refilled per sec while in the breathing medium
@@ -37,18 +35,16 @@ static func tick(c, delta: float) -> bool:
 	return false
 
 
-static func tick_environment(c, pos: Vector3, delta: float) -> bool:
+## Evaporative cooling. A body over its band's optimum sheds heat as water; the band's far edge is where
+## the oxidation stops, and LACreatureRespiration kills on that deficit.
+static func tick_environment(c, pos: Vector3, delta: float) -> void:
 	if c._material == null:
-		return false
-	if c._material.temp_at(pos) >= COMBUST_TEMP:
-		c._combust()
-		return true
+		return
 	var over: float = float(c.body_temp) - LACreatureRespiration.band_optimum_c(c)
 	if over > 0.0:
 		var shed: float = over * EVAPORATIVE_OVER_TURNOVER * float(c.thirst_rate) * delta
 		c.hydration -= shed
 		transpire(c, pos, shed)
-	return false
 
 
 ## Hand `mass` of body water to the field's airborne moisture at `pos`. One place, so no leg of the water

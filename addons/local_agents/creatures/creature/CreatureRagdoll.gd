@@ -186,7 +186,8 @@ static func decay_tick(c, delta: float) -> void:
 	var consumed_frac: float = clampf(1.0 - c._carrion / initial, 0.0, 1.0)
 	# Autocatalytic microbe bloom: a suppressed seed at death that grows toward full as the body is converted.
 	var microbes: float = MICROBE_SEED + consumed_frac * (1.0 - MICROBE_SEED)
-	var consumed: float = minf(initial * DECOMP_RATE_PER_SEC * microbes * _decomp_env(c) * delta, c._carrion)
+	var env: float = _decomp_env(c)
+	var consumed: float = 0.0 if is_nan(env) else minf(initial * DECOMP_RATE_PER_SEC * microbes * env * delta, c._carrion)
 	if consumed > 0.0:
 		c._carrion -= consumed
 		if c._material != null and c._material.has_method("deposit_detritus"):
@@ -205,12 +206,12 @@ static func decay_tick(c, delta: float) -> void:
 
 static func _decomp_env(c) -> float:
 	if c._material == null:
-		return DRY_MOISTURE
+		return NAN                                         # no field, so no warmth and no moisture read
 	var pos: Vector3 = c.global_position
-	var warmth: float = 1.0
-	if c._material.has_method("temp_at"):
-		var t_c: float = c._material.temp_at(pos)          # cheap cell read; the primary spatial driver
-		warmth = clampf((t_c - COLD_STALL_C) / (WARM_OPT_C - COLD_STALL_C), MUMMIFY_FLOOR, 1.0)
+	var t_c: float = c._material.temp_at(pos)              # cheap cell read; the primary spatial driver
+	if is_nan(t_c):
+		return NAN                                         # no temperature to decompose at
+	var warmth: float = clampf((t_c - COLD_STALL_C) / (WARM_OPT_C - COLD_STALL_C), MUMMIFY_FLOOR, 1.0)
 	var moisture: float = DRY_MOISTURE
 	if c._material.has_method("snow_depth_at") and c._material.snow_depth_at(pos) > 0.01:
 		moisture *= 0.5                        # frozen under snow: driest + coldest ⇒ slowest (permafrost)
