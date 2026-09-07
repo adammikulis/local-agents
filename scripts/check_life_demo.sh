@@ -7,6 +7,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh"
 . "$ROOT/scripts/lib_godot.sh"
+. "$ROOT/scripts/lib_capture.sh"
 require_tool python3
 
 SCENE="addons/local_agents/examples/LifeDemo.tscn"
@@ -15,11 +16,19 @@ SCENE="addons/local_agents/examples/LifeDemo.tscn"
 FRAMES="${LA_LIFE_FRAMES:-300}"
 MIN_FPS="${LA_LIFE_MIN_FPS:-30}"
 
-LOG="${LA_LIFE_LOG:-$(mktemp "${TMPDIR:-/tmp}/la_life_demo.XXXXXX")}"
-[ -n "${LA_LIFE_LOG:-}" ] || trap 'rm -f "$LOG"' EXIT INT TERM
-LA_RUN_TIMEOUT="${LA_LIFE_TIMEOUT:-110}" "$ROOT/scripts/run_sim_offscreen.sh" --path "$ROOT" \
-	"$SCENE" --fixed-fps 60 -- --sandbox "--run-frames=$FRAMES" > "$LOG" 2>&1
-rc=$?
+# ONE LIFE RUN PER LINT. The shared arm records it; this gate only reads what it looked like.
+LOG="$(la_cap_life_log)"
+case $? in
+	0) rc="$(la_cap_life rc)" ;;
+	2) exit 2 ;;
+	*)
+		LOG="${LA_LIFE_LOG:-$(mktemp "${TMPDIR:-/tmp}/la_life_demo.XXXXXX")}"
+		[ -n "${LA_LIFE_LOG:-}" ] || trap 'rm -f "$LOG"' EXIT INT TERM
+		LA_RUN_TIMEOUT="${LA_LIFE_TIMEOUT:-110}" LA_EVO_FAST= "$ROOT/scripts/run_sim_offscreen.sh" \
+			--path "$ROOT" "$SCENE" --fixed-fps 60 -- --sandbox "--run-frames=$FRAMES" > "$LOG" 2>&1
+		rc=$?
+		;;
+esac
 
 python3 - "$LOG" "$rc" "$MIN_FPS" <<'PY'
 import json, re, sys
@@ -37,9 +46,9 @@ def last(prefix):
 report = last("SIM_REPORT=")
 pops = every("POP_TRACE=")
 pop = pops[-1] if pops else None
-placed = last("LIFE_IN_BOX=")
+placed = last("LIFE_SEEDED=")
 if placed is None:
-    print("check_life_demo: the run published no LIFE_IN_BOX, so where it put life went unmeasured.",
+    print("check_life_demo: the run published no LIFE_SEEDED, so what it seeded went unmeasured.",
           file=sys.stderr)
     print("\n".join(text.splitlines()[-25:]), file=sys.stderr)
     sys.exit(2)
@@ -59,7 +68,8 @@ def load(line, what):
 
 snap = load(report, "SIM_REPORT")
 trace = load(pop, "POP_TRACE")
-box = load(placed, "LIFE_IN_BOX")
+founding = load(placed, "LIFE_SEEDED")
+box = founding
 gauges = snap.get("gauges", {})
 
 fails = []
@@ -78,11 +88,11 @@ if errs:
 if "WORLD_SEALED=" not in text:
     fails.append("the world never sealed, so nothing it did was under conservation")
 
-# EVERY SEEDED KIND IS STILL THERE. What the world seeded is what its first trace counted, so a kind
+# EVERY SEEDED KIND IS STILL THERE. What the world seeded is what it published at the seeding, so a kind
 # this site has no room for (fish, where the box holds no open sea) is not demanded of it, and a kind it
 # did seed may not go to zero.
 counts = trace.get("counts", {})
-first = load(pops[0], "POP_TRACE").get("counts", {})
+first = founding.get("counts", {})
 seeded = [k for k, n in first.items() if int(n) > 0]
 for kind in seeded:
     if int(counts.get(kind, 0)) <= 0:

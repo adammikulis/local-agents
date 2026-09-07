@@ -138,18 +138,26 @@ la_godot() {
 	# NO AUDIO DEVICE IN AN AUTOMATED RUN. CoreAudio refusing to start logs an engine error, and a run
 	# that logged one publishes no numbers. The movie writer is the one launch that records sound.
 	local audio=(--audio-driver Dummy)
-	local a headless=0
+	local a headless=0 importing=0
 	for a in "$@"; do
 		[ "$a" = "--write-movie" ] && audio=()
 		[ "$a" = "--headless" ] && headless=1
+		[ "$a" = "--import" ] && importing=1
 	done
 	local held=0 rc=0
-	la_gpu_lock
-	case $? in
-		0) held=1 ;;
-		2) ;;
-		*) echo "la_godot: timed out waiting for the GPU lock; NO RUN HAPPENED." >&2; return 2 ;;
-	esac
+	# A HEADLESS IMPORT MAKES NO DEVICE, so it does not queue for one. godot_import.sh holds the machine
+	# EXTENSION lock across this call; waiting for the GPU inside it put every lane's import behind an
+	# unrelated lane's sim. The extension lock is what serialises one import against another.
+	if [ "$headless" -eq 1 ] && [ "$importing" -eq 1 ]; then
+		:
+	else
+		la_gpu_lock
+		case $? in
+			0) held=1 ;;
+			2) ;;
+			*) echo "la_godot: timed out waiting for the GPU lock; NO RUN HAPPENED." >&2; return 2 ;;
+		esac
+	fi
 	if [ "$headless" -eq 1 ]; then
 		command ${pre[@]+"${pre[@]}"} "$binary" ${audio[@]+"${audio[@]}"} "$@"
 		rc=$?

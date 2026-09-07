@@ -330,6 +330,11 @@ func step_driver():
 	return _sphere_step
 
 
+## Sealed, with a full step drained into the mirrors a placement reads.
+func seeding_ready() -> bool:
+	return _seal != null and _seal.sealed() and _sphere_step != null and _sphere_step.full_steps() > 0
+
+
 ## Temperature °C at a true-3D world point (a mild default outside the shell). Sphere-native single read.
 func temp_at(pos: Vector3) -> float:
 	return _queries.temp_at(pos)

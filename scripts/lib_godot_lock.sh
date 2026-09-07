@@ -85,7 +85,7 @@ la_lock_note_freed() {
 # `$$` NAMES THE SHELL, NOT THE SUBSHELL: it is the pid that outlives every subshell the lock may be
 # taken in, and a recorded owner must be alive for as long as the lock is held or a waiter reclaims it.
 #
-# A QUEUE IN TWO TIERS, NOT A RACE. Every waiter takes a numbered ticket -- the lowest free number in its
+# A QUEUE IN TWO TIERS, NOT A RACE. Every waiter takes a numbered ticket -- one above every ticket in its
 # tier, claimed by the same atomic symlink -- and only the oldest live ticket may take the lock. A retry
 # loop over a free lock is decided by who happens to poll first, so a lane can wait out a whole timeout
 # while later arrivals keep winning. `LA_LOCK_PRIORITY=1` queues in the tier that is served first, FIFO
@@ -108,6 +108,19 @@ la_dir_unqueue() {
 	done
 	rmdir "$q" 2>/dev/null
 	return 0
+}
+
+# One past the highest ticket in <dir>, live or dead: the number a newcomer takes, so arrival order is
+# the number order and no later arrival can sort ahead of a waiter already in the queue.
+la_dir_next() {
+	local f n best=-1
+	for f in "$1"/*; do
+		[ -L "$f" ] || continue
+		n="${f##*/}"
+		case "$n" in "" | *[!0-9]*) continue ;; esac
+		[ "$n" -gt "$best" ] && best="$n"
+	done
+	printf '%s' "$((best + 1))"
 }
 
 # The lowest-numbered live ticket in <queue>/<tier>, or "" when that tier is empty. Reclaims dead ones.
@@ -135,21 +148,15 @@ la_dir_lock() {
 	tier=n
 	[ "${LA_LOCK_PRIORITY:-0}" = "1" ] && tier=p
 	mkdir -p "$q/p" "$q/n" 2>/dev/null
-	# TAKE A TICKET: the lowest free number in our tier, atomically, carrying our pid. A number whose owner
-	# is dead is reclaimed on the way past, so a crashed waiter does not push the queue forward for ever.
-	n=0
+	# TAKE A TICKET ABOVE EVERY ONE ALREADY WAITING, atomically, carrying our pid. The lowest FREE number
+	# is not arrival order: numbers are freed on release, so a newcomer claims a low one and overtakes a
+	# waiter that has been in the queue for an hour. A number above them all cannot.
 	ticket=""
 	while [ -z "$ticket" ]; do
+		n="$(la_dir_next "$q/$tier")"
 		if ln -s "$$" "$q/$tier/$n" 2>/dev/null; then
 			ticket="$q/$tier/$n"
-			break
 		fi
-		owner="$(readlink "$q/$tier/$n" 2>/dev/null || echo "")"
-		if [ -z "$owner" ] || ! kill -0 "$owner" 2>/dev/null; then
-			rm -f "$q/$tier/$n"
-			continue
-		fi
-		n=$((n + 1))
 	done
 	while :; do
 		head="$(la_dir_head "$q" "$tier")"
@@ -158,6 +165,11 @@ la_dir_lock() {
 		# A directory here is a lock of the old shape; it is never taken, only reclaimed or waited on.
 		if [ "$head" = "$n" ] && [ -z "$ahead" ] && [ ! -d "$lock" ] && ln -s "$$" "$lock" 2>/dev/null; then
 			la_lock_note_held "$lock"
+			# THE QUEUE IS NOT THIS RUN'S WORK. Seconds spent behind another lane on a MACHINE lock are
+			# published so a budget on the lint's own cost is not a reading of how busy the machine was.
+			if [ -n "${LA_LOCK_WAIT_LOG:-}" ] && [ "$(la_lock_rank "$(basename "$lock")")" -ge 0 ]; then
+				printf '%s\t%s\n' "$waited" "$(basename "$lock")" >> "$LA_LOCK_WAIT_LOG" 2>/dev/null
+			fi
 			return 0
 		fi
 		if [ -e "$lock" ] || [ -L "$lock" ]; then

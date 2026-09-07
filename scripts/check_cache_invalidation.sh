@@ -53,6 +53,20 @@ for kind in import scan capture; do
 	fi
 done
 
+# A CAPTURE IS A RUN, AND scripts/ DECIDES WHAT THE RUN IS. A key blind to the launcher and the arm
+# hands a lint a capture some other code produced.
+SPROBE="$ROOT/scripts/.la_cache_probe"
+rm -f "$SPROBE"
+trap 'rm -f "$PROBE" "$SPROBE"' EXIT
+base="$(key capture)"
+printf 'one\n' > "$SPROBE"
+if [ "$(key capture)" = "$base" ]; then
+	echo "FAIL  the 'capture' key is blind to a change under scripts/, so a capture taken by other code" >&2
+	echo "      is reused as this one's reading." >&2
+	fail=1
+fi
+rm -f "$SPROBE"
+
 for consumer in godot_import.sh editor_scan.sh lint_capture.sh; do
 	if ! grep -qE 'cache_key\.sh" +(import|scan|capture)\b' "$ROOT/scripts/$consumer"; then
 		echo "FAIL  scripts/$consumer no longer asks for a content key, so whatever it reuses is unguarded." >&2

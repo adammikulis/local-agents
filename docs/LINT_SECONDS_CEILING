@@ -1,0 +1,5 @@
+# The seconds one `scripts/agent_harness.sh lint` spends on its own work: every gate's wall time added
+# up, less what it spent queued behind another lane on the machine locks. scripts/check_lint_budget.sh
+# reads it; scripts/write_ceilings.sh banks it. The landing loop is one lint per landing.
+# May fall, may not rise. Never raise it to turn a light green: cut a launch or cut an arm's frames.
+0

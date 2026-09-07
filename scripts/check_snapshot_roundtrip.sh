@@ -13,7 +13,7 @@ ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 require_tool python3
 
 PROJ="$ROOT"
-FRAMES=120
+FRAMES=8   # the layout, not the elapsed time; `lost` and `nonzero` are the positive controls
 while [ $# -gt 0 ]; do
   case "$1" in
     --path) PROJ="$2"; shift 2 ;;

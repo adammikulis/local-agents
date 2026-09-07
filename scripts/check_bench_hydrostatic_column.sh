@@ -94,8 +94,8 @@ if LA_BENCH_SELFTEST=broken python3 "$JUDGE" >/dev/null 2>&1; then
   exit 2
 fi
 
-out="$(LA_DONE_RE='^BENCH_RAW_HYDROSTATIC_COLUMN=' "$REPO_ROOT/scripts/run_sim_offscreen.sh" \
-  --path "$REPO_ROOT" -s "res://$PROBE" 2>&1)"
+# THE RIG RIDES THE SHARED DEVICE BATCH: one launch holds every rig that only needs a device.
+out="$(la_rig bench_hydrostatic_column '^BENCH_RAW_HYDROSTATIC_COLUMN=' "res://$PROBE")"
 raw="$(printf '%s\n' "$out" | grep -m1 '^BENCH_RAW_HYDROSTATIC_COLUMN=')"
 if [ -z "$raw" ]; then
   echo "ERROR: the rig published no BENCH_RAW_HYDROSTATIC_COLUMN line." >&2

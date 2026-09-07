@@ -52,10 +52,19 @@ def load_gates(path=GATES_TOML):
             "args": list(g.get("args", [])),
             "env": dict(g.get("env", {})),
             "needs": list(g.get("needs", [] if g["kind"] == "text" else ["import", "capture"])),
+            # A gate that starts no engine takes no device and waits on no machine lock, so it runs
+            # beside the others whatever kind it is. Declared, and the launch ledger holds it to it.
+            "launches": bool(g.get("launches", g["kind"] != "text")),
+            # Reads the whole run's ledgers, so it runs after every other gate has finished.
+            "last": bool(g.get("last", False)),
             "timeout_s": int(g.get("timeout_s", defaults.get("timeout_s", 900))),
         })
     if not gates:
         raise ValueError("gates.toml lists no gate")
+    tail = [i for i, g in enumerate(gates) if g["last"]]
+    if tail and tail != list(range(len(gates) - len(tail), len(gates))):
+        raise ValueError("a gate declaring last = true must be among the final rows: %s"
+                         % ", ".join(gates[i]["name"] for i in tail))
     return gates
 
 
@@ -128,6 +137,15 @@ def merge_ledger(shared, ledger):
     return len([ln for ln in text.splitlines() if ln.strip()])
 
 
+def note_seconds(label, secs):
+    """One line per finished gate, so a gate declaring last = true can add up the run it sits in."""
+    path = os.environ.get("LA_LINT_TIMING_LOG")
+    if not path:
+        return
+    with open(path, "a") as fh:
+        fh.write("%.3f\t%s\n" % (secs, label.replace("\t", " ")))
+
+
 def pool_size():
     n = os.environ.get("LA_LINT_JOBS")
     if n and n.isdigit():
@@ -135,12 +153,16 @@ def pool_size():
     return min(8, os.cpu_count() or 4)
 
 
-def drain(gates, root, jobs, ledger_dir, shared_ledger, no_gpu, on_result):
-    """Pool the text gates, run the rest in place, replay every verdict in definition order."""
+def drain(gates, root, jobs, ledger_dir, shared_ledger, no_gpu, on_result, pooled=True):
+    """Pool every gate that starts no engine, run the launchers in place, replay in definition order."""
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=jobs)
     ledger_of = {i: os.path.join(ledger_dir, "%d.launch" % i) for i in range(len(gates))}
+    # LA_NO_GPU=1 SKIPS A gpu ROW, and a pool that submitted it would run the very gate the arm excludes.
+    def in_pool(g):
+        return pooled and not g["launches"] and not g["last"] and not (no_gpu and g["kind"] == "gpu")
+
     futures = {i: pool.submit(run_gate, g, root, ledger_of[i], False)
-               for i, g in enumerate(gates) if g["kind"] == "text"}
+               for i, g in enumerate(gates) if in_pool(g)}
     try:
         for i, g in enumerate(gates):
             if no_gpu and g["kind"] == "gpu":
@@ -192,6 +214,9 @@ def cmd_lint(args):
     timing, records = [], []
     ledger_dir = tempfile.mkdtemp(prefix="la_gate_ledger.")
 
+    # WHICH TREE THIS LINT WEIGHED. LOG_DIR is machine-wide, so a reader of "the newest lint log" would
+    # otherwise bank another worktree's numbers into this one's ceilings.
+    print("LINT_TREE=%s" % ROOT)
     cap, cap_err = make_capture(arm="body" if args.body else "slice")
     if cap_err:
         sys.stdout.write(cap_err)
@@ -204,13 +229,15 @@ def cmd_lint(args):
 
     def on_result(g, rc, out, secs, launches):
         timing.append((secs, g["label"]))
+        if not g["last"]:
+            note_seconds(g["label"], secs)
         records.append({"name": g["name"], "label": g["label"], "kind": g["kind"],
                         "rc": rc, "seconds": round(secs, 3), "launches": launches})
         if rc is None:
             tally["skipped"] += 1
-        elif g["kind"] == "text" and launches:
-            print("LINT_FAIL: %s (1) — declared kind=text in gates.toml and launched the engine %d "
-                  "time(s). A gate that starts one runs alone: declare it kind=headless."
+        elif not g["launches"] and launches:
+            print("LINT_FAIL: %s (1) — declared launches = false in gates.toml and started the engine "
+                  "%d time(s). A gate that starts one runs alone: drop the declaration."
                   % (g["label"], launches))
             tally["failed"] += 1
         elif silent_pass(g, rc, out):
@@ -227,8 +254,10 @@ def cmd_lint(args):
             tally["unrunnable"] += 1
 
     try:
+        # A gate declares launches = false because the capture answers instead. With no capture every
+        # one of them falls through to its own launch, so nothing is pooled and none of them races.
         drain(gates, ROOT, args.jobs or pool_size(), ledger_dir,
-              os.environ.get("LA_LAUNCH_LOG"), no_gpu, on_result)
+              os.environ.get("LA_LAUNCH_LOG"), no_gpu, on_result, pooled=bool(cap))
     finally:
         shutil.rmtree(ledger_dir, ignore_errors=True)
 
@@ -261,7 +290,18 @@ def stage_scratch(scratch):
             shutil.copy2(src, dst)
 
 
-def arm_scratch(g, scratch):
+def arm_ledgers(scratch):
+    """The ledgers a lint keeps, for a gate that reads the run around it. Both arms get the same ones."""
+    os.environ["LA_LINT_LAUNCHES"] = os.path.join(scratch, "mutate_launches.log")
+    os.environ["LA_LINT_TIMING_LOG"] = os.path.join(scratch, "mutate_seconds.log")
+    os.environ["LA_LOCK_WAIT_LOG"] = os.path.join(scratch, "mutate_lock_waits.log")
+    open(os.environ["LA_LINT_LAUNCHES"], "w").close()
+    open(os.environ["LA_LOCK_WAIT_LOG"], "w").close()
+    with open(os.environ["LA_LINT_TIMING_LOG"], "w") as fh:
+        fh.write("0.100\tcheck_mutate_arm_a.sh\n0.100\tcheck_mutate_arm_b.sh\n")
+
+
+def arm_scratch(g, scratch, first=False):
     """Give the scratch tree what the gate declares it needs. A mutation may break either, on purpose."""
     if "import" in g["needs"]:
         subprocess.run([os.path.join(scratch, "scripts/ensure_worktree_ready.sh")], cwd=scratch)
@@ -270,6 +310,9 @@ def arm_scratch(g, scratch):
         cap, _ = make_capture(scratch, arm="body" if "body" in g["needs"] else "slice")
         if cap:
             os.environ["LA_LINT_CAPTURE"] = cap
+    # ONCE, BEFORE EITHER ARM: a mutation that writes into the ledger must survive the re-arming.
+    if g["last"] and first:
+        arm_ledgers(scratch)
 
 
 def cmd_mutate(args):
@@ -288,7 +331,7 @@ def cmd_mutate(args):
     os.environ["LA_LAUNCH_LOG"] = ledger
     try:
         stage_scratch(scratch)
-        arm_scratch(g, scratch)
+        arm_scratch(g, scratch, first=True)
         rc0, out0, _ = run_gate(g, scratch, ledger, False)
         sys.stdout.write(out0)
         if rc0 != 0:

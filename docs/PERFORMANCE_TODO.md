@@ -116,3 +116,29 @@ a pure function of solved gravity — which changes only when `GravityPass`'s `g
 `PackedInt32Array` tables rebuilt on that cadence make every full-grid sweep in items 1 and 2 several times
 cheaper, numerically identically. Cheapest change per line in this file.
 
+
+
+## 14. THE LANDING LOOP: A GATE THAT WRITES ITS OWN RIG STILL BUYS ITS OWN QUEUE SLOT
+
+One engine launch costs a full trip through the machine GPU lock, so the lint's cost is the number of
+launches it makes, not the work in them: `scripts/check_lifeless_planet.sh`, `check_gravity_solve.sh`,
+`check_radiative_row.sh`, `check_weathering_rate_law.sh`, `check_escape_law.sh`,
+`check_boundary_momentum_book.sh`, `check_boundary_books.sh`, `check_active_rows.sh`,
+`check_derive_fixed_point.sh`, `check_driver_native.sh`, `check_sparse_edit.sh` and
+`check_ballistics.sh` each write a `zz_*_gate.gd` probe with a heredoc and launch to run it.
+`addons/local_agents/tests/lint_device_batch.gd` runs the bench rigs, whose probes are files, in one;
+a heredoc probe cannot join it until it is a file. Read the count with
+`scripts/agent_harness.sh lint` and the `LAUNCH_COUNT` line.
+
+## 15. EVERY GATE AT A RUNG TAKES ITS OWN WORLD AT THAT RUNG
+
+`la_rung_report` in `scripts/lib_rung.sh` launches a sim per call, and several gates at one rung ask for
+one world with different keys. `rg -n 'la_rung_report' scripts/check_*.sh` counts the calls; one arm per
+rung, recorded beside the shared capture, answers all of them.
+
+## 16. THE TWO COST RATCHETS ARE UNBANKED
+
+`docs/LINT_SECONDS_CEILING` and `docs/FIELD_MS_CEILING` read 0, so `scripts/check_lint_budget.sh` and
+`scripts/check_field_budget.sh` print LINT_NOT_EXAMINED instead of weighing anything. A full
+`scripts/agent_harness.sh lint` in a tree prints `LINT_BUDGET=` and `FIELD_BUDGET=`; running
+`scripts/write_ceilings.sh` in that same tree afterwards banks them, and every lint after only lowers.

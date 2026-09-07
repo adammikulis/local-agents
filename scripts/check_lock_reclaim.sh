@@ -48,6 +48,50 @@ if [ "$GOT" != "slow fast" ]; then
   fail=1
 fi
 
+# --- NO OVERTAKING: a newcomer may not claim a ticket number an earlier waiter has already passed ------
+# A number freed when its holder leaves is not free for a NEWCOMER: taking it sorts the newcomer ahead of
+# everyone still waiting, and a lane behind a busy queue then waits for ever.
+: > "$ORDER"
+ln -s "$$" "$T/g"
+QG="$T/g.q"
+mkdir -p "$QG/p" "$QG/n"
+ln -s "$$" "$QG/n/0"            # a live waiter holding the lowest number
+overtaker() {  # overtaker <name>
+  bash -c '
+    . "'"$ROOT"'/scripts/lib_godot_lock.sh"
+    la_dir_lock "'"$T"'/g" 40 1 || exit 1
+    echo "$1" >> "'"$ORDER"'"
+    rm -rf "'"$T"'/g"
+    la_dir_unqueue "'"$T"'/g"
+  ' _ "$1" &
+}
+overtaker early
+sleep 2
+rm -f "$QG/n/0"                 # the lowest number is freed while `early` is still waiting
+sleep 1
+overtaker late
+sleep 2
+rm -rf "$T/g"
+la_dir_unqueue "$T/g"
+wait
+GOT="$(tr '\n' ' ' < "$ORDER" | sed 's/ *$//')"
+if [ "$GOT" != "early late" ]; then
+  echo "a newcomer took a freed ticket number and overtook a waiter already in the queue:" >&2
+  echo "  served \"$GOT\", not arrival order \"early late\"" >&2
+  fail=1
+fi
+
+# --- SCOPE: an import does not queue for a device it cannot make --------------------------------------
+# godot_import.sh holds the machine EXTENSION lock across its launch. A launch that also waits for the GPU
+# lock inside it puts every other lane's import behind an unrelated lane's sim, and a headless engine has
+# no compute device to contend for.
+IMPORTER="$ROOT/scripts/lib_godot.sh"
+if ! grep -q 'headless.*-eq 1.*importing.*-eq 1\|importing.*-eq 1.*headless.*-eq 1' "$IMPORTER"; then
+  echo "la_godot takes the GPU lock for a headless --import: every lane's import then queues behind a" >&2
+  echo "  sim, while holding the extension lock that blocks every other import" >&2
+  fail=1
+fi
+
 # --- TIERS: a priority waiter queued LAST is served FIRST ---------------------------------------------
 : > "$ORDER"
 ln -s "$$" "$T/f"
