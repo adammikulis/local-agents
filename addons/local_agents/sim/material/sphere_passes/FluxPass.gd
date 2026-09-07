@@ -523,7 +523,8 @@ func _pc(row: Dictionary, cc: int, pass_id: int, dt_s: float,
 	pc.encode_float(76, air.y)
 	# J/m^3/K one mol/m^3 of the substance contributes to the sensible entry (molar mass times specific
 	# heat); 0 for a substance on a phase ladder, whose entry is the channel itself.
-	pc.encode_float(80, float(entry.get("molar_mass", 0.0)) * LAMatterChannels.specific_heat(substance))
+	pc.encode_float(80, float(entry.get("molar_mass", 0.0))
+		* LAMatterChannels.channel_specific_heat(String(row["channel"])))
 	pc.encode_u32(84, cc + ghost_count)
 	# XUV irradiance AT THIS BODY, already distance-corrected by the star that emitted it; the zenith
 	# cosine is what still scales it in-kernel.

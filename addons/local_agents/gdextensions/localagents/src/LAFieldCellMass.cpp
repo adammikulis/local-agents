@@ -311,8 +311,8 @@ Dictionary LAFieldCellMass3D::seed_enthalpy(Object *p_field, Object *p_grid,
 	const Dictionary rows = la_call_gd(CHANNELS_GD, "rows", Array());
 	const Dictionary table = LASubstances::table();
 	const char *MATTER_GD = "res://addons/local_agents/sim/material/MatterChannels.gd";
-	// Every matter channel once: its mirror, substance, molar mass, entry, sensible capacity, gas flag.
-	struct Chan { PackedFloat32Array arr; String sub; double molar; int entry; double cap; bool gas; bool lattice; double full; };
+	// Every matter channel once: its mirror, substance, molar mass, entry, gas flag.
+	struct Chan { PackedFloat32Array arr; String sub; double molar; int entry; bool gas; bool lattice; double full; };
 	std::vector<Chan> chans;
 	const Array names = rows.keys();
 	for (int i = 0; i < names.size(); i++) {
@@ -332,7 +332,6 @@ Dictionary LAFieldCellMass3D::seed_enthalpy(Object *p_field, Object *p_grid,
 		Array a1;
 		a1.append(sub);
 		ch.entry = int(la_call_gd(MATTER_GD, "entry_of", a1));
-		ch.cap = double(la_call_gd(MATTER_GD, "specific_heat", a1));
 		ch.gas = String(row.get("phase", "")) == "gas";
 		ch.lattice = bool(row.get("lattice", false));
 		// mol/m^3 at which a cell is full of it: the same full amount state_derive.glsl's props carry.
@@ -345,7 +344,6 @@ Dictionary LAFieldCellMass3D::seed_enthalpy(Object *p_field, Object *p_grid,
 	const double full_h2o = LASubstances::full_mol_m3("h2o");
 	const double kg_per_mol_h2o = double(Dictionary(table.get("h2o", Dictionary())).get("molar_mass", 0.0));
 	const Vector3 centre = p_field->call("centre");
-	const double kelvin = la_physical("KELVIN_OFFSET");
 	PackedFloat32Array h;
 	h.resize(cc);
 	float *hw = h.ptrw();
@@ -367,7 +365,7 @@ Dictionary LAFieldCellMass3D::seed_enthalpy(Object *p_field, Object *p_grid,
 		// The fluid's entries at the fluid's own pressure, the lattice's at the column its rock carries.
 		const double p_pa = std::max(double(p_p_pa[c]), 0.0);
 		const double p_rock = c < p_p_rock.size() ? std::max(double(p_p_rock[c]), 0.0) : p_pa;
-		double v_cond = 0.0, m_h2o_sea = 0.0, m_h2o_pore = 0.0, m_sil = 0.0, mc_rock = 0.0, mc_gas = 0.0, total_kg = 0.0;
+		double v_cond = 0.0, m_h2o_pore = 0.0, total_kg = 0.0;
 		for (const Chan &ch : chans) {
 			const double a = double(ch.arr[c]);
 			if (!(a > 0.0)) {
@@ -378,14 +376,8 @@ Dictionary LAFieldCellMass3D::seed_enthalpy(Object *p_field, Object *p_grid,
 			if (!ch.gas && ch.full > 0.0) {
 				v_cond += a / ch.full;
 			}
-			if (ch.entry == 0) {
-				(ch.lattice ? m_h2o_pore : m_h2o_sea) += m;
-			} else if (ch.entry == 1) {
-				m_sil += m;
-			} else if (ch.gas) {
-				mc_gas += m * ch.cap;
-			} else {
-				mc_rock += m * ch.cap;
+			if (ch.entry == 0 && ch.lattice) {
+				m_h2o_pore += m;
 			}
 		}
 		if (!(total_kg > 0.0)) {
@@ -394,17 +386,22 @@ Dictionary LAFieldCellMass3D::seed_enthalpy(Object *p_field, Object *p_grid,
 		// The gas room: the cell less every condensed volume, where the vapour stands at saturation.
 		const double room = cell_m3 * std::max(1.0 - v_cond, 0.0);
 		// TWO RESERVOIRS: the lattice (rock and its pore water) at the geotherm, the fluid (sea, air) at
-		// the surface. Seeded rock is bedrock, so every mineral is the lattice's.
-		double h_l = mc_rock * (t_rock + kelvin);
-		double h_f = mc_gas * (t_gas + kelvin);
-		if (m_h2o_sea > 0.0) {
-			h_f += m_h2o_sea * LAMixtureEnthalpy::specific_enthalpy("h2o", p_t_surface_c, p_pa, m_h2o_sea, room);
-		}
-		if (m_h2o_pore > 0.0) {
-			h_l += m_h2o_pore * LAMixtureEnthalpy::specific_enthalpy("h2o", t_rock, p_rock, m_h2o_pore, 0.0);
-		}
-		if (m_sil > 0.0) {
-			h_l += m_sil * LAMixtureEnthalpy::specific_enthalpy("silicate", t_rock, p_rock, m_sil, 0.0);
+		// the surface. Seeded rock is bedrock, so every mineral is the lattice's. EVERY substance is
+		// weighed on its own phase ladder, the one state_derive.glsl reads the enthalpy back over.
+		double h_l = 0.0;
+		double h_f = 0.0;
+		for (const Chan &ch : chans) {
+			const double a = double(ch.arr[c]);
+			if (!(a > 0.0)) {
+				continue;
+			}
+			const double m = a * ch.molar * cell_m3;
+			if (ch.lattice || (!ch.gas && ch.entry != 0)) {
+				h_l += m * LAMixtureEnthalpy::specific_enthalpy(ch.sub, t_rock, p_rock, m, 0.0);
+			} else {
+				h_f += m * LAMixtureEnthalpy::specific_enthalpy(ch.sub,
+						ch.gas ? t_gas : p_t_surface_c, p_pa, m, room);
+			}
 		}
 		const double h_j = h_l + h_f;
 		// THE CELL KEEPS INTERNAL ENERGY: U = H - pV over the room the lithic matter leaves, the same

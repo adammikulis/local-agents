@@ -1,8 +1,10 @@
 extends SceneTree
 
-## THE WATER PHASE LADDER, read off the real derive. A line of cells holding the same water at rising
-## internal energy: the gate judges the caloric curve's melting plateau, liquid slope and two-phase
-## locus against the IAPWS values. Three refining sweeps find the window, so no energy datum is assumed.
+## THE PHASE LADDER OF EVERY CONDENSED CHANNEL, read off the real derive: a line of cells holding one
+## substance at rising internal energy, water against IAPWS and each mineral against its own melting
+## point and enthalpy of fusion.
+
+const MELTERS: PackedStringArray = ["metal", "olivine"]
 
 const QuietWindow: GDScript = preload("res://addons/local_agents/runtime/QuietWindow.gd")
 const RigScript: GDScript = preload("res://addons/local_agents/tests/bench_rig.gd")
@@ -15,6 +17,8 @@ const N: int = 2048
 const KG_PER_M3: float = 1.0
 const T_LO_C: float = -30.0
 const T_HI_C: float = 108.0
+## Kelvin of sensible heat either side of a mineral's melting point, so both branches are resolved.
+const SPAN_K: float = 300.0
 
 var _rig: RefCounted = null
 var _pass: RefCounted = null
@@ -92,5 +96,45 @@ func _init() -> void:
 	print('BENCH_RAW_PHASE_CHANGE=' + JSON.stringify({"kg_per_m3": KG_PER_M3, "cells": N,
 		"molar_mass_kg_mol": LAPhysical.MOLAR_MASS_WATER_KG_MOL,
 		"columns": ["e_j_m3", "temp_c", "pressure_pa", "solid", "liquid", "vapour"], "rows": rows}))
+	_rig.fill("h2o", 0.0)
+	for channel: String in MELTERS:
+		print('BENCH_RAW_MELT_LADDER=' + JSON.stringify(_melt_sweep(channel)))
+	print('BENCH_PHASE_CHANGE_DONE=1')
 	_rig.close()
 	quit(0)
+
+
+## One mineral's caloric curve: half a cell of it under nitrogen, swept across its own melting point
+## with sensible heat to spare either side. No other channel crosses a boundary in that range.
+func _melt_sweep(channel: String) -> Dictionary:
+	var id: String = String(LAChannels.rows()[channel].get("substance", ""))
+	var row: Dictionary = LASubstances.table()[id]
+	var mol_m3: float = 0.5 * float(row["density"]) / float(row["molar_mass"])
+	var kg_m3: float = mol_m3 * float(row["molar_mass"])
+	var melt_c: float = float(row["melt_c"])
+	# NITROGEN OVER IT, at about one atmosphere at the melting point: a condensed phase alone in a cell
+	# that is not full has no pressure at all, and a mineral in a vacuum sublimes instead of melting.
+	# Nitrogen is far above its own critical point here, so it crosses no boundary of its own.
+	_rig.fill(channel, mol_m3)
+	_rig.fill("n2", LAPhysical.STANDARD_PRESSURE_PA * 0.5
+		/ (LAPhysical.GAS_CONSTANT_J_MOL_K * (melt_c + LAPhysical.KELVIN_OFFSET)))
+	_rig.fill("pressure", LAPhysical.STANDARD_PRESSURE_PA)
+	var p: float = LAPhysical.STANDARD_PRESSURE_PA
+	var e_lo: float = kg_m3 * LASubstances.enthalpy_at(id, melt_c - SPAN_K, p)
+	var e_hi: float = kg_m3 * LASubstances.enthalpy_at(id, melt_c + SPAN_K, p)
+	var e: PackedFloat32Array = PackedFloat32Array()
+	e.resize(N)
+	for c in N:
+		e[c] = e_lo + (e_hi - e_lo) * float(c) / float(N - 1)
+	_rig.upload("e_j_m3", e)
+	_rig.fill("e_lith_j_m3", 0.0)
+	_rig.step({"cell_size": CELL, "centre": Vector3.ZERO, "spin": Vector3.ZERO,
+		"spin_rate_rad_s": 0.0, "sea_radius": 0.0, "gravity_self": 0.0, "dt_s": 1.0})
+	var t: PackedFloat32Array = _rig.read("temp")
+	var rows: Array = []
+	for c in N:
+		rows.append([float(e[c]), float(t[c])])
+	_rig.fill(channel, 0.0)
+	_rig.fill("n2", 0.0)
+	return {"substance": id, "kg_per_m3": kg_m3, "cells": N,
+		"molar_mass_kg_mol": float(row["molar_mass"]), "columns": ["e_j_m3", "temp_c"], "rows": rows}
