@@ -81,14 +81,14 @@ if [ "$GOT" != "early late" ]; then
   fail=1
 fi
 
-# --- SCOPE: an import does not queue for a device it cannot make --------------------------------------
-# godot_import.sh holds the machine EXTENSION lock across its launch. A launch that also waits for the GPU
-# lock inside it puts every other lane's import behind an unrelated lane's sim, and a headless engine has
-# no compute device to contend for.
+# --- SCOPE: a headless launch does not queue for a device it cannot make -------------------------------
+# create_local_rendering_device returns null under --headless, which is why every rig is windowed. A
+# headless launch that waits for the GPU lock queues behind other lanes' sims for nothing, and
+# godot_import.sh holds the machine EXTENSION lock while it does.
 IMPORTER="$ROOT/scripts/lib_godot.sh"
-if ! grep -q 'headless.*-eq 1.*importing.*-eq 1\|importing.*-eq 1.*headless.*-eq 1' "$IMPORTER"; then
-  echo "la_godot takes the GPU lock for a headless --import: every lane's import then queues behind a" >&2
-  echo "  sim, while holding the extension lock that blocks every other import" >&2
+if ! grep -q 'if \[ "\$headless" -eq 1 \]; then' "$IMPORTER"; then
+  echo "la_godot takes the GPU lock for a headless launch: every lane's batch and import then queues" >&2
+  echo "  behind a sim for a device a headless engine cannot make" >&2
   fail=1
 fi
 

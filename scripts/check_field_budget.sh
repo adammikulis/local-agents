@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
-# WHAT ONE FIELD STEP COSTS. The worst step of the shared slice arm, off its own field_ms gauge, against
-# docs/FIELD_MS_CEILING. DECISION: the worst step, not a sample and not a mean — one sample cannot say how
-# expensive a step is, and a mean hides the step that stalls a frame. The arm is the lint's own capture,
-# so this weighs the slice everything else is measured on and adds no launch to the loop.
+# WHAT ONE FIELD STEP COSTS: the worst step of the lint's own slice arm, off its field_ms gauge, against
+# docs/FIELD_MS_CEILING. DECISION: the worst step, not a sample and not a mean.
 # A body capture is a different world's step and is NOT EXAMINED. Ratchet: may fall, may not rise.
 # EXIT 0 at or under the ceiling · 1 over it · 2 nothing was timed · 3 not this arm.
 set -uo pipefail

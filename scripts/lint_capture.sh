@@ -134,7 +134,7 @@ fi
 DEVICE_REL="addons/local_agents/tests/lint_device_batch.gd"
 if [ -f "$ROOT/$DEVICE_REL" ]; then
 	LA_CAPTURE_RUNG="$CAP_RUNG" LA_DONE_RE='^LA_DEVICE_BATCH_DONE=' \
-		LA_RUN_TIMEOUT="${LA_DEVICE_BATCH_TIMEOUT:-300}" "$SCRIPT_DIR/run_sim_offscreen.sh" \
+		LA_RUN_TIMEOUT="${LA_DEVICE_BATCH_TIMEOUT:-120}" "$SCRIPT_DIR/run_sim_offscreen.sh" \
 		--path "$ROOT" -s "res://$DEVICE_REL" > "$CAP/device_batch.log" 2>&1
 fi
 fi

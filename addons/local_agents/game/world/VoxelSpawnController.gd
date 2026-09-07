@@ -62,7 +62,11 @@ func suppress_initial_spawn() -> void:
 ## and the temperature in the cell above it; a count of frames says only that time passed, so under load
 ## the same world seeds a different census. Both answers exist or the seeding waits.
 func _world_ready() -> bool:
-	if _material == null or not _material.has_method("seeding_ready") or not _material.seeding_ready():
+	if _material == null or not _material.has_method("step_driver"):
+		return false
+	# A step is only counted once the world is sealed, so one of them means both.
+	var step = _material.step_driver()
+	if step == null or not step.has_method("full_steps") or step.full_steps() <= 0:
 		return false
 	if _terrain == null or not _terrain.has_method("surface_radius") \
 			or not _terrain.has_method("planet_center"):

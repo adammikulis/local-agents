@@ -10,7 +10,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 require_tool python3
 
 SPAWN="$ROOT/addons/local_agents/game/world/VoxelSpawnController.gd"
-FIELD="$ROOT/addons/local_agents/sim/material/MaterialField3D.gd"
+FIELD="$ROOT/addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd"
 CAPTURE="$ROOT/scripts/lint_capture.sh"
 for f in "$SPAWN" "$FIELD" "$CAPTURE"; do
 	[ -f "$f" ] || { echo "check_seed_readiness: MISSING ${f#"$ROOT"/}" >&2; exit 2; }
@@ -21,7 +21,7 @@ import re, sys
 
 spawn_path, field_path, capture_path = sys.argv[1], sys.argv[2], sys.argv[3]
 spawn = open(spawn_path, errors="replace").read()
-field = open(field_path, errors="replace").read()
+field_step = open(field_path, errors="replace").read()
 capture = open(capture_path, errors="replace").read()
 fails = []
 
@@ -54,18 +54,13 @@ ready = body_of(spawn, "_world_ready")
 if ready is None:
     fails.append("the spawn controller declares no _world_ready")
 else:
-    for want, why in (("seeding_ready", "the field being sealed with a step drained into its mirrors"),
+    for want, why in (("full_steps", "the field having drained a sealed step into its mirrors"),
                       ("surface_radius", "the terrain answering a radius under the site")):
         if want not in ready:
             fails.append("_world_ready does not consult %s: %s goes unwaited-for" % (want, why))
 
-seeding = body_of(field, "seeding_ready")
-if seeding is None:
-    fails.append("MaterialField3D declares no seeding_ready, so the field cannot say when it can answer")
-else:
-    for want in ("sealed()", "full_steps()"):
-        if want not in seeding:
-            fails.append("seeding_ready does not read %s, so it answers before the world does" % want)
+if "func full_steps" not in field_step:
+    fails.append("the step driver declares no full_steps, so nothing can say the world has stepped")
 
 # THE DEMO RUN IS THE SHARED ARM'S, taken before any gate starts. A gate that took its own would run it
 # beside the worker pool, and the census would read the machine's load as well as the world.

@@ -29,7 +29,7 @@ while :; do
 		b="${f##*/}"; b="${b%.sh}"
 		case "$b" in lib_*) continue ;; esac   # a library is SOURCED; which of its functions run decides
 		case "|$LAUNCH|" in *"|$b|"*) continue ;; esac
-		if rg -q -e "\"\\\$[A-Za-z_][A-Za-z_0-9]*[^\"]*/($LAUNCH)\\.sh\"" "$f"; then
+		if rg -q -e "(^|[[:space:]]|\()\"\\\$[A-Za-z_][A-Za-z_0-9]*[^\"]*/($LAUNCH)\\.sh\"" "$f"; then
 			LAUNCH="$LAUNCH|$b"
 			grown=1
 		fi
@@ -46,7 +46,7 @@ for b in $in_lint; do
 	f="$ROOT/scripts/$b.sh"
 	[ -f "$f" ] || continue
 	[ "$b" = "check_gpu_gate_list" ] && continue   # this scan names the patterns it looks for
-	if rg -q -e "\"\\\$[A-Za-z_][A-Za-z_0-9]*[^\"]*/($LAUNCH)\\.sh\"" "$f" \
+	if rg -q -e "(^|[[:space:]]|\()\"\\\$[A-Za-z_][A-Za-z_0-9]*[^\"]*/($LAUNCH)\\.sh\"" "$f" \
 		|| rg -q -e "[\$][(]la_($CAP_READ)\b" "$f" \
 		|| rg -q -e '\bLA_LINT_TIMING_LOG\b' "$f" \
 		|| rg -q -e '/bin/lasim"' "$f" \

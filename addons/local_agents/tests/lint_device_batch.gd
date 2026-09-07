@@ -1,9 +1,7 @@
 extends SceneTree
 
-## ONE LAUNCH WITH THE DEVICE FOR EVERY RIG THAT ONLY NEEDS ONE. Output is fenced with
-## LA_BATCH_BEGIN=/LA_BATCH_END= so lint_capture.sh splits the log per rig, and each rig prints the
-## marker its gate reads. A rig whose gate belongs to a rung above this capture's is not run: nothing
-## reads it. Every launch costs a trip through the machine GPU lock, so the rigs share one.
+## ONE LAUNCH WITH THE DEVICE FOR EVERY RIG THAT ONLY NEEDS ONE, fenced with
+## LA_BATCH_BEGIN=/LA_BATCH_END= so lint_capture.sh splits the log per rig.
 
 const RUNNERS: Array = [
 	["bench_hydrostatic_column", "res://addons/local_agents/tests/bench_hydrostatic_column.gd",
