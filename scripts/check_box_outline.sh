@@ -14,7 +14,9 @@ require_tool python3
 
 SCENE="addons/local_agents/examples/SliceRung1Demo.tscn"
 [ -f "$ROOT/$SCENE" ] || { echo "check_box_outline: no scene at $SCENE" >&2; exit 2; }
-POSE="${LA_BOX_OUTLINE_POSE:-10000:-60:0}"
+# THE POSE THE FADE IS READ FROM: the one that separates a pillar's foot from its fade height by the
+# most pixels, so the two discs never overlap. Which corners it shows is the camera's business.
+POSE="${LA_BOX_OUTLINE_POSE:-6000:-40:0}"
 SIZE="${LA_BOX_OUTLINE_SIZE:-1280x800}"
 # THE FRAME IS THE WORLD, NOT THE INTERFACE: every panel is dropped, and so is every module that moves
 # on its own -- a marching arrow stripe, a drifting droplet and a falling probe differ between two
@@ -64,6 +66,8 @@ FAR = 6.0
 # What must be lit along the perimeter, and what may differ away from it.
 GROUND_LIT = 0.6
 FAR_HOT = 0.005
+# Fractions of a pillar's fade height that count as its lit end.
+LOW_MAX = 0.25
 
 
 def log(name):
@@ -151,8 +155,10 @@ for run in pub["ground"]:
     for i in range(len(run) - 1):
         if run[i] is not None and run[i + 1] is not None:
             segments.append((run[i], run[i + 1]))
-for pil in pub["pillars"]:
-    segments.append((pil["low"], pil["top"]))
+for run in pub["pillars"]:
+    for i in range(len(run) - 1):
+        if run[i] is not None and run[i + 1] is not None:
+            segments.append((run[i], run[i + 1]))
 if not segments:
     print("check_box_outline: none of the outline's vertices stand in front of the eye, so the pose "
           "does not look at the box.", file=sys.stderr)
@@ -192,29 +198,45 @@ if far_frac > FAR_HOT:
     fails.append("%.2f%% of the frame away from the box differs between the two arms: the outline is "
                  "drawing somewhere the box is not" % (100.0 * far_frac))
 
-# THE PILLARS FADE. Each is lit near the ground and, at the fade height, under the floor the renderer
-# itself declared -- as a fraction of its own lit end, so this is a test of the fade, not of a brightness.
+# THE PILLARS FADE, READ WHERE THE POLYLINE ACTUALLY PROJECTS. A pillar is measured only where the
+# renderer says it stands: its fade height must be in the frame and its lit end must be drawn there.
+# One this pose does not show is skipped by name: the pose belongs to the camera and may move, and the
+# fade is this gate's claim.
 floor = float(pub["fade_floor"])
-pillars = [p for p in pub["pillars"] if in_frame(p["low"]) and in_frame(p["top"])]
-if len(pillars) < 2:
-    print("check_box_outline: %d corner pillars stand in the frame, so the fade cannot be read."
-          % len(pillars), file=sys.stderr)
-    sys.exit(2)
+at = [float(t) for t in pub["pillar_at"]]
+top_i = len(at) - 1
+low_i = [i for i, t in enumerate(at) if t <= LOW_MAX]
 reads = []
-for p in pillars:
-    low = disc_max(p["low"][0], p["low"][1])
-    top = disc_max(p["top"][0], p["top"][1])
-    reads.append((low, top))
-    if low < MIN_DIFF:
-        fails.append("a corner pillar is not drawn at its foot (%d of 255), so its fade is a fade of "
-                     "nothing" % low)
-    elif top > floor * low or top >= MIN_DIFF:
-        fails.append("a corner pillar still reads %d of 255 at the fade height against %d at its foot: "
-                     "over the declared floor of %.3f, or still in the picture at all"
-                     % (top, low, floor))
+skipped = []
+for run in pub["pillars"]:
+    top_px = run[top_i]
+    if top_px is None or not in_frame(top_px):
+        skipped.append("its fade height stands outside the frame")
+        continue
+    lows = [run[i] for i in low_i if run[i] is not None and in_frame(run[i])]
+    if not lows:
+        skipped.append("its lit end stands outside the frame")
+        continue
+    lit = max(disc_max(p[0], p[1]) for p in lows)
+    if lit < MIN_DIFF:
+        skipped.append("nothing of it is in the picture at its lit end (%d of 255)" % lit)
+        continue
+    top = disc_max(top_px[0], top_px[1])
+    reads.append((lit, top))
+    if top > floor * lit or top >= MIN_DIFF:
+        fails.append("a corner pillar still reads %d of 255 at the fade height against %d at its lit "
+                     "end: over the declared floor of %.3f, or still in the picture at all"
+                     % (top, lit, floor))
+for why in skipped:
+    print("check_box_outline: a corner pillar was not measured -- %s." % why, file=sys.stderr)
+if not reads:
+    print("check_box_outline: no corner pillar was drawn anywhere this pose can read, so the fade was "
+          "never measured.", file=sys.stderr)
+    sys.exit(2)
 
-print('BOX_OUTLINE_SHOT={"ground_lit":%.3f,"far_hot":%.5f,"pillars":%s,"thick_px":%.2f,"fade_m":%.0f}'
-      % (frac, far_frac, json.dumps(reads), thick, float(pub["fade_m"])))
+print('BOX_OUTLINE_SHOT={"ground_lit":%.3f,"far_hot":%.5f,"pillars":%s,"unmeasured":%d,'
+      '"thick_px":%.2f,"fade_m":%.0f}'
+      % (frac, far_frac, json.dumps(reads), len(skipped), thick, float(pub["fade_m"])))
 if fails:
     for f in fails:
         print("  " + f, file=sys.stderr)

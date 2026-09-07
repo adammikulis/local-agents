@@ -18,8 +18,8 @@ const FADE_ALPHA_FLOOR: float = 0.05
 const GROUND_PIECES: int = 48
 ## Pieces per pillar, each sized at its own distance from the eye and shaded over its own span.
 const PILLAR_PIECES: int = 24
-## Where along a pillar its lit end is read.
-const PILLAR_LOW_FRAC: float = 0.05
+## Fractions of the fade height a pillar is published at: its lit end first, the fade height last.
+const PILLAR_AT: Array = [0.05, 0.15, 0.25, 0.5, 0.75, 1.0]
 ## Published ground vertices: every stride-th sample of the drawn line.
 const PUBLISH_STRIDE: int = 4
 
@@ -184,14 +184,16 @@ func _report() -> void:
 		line.append(edge)
 	var pillars: Array = []
 	for c in EDGES:
-		var low: Array = _pixel(_corners[c] + _ups[c] * (PILLAR_LOW_FRAC * _fade_m))
-		var top: Array = _pixel(_corners[c] + _ups[c] * _fade_m)
-		if not low.is_empty() and not top.is_empty():
-			pillars.append({"low": low, "top": top})
+		var run: Array = []
+		for t in PILLAR_AT:
+			var px: Array = _pixel(_corners[c] + _ups[c] * (float(t) * _fade_m))
+			run.append(null if px.is_empty() else px)
+		pillars.append(run)
 	print("BOX_OUTLINE=%s" % JSON.stringify({
 		"size": [int(size.x), int(size.y)],
 		"thick_px": EDGE_SUBTEND * size.y / (2.0 * tan(0.5 * deg_to_rad(_camera.fov))),
-		"fade_m": _fade_m, "fade_floor": FADE_ALPHA_FLOOR, "ground": line, "pillars": pillars}))
+		"fade_m": _fade_m, "fade_floor": FADE_ALPHA_FLOOR, "pillar_at": PILLAR_AT,
+		"ground": line, "pillars": pillars}))
 
 
 ## A field-frame point in the shot's pixels; empty when it stands behind the eye.
