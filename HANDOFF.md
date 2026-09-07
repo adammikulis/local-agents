@@ -152,9 +152,16 @@ every planet mineral carries basalt's `albedo` and `emissivity`.
 ## 17. THE PHYSICS RUNS INSIDE GODOT'S PROCESS
 
 Maintainer's decision, standing: a standalone native process with its own device, clock and CLI; gates
-run it with no Godot launch; Godot attaches as a viewer. Today every pass is a GDScript record on a Godot
-RenderingDevice (`LAFieldDriver`) and `scripts/run_sim_offscreen.sh` launches Godot for every gate.
-Branch `native-plans` is unlanded: `scripts/check_lasim_parity.sh` there reads `plan_reduce.lapl is truncated`.
+run it with no Godot launch; Godot attaches as a viewer.
+
+`lasim` replays a recorded plan and takes its kernels off that plan, so it steps whatever a capture
+holds. Nothing writes a capture of the seeded world: give `LAFieldDriver` a recording seam, so that the
+dispatches it issues in `run`, `_fire`, `_fire_on` and `run_reduce` are written out beside the buffers
+`MaterialSphereGPU3D` holds and the sets `SpherePass._uset` builds.
+Reading: `LAFieldDriver` declares no `record_dispatch`, so no plan of the seeded world is ever written.
+Until then `scripts/check_hydrostatic_seed.sh` and `scripts/check_atmosphere_at_rest.sh` launch Godot
+for a world of their own: `rg -n 'sim_run.sh|la_rung_report' scripts/check_hydrostatic_seed.sh
+scripts/check_atmosphere_at_rest.sh`.
 
 ## 18. THE LEDGER RECONSTRUCTS ELEMENTS FROM CHANNEL AMOUNTS
 
