@@ -7,32 +7,32 @@
 // each adopt a part, so a syntax error in a path neither takes still fails the build. Compiled, never
 // dispatched; test_enthalpy_roundtrip.gd reads its SPIR-V.
 #include "enthalpy.glsli"
+#define LA_MIX_SLOTS 2
 #include "mixture_enthalpy.glsli"
 
 layout(local_size_x = 64) in;
 
 layout(set = 0, binding = LA_BIND_ENTHALPY_PROBE, std430) restrict buffer Probe { float probe[]; };
 
+// The cell this probe stands up: water and rock, each with its own mass.
+float mix_m[LA_MIX_SLOTS];
+
+int la_mix_n() { return LA_MIX_SLOTS; }
+float la_mix_mass(int k) { return mix_m[k]; }
+SubstanceTh la_mix_sub(int k) { return k == 0 ? la_h2o() : la_silicate(); }
+
 void main() {
 	uint i = gl_GlobalInvocationID.x * 5u;
 	float h_total = probe[i];
 	float p_pa = probe[i + 1u];
 	float room_m3 = probe[i + 2u];
-	SubstanceTh subs[LA_MIX_MAX];
-	float mass[LA_MIX_MAX];
-	subs[0] = la_h2o();
-	subs[1] = la_silicate();
-	subs[2] = la_h2o();
-	subs[3] = la_silicate();
-	mass[0] = probe[i + 3u];
-	mass[1] = probe[i + 4u];
-	mass[2] = 0.0;
-	mass[3] = 0.0;
+	mix_m[0] = probe[i + 3u];
+	mix_m[1] = probe[i + 4u];
 	bool pinned;
 	float progress;
-	float t = la_mix_state(subs, mass, 2, h_total, p_pa, room_m3, 0.0, pinned, progress);
-	vec4 st = la_enthalpy_to_state(subs[0], h_total, p_pa, 0.0);
+	float t = la_mix_state(h_total, p_pa, room_m3, 0.0, pinned, progress);
+	vec4 st = la_enthalpy_to_state(la_h2o(), h_total, p_pa, 0.0);
 	probe[i] = t + st.x + progress + float(pinned)
-		+ la_mix_enthalpy_at(subs, mass, 2, t, p_pa, room_m3, 0.0)
-		+ la_state_to_enthalpy(subs[1], t, p_pa, 0.0);
+		+ la_mix_enthalpy_at(t, p_pa, room_m3, 0.0)
+		+ la_state_to_enthalpy(la_silicate(), t, p_pa, 0.0);
 }

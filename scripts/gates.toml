@@ -138,6 +138,14 @@ marker = "^check_fakes: OK"
 mutation = "perl -0pi -e 's/LAFakes\\.stands_in\\(\"recruitment_rate\"\\)/LAFakes.stands_in(\"undeclared_stand_in\")/' addons/local_agents/sim/ecology/EcologyBreeding.gd"
 
 [[gate]]
+name = "check_fakes_states"
+script = "scripts/check_fakes_states.sh"
+kind = "gpu"
+marker = "^check_fakes_states: OK"
+mutation = "perl -0pi -e 's/return LAAblate\\.state_of\\(name\\) == LAAblate\\.state_fake\\(\\)/return true/' addons/local_agents/sim/LAFakes.gd"
+needs = ["import"]
+
+[[gate]]
 name = "check_biota_books"
 script = "scripts/check_biota_books.sh"
 kind = "gpu"
@@ -353,6 +361,13 @@ name = "check_process_set"
 script = "scripts/check_process_set.sh"
 kind = "headless"
 marker = "^check_process_set: OK"
+
+[[gate]]
+name = "check_fly_nav"
+script = "scripts/check_fly_nav.sh"
+kind = "headless"
+marker = "^check_fly_nav: OK"
+mutation = "perl -0pi -e 's/_fly_vel = _fly_vel\\.lerp\\(want, k\\)/_fly_vel = want/' addons/local_agents/game/VoxelCameraRig.gd"
 
 [[gate]]
 name = "check_process_ui"
