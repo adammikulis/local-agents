@@ -47,7 +47,7 @@ func _process(_delta: float) -> void:
 			var a: Vector3 = from.lerp(pos, float(k) / float(TRAIL_PIECES))
 			var b: Vector3 = from.lerp(pos, float(k + 1) / float(TRAIL_PIECES))
 			_trails.multimesh.set_instance_transform(i * TRAIL_PIECES + k,
-				_column(a, b, TRAIL_SUBTEND * eye.distance_to(0.5 * (a + b))))
+				LARenderGlyph.segment(a, b, TRAIL_SUBTEND * eye.distance_to(0.5 * (a + b))))
 
 
 ## Room for `want` instances, and that many drawn.
@@ -55,18 +55,6 @@ static func _fit(mm: MultiMesh, want: int) -> void:
 	if mm.instance_count < want:
 		mm.instance_count = want
 	mm.visible_instance_count = want
-
-
-## A box spanning `a` to `b`, `w` across: the path the probe took, given a width the eye can find.
-static func _column(a: Vector3, b: Vector3, w: float) -> Transform3D:
-	var along: Vector3 = b - a
-	var len_m: float = along.length()
-	if len_m <= 0.0:
-		return Transform3D(Basis.IDENTITY.scaled(Vector3.ZERO), a)
-	var y: Vector3 = along / len_m
-	var ref: Vector3 = Vector3.UP if absf(y.y) < 0.95 else Vector3.RIGHT
-	var x: Vector3 = ref.cross(y).normalized()
-	return Transform3D(Basis(x * w, y * len_m, y.cross(x) * w), 0.5 * (a + b))
 
 
 func _instances(mesh: Mesh, col: Color) -> MultiMeshInstance3D:

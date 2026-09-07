@@ -48,6 +48,34 @@ if [ "$GOT" != "slow fast" ]; then
   fail=1
 fi
 
+# --- NO OVERTAKING: a newcomer may not claim a number under a lane already waiting --------------------
+# Ticket 0 is held and then released while `waiting` sits on ticket 1: a newcomer must queue above it.
+: > "$ORDER"
+ln -s "$$" "$T/g"
+mkdir -p "$T/g.q/p" "$T/g.q/n"
+ln -s "$$" "$T/g.q/n/0"
+overtake() {  # overtake <name>
+  bash -c '
+    . "'"$ROOT"'/scripts/lib_godot_lock.sh"
+    la_dir_lock "'"$T"'/g" 40 1 || exit 1
+    echo "$1" >> "'"$ORDER"'"
+    rm -rf "'"$T"'/g"
+    la_dir_unqueue "'"$T"'/g"
+  ' _ "$1" &
+}
+overtake waiting
+sleep 2
+rm -f "$T/g.q/n/0"
+overtake newcomer
+sleep 2
+rm -rf "$T/g"
+wait
+GOT="$(tr '\n' ' ' < "$ORDER" | sed 's/ *$//')"
+if [ "$GOT" != "waiting newcomer" ]; then
+  echo "the lock was handed out \"$GOT\": a newcomer took a freed number under a waiting lane" >&2
+  fail=1
+fi
+
 # --- TIERS: a priority waiter queued LAST is served FIRST ---------------------------------------------
 : > "$ORDER"
 ln -s "$$" "$T/f"
