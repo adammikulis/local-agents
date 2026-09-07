@@ -159,6 +159,10 @@ float gas_number_density(uint c) {
 // PAST THE CONTINUUM THERE IS NO FLUID: a cell whose gas has a mean free path past the Knudsen limit
 // of its own edge holds molecules on ballistic paths; its faces are walls to the fluid below.
 bool collisionless(uint c) {
+	// A ghost tail cell is a prescribed state with no edge to hold a mean free path against.
+	if (c >= params.cell_count) {
+		return false;
+	}
 	float n = gas_number_density(c);
 	float sigma = sqrt(2.0) * radians(180.0) * N2_DIAMETER * N2_DIAMETER;
 	return cloud_water_kg_m3(c) <= 0.0 && n * sigma * cell_edge[c] * KNUDSEN_LIMIT < 1.0;

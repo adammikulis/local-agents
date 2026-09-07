@@ -3,25 +3,39 @@
 
 #include <godot_cpp/classes/node.hpp>
 #include <godot_cpp/classes/ref_counted.hpp>
+#include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_string_array.hpp>
 #include <godot_cpp/variant/string.hpp>
 
 namespace godot {
 
-// ONE REGISTRY for what a run can switch off: the presentation modules a layer adopts and the physics
-// processes the rung contains (LAProcessSet's live mask), under one `off`, one `set_on`, one `names`,
-// one `--ablate=` and one sweep. A process the rung lacks has no entry and asking for one is refused.
+// ONE REGISTRY for what a run can switch: the presentation modules a layer adopts, the physics processes
+// the rung contains (LAProcessSet's live mask), and the stand-ins LAFakes declares, under one `set_on`,
+// one `set_state`, one `names`, one `--ablate=` and one sweep. A process the rung lacks has no entry and
+// asking for one is refused. A module and a process answer on/off; a stand-in answers off/fake/real.
 class LAAblate : public RefCounted {
 	GDCLASS(LAAblate, RefCounted);
 
 public:
+	static String state_off();
+	static String state_fake();
+	static String state_real();
+
 	static bool off(const String &p_name);
 	static void adopt(const String &p_name, Node *p_node);
+	// A stand-in, and the ladder rung whose arrival makes its `real` state the default (< 0: no rung).
+	static void adopt_fake(const String &p_name, int p_rung);
 	static void set_on(const String &p_name, bool p_on);
 	static bool is_on(const String &p_name);
-	// "process" for one the rung contains, "module" for an adopted node, "" for a name neither holds.
+	// off: nothing supplies the quantity. fake: the registered stand-in. real: the field's own process.
+	static void set_state(const String &p_name, const String &p_state);
+	static String state_of(const String &p_name);
+	static String default_state(const String &p_name);
+	static int fake_rung(const String &p_name);
+	static Dictionary fake_states();
+	// "process" for one the rung contains, "module" for an adopted node, "fake" for a stand-in, "" else.
 	static String kind_of(const String &p_name);
-	// Processes in ladder order, then the adopted modules.
+	// Processes in ladder order, then the adopted modules, then the stand-ins.
 	static PackedStringArray names();
 	// The switches this run's flags are due to throw by `step`, on the sim clock.
 	static void apply_schedule(int p_step);

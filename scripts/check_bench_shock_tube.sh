@@ -14,8 +14,8 @@ command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 not on PATH." >&2; 
 PROBE="addons/local_agents/tests/bench_shock_tube.gd"
 [ -f "$REPO_ROOT/$PROBE" ] || { echo "ERROR: $PROBE missing." >&2; exit 2; }
 
-JUDGE="$(mktemp "${TMPDIR:-/tmp}/bench_shock.XXXXXX.py")"
-trap 'rm -f "$JUDGE"' EXIT INT TERM
+JUDGE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/bench_shock.XXXXXX")"; JUDGE="$JUDGE_DIR/judge.py"
+trap 'rm -rf "$JUDGE_DIR"' EXIT INT TERM
 cat > "$JUDGE" <<'PY'
 import json, math, os, sys
 

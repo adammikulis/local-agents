@@ -11,7 +11,7 @@ const int LA_ATOMS  = 3;             // LASubstances.ATOMS
 const int LA_PLASMA = 4;             // LASubstances.PLASMA
 const int LA_SUPERCRITICAL = 5;      // LASubstances.SUPERCRITICAL
 
-#define LA_MAX_EL 3
+#define LA_MAX_EL 5
 
 const float LA_KELVIN_OFFSET    = 273.15;             // LAPhysical.KELVIN_OFFSET
 const float LA_WATSON_EXP       = 0.38;               // LAPhysical.WATSON_LATENT_EXPONENT
@@ -87,19 +87,19 @@ SubstanceTh la_h2o() {
 		true,
 		true,
 		2,
-		float[LA_MAX_EL](2.0, 1.0, 0.0),
+		float[LA_MAX_EL](2.0, 1.0, 0.0, 0.0, 0.0),
 		float[LA_MAX_EL](
 			13.598,         // LAPhysical.IONISATION_EV_H
 			13.618,         // LAPhysical.IONISATION_EV_O
-			0.0),
+			0.0, 0.0, 0.0),
 		float[LA_MAX_EL](
 			2.0,            // LAPhysical.DEGEN_H_0
 			9.0,            // LAPhysical.DEGEN_O_0
-			0.0),
+			0.0, 0.0, 0.0),
 		float[LA_MAX_EL](
 			1.0,            // LAPhysical.DEGEN_H_1
 			4.0,            // LAPhysical.DEGEN_O_1
-			0.0)
+			0.0, 0.0, 0.0)
 	);
 }
 
@@ -131,10 +131,10 @@ SubstanceTh la_silicate() {
 		false,
 		false,
 		0,
-		float[LA_MAX_EL](0.0, 0.0, 0.0),
-		float[LA_MAX_EL](0.0, 0.0, 0.0),
-		float[LA_MAX_EL](0.0, 0.0, 0.0),
-		float[LA_MAX_EL](0.0, 0.0, 0.0)
+		float[LA_MAX_EL](0.0, 0.0, 0.0, 0.0, 0.0),
+		float[LA_MAX_EL](0.0, 0.0, 0.0, 0.0, 0.0),
+		float[LA_MAX_EL](0.0, 0.0, 0.0, 0.0, 0.0),
+		float[LA_MAX_EL](0.0, 0.0, 0.0, 0.0, 0.0)
 	);
 }
 
@@ -479,6 +479,7 @@ float la_ionised_fraction(SubstanceTh s, float t_k, float p_pa) {
 	for (int i = 0; i < LA_MAX_EL; ++i) {
 		if (i >= s.n_el) { break; }
 		atoms += s.el_n[i];
+		if (s.el_chi_ev[i] <= 0.0 || s.el_g1[i] <= 0.0) { continue; }
 		float chi = s.el_chi_ev[i] * LA_EV_TO_J_PER_MOL / LA_AVOGADRO;
 		float ratio = 2.0 * s.el_g1[i] / max(s.el_g0[i], 1.0);
 		float ln_big = log(max(ratio, 1.0e-30)) + ln_lam - chi / kt - log(max(n_m3, 1.0));

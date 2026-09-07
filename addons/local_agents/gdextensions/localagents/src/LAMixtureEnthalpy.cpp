@@ -27,6 +27,18 @@ double prop(const String &p_id, const char *p_key, double p_default) {
 	return double(entry.get(p_key, p_default));
 }
 
+// A BOUNDARY WITH NO MEASURED LATENT HEAT IS NO BOUNDARY: crossing it would cost nothing, which is a
+// phase change for free. The row keeps whichever branches it does measure.
+bool has_fusion(const String &p_id) {
+	return std::isfinite(prop(p_id, "melt_c", kInf)) && prop(p_id, "latent_fusion_j_kg", 0.0) > 0.0;
+}
+
+bool has_vaporisation(const String &p_id) {
+	const bool curve = bool(Dictionary(LASubstances::table().get(p_id, Dictionary())).get("iapws", false))
+			|| std::isfinite(prop(p_id, "boil_c", kInf)) || prop(p_id, "triple_p_pa", 0.0) > 0.0;
+	return curve && prop(p_id, "latent_vaporisation_j_kg", 0.0) > 0.0;
+}
+
 } // namespace
 
 // Where this substance's last condensed phase leaves: the frost point below the triple-point pressure,
@@ -299,6 +311,109 @@ Dictionary LAMixtureEnthalpy::_report(const Dictionary &p_masses, double p_room_
 	return out;
 }
 
+// THE LADDER OF ONE SUBSTANCE, laid out for the kernel's props row. One authority: state_derive.glsl
+// reads its phase boundaries from here rather than spelling any of them a second time.
+// A boundary with no measured latent heat is no boundary: the row is named and stays linear in T.
+PackedFloat32Array LAMixtureEnthalpy::thermal_row(const String &p_id) {
+	PackedFloat32Array out;
+	const Dictionary s = LASubstances::table().get(p_id, Dictionary());
+	const Dictionary formula = Dictionary(s.get("formula", Dictionary()));
+	if (s.is_empty() || formula.size() > MAX_EL) {
+		ERR_PRINT(vformat("LAMixtureEnthalpy: \"%s\" carries %d elements and the kernel holds %d, so it "
+						  "would be weighed on the wrong atoms.",
+				p_id, formula.size(), MAX_EL));
+		return out;
+	}
+	out.resize(THERMAL_ROW_WORDS);
+	float *w = out.ptrw();
+	const double c_liq = prop(p_id, "specific_heat", 0.0);
+	w[0] = float(prop(p_id, "specific_heat_solid", c_liq));
+	w[1] = float(c_liq);
+	w[2] = float(prop(p_id, "specific_heat_gas", c_liq));
+	// A substance whose row is its solid names its melt; one whose row is its liquid names its solid.
+	const double rho_liq = prop(p_id, "density_melt", prop(p_id, "density", 0.0));
+	w[3] = float(s.has("density_melt") ? prop(p_id, "density", 0.0)
+									   : prop(p_id, "density_solid", rho_liq));
+	w[4] = float(rho_liq);
+	const double melt_c = prop(p_id, "melt_c", kInf);
+	const double l_fus = prop(p_id, "latent_fusion_j_kg", 0.0);
+	const bool has_melt = has_fusion(p_id);
+	if (std::isfinite(melt_c) && l_fus <= 0.0) {
+		ERR_PRINT(vformat("LAMixtureEnthalpy: LASubstances gives \"%s\" a melting point and no "
+						  "latent_fusion_j_kg, so it would melt for nothing; it stays linear in T.",
+				p_id));
+	}
+	const double boil_c = prop(p_id, "boil_c", kInf);
+	const double triple_p = prop(p_id, "triple_p_pa", 0.0);
+	const double l_vap = prop(p_id, "latent_vaporisation_j_kg", 0.0);
+	const bool iapws = bool(s.get("iapws", false));
+	const bool has_vapour = iapws || std::isfinite(boil_c) || triple_p > 0.0;
+	const bool has_boil = has_vaporisation(p_id);
+	if (has_vapour && l_vap <= 0.0) {
+		ERR_PRINT(vformat("LAMixtureEnthalpy: LASubstances gives \"%s\" a vapour boundary and no "
+						  "latent_vaporisation_j_kg, so it would boil for nothing.",
+				p_id));
+	}
+	w[5] = has_melt ? float(melt_c) : 0.0f;
+	w[6] = has_melt ? float(prop(p_id, "liquidus_c", melt_c)) : 0.0f;
+	w[7] = std::isfinite(boil_c) ? float(boil_c) : 0.0f;
+	w[8] = float(prop(p_id, "boil_ref_p_pa", la_physical("STANDARD_PRESSURE_PA")));
+	w[9] = float(prop(p_id, "triple_t_c", 0.0));
+	w[10] = has_boil ? float(triple_p) : 0.0f;
+	w[11] = float(prop(p_id, "critical_t_c", 0.0));
+	w[12] = float(prop(p_id, "critical_p_pa", 0.0));
+	w[13] = has_melt ? float(l_fus) : 0.0f;
+	w[14] = has_boil ? float(l_vap) : 0.0f;
+	w[15] = float(prop(p_id, "latent_vaporisation_ref_t_c", 0.0));
+	w[16] = float(prop(p_id, "atomisation_j_mol", 0.0));
+	w[17] = float(prop(p_id, "entropy_gas_j_molk", 0.0));
+	w[20] = has_melt ? 1.0f : 0.0f;
+	w[21] = has_boil ? 1.0f : 0.0f;
+	w[22] = iapws ? 1.0f : 0.0f;
+	w[23] = float(formula.size());
+	// The gas tail's own atoms: the free-atom entropies the law of mass action needs, and the elements
+	// the Saha equation walks. A substance whose free atoms the table does not measure never dissociates.
+	const Dictionary entropy = LASubstances::element_entropy_j_molk();
+	const Dictionary ionise = LASubstances::element_ionisation_ev();
+	const Dictionary degen = LASubstances::element_degen();
+	const Array els = formula.keys();
+	double nu = 0.0;
+	double s_atoms = 0.0;
+	bool measured = true;
+	for (int i = 0; i < els.size(); i++) {
+		const double n = double(formula[els[i]]);
+		nu += n;
+		measured = measured && entropy.has(els[i]);
+		s_atoms += n * double(entropy.get(els[i], 0.0));
+		w[24 + i] = float(n);
+		w[24 + MAX_EL + i] = float(double(ionise.get(els[i], 0.0)));
+		const Array g = degen.get(els[i], Array());
+		w[24 + 2 * MAX_EL + i] = g.size() == 2 ? float(double(g[0])) : 0.0f;
+		w[24 + 3 * MAX_EL + i] = g.size() == 2 ? float(double(g[1])) : 0.0f;
+	}
+	w[18] = measured ? float(s_atoms) : 0.0f;
+	w[19] = float(nu);
+	return out;
+}
+
+// The capacity of the phase this substance stands in at (t, p): dh/dT off its own ladder, off a plateau.
+double LAMixtureEnthalpy::phase_specific_heat(const String &p_id, double p_t_c, double p_p_pa) {
+	const double c_liq = prop(p_id, "specific_heat", 0.0);
+	const double c_sol = prop(p_id, "specific_heat_solid", c_liq);
+	const double c_gas = prop(p_id, "specific_heat_gas", c_liq);
+	if (!has_fusion(p_id)) {
+		return c_sol;
+	}
+	if (LASubstances::sublimes_at(p_id, p_p_pa) && has_vaporisation(p_id)) {
+		return p_t_c <= LASubstances::sublimation_c_at(p_id, p_p_pa) ? c_sol : c_gas;
+	}
+	if (p_t_c <= LASubstances::melt_c_at(p_id, p_p_pa, 0.0)) {
+		return c_sol;
+	}
+	const double boil = LASubstances::boil_c_at(p_id, p_p_pa);
+	return (!has_vaporisation(p_id) || !std::isfinite(boil) || p_t_c <= boil) ? c_liq : c_gas;
+}
+
 void LAMixtureEnthalpy::_bind_methods() {
 	ClassDB::bind_static_method("LAMixtureEnthalpy",
 			D_METHOD("vapour_boundary_c", "id", "p_pa"), &vapour_boundary_c);
@@ -316,4 +431,7 @@ void LAMixtureEnthalpy::_bind_methods() {
 			D_METHOD("jump_at", "masses", "room_m3", "t_b", "p_pa"), &jump_at);
 	ClassDB::bind_static_method("LAMixtureEnthalpy",
 			D_METHOD("state", "masses", "room_m3", "h_total_j", "p_pa"), &state);
+	ClassDB::bind_static_method("LAMixtureEnthalpy", D_METHOD("thermal_row", "id"), &thermal_row);
+	ClassDB::bind_static_method("LAMixtureEnthalpy",
+			D_METHOD("phase_specific_heat", "id", "t_c", "p_pa"), &phase_specific_heat);
 }

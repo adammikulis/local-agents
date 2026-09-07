@@ -29,7 +29,8 @@ func species_below_cap(kind: String) -> bool:
 	var cfg: Dictionary = _eco._species_config(kind)
 	var cap: int = int(cfg.get("pop_cap", 0))
 	var members: Array = _eco.get_tree().get_nodes_in_group("species_%s" % kind)
-	var below: bool = members.size() < cap
+	# The authored ceiling is the `population_caps` stand-in; without it, the energy budget bounds breeding.
+	var below: bool = not LAFakes.capped("population_caps", members.size(), cap)
 	_cap_frame[kind] = [frame, below]
 	return below
 

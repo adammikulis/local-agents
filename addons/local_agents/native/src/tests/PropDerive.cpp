@@ -19,19 +19,33 @@ constexpr uint32_t kDraws = 4;
 
 // state_derive.glsl's per-channel substance table: PROP_STRIDE words per channel, then the detection
 // thresholds. scripts/check_kernel_properties.sh holds these to the kernel's own declarations.
-constexpr uint32_t kPropStride = 12;
+constexpr uint32_t kPropStride = 56;
 constexpr uint32_t kPropM = 0;
-constexpr uint32_t kPropC = 1;
-constexpr uint32_t kPropMolPerKg = 2;
-constexpr uint32_t kPropEntry = 3;
-constexpr uint32_t kPropLambda = 4;
-constexpr uint32_t kPropFull = 5;
-constexpr uint32_t kPropAlpha = 6;
-constexpr uint32_t kPropBulk = 7;
-constexpr uint32_t kPropTref = 8;
-constexpr uint32_t kPropLithic = 9;
-constexpr uint32_t kPropRadGroup = 10;
-constexpr uint32_t kPropCondensed = 11;
+constexpr uint32_t kPropMolPerKg = 1;
+constexpr uint32_t kPropEntry = 2;
+constexpr uint32_t kPropLambda = 3;
+constexpr uint32_t kPropFull = 4;
+constexpr uint32_t kPropAlpha = 5;
+constexpr uint32_t kPropBulk = 6;
+constexpr uint32_t kPropTref = 7;
+constexpr uint32_t kPropLithic = 8;
+constexpr uint32_t kPropRadGroup = 9;
+constexpr uint32_t kPropCondensed = 10;
+constexpr uint32_t kPropKprime = 11;
+// The channel's own phase ladder, from PROP_LADDER: every condensed channel melts where its row says.
+constexpr uint32_t kPropLadder = 12;
+constexpr uint32_t kThCSol = 0;
+constexpr uint32_t kThCLiq = 1;
+constexpr uint32_t kThCGas = 2;
+constexpr uint32_t kThRhoSol = 3;
+constexpr uint32_t kThRhoLiq = 4;
+constexpr uint32_t kThFusionT0 = 5;
+constexpr uint32_t kThFusionT1 = 6;
+constexpr uint32_t kThLFus = 13;
+constexpr uint32_t kThNu = 19;
+constexpr uint32_t kThHasFusion = 20;
+constexpr uint32_t kThNEl = 23;
+constexpr uint32_t kThElN = 24;
 constexpr uint32_t kDetSlots = 5;
 
 // What check_derive_fixed_point.sh declares a second pass may move: float32 on the pressure, and the
@@ -41,6 +55,8 @@ constexpr double kTolPRel = 1.0e-5;
 // The ladder settles the room and the pressure to LA_STATE_TOL, and every enthalpy on the way is
 // float32; the round trip carries both.
 constexpr double kTolEnthalpyRel = 1.0e-4;
+// The latent step is read off two branch extrapolations, each carrying the ladder's own float32.
+constexpr double kTolLatentRel = 3.0e-4;
 
 struct Push {
 	uint32_t cell_count;
@@ -100,10 +116,8 @@ std::vector<float> draw_props(Rng &rng) {
 		// density says it does: a table drawn any other way describes no matter.
 		const float rho = condensed ? rng.range(500.0f, 8.0e3f) : rng.range(0.05f, 5.0f);
 		p[b + kPropM] = m;
-		p[b + kPropC] = rng.range(400.0f, 4200.0f);
 		p[b + kPropMolPerKg] = condensed ? 0.0f : 1.0f / m;
-		// One water entry and one silicate entry, the phase ladders the tree carries; the rest is
-		// linear in temperature, which is how the real table is shaped.
+		// Three heat buffers, the ones transport carries; every channel's ENTHALPY is its own ladder's.
 		p[b + kPropEntry] = i == 0 ? 0.0f : (i == 1 ? 1.0f : 2.0f);
 		p[b + kPropLambda] = rng.decades(0.02f, 5.0f);
 		p[b + kPropFull] = rho / m;
@@ -113,6 +127,26 @@ std::vector<float> draw_props(Rng &rng) {
 		p[b + kPropLithic] = (condensed && rng.chance(0.5f)) ? 1.0f : 0.0f;
 		p[b + kPropRadGroup] = float(rng.below(5));
 		p[b + kPropCondensed] = condensed ? 1.0f : 0.0f;
+		// The span the measured rows cover, halite to orthoenstatite.
+		p[b + kPropKprime] = rng.range(3.3f, 8.7f);
+		// A LADDER PER CHANNEL. A condensed phase melts: a solidus, a liquidus at or above it, and the
+		// fusion enthalpy it costs to cross. Neither solid nor melt is compressed here, so the melting
+		// curve has no Clapeyron slope and the plateau stands at one temperature.
+		const uint32_t t = b + kPropLadder;
+		p[t + kThCSol] = rng.range(400.0f, 4200.0f);
+		p[t + kThCLiq] = rng.range(400.0f, 4200.0f);
+		p[t + kThCGas] = rng.range(400.0f, 4200.0f);
+		p[t + kThRhoSol] = rho;
+		p[t + kThRhoLiq] = rho;
+		p[t + kThNu] = 1.0f;
+		p[t + kThNEl] = 1.0f;
+		p[t + kThElN] = 1.0f;
+		if (condensed) {
+			p[t + kThFusionT0] = rng.range(-40.0f, 1600.0f);
+			p[t + kThFusionT1] = p[t + kThFusionT0] + (rng.chance(0.5f) ? 0.0f : rng.range(1.0f, 300.0f));
+			p[t + kThLFus] = rng.decades(1.0e4f, 5.0e5f);
+			p[t + kThHasFusion] = 1.0f;
+		}
 	}
 	for (uint32_t k = 0; k < kDetSlots; ++k) {
 		p[kChannelSlots * kPropStride + k] = rng.decades(1.0e-3f, 1.0e3f);
@@ -166,7 +200,7 @@ World load(Rig &rig, Rng &rng) {
 		float mc = 0.0f;
 		for (uint32_t i = 0; i < kChannelSlots; ++i) {
 			mc += amount[i][g] * w.props[i * kPropStride + kPropM] * vol
-					* w.props[i * kPropStride + kPropC];
+					* w.props[i * kPropStride + kPropLadder + kThCSol];
 		}
 		w.energy[g] = mc * (rng.range(-100.0f, 3000.0f) + 273.15f) / vol;
 	}
@@ -352,9 +386,113 @@ bool prop_derive_enthalpy_round_trip(Case &c) {
 	return c.examined > 0;
 }
 
+// MELTING COSTS ITS LATENT HEAT. One channel alone in a cell, swept in energy across its melting point:
+// the enthalpy the cell states at that temperature climbs by exactly the fusion enthalpy of the mass
+// present while the temperature stands still. Each branch is read off its own side and extrapolated to
+// the melting point, so what is compared is the step between them, not the sweep's own spacing.
+bool prop_derive_melting_costs_its_latent_heat(Case &c) {
+	std::string err;
+	Rig rig(c.dev, "state_derive", kWords, err);
+	if (!rig.ok()) {
+		c.why = err;
+		return false;
+	}
+	Rng rng(c.seed);
+	rng.stream(91);
+	const double vol = double(kEdgeM) * double(kEdgeM) * double(kEdgeM);
+	for (uint32_t d = 0; d < kDraws; ++d) {
+		World w = load(rig, rng);
+		const uint32_t n = w.lat.cells();
+		// A melting POINT, not an interval: an interval spreads the latent heat over its own width.
+		uint32_t ci = kChannelSlots;
+		for (uint32_t i = 0; i < kChannelSlots && ci >= kChannelSlots; ++i) {
+			const uint32_t t = i * kPropStride + kPropLadder;
+			if (w.props[t + kThHasFusion] > 0.0f && w.props[t + kThFusionT1] == w.props[t + kThFusionT0]) {
+				ci = i;
+			}
+		}
+		if (ci >= kChannelSlots) {
+			continue;
+		}
+		const uint32_t base = ci * kPropStride;
+		// Half a cell of it and nothing else: one boundary in the world, and the phase it is in fills no
+		// more than the room it has, so the pressure the cell settles at is nothing pushing back.
+		w.props[base + kPropBulk] = 0.0f;
+		rig.put(LA_BIND_DERIVE_PROPS, w.props);
+		const double molar = double(w.props[base + kPropM]);
+		const double c_sol = double(w.props[base + kPropLadder + kThCSol]);
+		const double c_liq = double(w.props[base + kPropLadder + kThCLiq]);
+		const double l_fus = double(w.props[base + kPropLadder + kThLFus]);
+		// rho_sol == rho_liq, so the melting curve has no Clapeyron slope and the plateau stands here.
+		const double t0 = double(w.props[base + kPropLadder + kThFusionT0]);
+		const double amt = 0.5 * double(w.props[base + kPropFull]);
+		std::vector<float> a(n, float(amt));
+		std::vector<float> zero(n, 0.0f);
+		for (uint32_t i = 0; i < kChannelSlots; ++i) {
+			rig.put(kChannelBinding[i], i == ci ? a : zero);
+		}
+		rig.fill(LA_BIND_PRESSURE, 0.0f);
+		rig.fill(LA_BIND_P_FLUID, 0.0f);
+		const double m_kg = amt * molar * vol;
+		// The sweep: forty kelvin of sensible heat below the plateau to forty above it.
+		const double h_lo = m_kg * c_sol * (t0 + 273.15 - 40.0);
+		const double h_hi = m_kg * (c_sol * (t0 + 273.15) + l_fus + c_liq * 40.0);
+		std::vector<float> e(n, 0.0f);
+		for (uint32_t g = 0; g < n; ++g) {
+			e[g] = float((h_lo + (h_hi - h_lo) * double(g) / double(n - 1)) / vol);
+		}
+		rig.put(LA_BIND_E_J_M3, e);
+		const Push p = push_for(w);
+		rig.run(&p, sizeof(p), n);
+		const std::vector<float> temp = rig.get(LA_BIND_TEMP, n);
+		const std::vector<float> unconv = rig.get(LA_BIND_UNCONVERGED, n);
+		const std::vector<float> h_h2o = rig.get(LA_BIND_H_H2O, n);
+		const std::vector<float> h_vap = rig.get(LA_BIND_H_H2O_VAP, n);
+		const std::vector<float> h_sil = rig.get(LA_BIND_H_SILICATE, n);
+		const std::vector<float> h_sen = rig.get(LA_BIND_H_SENSIBLE, n);
+		auto enthalpy = [&](uint32_t g) {
+			return (double(h_h2o[g]) + double(h_vap[g]) + double(h_sil[g]) + double(h_sen[g])) * vol;
+		};
+		// One cell clearly in the solid and one clearly in the melt; five kelvin clear of the plateau,
+		// so neither reading is a cell the boundary itself is passing through.
+		uint32_t g_sol = n;
+		uint32_t g_liq = n;
+		for (uint32_t g = 0; g < n; ++g) {
+			if (unconv[g] != 0.0f) {
+				continue;
+			}
+			if (double(temp[g]) < t0 - 5.0) {
+				g_sol = g;
+			}
+			if (g_liq >= n && double(temp[g]) > t0 + 5.0) {
+				g_liq = g;
+			}
+		}
+		if (g_sol >= n || g_liq >= n) {
+			continue;
+		}
+		// Each branch is linear in temperature at its own capacity, so the step between them at the
+		// melting point is the whole of what crossing it cost.
+		const double h_a = enthalpy(g_sol) + m_kg * c_sol * (t0 - double(temp[g_sol]));
+		const double h_b = enthalpy(g_liq) - m_kg * c_liq * (double(temp[g_liq]) - t0);
+		const double want = m_kg * l_fus;
+		c.examined += 1;
+		if (std::fabs(h_b - h_a - double(shifted(float(want), c.mutate))) > kTolLatentRel * want) {
+			char buf[192];
+			std::snprintf(buf, sizeof(buf),
+					"melting the cell cost %.6g J where its fusion enthalpy is %.6g J", h_b - h_a, want);
+			c.why = buf;
+			return false;
+		}
+	}
+	return c.examined > 0;
+}
+
 } // namespace
 
 void add_derive_properties(std::vector<Property> &out) {
+	out.push_back({ "state_derive.glsl", "derive_melting_costs_its_latent_heat",
+			prop_derive_melting_costs_its_latent_heat });
 	out.push_back({ "state_derive.glsl", "derive_is_a_fixed_point", prop_derive_is_a_fixed_point });
 	out.push_back({ "state_derive.glsl", "derive_writes_finite_state",
 			prop_derive_writes_finite_state });

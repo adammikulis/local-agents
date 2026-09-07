@@ -536,6 +536,24 @@ kind = "text"
 marker = "^check_no_native_by_name: OK"
 
 [[gate]]
+name = "check_fly_nav"
+script = "scripts/check_fly_nav.sh"
+kind = "text"
+marker = "^check_fly_nav: OK"
+
+[[gate]]
+name = "check_fakes_states"
+script = "scripts/check_fakes_states.sh"
+kind = "gpu"
+marker = "^check_fakes_states: OK"
+
+[[gate]]
+name = "check_mktemp_unique"
+script = "scripts/check_mktemp_unique.sh"
+kind = "text"
+marker = "^check_mktemp_unique: OK"
+
+[[gate]]
 name = "check_step_quantum"
 script = "scripts/check_step_quantum.sh"
 kind = "text"

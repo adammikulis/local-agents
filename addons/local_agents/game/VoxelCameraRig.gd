@@ -81,7 +81,6 @@ var _orbit_max_distance: float = 0.0
 const SLICE_PITCH_DEG: float = 20.0
 const SLICE_STANDOFF_FRAC: float = 1.0 / 3.0   # eye-to-look distance over the box footprint
 var _orbit_back: Vector3 = Vector3.ZERO        # tangent the eye stands behind; zero = world up decides
-var _reach_m: float = 0.0                      # span the fly speed is a fraction of; 0 = the body
 
 var _rts_pitch: float = deg_to_rad(RTS_PITCH_DEG)
 var _smooth_surface_r: float = 0.0
@@ -97,13 +96,24 @@ var _geosync_local_dir: Vector3 = Vector3.UP
 # --- Solar-system overview: a pulled-back framing that shows the planet + the (visible) sun together.
 var _solar_view: bool = false
 
-const FLY_SPEED_FRAC: float = 0.30    # base move speed as a fraction of the planet radius, per second
-const FLY_BOOST: float = 4.0          # Shift multiplier
-const FLY_LOOK_SENS: float = 0.005    # radians per pixel for the hold-drag mouse-look
-const FLY_PITCH_LIMIT_DOT: float = 0.96   # keep the look off the local up/down poles so the up-vector stays stable
+# A DRONE, NOT A TELEPORT. Framing constants: none of them reaches the field, so none is a model parameter.
+const FLY_SPEED_PER_HEIGHT: float = 0.5   # 1/s: m/s of cruise per metre of height over the ground
+const FLY_SPEED_FLOOR_M_S: float = 4.0    # m/s: cruise on the deck, a person's running pace
+const FLY_BOOST: float = 4.0              # dimensionless: the Shift multiplier on cruise speed
+const FLY_MULT_RANGE: float = 8.0         # dimensionless: wheel-set cruise multiplier, either side of 1
+const FLY_RESPONSE_TAU_S: float = 0.35    # s: e-folding time of the velocity toward the commanded one
+const FLY_LOOK_TAU_S: float = 0.08        # s: e-folding time of the aim toward the dragged one
+const FLY_LOOK_SENS: float = 0.005        # rad/px of hold-drag mouse-look
+const FLY_PITCH_LIMIT_DEG: float = 85.0   # deg off the horizon; at 90 the up-vector degenerates
+const FRAME_MARGIN: float = 1.2           # dimensionless: framed radius over the subject's own
 var _fly: bool = false
 var _fly_pos: Vector3 = Vector3.ZERO
-var _fly_look: Vector3 = Vector3.FORWARD  # world-space unit forward (aim)
+var _fly_look: Vector3 = Vector3.FORWARD  # world-space unit forward (aim), eased toward the goal
+var _fly_look_goal: Vector3 = Vector3.FORWARD
+var _fly_vel: Vector3 = Vector3.ZERO      # world m/s, integrated
+var _fly_speed_mult: float = 1.0
+var _fly_goto: Vector3 = Vector3.ZERO     # a framing's standoff point; the stick cancels it
+var _fly_goto_on: bool = false
 
 # A scripted SHOT POSE placed over a site on the body: absolute, and re-solved as the ground arrives.
 var _pose: bool = false
@@ -256,8 +266,7 @@ func set_orbit_target(center: Vector3, radius: float) -> void:
 
 
 ## FRAME A SLICE BOX: the eye stands inside it, over the ground under the box centre, looking along the
-## box's longest horizontal axis. The standoff and the fly speed are the box's, not the body's, so a
-## camera over a 100 km box does not move at planetary speed.
+## box's longest horizontal axis.
 func frame_slice(planet_centre: Vector3, planet_radius: float, box: AABB, site_dir: Vector3) -> void:
 	var radial: Vector3 = (box.get_center() - planet_centre).normalized()
 	if radial.length() < 0.001:
@@ -300,7 +309,6 @@ func frame_slice(planet_centre: Vector3, planet_radius: float, box: AABB, site_d
 		return
 	along = along.normalized()
 	_orbit_back = -along
-	_reach_m = maxf(box.size.x, maxf(box.size.y, box.size.z))
 	_rts_pitch = deg_to_rad(SLICE_PITCH_DEG)
 	var standoff: float = foot * SLICE_STANDOFF_FRAC
 	_distance = clampf(_orbit_radius + standoff * sin(_rts_pitch), _orbit_min_distance, _orbit_max_distance)
@@ -535,6 +543,7 @@ func set_fly(on: bool) -> void:
 		_fly_pos = global_position
 		var fwd: Vector3 = -global_transform.basis.z
 		_fly_look = fwd.normalized() if fwd.length() > 0.001 else Vector3.FORWARD
+		_fly_rest()
 		_update_fly_transform()
 	else:
 		_fly = false
@@ -561,6 +570,7 @@ func place_fly(pos: Vector3, look_target: Vector3) -> void:
 	var d: Vector3 = look_target - pos
 	if d.length() > 0.001:
 		_fly_look = d.normalized()
+	_fly_rest()
 	_update_fly_transform()
 
 
@@ -621,6 +631,7 @@ func _solve_pose() -> void:
 	heading = heading.normalized().rotated(radial, _pose_yaw)
 	_fly_pos = eye
 	_fly_look = (heading * cos(_pose_pitch) + radial * sin(_pose_pitch)).normalized()
+	_fly_rest()
 	var look_pt: Vector3 = _pose_look_point(eye, _fly_look, base_r)
 	var right: Vector3 = _fly_look.cross(radial)
 	right = right.normalized() if right.length() > 0.001 else heading
@@ -666,51 +677,189 @@ func _update_fly_transform() -> void:
 		- (_orbit_radius if is_nan(ground_r) else ground_r), 1.0))
 
 
-## Hold-drag mouse-look: yaw about the local radial up, pitch about the camera right, clamped off the poles.
-func _fly_look_drag(rel: Vector2) -> void:
+## Hold-drag mouse-look: the drag turns the GOAL; the aim eases onto it over FLY_LOOK_TAU_S.
+func fly_look_drag(rel: Vector2) -> void:
+	_pose = false                             # a hand on the mouse ends the scripted framing too
 	var up: Vector3 = _fly_radial_up()
-	_fly_look = _fly_look.rotated(up, -rel.x * FLY_LOOK_SENS).normalized()
-	var right: Vector3 = _fly_look.cross(up)
+	var goal: Vector3 = _fly_look_goal.rotated(up, -rel.x * FLY_LOOK_SENS).normalized()
+	var right: Vector3 = goal.cross(up)
 	if right.length() > 0.001:
-		right = right.normalized()
-		var pitched: Vector3 = _fly_look.rotated(right, -rel.y * FLY_LOOK_SENS).normalized()
-		if absf(pitched.dot(up)) < FLY_PITCH_LIMIT_DOT:
-			_fly_look = pitched
-	_update_fly_transform()
+		goal = goal.rotated(right.normalized(), -rel.y * FLY_LOOK_SENS).normalized()
+	_fly_look_goal = _pitch_limited(goal)
 
 
-## Per-frame drone movement.
-func _fly_step(delta: float) -> void:
+## The aim held off the local poles, where the up-vector the basis is built from degenerates.
+func _pitch_limited(dir: Vector3) -> Vector3:
 	var up: Vector3 = _fly_radial_up()
-	var fwd: Vector3 = _fly_look
-	var right: Vector3 = fwd.cross(up)
-	right = right.normalized() if right.length() > 0.001 else Vector3.RIGHT
-	var move: Vector3 = Vector3.ZERO
+	var lim: float = sin(deg_to_rad(FLY_PITCH_LIMIT_DEG))
+	var s: float = dir.dot(up)
+	if absf(s) <= lim:
+		return dir
+	var flat: Vector3 = dir - up * s
+	if flat.length() < 0.001:
+		return _fly_look
+	return (flat.normalized() * sqrt(maxf(0.0, 1.0 - lim * lim)) + up * (lim if s > 0.0 else -lim)).normalized()
+
+
+## THE EYE'S HEIGHT OVER THE GROUND BENEATH IT, metres. With no return from the terrain it is measured
+## off the body's declared surface instead, the way an altimeter reads the datum with no radar echo.
+func fly_height_m() -> float:
+	var ground_r: float = _surface_radius_at(_fly_radial_up())
+	var base: float = _orbit_radius if is_nan(ground_r) else ground_r
+	return maxf(0.0, _fly_pos.distance_to(_orbit_center) - base)
+
+
+## Circular orbital speed at the eye's own radius: nothing passes this body faster and stays near it.
+## INF while no body has measured a mass, which is a missing measurement, not a ceiling of zero.
+func fly_orbital_speed() -> float:
+	if not _body_answers("mass"):
+		return INF
+	var m: float = _geosync_body.mass()
+	var r: float = _fly_pos.distance_to(_orbit_center)
+	if m <= 0.0 or r <= 0.0:
+		return INF
+	return sqrt(LAPhysical.GRAVITATIONAL_CONSTANT * m / r)
+
+
+## CRUISE SPEED, m/s: proportional to height so the ground slides past at the same rate from any
+## altitude, floored at a running pace on the deck, capped at orbital speed.
+func fly_speed(boost: bool = false) -> float:
+	var v: float = maxf(FLY_SPEED_FLOOR_M_S, FLY_SPEED_PER_HEIGHT * fly_height_m())
+	v *= _fly_speed_mult * (FLY_BOOST if boost else 1.0)
+	return minf(v, fly_orbital_speed())
+
+
+## The wheel sets how fast the drone cruises, one notch at a time. It does not move it.
+func fly_speed_notch(dir: float) -> void:
+	_fly_speed_mult = clampf(_fly_speed_mult * pow(ZOOM_STEP, dir), 1.0 / FLY_MULT_RANGE, FLY_MULT_RANGE)
+
+
+func fly_speed_mult() -> float:
+	return _fly_speed_mult
+
+
+## Per-frame drone movement, from the keyboard.
+func _fly_step(delta: float) -> void:
+	fly_drive(delta, _fly_stick(), Input.is_key_pressed(KEY_SHIFT))
+
+
+## The stick as a unit-ish vector in the drone's own frame (right, up, forward). Read here alone, so the
+## motion below can be driven with a synthetic one.
+func _fly_stick() -> Vector3:
+	var s: Vector3 = Vector3.ZERO
 	if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP):
-		move += fwd
+		s.z += 1.0
 	if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN):
-		move -= fwd
+		s.z -= 1.0
 	if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT):
-		move += right
+		s.x += 1.0
 	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT):
-		move -= right
+		s.x -= 1.0
 	if Input.is_key_pressed(KEY_SPACE) or Input.is_key_pressed(KEY_E):
-		move += up
+		s.y += 1.0
 	if Input.is_key_pressed(KEY_CTRL) or Input.is_key_pressed(KEY_Q):
-		move -= up
-	if _pose:
-		if move.length() < 0.001:
-			_solve_pose()
-			return
+		s.y -= 1.0
+	return s
+
+
+## THE MOTION: the stick commands a velocity, the drone's own eases onto it over one time constant, and
+## a released stick commands zero, so it coasts to rest instead of stopping dead.
+func fly_drive(delta: float, stick: Vector3, boost: bool) -> void:
+	var up: Vector3 = _fly_radial_up()
+	var right: Vector3 = _fly_look.cross(up)
+	right = right.normalized() if right.length() > 0.001 else Vector3.RIGHT
+	var moving: bool = stick.length() > 0.001
+	if moving:
 		_pose = false                     # a hand on the stick ends the scripted framing
-	if move.length() > 0.001:
-		var alt: float = maxf(0.0, _fly_pos.distance_to(_orbit_center) - _orbit_radius)
-		var span: float = _reach_m if _reach_m > 0.0 else _orbit_radius
-		var speed: float = span * FLY_SPEED_FRAC * (1.0 + alt / maxf(1.0, span))
-		if Input.is_key_pressed(KEY_SHIFT):
-			speed *= FLY_BOOST
-		_fly_pos += move.normalized() * speed * delta
+		_fly_goto_on = false
+	elif _pose and not _fly_goto_on:
+		_solve_pose()
+		return
+	var speed: float = fly_speed(boost)
+	var want: Vector3 = Vector3.ZERO
+	if moving:
+		want = (right * stick.x + up * stick.y + _fly_look * stick.z).normalized() * speed
+	elif _fly_goto_on:
+		var to: Vector3 = _fly_goto - _fly_pos
+		if to.length() <= maxf(speed * delta, 1.0):
+			_fly_goto_on = false
+		else:
+			want = to.normalized() * minf(speed, to.length() / FLY_RESPONSE_TAU_S)
+	var k: float = 1.0 - exp(-delta / FLY_RESPONSE_TAU_S)
+	_fly_vel = _fly_vel.lerp(want, k)
+	_fly_pos += _fly_vel * delta
+	_fly_ease_look(delta)
 	_update_fly_transform()
+
+
+## The aim eases onto its goal over FLY_LOOK_TAU_S, so a flicked mouse turns the drone rather than
+## snapping it. Straight through an antipodal goal there is no shortest arc, so it is nudged off-axis.
+func _fly_ease_look(delta: float) -> void:
+	var goal: Vector3 = _fly_look_goal
+	if goal.length() < 0.001:
+		return
+	if _fly_look.dot(goal) < -0.999:
+		goal = goal.rotated(_fly_radial_up(), 0.01)
+	var eased: Vector3 = _fly_look.lerp(goal, 1.0 - exp(-delta / FLY_LOOK_TAU_S))
+	if eased.length() < 0.001:
+		return
+	_fly_look = _pitch_limited(eased.normalized())
+
+
+## THE BOX'S FOOTPRINT ON THE GROUND: its corners with the site radial taken out, and the radius of the
+## smallest circle around them. That is what a framing fits, not the atmosphere column above it.
+static func footprint_radius(box: AABB, site_dir: Vector3) -> float:
+	var n: Vector3 = site_dir.normalized()
+	var h: Vector3 = box.size * 0.5
+	var r: float = 0.0
+	for i in 8:
+		var c: Vector3 = Vector3(h.x if (i & 1) else -h.x, h.y if (i & 2) else -h.y,
+			h.z if (i & 4) else -h.z)
+		r = maxf(r, (c - n * c.dot(n)).length())
+	return r
+
+
+## HOW FAR BACK A SUBJECT OF THAT RADIUS FITS, metres: its bounding sphere inside the narrower of the
+## frustum's two half-angles, with the framing margin left around it.
+func fit_distance(radius_m: float) -> float:
+	var half: float = deg_to_rad(fov) * 0.5
+	var vp: Viewport = get_viewport()
+	if vp != null:
+		var sz: Vector2 = vp.get_visible_rect().size
+		if sz.x > 0.0 and sz.y > 0.0:
+			half = minf(half, atan(tan(half) * sz.x / sz.y))
+	return radius_m * FRAME_MARGIN / maxf(sin(half), 0.001)
+
+
+## FRAME THE SIMULATED BOX: turn onto the ground under its site and, in flight, back off along that look
+## until the footprint fits. False where the body has not said where its surface is: nothing to frame on.
+func frame_simulation(site_dir: Vector3, box: AABB) -> bool:
+	var footprint_radius_m: float = footprint_radius(box, site_dir)
+	if site_dir.length() < 0.001 or footprint_radius_m <= 0.0:
+		return false
+	var site: Vector3 = site_dir.normalized()
+	var radial: Vector3 = site
+	if _geosync_body != null and is_instance_valid(_geosync_body):
+		radial = (_geosync_body.global_transform.basis * site).normalized()
+	var ground_r: float = _surface_radius_at(radial)
+	if is_nan(ground_r):
+		return false
+	var fit: float = fit_distance(footprint_radius_m)
+	if not _fly:
+		_pose_site = site
+		_pose = true
+		place_pose(fit * sin(deg_to_rad(SLICE_PITCH_DEG)), -SLICE_PITCH_DEG, 0.0)
+		return true
+	var centre: Vector3 = _orbit_center + radial * ground_r
+	var to: Vector3 = centre - _fly_pos
+	if to.length() < 0.001:
+		return false
+	_pose = false
+	_fly_look_goal = _pitch_limited(to.normalized())
+	_fly_goto_on = to.length() < fit
+	if _fly_goto_on:
+		_fly_goto = centre - _fly_look_goal * fit
+	return true
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -744,13 +893,13 @@ func _unhandled_input(event: InputEvent) -> void:
 			if mb.button_index == MOUSE_BUTTON_WHEEL_UP:
 				stop_tracking()
 				if _fly:
-					_fly_dolly(1.0)
+					fly_speed_notch(1.0)
 				else:
 					_zoom(1.0 / ZOOM_STEP)
 			elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 				stop_tracking()
 				if _fly:
-					_fly_dolly(-1.0)
+					fly_speed_notch(-1.0)
 				else:
 					_zoom(ZOOM_STEP)
 
@@ -762,7 +911,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			_aim_yaw = clampf(_aim_yaw - ax * AIM_DRAG_SPEED, -AIM_YAW_LIMIT, AIM_YAW_LIMIT)
 			_aim_pitch = clampf(_aim_pitch + ay * AIM_DRAG_SPEED, -AIM_PITCH_LIMIT, AIM_PITCH_LIMIT)
 			if _fly:
-				_fly_look_drag(mm.relative)
+				fly_look_drag(mm.relative)
 			else:
 				_update_transform()
 			return
@@ -774,7 +923,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				stop_tracking()
 			if _drag_orbiting:
 				if _fly:
-					_fly_look_drag(mm.relative)
+					fly_look_drag(mm.relative)
 				else:
 					_orbit_drag(mm.relative)
 					_update_transform()
@@ -786,16 +935,17 @@ func _unhandled_input(event: InputEvent) -> void:
 			_update_transform()
 		elif _orbiting:
 			if _fly:
-				_fly_look_drag(mm.relative)
+				fly_look_drag(mm.relative)
 			else:
 				_orbit_drag(mm.relative)
 				_update_transform()
 
 
-## Dolly the drone forward (+1) / back (-1) along its look direction — the fly-mode use of the scroll wheel.
-func _fly_dolly(dir: float) -> void:
-	_fly_pos += _fly_look * dir * _orbit_radius * 0.06
-	_update_fly_transform()
+## The drone is standing still and aimed where it is aimed: no carried velocity, no framing in flight.
+func _fly_rest() -> void:
+	_fly_look_goal = _fly_look
+	_fly_vel = Vector3.ZERO
+	_fly_goto_on = false
 
 
 func _orbit_drag(rel: Vector2) -> void:

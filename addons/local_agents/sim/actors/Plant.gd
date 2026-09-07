@@ -300,14 +300,15 @@ func _on_sim_step(step: int) -> void:
 
 
 func _uptake(want_food: float) -> void:
-	if want_food <= 0.0:
-		return
-	if _material == null:
+	if want_food <= 0.0 or _material == null:
 		return
 	var want_mass: float = want_food * BIOMASS_PER_FOOD
-	# Nothing greens the ground until photosynthesis is in the world, so the reserve comes from the fake,
+	var pos: Vector3 = global_position
+	# The standing crop under the plant first; what the ground has not fixed comes from the stand-in,
 	# which holds the loan open until the plant dies and hands it back.
-	var got_mass: float = LAFakes.draw("plant_carbon", want_mass)
+	var got_mass: float = _material.graze_biomass(pos, want_mass) \
+		if _material.has_method("graze_biomass") else 0.0
+	got_mass += LAFakes.draw("plant_carbon", want_mass - got_mass)
 	if got_mass <= 0.0:
 		return
 	_food += got_mass / BIOMASS_PER_FOOD
@@ -358,9 +359,10 @@ func _exit_tree() -> void:
 		var mass: float = _food * BIOMASS_PER_FOOD
 		var led: LAVegLedger = _ledger()
 		led.food_held = maxf(0.0, led.food_held - mass)
-		# Mass the fake lent goes back to the fake. Crediting the field's detritus would mint matter the
-		# sealed planet never had.
-		LAFakes.give_back("plant_carbon", mass)
+		# A dead plant is litter. What the field lent becomes detritus in it; what a stand-in lent goes
+		# home to the stand-in, which is the routing deposit_detritus already does.
+		if _material != null and _material.has_method("deposit_detritus"):
+			_material.deposit_detritus(global_position, mass)
 		led.food_returned += mass
 		_food = 0.0
 
