@@ -3,6 +3,7 @@
 #include "LAProcessSet.hpp"
 
 #include <godot_cpp/classes/engine.hpp>
+#include <godot_cpp/classes/json.hpp>
 #include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/core/error_macros.hpp>
@@ -26,6 +27,10 @@ const char *LIFE_FULL = "full";
 const char *LIFE_NO_FAUNA = "no_fauna";
 const char *LIFE_PLANET_ONLY = "planet_only";
 
+const char *OFF = "off";
+const char *FAKE = "fake";
+const char *REAL = "real";
+
 // Constructed on first use, never at load: a Variant built by a dylib static initializer runs before
 // the engine has handed the binding its interface pointers.
 Dictionary &g_nodes() {  // module name -> the node that IS that system
@@ -43,6 +48,16 @@ Dictionary &g_applied() {  // entry index -> thrown
 	return v;
 }
 
+Dictionary &g_fakes() {  // stand-in name -> the ladder rung that makes `real` its default, or -1
+	static Dictionary v;
+	return v;
+}
+
+Dictionary &g_state() {  // stand-in name -> the state this run put it in
+	static Dictionary v;
+	return v;
+}
+
 bool g_parsed = false;
 double g_evo = -1.0;
 
@@ -51,7 +66,7 @@ String &g_life() {
 	return v;
 }
 
-// `--ablate=name[@step]`, or `+name@step` to switch one back on, and LA_ABLATE. Parsed once.
+// `--ablate=name[:state][@step]`, or `+name@step` to switch one back on, and LA_ABLATE. Parsed once.
 void parse() {
 	if (g_parsed) {
 		return;
@@ -80,16 +95,37 @@ void parse() {
 			step = std::max((int)t.substr(at + 1).to_int(), 0);
 			t = t.substr(0, at);
 		}
+		String state;
+		const int colon = t.find(":");
+		if (colon >= 0) {
+			state = t.substr(colon + 1).strip_edges().to_lower();
+			t = t.substr(0, colon);
+			if (state != String(OFF) && state != String(FAKE) && state != String(REAL)) {
+				ERR_PRINT(String("--ablate=") + t + ":" + state + ": a state is off, fake or real.");
+				continue;
+			}
+		}
 		Dictionary e;
 		e["name"] = t;
 		e["on"] = on;
 		e["step"] = step;
+		e["state"] = state;
 		g_want().append(e);
 	}
 }
 
 bool is_process(const String &p_name) {
 	return !LAProcessSet::process_entry(p_name).is_empty();
+}
+
+// What one `--ablate=` entry asks a stand-in for: the state it names, else off for a bare name and the
+// record's own default for `+name`.
+String entry_state(const Dictionary &p_entry, const String &p_name) {
+	const String named = p_entry["state"];
+	if (named != String()) {
+		return named;
+	}
+	return bool(p_entry["on"]) ? LAAblate::default_state(p_name) : String(OFF);
 }
 
 Node *node_of(const String &p_name) {
@@ -111,7 +147,8 @@ bool LAAblate::off(const String &p_name) {
 	const Array want = g_want();
 	for (int i = 0; i < want.size(); ++i) {
 		const Dictionary e = want[i];
-		if (String(e["name"]) == p_name && !bool(e["on"]) && (int)e["step"] == 0) {
+		if (String(e["name"]) == p_name && !bool(e["on"]) && (int)e["step"] == 0
+				&& String(e["state"]) == String()) {
 			return true;
 		}
 	}
@@ -134,8 +171,96 @@ void LAAblate::adopt(const String &p_name, Node *p_node) {
 	}
 }
 
-// Throw one switch, module or process. A name that is neither is refused by LAProcessSet, out loud.
+String LAAblate::state_off() {
+	return String(OFF);
+}
+
+String LAAblate::state_fake() {
+	return String(FAKE);
+}
+
+String LAAblate::state_real() {
+	return String(REAL);
+}
+
+// Every stand-in answers to ONE name here, beside the processes and the modules.
+void LAAblate::adopt_fake(const String &p_name, int p_rung) {
+	if (is_process(p_name) || g_nodes().has(p_name)) {
+		ERR_FAIL_MSG(String("LAAblate.adopt_fake(\"") + p_name + "\"): a process or module already "
+				+ "answers to that name, so one switch would answer for two things.");
+	}
+	g_fakes()[p_name] = p_rung;
+}
+
+// `fake` while the rung that replaces the stand-in is outside this world, `real` once it is inside it.
+String LAAblate::default_state(const String &p_name) {
+	if (!g_fakes().has(p_name)) {
+		return String();
+	}
+	const int rung = g_fakes()[p_name];
+	if (rung < 0) {
+		return String(FAKE);
+	}
+	return LAProcessSet::active() >= rung ? String(REAL) : String(FAKE);
+}
+
+int LAAblate::fake_rung(const String &p_name) {
+	return g_fakes().has(p_name) ? (int)g_fakes()[p_name] : -1;
+}
+
+String LAAblate::state_of(const String &p_name) {
+	if (!g_fakes().has(p_name)) {
+		return String();
+	}
+	if (g_state().has(p_name)) {
+		return g_state()[p_name];
+	}
+	parse();
+	String out = default_state(p_name);
+	const Array want = g_want();
+	for (int i = 0; i < want.size(); ++i) {
+		const Dictionary e = want[i];
+		if (String(e["name"]) == p_name && (int)e["step"] == 0) {
+			out = entry_state(e, p_name);
+		}
+	}
+	return out;
+}
+
+void LAAblate::set_state(const String &p_name, const String &p_state) {
+	if (!g_fakes().has(p_name)) {
+		ERR_FAIL_MSG(String("LAAblate.set_state(\"") + p_name + "\"): no stand-in answers to that name.");
+	}
+	if (p_state != String(OFF) && p_state != String(FAKE) && p_state != String(REAL)) {
+		ERR_FAIL_MSG(String("LAAblate.set_state(\"") + p_name + "\", \"" + p_state
+				+ "\"): a state is off, fake or real.");
+	}
+	if (state_of(p_name) == p_state) {
+		return;
+	}
+	g_state()[p_name] = p_state;
+	Dictionary d;
+	d["name"] = p_name;
+	d["state"] = p_state;
+	d["rung"] = LAProcessSet::name_of((int)g_fakes()[p_name]);
+	UtilityFunctions::print("FAKE_STATE=" + JSON::stringify(d));
+}
+
+Dictionary LAAblate::fake_states() {
+	Dictionary out;
+	const Array keys = g_fakes().keys();
+	for (int i = 0; i < keys.size(); ++i) {
+		out[keys[i]] = state_of(String(keys[i]));
+	}
+	return out;
+}
+
+// Throw one switch, stand-in, module or process. A name none of the three holds is refused, out loud.
 void LAAblate::set_on(const String &p_name, bool p_on) {
+	if (g_fakes().has(p_name)) {
+		set_state(p_name, p_on ? default_state(p_name) : String(OFF));
+		return;
+	}
 	if (g_nodes().has(p_name)) {
 		Node *node = node_of(p_name);
 		if (node == nullptr) {
@@ -151,6 +276,9 @@ void LAAblate::set_on(const String &p_name, bool p_on) {
 }
 
 bool LAAblate::is_on(const String &p_name) {
+	if (g_fakes().has(p_name)) {
+		return state_of(p_name) != String(OFF);
+	}
 	if (g_nodes().has(p_name)) {
 		Node *node = node_of(p_name);
 		return node != nullptr && node->get_process_mode() != Node::PROCESS_MODE_DISABLED;
@@ -161,6 +289,9 @@ bool LAAblate::is_on(const String &p_name) {
 String LAAblate::kind_of(const String &p_name) {
 	if (g_nodes().has(p_name)) {
 		return String("module");
+	}
+	if (g_fakes().has(p_name)) {
+		return String(FAKE);
 	}
 	return is_process(p_name) ? String("process") : String();
 }
@@ -174,6 +305,13 @@ PackedStringArray LAAblate::names() {
 	}
 	mods.sort();
 	out.append_array(mods);
+	PackedStringArray fakes;
+	const Array fake_keys = g_fakes().keys();
+	for (int i = 0; i < fake_keys.size(); ++i) {
+		fakes.append(fake_keys[i]);
+	}
+	fakes.sort();
+	out.append_array(fakes);
 	return out;
 }
 
@@ -187,12 +325,20 @@ void LAAblate::apply_schedule(int p_step) {
 			continue;
 		}
 		g_applied()[i] = true;
-		// A module's own adopt() already applied its bare name, and a bare name neither list holds is a
-		// flag its own consumer reads through off().
-		if (at == 0 && !is_process(String(e["name"]))) {
+		const String name = e["name"];
+		// A stand-in's step-0 entry is what state_of() already reads; a later one is thrown here.
+		if (g_fakes().has(name)) {
+			if (at > 0) {
+				set_state(name, entry_state(e, name));
+			}
 			continue;
 		}
-		set_on(String(e["name"]), (bool)e["on"]);
+		// A module's own adopt() already applied its bare name, and a bare name neither list holds is a
+		// flag its own consumer reads through off().
+		if (at == 0 && !is_process(name)) {
+			continue;
+		}
+		set_on(name, (bool)e["on"]);
 	}
 }
 
@@ -261,6 +407,8 @@ void LAAblate::release() {
 	g_nodes().clear();
 	g_want().clear();
 	g_applied().clear();
+	g_fakes().clear();
+	g_state().clear();
 	g_parsed = false;
 	g_life() = String();
 	g_evo = -1.0;
@@ -269,6 +417,15 @@ void LAAblate::release() {
 void LAAblate::_bind_methods() {
 	ClassDB::bind_static_method("LAAblate", D_METHOD("off", "name"), &off);
 	ClassDB::bind_static_method("LAAblate", D_METHOD("adopt", "name", "node"), &adopt);
+	ClassDB::bind_static_method("LAAblate", D_METHOD("adopt_fake", "name", "rung"), &adopt_fake);
+	ClassDB::bind_static_method("LAAblate", D_METHOD("state_off"), &state_off);
+	ClassDB::bind_static_method("LAAblate", D_METHOD("state_fake"), &state_fake);
+	ClassDB::bind_static_method("LAAblate", D_METHOD("state_real"), &state_real);
+	ClassDB::bind_static_method("LAAblate", D_METHOD("set_state", "name", "state"), &set_state);
+	ClassDB::bind_static_method("LAAblate", D_METHOD("state_of", "name"), &state_of);
+	ClassDB::bind_static_method("LAAblate", D_METHOD("default_state", "name"), &default_state);
+	ClassDB::bind_static_method("LAAblate", D_METHOD("fake_rung", "name"), &fake_rung);
+	ClassDB::bind_static_method("LAAblate", D_METHOD("fake_states"), &fake_states);
 	ClassDB::bind_static_method("LAAblate", D_METHOD("set_on", "name", "on"), &set_on);
 	ClassDB::bind_static_method("LAAblate", D_METHOD("is_on", "name"), &is_on);
 	ClassDB::bind_static_method("LAAblate", D_METHOD("kind_of", "name"), &kind_of);
