@@ -150,13 +150,11 @@ Reading: `tick_environment` in `CreatureMetabolism.gd` calls `_combust()` whenev
 - `LA_RUN_TIMEOUT=110 scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn --
   --sandbox --ui --run-frames=20` prints no report and logs no error; `--planet-only --no-fauna` reports.
 
-## 16. ONLY WATER AND SILICATE MELT AND BOIL WHERE THEIR TABLE SAYS, AND TWO ROWS ARE EMPTY
+## 16. TWO ROWS THE ENGINE READS ARE EMPTY
 
-`rg -n "LADDER|la_sensible_only|LA_MIX_MAX" addons/local_agents/sim/material/kernels3d/state_derive.glsl`:
-every other condensed channel is e = c·T at every temperature while `LASubstances.cpp` cites its melting
-point and fusion enthalpy; the CPU twin `LAMixtureEnthalpy` reads the table for any id and is the spec
-(`scripts/check_enthalpy_ssot.sh`). `apatite` carries neither a melting point nor a fusion enthalpy, and
-every planet mineral carries basalt's `albedo` and `emissivity`.
+`scripts/check_bench_phase_change.sh` melts iron and forsterite off their own rows; `apatite` carries
+neither a melting point nor a fusion enthalpy, so `LAMixtureEnthalpy::thermal_row` keeps it linear in T,
+and every planet mineral carries basalt's `albedo` and `emissivity`.
 
 ## 17. THE PHYSICS RUNS INSIDE GODOT'S PROCESS
 
