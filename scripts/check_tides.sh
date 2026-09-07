@@ -244,8 +244,8 @@ fi
 # ---------------------------------------------------------------------------------------------------
 # ARM 2 — the world the SIM seeds, not one this script built. tide_peak_ratio is the tide at the
 # sub-body point of the strongest raiser over its own leading term 2 G M R / d^3, taken on the body
-# positions the run's own integrator published: above 1, and under 1 + 3R/d, which at the epoch's
-# separation is below 2.
+# positions the run's own integrator published. It must be the near_ratio above, which the probe took
+# on the seeded separation and mass: only the radius differs, the measured one against the seed's.
 sim_out="$(la_report tide_peak_ratio,moon_dist_m --slice --rung 1 \
 	--path "$REPO_ROOT" --frames "${LA_TIDES_FRAMES:-4}" 2>&1)"
 sim_rc=$?
@@ -258,12 +258,14 @@ if ! printf '%s' "$ratio" | grep -Eq '^[+-]?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$
 	exit 2
 fi
 echo "tide_peak_ratio = $ratio"
-if awk -v r="$ratio" 'BEGIN{exit !(r <= 1.0 || r >= 2.0)}'; then
+want="$(printf '%s\n' "$cpu" | sed -e 's/.*"near_ratio"://' -e 's/[,}].*//')"
+if ! awk -v r="$ratio" -v w="$want" \
+	'BEGIN{exit !(w > 0 && (r - w) / w < 0.01 && (w - r) / w < 0.01)}'; then
 	echo
-	echo "In the world the sim seeds, the tide at the sub-body point is not the exact difference of pulls:"
-	echo "it must stand ABOVE its own leading term 2 G M R / d^3 and below the next order in R/d. Either"
-	echo "the system never reaches LABallistics (LAGravity.publish off SystemOrbits.update), or the frame"
-	echo "body is not the one the coordinates are measured from."
+	echo "In the world the sim seeds, the tide at the sub-body point is $ratio of its own leading term"
+	echo "2 G M R / d^3 where the seed's own bodies give $want. Either the system never reaches"
+	echo "LABallistics (LAGravity.publish off SystemOrbits.update), or the frame the coordinates are"
+	echo "measured from is not the body the box rides, or a raiser is missing from the published rows."
 	exit 1
 fi
 echo "check_tides: OK"
