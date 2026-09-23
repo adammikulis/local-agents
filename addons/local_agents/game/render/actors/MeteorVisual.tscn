@@ -1,4 +1,6 @@
-[gd_scene load_steps=11 format=3 uid="uid://c7met0rvisual0"]
+[gd_scene load_steps=12 format=3 uid="uid://c7met0rvisual0"]
+
+[ext_resource type="Script" path="res://addons/local_agents/game/render/actors/MeteorVisual.gd" id="1_visual"]
 
 [sub_resource type="StandardMaterial3D" id="MatBody"]
 albedo_color = Color(0.35, 0.3, 0.28, 1)
@@ -38,6 +40,7 @@ point_count = 2
 curve = SubResource("CurveTaper")
 
 [sub_resource type="ParticleProcessMaterial" id="EmberProcess"]
+resource_local_to_scene = true
 emission_shape = 1
 emission_sphere_radius = 1.12
 direction = Vector3(0, 1, 0)
@@ -55,15 +58,11 @@ color_ramp = SubResource("TexFire")
 radius = 1.68
 
 [node name="MeteorVisual" type="Node3D"]
+script = ExtResource("1_visual")
 
 [node name="Body" type="MeshInstance3D" parent="."]
 material_override = SubResource("MatBody")
 mesh = SubResource("MeshBody")
-
-[node name="Glow" type="OmniLight3D" parent="."]
-visible = false
-light_energy = 6.0
-omni_range = 30.0
 
 [node name="Trail" type="GPUParticles3D" parent="."]
 emitting = false

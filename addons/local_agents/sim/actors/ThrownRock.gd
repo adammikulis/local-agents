@@ -5,10 +5,12 @@ extends Node3D
 const HIT_RADIUS: float = 1.3
 const MAX_LIFETIME: float = 4.0
 const ARC_HEIGHT: float = 1.5
-# The stone's own size, so its mass is its geometry rather than a number. Matches the visual BoxMesh below.
-const STONE_SIDE: float = 0.35
 
-var mineral_mass: float = -1.0                  # < 0 = derive from STONE_SIDE on first use
+## The stone reached its target at `at`.
+signal struck(at: Vector3)
+
+var mineral_mass: float = 0.0                   # what the thrower carried, mol/m^3 of the landing cell
+var velocity: Vector3 = Vector3.ZERO            # m/s, over the last physics tick
 var _deposited: bool = false
 
 var _terrain: Object = null
@@ -17,39 +19,17 @@ var _target: Node3D = null
 var _speed: float = 22.0
 var _flying: bool = false
 var _elapsed: float = 0.0
-var _start_pos: Vector3 = Vector3.ZERO
 var _initial_distance: float = 0.0
-var _mesh: MeshInstance3D = null
-var _tumble_axis: Vector3 = Vector3.RIGHT      # perpendicular to the throw
-var _tumble_rate: float = 0.0                  # rad/s = v / r, the rolling relation, r = STONE_SIDE * 0.5
 
 func setup(terrain, water = null) -> void:
 	_terrain = terrain
 	_water = water
 
-	var material: StandardMaterial3D = StandardMaterial3D.new()
-	material.albedo_color = Color(0.4, 0.38, 0.35)
-	material.roughness = 1.0
-	material.metallic = 0.0
-
-	var mesh: BoxMesh = BoxMesh.new()
-	mesh.size = Vector3(0.35, 0.35, 0.35)
-	mesh.material = material
-
-	var mesh_instance: MeshInstance3D = MeshInstance3D.new()
-	mesh_instance.name = "ThrownRockMesh"
-	mesh_instance.mesh = mesh
-	add_child(mesh_instance)
-	_mesh = mesh_instance
-
-func throw_at(from: Vector3, target: Node3D, speed: float = 22.0, carried_mass: float = -1.0) -> void:
-	# `carried_mass` is the mass of the boulder the thrower actually picked up (LARock.take()'s return). When
-	# the caller does not pass it, the stone falls back to its own geometry — an honest estimate rather than
-	# nothing, and the gap is one line at the call site.
-	if carried_mass >= 0.0:
-		mineral_mass = carried_mass
+## `carried_mass` is the mass of the boulder the thrower picked up (LARock.take()'s return); the stone
+## carries nothing else.
+func throw_at(from: Vector3, target: Node3D, speed: float = 22.0, carried_mass: float = 0.0) -> void:
+	mineral_mass = carried_mass
 	global_position = from
-	_start_pos = from
 	_target = target
 	_speed = maxf(speed, 0.1)
 	_elapsed = 0.0
@@ -58,12 +38,6 @@ func throw_at(from: Vector3, target: Node3D, speed: float = 22.0, carried_mass: 
 		_initial_distance = maxf(from.distance_to(_target.global_position), 0.001)
 	else:
 		_initial_distance = 0.001
-	# A thrown stone tumbles about an axis across its flight. Both the axis and the rate come from the throw
-	# itself, so no random draw is needed to make one stone differ from the next.
-	var aim: Vector3 = (_target.global_position - from) if is_instance_valid(_target) else Vector3.FORWARD
-	var axis: Vector3 = aim.cross(Vector3.UP)
-	_tumble_axis = axis.normalized() if axis.length() > 0.001 else Vector3.RIGHT
-	_tumble_rate = _speed / (STONE_SIDE * 0.5)
 
 func _physics_process(delta: float) -> void:
 	if not _flying:
@@ -74,8 +48,6 @@ func _physics_process(delta: float) -> void:
 		return
 
 	_elapsed += delta
-	if _mesh != null and _tumble_rate > 0.0:
-		_mesh.global_rotate(_tumble_axis, _tumble_rate * delta)
 
 	var target_pos: Vector3 = _target.global_position
 	var pos: Vector3 = global_position
@@ -96,6 +68,7 @@ func _physics_process(delta: float) -> void:
 	var arc_offset: float = sin(progress * PI) * ARC_HEIGHT
 	pos.y += arc_offset * delta * _speed * 0.15
 
+	velocity = (pos - global_position) / delta
 	global_position = pos
 
 	# Safety: expired lifetime.
@@ -113,13 +86,10 @@ func _physics_process(delta: float) -> void:
 
 func _strike() -> void:
 	_flying = false
-	if is_instance_valid(_target):
-		if _target.has_method("on_struck"):
-			_target.on_struck()
-		else:
-			_target.queue_free()
+	if is_instance_valid(_target) and _target.has_method("on_struck"):
+		_target.on_struck()
 	_maybe_splash(global_position)
-	_spawn_impact_puff()
+	struck.emit(global_position)
 	queue_free()
 
 
@@ -134,19 +104,11 @@ func _deposit_stone() -> void:
 	if _deposited:
 		return
 	_deposited = true
-	if _water == null or not ("_inject" in _water) or _water._inject == null:
+	if mineral_mass <= 0.0 or _water == null or not ("_inject" in _water) or _water._inject == null:
 		return
-	var inject = _water._inject
-	if not inject.has_method("deposit_sediment"):
-		return
-	if mineral_mass < 0.0:
-		var side: float = maxf(float(_water._cell_size), 0.001) if ("_cell_size" in _water) else 0.0
-		if side <= 0.0:
-			return
-		# The stone's own volume against a cell's, at rock's full amount (mol/m^3 of a cell of rock).
-		mineral_mass = LASubstances.full_mol_m3("silicate") \
-			* (STONE_SIDE * STONE_SIDE * STONE_SIDE) / (side * side * side)
-	inject.deposit_sediment(global_position, mineral_mass)
+	var inject: Object = _water._inject
+	if inject.has_method("deposit_sediment"):
+		inject.deposit_sediment(global_position, mineral_mass)
 
 
 # Splash accent if the rock came down in water.
@@ -154,41 +116,3 @@ func _maybe_splash(at: Vector3) -> void:
 	if _water != null and _water.has_method("is_water_at") and _water.is_water_at(at):
 		if _water.has_method("splash"):
 			_water.splash(at, 1.0)
-
-func _spawn_impact_puff() -> void:
-	var parent: Node = get_parent()
-	if parent == null:
-		return
-
-	var puff: GPUParticles3D = GPUParticles3D.new()
-	puff.name = "ImpactPuff"
-	puff.one_shot = true
-	puff.emitting = true
-	puff.amount = 12
-	puff.lifetime = 0.5
-	puff.explosiveness = 1.0
-
-	var particle_mesh: SphereMesh = SphereMesh.new()
-	particle_mesh.radius = 0.05
-	particle_mesh.height = 0.1
-	puff.draw_pass_1 = particle_mesh
-
-	var process_material: ParticleProcessMaterial = ParticleProcessMaterial.new()
-	process_material.direction = Vector3(0, 1, 0)
-	process_material.spread = 45.0
-	process_material.initial_velocity_min = 1.0
-	process_material.initial_velocity_max = 3.0
-	process_material.gravity = Vector3(0, -9.8, 0)
-	process_material.color = Color(0.4, 0.38, 0.35)
-	puff.process_material = process_material
-
-	parent.add_child(puff)
-	puff.global_position = global_position
-
-	# Auto-free the puff shortly after it finishes.
-	var timer: Timer = Timer.new()
-	timer.one_shot = true
-	timer.wait_time = 1.0
-	puff.add_child(timer)
-	timer.timeout.connect(puff.queue_free)
-	timer.start()

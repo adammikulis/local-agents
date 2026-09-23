@@ -4,8 +4,8 @@ extends RefCounted
 
 const COMPANION_FOLLOW_DIST: float = 4.0   # a "follow" companion closes to this range, then heels/holds
 
-# The game's LAThrownRock prop, optional: a core creature runs with the game deleted, it just cannot throw.
-const THROWN_ROCK_PATH: String = "res://addons/local_agents/sim/actors/ThrownRock.gd"
+# The LAThrownRock actor, optional: a core creature runs with sim/ deleted, it just cannot throw.
+const THROWN_ROCK_SCENE: String = "res://addons/local_agents/sim/actors/ThrownRock.tscn"
 
 
 static func think_prey(c, pos: Vector3, fallback: Vector3) -> Vector3:
@@ -106,16 +106,15 @@ static func _hunt_with_rock(c, pos: Vector3, prey: Node3D, to_prey: Vector3, fal
 
 
 static func _throw_rock_at(c, prey: Node3D) -> void:
-	var rock_script: GDScript = LAOptionalScript.resolve(THROWN_ROCK_PATH)
-	if rock_script == null:
-		return   # no LAThrownRock prop (core/library build with the game deleted) — can't throw
+	if not ResourceLoader.exists(THROWN_ROCK_SCENE):
+		return   # no LAThrownRock actor (core/library build with sim/ deleted) — can't throw
 	c.has_rock = false
 	_set_rock_visual(c, false)
 	c._throw_cd = 2.5
 	var parent: Node = c.get_parent()
 	if parent == null:
 		return
-	var rock: Node = rock_script.new()
+	var rock: Node = (load(THROWN_ROCK_SCENE) as PackedScene).instantiate()
 	parent.add_child(rock)
 	if rock.has_method("setup"):
 		rock.setup(c.terrain, c._material)

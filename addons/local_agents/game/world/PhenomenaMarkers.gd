@@ -4,7 +4,7 @@ extends Node3D
 ## Presentation for what LAFieldPhenomena observed. Places a marker where the field already shows an
 ## eruption or a cyclone and retires it when the reading stops. It reads the detector and nothing else.
 
-const LightningScript: GDScript = preload("res://addons/local_agents/sim/actors/LightningStrike.gd")
+const LightningScene: PackedScene = preload("res://addons/local_agents/sim/actors/LightningStrike.tscn")
 
 ## Seconds between marker refreshes. A display cadence, not a physical rate: the detector's own reading is
 ## cached per field step and the markers only redraw it.
@@ -47,7 +47,7 @@ func show_bolt(point: Vector3) -> void:
 	_live_bolts = _live_bolts.filter(func(n) -> bool: return is_instance_valid(n))
 	if _live_bolts.size() >= MAX_DRAWN_BOLTS:
 		return
-	var b: Node = LightningScript.new()
+	var b: LALightningStrike = LightningScene.instantiate() as LALightningStrike
 	add_child(b)
 	_live_bolts.append(b)
 	b.strike(point)
