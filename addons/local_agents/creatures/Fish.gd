@@ -524,7 +524,7 @@ func _physics_process(delta: float) -> void:
 		return
 	age += delta
 	if _think_phase < 0:
-		_think_phase = int(get_instance_id())                  # raw id; the think stagger is (id % stride)
+		_think_phase = int(get_instance_id())                  # LALodStride.should_run mixes the id
 	if age >= max_age:
 		die("old age")
 		return

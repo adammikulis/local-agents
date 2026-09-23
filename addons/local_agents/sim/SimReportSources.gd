@@ -82,7 +82,16 @@ static func disease(w) -> Dictionary:
 	}
 
 
-## Live cognition / genetics snapshot (proof the fast/slow brain + evolution are running).
+## The deepest generation alive: one field read per creature, cheap enough for a live HUD.
+static func lineage(w) -> Dictionary:
+	var max_gen: int = 0
+	for c in w.get_tree().get_nodes_in_group("creature"):
+		if is_instance_valid(c) and c.has_method("get_genome") and c.get_genome() != null:
+			max_gen = maxi(max_gen, int(c.get_genome().generation))
+	return {"max_generation": max_gen}
+
+
+## Cognition / genetics snapshot at report time (proof the fast/slow brain + evolution are running).
 static func cognition(w) -> Dictionary:
 	var creatures: Array = w.get_tree().get_nodes_in_group("creature")
 	var minds: int = 0
@@ -93,7 +102,6 @@ static func cognition(w) -> Dictionary:
 	var habits: int = 0
 	var asked: int = 0
 	var learned: int = 0
-	var max_gen: int = 0
 	var cues: int = 0
 	var aversions: int = 0    # learned AVERSIONS: cue values driven to/below the food-avoid threshold (toxin/danger
 	                          # learning, which cues_learned's positive-only count can't see). Proves affinity's aversive half.
@@ -161,7 +169,6 @@ static func cognition(w) -> Dictionary:
 				bird_n += 1
 		if c.has_method("get_genome") and c.get_genome() != null:
 			var gen = c.get_genome()
-			max_gen = maxi(max_gen, int(gen.generation))
 			if gen.has_method("decode_gene"):
 				gene_pop += 1
 				for gk in REPORTED_GENES:
@@ -211,7 +218,7 @@ static func cognition(w) -> Dictionary:
 			sched = sc.total_calls()
 	return {
 		"minds": minds, "habits": habits, "escalations": asked, "social_lessons": learned,
-		"max_generation": max_gen, "slow_brain_calls": sched, "cues_learned": cues, "vetoes": vetoed,
+		"slow_brain_calls": sched, "cues_learned": cues, "vetoes": vetoed,
 		"aversions": aversions, "learners": learners,
 		"genes": genes, "gene_pop": gene_pop, "males": males,
 		"metab": metab, "metab_exponent": snappedf(expo, 0.001), "metab_species": sn,

@@ -62,6 +62,8 @@ static func emit_population_trace(w, frame: int) -> void:
 			var p = probes[i]
 			if is_instance_valid(p) and p is Node3D:
 				var t: float = float(mat.temp_at((p as Node3D).global_position + Vector3(0.0, 2.0, 0.0)))
+				if not is_finite(t):
+					continue
 				surf_sum += t
 				surf_max = maxf(surf_max, t)
 				surf_n += 1

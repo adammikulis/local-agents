@@ -29,7 +29,6 @@ func build(world: Node, sim: LASimulation, input: LAVoxelInputController) -> voi
 	_build_camera()
 	_build_sky()
 	_build_world_visuals()
-	LAFlameFX.warm()
 
 
 func _build_camera() -> void:

@@ -396,6 +396,11 @@ struct RadialProfile {
 	int i_core = 0;
 	// Base of the lithosphere, metres below the surface. INF where the lid never meets the adiabat.
 	double lid_m = NAN;
+	// The lid's own conductive law, T(z) = Ts + q z / k - a z^2 / (2k): kelvin, W/m^2, W/m^3, W/m/K.
+	double t_surface_k = NAN;
+	double q_surf = 0.0;
+	double a_w_m3 = 0.0;
+	double k_rock = 0.0;
 	double dr = 0.0;
 	std::vector<double> p_at;
 	std::vector<double> t_at;
@@ -417,7 +422,7 @@ static double radiogenic_flux(double p_h_w_kg, double p_m_rock, double p_radius_
 // Solids for Geophysics), K_T = K0 + K0' P off the same Birch-Murnaghan the densities use.
 static void geotherm_on_profile(double p_radius_m, double p_t_c, int p_n, int p_i_core, double p_dr,
 		const std::vector<double> &p_m_in, const std::vector<double> &p_p_at, std::vector<double> &r_t_at,
-		double &r_lid_m) {
+		double &r_lid_m, double &r_q_surf, double &r_a_w_m3, double &r_k_m) {
 	const Dictionary table = LASubstances::table();
 	const Dictionary rock = table.get("silicate", Dictionary());
 	const Dictionary metal = table.get("metal", Dictionary());
@@ -451,6 +456,9 @@ static void geotherm_on_profile(double p_radius_m, double p_t_c, int p_n, int p_
 	const double disc = q_surf * q_surf - 2.0 * a_w_m3 * k_m * (t_ad - t_surface_k);
 	r_lid_m = (a_w_m3 > 0.0 && disc >= 0.0) ? (q_surf - std::sqrt(disc)) / a_w_m3
 			: std::numeric_limits<double>::infinity();
+	r_q_surf = q_surf;
+	r_a_w_m3 = a_w_m3;
+	r_k_m = k_m;
 	// THE LID ENDS WHERE ITS CONDUCTIVE GEOTHERM MEETS THE ADIABAT, and below that the adiabat holds:
 	// the conductive parabola is the lithosphere's alone and turns over past it.
 	bool lid = true;
@@ -547,7 +555,8 @@ static RadialProfile with_geotherm(RadialProfile p_prof, double p_t_c) {
 	const double r_body = double(p_prof.n) * p_prof.dr;
 	std::vector<double> t_k(p_prof.n, p_t_c + kelvin);
 	geotherm_on_profile(r_body, p_t_c, p_prof.n, p_prof.i_core, p_prof.dr, p_prof.m_in, p_prof.p_at, t_k,
-			p_prof.lid_m);
+			p_prof.lid_m, p_prof.q_surf, p_prof.a_w_m3, p_prof.k_rock);
+	p_prof.t_surface_k = p_t_c + kelvin;
 	for (int i = 0; i < p_prof.n; ++i) {
 		p_prof.t_at[i] = t_k[i] - kelvin;
 	}
@@ -586,13 +595,46 @@ static RadialProfile radial_profile(double p_radius_m, double p_t_c) {
 	return last;
 }
 
-PackedFloat32Array LAPlanetComposition::geotherm_k(double p_radius_m, double p_t_c) {
-	const RadialProfile prof = radial_profile(p_radius_m, p_t_c);
-	PackedFloat32Array out;
-	out.resize(prof.n);
+// T at depth z below the local ground, C: the lid's conductive law above its base, the shell profile
+// below it, each shell standing at its midpoint radius (i + 1/2) dr of a body whose surface is n dr.
+static double geotherm_c_at(const RadialProfile &p_prof, double p_z_m) {
 	const double kelvin = la_physical("KELVIN_OFFSET");
-	for (int i = 0; i < prof.n; i++) {
-		out[i] = float(prof.t_at[i] + kelvin);
+	const double z = std::max(p_z_m, 0.0);
+	const double t_lid_k = [&](double zz) {
+		return p_prof.k_rock > 0.0
+				? p_prof.t_surface_k + p_prof.q_surf * zz / p_prof.k_rock - p_prof.a_w_m3 * zz * zz / (2.0 * p_prof.k_rock)
+				: p_prof.t_surface_k;
+	}(std::min(z, p_prof.lid_m));
+	if (z <= p_prof.lid_m) {
+		return t_lid_k - kelvin;
+	}
+	const double x = (double(p_prof.n) * p_prof.dr - z) / p_prof.dr - 0.5;
+	const int i = std::min(std::max(int(std::floor(x)), 0), p_prof.n - 2);
+	const double f = std::min(std::max(x - double(i), 0.0), 1.0);
+	const double t_shell_c = p_prof.t_at[i] + (p_prof.t_at[i + 1] - p_prof.t_at[i]) * f;
+	return std::max(t_shell_c, t_lid_k - kelvin);
+}
+
+PackedFloat32Array LAPlanetComposition::geotherm_c_cells(double p_radius_m, double p_t_c,
+		const PackedFloat32Array &p_depth, const PackedFloat32Array &p_edge) {
+	PackedFloat32Array out;
+	const RadialProfile prof = radial_profile(p_radius_m, p_t_c);
+	if (prof.n < 2 || !std::isfinite(prof.t_surface_k)) {
+		return out;
+	}
+	const int cc = p_depth.size();
+	out.resize(cc);
+	float *w = out.ptrw();
+	const int n_s = 16;
+	for (int c = 0; c < cc; c++) {
+		const double e = c < p_edge.size() ? double(p_edge[c]) : 0.0;
+		const double d_lo = std::max(double(p_depth[c]) - 0.5 * e, 0.0);
+		const double d_hi = std::max(double(p_depth[c]) + 0.5 * e, d_lo);
+		double acc = 0.0;
+		for (int k = 0; k < n_s; k++) {
+			acc += geotherm_c_at(prof, d_lo + (d_hi - d_lo) * (double(k) + 0.5) / double(n_s));
+		}
+		w[c] = float(acc / double(n_s));
 	}
 	return out;
 }
@@ -1383,7 +1425,7 @@ void LAPlanetComposition::_bind_methods() {
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("lid_thickness_m", "radius_m", "t_c"), &lid_thickness_m);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("body_field", "grid", "centre", "radius_m", "t_c"), &body_field);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("upload_body_field", "rd", "bufs", "grid", "centre", "radius_m", "t_c"), &upload_body_field);
-	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("geotherm_k", "radius_m", "t_surface_c"), &geotherm_k);
+	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("geotherm_c_cells", "radius_m", "t_surface_c", "depth", "edge"), &geotherm_c_cells);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("surface_heat_flux_w_m2", "mass_kg", "radius_m"), &surface_heat_flux_w_m2);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("peridotite_melting_interval_c"), &peridotite_melting_interval_c);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("mantle_potential_temp_k"), &mantle_potential_temp_k);

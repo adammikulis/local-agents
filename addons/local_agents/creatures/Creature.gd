@@ -117,8 +117,8 @@ var _held: bool = false
 var _ragdoll: bool = false
 var _carcass: bool = false
 var _dead: bool = false
-var _shadow: RigidBody3D = null
-var _settle_t: float = 0.0
+var _fall_id: int = -1                      # LABallistics free body carrying a flung creature
+var _fall_push: Vector3 = Vector3.ZERO        # velocity it was flung with, m/s
 var _decay_age: float = 0.0
 var _carrion: float = 0.0                     # meat MASS left on the carcass (drawn from the live body at death)
 var _carrion_initial: float = 0.0             # what the body weighed when it died — the rot/shrink denominator
@@ -269,26 +269,6 @@ func set_material_field(w) -> void:
 	LACreatureBodyMass.note_spawn(self)
 
 
-# The game's LAFlameFX combustion visual, optional: a core creature dies-burned with the game deleted.
-const FLAME_FX_PATH: String = "res://addons/local_agents/game/render/FlameFX.gd"
-
-
-# Organic matter combusts — bursts into flame (not incandescent glow) and dies burned. The flame is
-# detached at the spot so it lingers as the body drops, rather than freeing with the creature.
-func _combust() -> void:
-	if _dying:
-		return
-	var parent: Node = get_parent()
-	var flame_script: GDScript = LAOptionalScript.resolve(FLAME_FX_PATH)
-	if parent != null and flame_script != null and flame_script.has_method("make"):
-		var flame: Node3D = flame_script.make()
-		parent.add_child(flame)
-		flame.global_position = global_position
-		var timer: SceneTreeTimer = get_tree().create_timer(2.5)
-		timer.timeout.connect(func(): if is_instance_valid(flame): flame.queue_free())
-	die("burned", Vector3(0.0, 2.0, 0.0))
-
-
 # A thrown rock struck me — I die (drop a corpse).
 func on_struck() -> void:
 	die("struck")
@@ -433,7 +413,7 @@ func _physics_process(delta: float) -> void:
 	if senescence != null:
 		senescence.tick(self, delta)
 	if _think_phase < 0:
-		_think_phase = int(get_instance_id())                  # raw id; the think stagger is (id % stride)
+		_think_phase = int(get_instance_id())                  # LALodStride.should_run mixes the id
 	_throw_cd -= delta
 	# Night perception: nocturnal species gain range after dark, diurnal ones lose it.
 	_sense_mult = 1.0
@@ -469,9 +449,8 @@ func _physics_process(delta: float) -> void:
 
 	LACreatureFieldForces.tick(self, delta)
 
-	# Temperature comfort + combustion, emergent from the shared field at my feet.
-	if LACreatureMetabolism.tick_environment(self, pos, delta):
-		return
+	# Evaporative cooling of an overheated body.
+	LACreatureMetabolism.tick_environment(self, pos, delta)
 	# Breathing: drown when submerged past my breath reserve, or suffocate in O2-depleted smoke.
 	if LACreatureMetabolism.tick_breath(self, pos, delta):
 		return
@@ -504,7 +483,7 @@ func _physics_process(delta: float) -> void:
 		LACreatureProfile.add("cr_glue", _pt)
 		_pt = Time.get_ticks_usec()
 	var stride: int = LACreatureLod.think_stride(self)
-	var do_think: bool = _force_think or ((int(Engine.get_physics_frames()) + _think_phase) % stride == 0)
+	var do_think: bool = _force_think or LALodStride.should_run(int(Engine.get_physics_frames()), _think_phase, stride)
 	_think_dt += delta
 	if do_think:
 		var think_dt: float = _think_dt

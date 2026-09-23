@@ -2,11 +2,6 @@ class_name LACreatureRagdoll
 extends RefCounted
 
 
-const SETTLE_SPEED: float = 0.35          # below this lin+ang speed the shadow counts as resting
-const SETTLE_HOLD: float = 0.4            # seconds it must stay slow before we call it settled
-const MAX_RAGDOLL_TIME: float = 1.0       # hard cap on the tumble before we force-settle (see tick())
-const SHADOW_MASK: int = 1                # collide with the terrain (static body on layer 1) only
-
 const MICROBE_SEED: float = 0.2           # suppressed microbe load at death; blooms as the body is consumed
 const DECOMP_RATE_PER_SEC: float = 0.35   # fraction of biomass the full bloom converts per second at warm+wet
 const COLD_STALL_C: float = -2.0          # at/below this the bloom stalls to MUMMIFY_FLOOR (frozen preservation)
@@ -23,91 +18,66 @@ const MAX_CARCASSES: int = 80             # GENEROUS safety backstop only — de
 static var _carcasses: Array = []
 
 
-# Release the shadow: the creature is flung and physics takes over. `lethal` marks this as a death,
-# so when the tumble settles the body stays and decays instead of standing back up. A near-zero
-# impulse still topples the body (a small nudge) so a quiet death lies down rather than standing.
+# The creature is flung: a free body under the field's own gravity that stops on the field's own ground,
+# the same wherever the viewer is. `impulse` is the velocity change it is given, m/s. `lethal` marks a
+# death, so the body stays and decays where it lands. A near-zero push still topples it.
 static func launch(c, impulse: Vector3, lethal: bool) -> void:
 	if lethal:
 		_become_carcass(c)
-	# Already ragdolling (e.g. a second blast): just add the new impulse to the live shadow.
-	if c._ragdoll and is_instance_valid(c._shadow):
-		c._shadow.apply_central_impulse(impulse)
-		return
-
 	var parent: Node = c.get_parent()
 	if parent == null or not c.is_inside_tree():
 		return
-
-	var radius: float = maxf(c.size * 0.6, 0.1)
-	var height: float = maxf(c.size * 2.0, radius * 2.0)
-
-	var shadow: RigidBody3D = RigidBody3D.new()
-	shadow.name = "RagdollShadow"
-	shadow.collision_layer = 0            # the creature (layer 2) stays the pickable thing, not this
-	shadow.collision_mask = SHADOW_MASK   # rest on / bounce off the terrain
-	shadow.gravity_scale = 1.0
-	var shape: CollisionShape3D = CollisionShape3D.new()
-	var capsule: CapsuleShape3D = CapsuleShape3D.new()
-	capsule.radius = radius
-	capsule.height = height
-	shape.shape = capsule
-	shadow.add_child(shape)
-	parent.add_child(shadow)
-	shadow.global_transform = c.global_transform
-
-	# The push. A tiny impulse still gets a topple nudge so the body lies down.
+	var pos: Vector3 = c.global_position
+	var up: Vector3 = c.terrain.up_at(pos) if c.terrain != null else Vector3.UP
+	var vel: Vector3 = impulse
+	if c._ragdoll and c._fall_id >= 0:
+		var st: Dictionary = LABallistics.state(c._fall_id)
+		vel += Vector3(st.get("velocity", Vector3.ZERO))
+		LABallistics.release(c._fall_id)
+		c._fall_id = -1
 	var rng: LASimRng = LASimRng.for_domain("life")
-	var push: Vector3 = impulse
-	if push.length() < 0.5:
-		var axis: Vector3 = Vector3(rng.randf_range(-1.0, 1.0), 0.4, rng.randf_range(-1.0, 1.0))
-		push = axis.normalized() * (c.size * 2.5 + 1.5)
-	shadow.apply_central_impulse(push)
-	shadow.apply_torque_impulse(Vector3(
-		rng.randf_range(-1.0, 1.0), rng.randf_range(-1.0, 1.0), rng.randf_range(-1.0, 1.0)
-	) * (push.length() * 0.25 + 1.0))
-
-	c._shadow = shadow
+	if vel.length() < 0.5:
+		var t1: Vector3 = up.cross(Vector3.FORWARD if absf(up.dot(Vector3.FORWARD)) < 0.9 else Vector3.RIGHT).normalized()
+		var t2: Vector3 = up.cross(t1)
+		var axis: Vector3 = t1 * rng.randf_range(-1.0, 1.0) + up * 0.4 + t2 * rng.randf_range(-1.0, 1.0)
+		vel = axis.normalized() * (c.size * 2.5 + 1.5)
+	c._fall_push = vel
 	c._ragdoll = true
-	c._settle_t = 0.0
-
-
-# Called each physics frame while the shadow is driving. The visible creature copies the shadow's
-# transform (model tumbles with it); when the shadow rests we either stand up or turn into a carcass.
-static func tick(c, delta: float) -> void:
-	if not is_instance_valid(c._shadow):
+	if LABallistics.rock_at(pos):
 		_on_settled(c)
 		return
-	c.global_transform = c._shadow.global_transform
-	# Total time spent tumbling (reuses _decay_age, which stays 0 until the body settles into a carcass).
-	c._decay_age += delta
+	c._fall_id = LABallistics.drop(pos, vel, LACreatureRespiration.body_mass(c), maxf(c.size * 0.6, 0.1))
 
-	var lin: float = c._shadow.linear_velocity.length()
-	var ang: float = c._shadow.angular_velocity.length()
-	if c._shadow.sleeping or (lin < SETTLE_SPEED and ang < SETTLE_SPEED):
-		c._settle_t += delta
-	else:
-		c._settle_t = 0.0
-	if c._settle_t >= SETTLE_HOLD or c._decay_age >= MAX_RAGDOLL_TIME:
+
+# The free body carries the creature until the field's ground stops it.
+static func tick(c, delta: float) -> void:
+	var st: Dictionary = LABallistics.state(c._fall_id) if c._fall_id >= 0 else {}
+	if st.is_empty():
+		_on_settled(c)
+		return
+	c.global_position = st["position"]
+	c._decay_age += delta
+	if bool(st["landed"]):
 		_on_settled(c)
 
 
-# The shadow has come to rest — dismiss it and either recover (alive) or ground the carcass (dead).
+# Landed: either recover (alive) or ground the carcass (dead), seated on the body's surface.
 static func _on_settled(c) -> void:
 	var pos: Vector3 = c.global_position
-	_dismiss_shadow(c)
+	_release_fall(c)
 	c._ragdoll = false
-	c._settle_t = 0.0
 	c._decay_age = 0.0                # reset the tumble-timer reuse: decomposition ages from a fresh 0
 
 	if c._dead:
-		# Lie where it fell: keep the tumbled orientation, just seat it on the surface. Radial planet
-		# geometry: the ground point is along the body's own centre→pos radial, and we lift it out along
-		# that same radial by a fraction of its size so the carcass rests on (not through) the ground.
+		# Lie on the side the push toppled it towards, seated on the surface along its own radial.
 		if c.terrain != null:
 			var surf: Vector3 = c.terrain.ground_point(pos)
 			if not is_nan(surf.x):
 				var up_out: Vector3 = (pos - c.terrain.planet_center()).normalized()
 				c.global_position = surf + up_out * (c.size * 0.35)
+				var tip: Vector3 = up_out.cross(Vector3(c._fall_push))
+				if tip.length() > 1.0e-4:
+					c.global_transform.basis = Basis(tip.normalized(), PI * 0.5) * c.global_transform.basis
 		c._carcass = true
 		return
 
@@ -122,10 +92,10 @@ static func _on_settled(c) -> void:
 	c.add_fear(c.global_position, 1.5)
 
 
-static func _dismiss_shadow(c) -> void:
-	if is_instance_valid(c._shadow):
-		c._shadow.queue_free()
-	c._shadow = null
+static func _release_fall(c) -> void:
+	if c._fall_id >= 0:
+		LABallistics.release(c._fall_id)
+	c._fall_id = -1
 
 
 # Turn the (still-living) creature INTO a carcass: leave the live groups so nothing hunts/flees it,
@@ -172,12 +142,14 @@ static func _despawn_carcass(c) -> void:
 	if c._carrion > 0.0 and c._material != null and c._material.has_method("deposit_detritus"):
 		c._material.deposit_detritus(c.global_position, c._carrion)
 	c._carrion = 0.0
-	_dismiss_shadow(c)
+	_release_fall(c)
 	c.queue_free()
 
 
 static func decay_tick(c, delta: float) -> void:
 	c._decay_age += delta
+	LACreatureRespiration.exchange_heat(c, c.global_position, delta, LACreatureRespiration.body_mass(c),
+		LACreatureRespiration.exchange_area(c))
 	var initial: float = maxf(float(c._carrion_initial), 0.0001)
 	if c._carrion <= 0.0:
 		_forget_carcass(c)
@@ -207,10 +179,9 @@ static func _decomp_env(c) -> float:
 	if c._material == null:
 		return DRY_MOISTURE
 	var pos: Vector3 = c.global_position
-	var warmth: float = 1.0
-	if c._material.has_method("temp_at"):
-		var t_c: float = c._material.temp_at(pos)          # cheap cell read; the primary spatial driver
-		warmth = clampf((t_c - COLD_STALL_C) / (WARM_OPT_C - COLD_STALL_C), MUMMIFY_FLOOR, 1.0)
+	# The microbes work at the carcass's own temperature, which follows the medium it lies in.
+	var t_c: float = float(c.body_temp)
+	var warmth: float = clampf((t_c - COLD_STALL_C) / (WARM_OPT_C - COLD_STALL_C), MUMMIFY_FLOOR, 1.0)
 	var moisture: float = DRY_MOISTURE
 	if c._material.has_method("snow_depth_at") and c._material.snow_depth_at(pos) > 0.01:
 		moisture *= 0.5                        # frozen under snow: driest + coldest ⇒ slowest (permafrost)

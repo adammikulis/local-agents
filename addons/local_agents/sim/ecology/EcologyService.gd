@@ -253,8 +253,8 @@ func _can_grow_here(placed: Vector3, woody: bool = false) -> bool:
 	if _material == null or not _material.has_method("temp_at"):
 		return false
 	var air: Vector3 = _air_point(placed)
-	if _material.temp_at(air) - (TREELINE_ISOTHERM_C if woody else GDD_BASE_C) <= 0.0:
-		return false
+	if not (_material.temp_at(air) - (TREELINE_ISOTHERM_C if woody else GDD_BASE_C) > 0.0):
+		return false   # below the isotherm, or no matter there to have a temperature
 	if _material.has_method("snow_depth_at") and _material.snow_depth_at(air) > 0.0:
 		return false   # lying snow: a seed never reaches the soil
 	return true
