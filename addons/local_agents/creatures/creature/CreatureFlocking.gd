@@ -65,7 +65,7 @@ static func _band_regroup(c, pos: Vector3, flatten: bool) -> Vector3:
 static func steer(c, pos: Vector3, flatten: bool) -> Vector3:
 	if c.flock_weight <= 0.0:
 		return Vector3.ZERO
-	var mates: Array = c.get_tree().get_nodes_in_group("species_" + String(c.species))
+	var mates: Array = LASpatialIndex.shared().nearby(c.get_tree(), "species_" + String(c.species), pos, c.flock_radius)
 	var center: Vector3 = Vector3.ZERO
 	var align: Vector3 = Vector3.ZERO
 	var separation: Vector3 = Vector3.ZERO

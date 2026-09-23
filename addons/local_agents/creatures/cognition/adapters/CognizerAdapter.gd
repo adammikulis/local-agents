@@ -53,10 +53,11 @@ static func senses(c) -> Dictionary:
 	return out
 
 
-## Same-species neighbours in the scene tree (the social-learning scan pool). The group-naming convention
-## stays here so the brain never touches how the actor registers itself.
+## Same-species members that can fall inside `sees` (the social-learning scan pool), in group order. The
+## group-naming convention stays here so the brain never touches how the actor registers itself.
 static func neighbours(c) -> Array:
-	return c.get_tree().get_nodes_in_group("species_" + String(c.species))
+	return LASpatialIndex.shared().nearby(c.get_tree(), "species_" + String(c.species), c.global_position,
+		LAVision.effective_range(c), true)
 
 
 static func sees(c, m) -> bool:

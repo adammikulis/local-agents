@@ -262,11 +262,13 @@ func _generated_surface_radius(dir: Vector3) -> float:
 	var d: Vector3 = dir.normalized()
 	var r_top: float = max_surface_radius() + SURFACE_RAY_MARGIN
 	var r_bot: float = maxf(min_surface_radius() - SURFACE_RAY_MARGIN, 1.0)
-	var r_a: float = r_top
-	var r_b: float = r_bot
-	var r_hit: float = NAN
+	var r_hit: float = _coarse_crossing(d, r_top, r_bot)
+	if is_nan(r_hit):
+		return r_hit
+	var r_a: float = minf(r_hit + GEN_RAY_COARSE, r_top)
+	var r_b: float = maxf(r_hit - GEN_RAY_COARSE, r_bot)
 	# The generator is sampled in the terrain's OWN space; every caller here speaks world.
-	for stride in [GEN_RAY_COARSE, GEN_RAY_STRIDE, GEN_RAY_REFINE]:
+	for stride in [GEN_RAY_STRIDE, GEN_RAY_REFINE]:
 		var hit: float = _generator.raycast_sdf_approx(
 			_terrain.to_local(_center + d * r_a), _terrain.to_local(_center + d * r_b), stride)
 		if hit < 0.0:
@@ -275,6 +277,40 @@ func _generated_surface_radius(dir: Vector3) -> float:
 		r_a = minf(r_hit + stride, r_top)
 		r_b = maxf(r_hit - stride, r_bot)
 	return r_hit
+
+
+# The shortest stretch of ray the generator's range analysis is split down to, m.
+const GEN_RANGE_MIN: float = GEN_RAY_COARSE * 2.0
+const GEN_RAY_CHUNK: float = GEN_RAY_COARSE * 32.0
+
+
+## The radius of the first SDF crossing inward from r_top at GEN_RAY_COARSE. The stretch the generator's
+## range analysis bounds above zero is air and is not sampled; below it the ray is marched in chunks that
+## stop at the first crossing. NAN where none is.
+func _coarse_crossing(d: Vector3, r_top: float, r_bot: float) -> float:
+	var length: float = r_top - r_bot
+	var safe: float = 0.0
+	var span: float = length
+	while span >= GEN_RANGE_MIN and safe < length:
+		var t_end: float = minf(safe + span, length)
+		var a: Vector3 = _terrain.to_local(_center + d * (r_top - safe))
+		var b: Vector3 = _terrain.to_local(_center + d * (r_top - t_end))
+		if _generator.debug_analyze_range(a.min(b), a.max(b)).x > 0.0:
+			safe = t_end
+		else:
+			span *= 0.5
+	var k: int = maxi(int(floor(safe / GEN_RAY_COARSE)) - 1, 0)
+	var t: float = float(k) * GEN_RAY_COARSE
+	while t < length:
+		var t_end2: float = minf(t + GEN_RAY_CHUNK, length)
+		var hit: float = _generator.raycast_sdf_approx(_terrain.to_local(_center + d * (r_top - t)),
+			_terrain.to_local(_center + d * (r_top - t_end2)), GEN_RAY_COARSE)
+		if hit >= 0.0:
+			return r_top - (t + hit)
+		if t_end2 >= length:
+			break
+		t = t_end2 - GEN_RAY_COARSE
+	return NAN
 
 
 ## PLANET: the world-space surface point along `dir` (centre + dir * surface_radius).

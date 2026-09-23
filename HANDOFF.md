@@ -114,12 +114,7 @@ is an invented threshold. The design: kinematic until thrown; then a Jolt `Rigid
 `gravity_scale = 0` pushed each tick by `m·g(pos)` from `LABallistics.g_at` plus the seeded air's drag
 (bound, not copied), the impulse from the overpressure in its cell, kinematic again when asleep.
 
-## 13. THE LIFE DEMO'S FRAMES COST MORE THAN 1/30 S
-
-`scripts/check_life_demo.sh` fails "the worst frame of the run cost more than 1/30 s".
-Reading: `LACreatureNesting._nearest_tree` and `CreatureThink.gd` call `get_nodes_in_group` over the whole `tree` and `creature` groups from inside one creature's tick.
-
-## 14. NOT EXAMINED UNTIL THE RUNG-2 DEMO IS APPROVED — rung 3
+## 13. NOT EXAMINED UNTIL THE RUNG-2 DEMO IS APPROVED — rung 3
 
 - `scripts/check_bench_shock_tube.sh`: at a 10:1 Sod jump the rarefaction head stands outside the bound
   and the overshoot grows as the grid halves; at a 1% jump every claim passes.
@@ -133,7 +128,7 @@ Reading: `LACreatureNesting._nearest_tree` and `CreatureThink.gd` call `get_node
   the advective CFL, `SIM_SECONDS_PER_STEP` and the acoustic temporal levels are deleted; declared in
   `docs/APPROXIMATIONS.md` when built.
 
-## 15. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the rows above it and their books
+## 14. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the rows above it and their books
 
 - `scripts/check_bench_heat_slab.sh` (rung 4): a slab held between 20 and 520 °C leaves that range.
   Reading: `la_row_need` in `flux.glsl` gates the conduction row on `cap_sensible[c] > 0`.
@@ -147,25 +142,25 @@ Reading: `LACreatureNesting._nearest_tree` and `CreatureThink.gd` call `get_node
 - `LA_RUN_TIMEOUT=110 scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn --
   --sandbox --ui --run-frames=20` prints no report and logs no error; `--planet-only --no-fauna` reports.
 
-## 16. TWO ROWS THE ENGINE READS ARE EMPTY
+## 15. TWO ROWS THE ENGINE READS ARE EMPTY
 
 `scripts/check_bench_phase_change.sh` melts iron and forsterite off their own rows; `apatite` carries
 neither a melting point nor a fusion enthalpy, so `LAMixtureEnthalpy::thermal_row` keeps it linear in T,
 and every planet mineral carries basalt's `albedo` and `emissivity`.
 
-## 17. THE PHYSICS RUNS INSIDE GODOT'S PROCESS
+## 16. THE PHYSICS RUNS INSIDE GODOT'S PROCESS
 
 Maintainer's decision, standing: a standalone native process with its own device, clock and CLI; gates
 run it with no Godot launch; Godot attaches as a viewer. Today every pass is a GDScript record on a Godot
 RenderingDevice (`LAFieldDriver`) and `scripts/run_sim_offscreen.sh` launches Godot for every gate.
 Branch `native-plans` is unlanded: `scripts/check_lasim_parity.sh` there reads `plan_reduce.lapl is truncated`.
 
-## 18. THE LEDGER RECONSTRUCTS ELEMENTS FROM CHANNEL AMOUNTS
+## 17. THE LEDGER RECONSTRUCTS ELEMENTS FROM CHANNEL AMOUNTS
 
 Maintainer's decision, standing: per-cell moles of elements are the state and species are derived
 (`docs/PHYSICS_TODO.md` B); today the ledger reconstructs them from `Channels.gd` (`mol_per_unit`).
 
-## 19. PRESENTATION LIVES ON THE SIM SIDE OF THE EJECTA MODULE, AND THE GPU LINT RUNS HERE ONLY
+## 18. PRESENTATION LIVES ON THE SIM SIDE OF THE EJECTA MODULE, AND THE GPU LINT RUNS HERE ONLY
 
 `rg -n 'MultiMeshInstance3D|la_effects_scale' addons/local_agents/sim/material/MaterialEjecta3D.gd`
 finds a draw cap read off the graphics preset and a MultiMesh built under `sim/`.

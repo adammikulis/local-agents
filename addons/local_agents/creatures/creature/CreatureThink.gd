@@ -188,7 +188,7 @@ static func _try_eat_food(c, pos: Vector3) -> bool:
 	var best_val: float = 0.0
 	var reach: float = maxf(c.size + 1.0, 1.4)
 	for grp in ["plant", "carrion"]:
-		for f in c.get_tree().get_nodes_in_group(grp):
+		for f in LASpatialIndex.shared().nearby(c.get_tree(), grp, pos, reach):
 			if not is_instance_valid(f) or not (f is Node3D):
 				continue
 			if not f.has_method("food_profile"):
@@ -304,6 +304,11 @@ static func think_scavenger(c, pos: Vector3, _delta: float) -> Vector3:
 	return c._heading + LACreatureBird.steer(c, pos)
 
 
+## The farthest a cue is read from: a flyer seen against the sky, or anything else in sight.
+static func _cue_reach(c) -> float:
+	return maxf(c.sense_radius * 4.0, LAVision.effective_range(c))
+
+
 static func _best_learned_cue(c, pos: Vector3) -> Dictionary:
 	if c._cognition == null:
 		return {}
@@ -312,7 +317,7 @@ static func _best_learned_cue(c, pos: Vector3) -> Dictionary:
 	var best_dir: Vector3 = Vector3.ZERO
 	var unknown_key: String = ""
 	var unknown_dir: Vector3 = Vector3.ZERO
-	for m in c.get_tree().get_nodes_in_group("creature"):
+	for m in LASpatialIndex.shared().nearby(c.get_tree(), "creature", pos, _cue_reach(c)):
 		if not is_instance_valid(m) or m == c or not (m is Node3D):
 			continue
 		var mpos: Vector3 = (m as Node3D).global_position
@@ -349,7 +354,7 @@ static func _reinforce_cue_success(c) -> void:
 	c._pursued_cue = ""
 	c._pursued_cd = 0.0
 	var pos: Vector3 = c.global_position
-	for m in c.get_tree().get_nodes_in_group("creature"):
+	for m in LASpatialIndex.shared().nearby(c.get_tree(), "creature", pos, _cue_reach(c)):
 		if not is_instance_valid(m) or m == c or not (m is Node3D):
 			continue
 		var mpos: Vector3 = (m as Node3D).global_position
