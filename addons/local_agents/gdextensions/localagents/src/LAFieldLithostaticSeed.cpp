@@ -19,10 +19,12 @@
 #include <godot_cpp/variant/utility_functions.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <functional>
 #include <limits>
 #include <numeric>
+#include <thread>
 #include <vector>
 
 using namespace godot;
@@ -39,6 +41,31 @@ Vector3 field_centre(Object *p_field) {
 	Array args;
 	args.append(p_field);
 	return la_call_gd(GEOMETRY_GD, "centre", args);
+}
+
+// p_fn(i) for every i in [0, p_count) across the host's cores, claimed in chunks off one counter.
+// p_fn writes only index i's own slots.
+template <typename F>
+void for_each_index_parallel(int p_count, const F &p_fn) {
+	const int workers = int(MAX(std::thread::hardware_concurrency(), 1u));
+	const int chunk = 16;
+	std::atomic<int> next(0);
+	auto run = [&]() {
+		for (int lo = next.fetch_add(chunk); lo < p_count; lo = next.fetch_add(chunk)) {
+			const int hi = MIN(lo + chunk, p_count);
+			for (int i = lo; i < hi; i++) {
+				p_fn(i);
+			}
+		}
+	};
+	std::vector<std::thread> pool;
+	for (int t = 1; t < workers; t++) {
+		pool.emplace_back(run);
+	}
+	run();
+	for (std::thread &t : pool) {
+		t.join();
+	}
 }
 
 // A channel mirror, held by NAME so it can be written back: a godot-cpp Packed array is copy-on-write, so
@@ -218,13 +245,15 @@ void column_section(const CubeColumn &p_col, double p_s0, double p_mid, double p
 // radius where the closed form cancels.
 void exp_moments(double p_z, double p_e[3]) {
 	if (std::abs(p_z) < 0.5) {
-		for (int j = 0; j < 3; j++) {
-			double term = 1.0, sum = 1.0 / double(j + 1);
-			for (int i = 1; i < 24; i++) {
-				term *= -p_z / double(i);
-				sum += term / double(i + j + 1);
-			}
-			p_e[j] = sum;
+		double term = 1.0;
+		p_e[0] = 1.0;
+		p_e[1] = 1.0 / 2.0;
+		p_e[2] = 1.0 / 3.0;
+		for (int i = 1; i < 24; i++) {
+			term *= -p_z / double(i);
+			p_e[0] += term / double(i + 1);
+			p_e[1] += term / double(i + 2);
+			p_e[2] += term / double(i + 3);
 		}
 		return;
 	}
@@ -751,9 +780,9 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c,
 		const double r_c = double((centres[c] - centre).length());
 		return cell_air_share(col, cut, double(p_phi[c]), phi_0, gmag, r_c, rt_over_m, sub);
 	};
-	for (int c = 0; c < cc; c++) {
+	for_each_index_parallel(cc, [&](int c) {
 		if (sky[c] == 0 || !std::isfinite(double(p_phi[c]))) {
-			continue;
+			return;
 		}
 		const double e = double(edges[c]);
 		vol[c] = e * e * e;
@@ -762,7 +791,7 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c,
 		const Vector3 g(p_gravity[c * 3], p_gravity[c * 3 + 1], p_gravity[c * 3 + 2]);
 		const double r_c = double((centres[c] - centre).length());
 		curve[c] = r_c > 0.0 ? double(g.length()) * 3.0 * e * e / (4.0 * r_c * rt_over_m) : 0.0;
-	}
+	});
 	// A SEGMENT IS SPLIT WHERE ITS CURVATURE WOULD SHOW IN THE TOTAL, and nowhere else: the error a cell
 	// carries is its own share of the air times what the straight line costs it.
 	{
@@ -773,6 +802,7 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c,
 			sky_n += sky[c] != 0 ? 1 : 0;
 		}
 		const double allow = eps32 * held / double(MAX(sky_n, 1));
+		std::vector<int> split_cell, split_n;
 		for (int c = 0; c < cc; c++) {
 			const double err = std::expm1(curve[c]) * shape[c] * vol[c];
 			if (!(err > allow)) {
@@ -784,8 +814,12 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c,
 						"curves so far across it that the barometric integral does not converge over it.");
 				return;
 			}
-			shape[c] = air_of(c, int(n));
+			split_cell.push_back(c);
+			split_n.push_back(int(n));
 		}
+		for_each_index_parallel(int(split_cell.size()), [&](int i) {
+			shape[split_cell[i]] = air_of(split_cell[i], split_n[i]);
+		});
 	}
 	for (size_t i = 0; i < gases.size(); i++) {
 		Mirror &m = gases[i];
