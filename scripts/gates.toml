@@ -599,6 +599,13 @@ kind = "text"
 marker = "^check_no_shim: OK"
 
 [[gate]]
+name = "check_presentation_in_sim"
+script = "scripts/check_presentation_in_sim.sh"
+kind = "text"
+marker = "^check_presentation_in_sim: OK"
+mutation = "printf 'func _m() -> void:\\n\\tvar m: MeshInstance3D = MeshInstance3D.new()\\n' >> addons/local_agents/sim/material/MaterialField3D.gd"
+
+[[gate]]
 name = "check_duplicate_logic"
 script = "scripts/check_duplicate_logic.sh"
 kind = "text"
