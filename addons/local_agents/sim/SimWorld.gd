@@ -205,8 +205,6 @@ func _build_sphere() -> bool:
 			LAFieldGridBudget.target_edge_m(body_seed, seed_radius(), LABodySeeds.surface_temp_c()), seed_radius())
 	if _material.has_method("sample_solidity"):
 		_material.sample_solidity()
-	if _sun != null and _material.has_method("set_sun"):
-		_material.set_sun(_sun)
 	return true
 
 

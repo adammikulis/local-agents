@@ -1,4 +1,4 @@
-[gd_scene load_steps=10 format=3]
+[gd_scene load_steps=14 format=3]
 
 [ext_resource type="Script" path="res://addons/local_agents/game/RenderLayer.gd" id="1_renderlayer"]
 [ext_resource type="Script" path="res://addons/local_agents/game/VoxelCameraRig.gd" id="2_voxelcamerarig"]
@@ -9,6 +9,10 @@
 [ext_resource type="Script" path="res://addons/local_agents/game/world/HeatFieldTexture.gd" id="9_heatfieldtexture"]
 [ext_resource type="Script" path="res://addons/local_agents/game/render/FieldVectors.gd" id="10_fieldvectors"]
 [ext_resource type="Script" path="res://addons/local_agents/game/render/TestMassView.gd" id="11_testmassview"]
+[ext_resource type="PackedScene" path="res://addons/local_agents/game/render/FieldBoxOutline.tscn" id="12_fieldboxoutline"]
+[ext_resource type="PackedScene" path="res://addons/local_agents/game/render/EjectaView.tscn" id="13_ejectaview"]
+[ext_resource type="PackedScene" path="res://addons/local_agents/game/render/SplashView.tscn" id="14_splashview"]
+[ext_resource type="PackedScene" path="res://addons/local_agents/game/render/MoonView.tscn" id="15_moonview"]
 
 [node name="RenderLayer" type="Node3D"]
 script = ExtResource("1_renderlayer")
@@ -36,3 +40,11 @@ script = ExtResource("11_testmassview")
 
 [node name="HeatFieldTexture" type="Node" parent="."]
 script = ExtResource("9_heatfieldtexture")
+
+[node name="FieldBoxOutline" parent="." instance=ExtResource("12_fieldboxoutline")]
+
+[node name="EjectaView" parent="." instance=ExtResource("13_ejectaview")]
+
+[node name="SplashView" parent="." instance=ExtResource("14_splashview")]
+
+[node name="MoonView" parent="." instance=ExtResource("15_moonview")]

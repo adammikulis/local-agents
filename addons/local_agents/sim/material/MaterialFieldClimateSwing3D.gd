@@ -199,8 +199,8 @@ func _reset_day() -> void:
 ## The sub-solar latitude is computed in the WORLD frame, where the spin does not enter it.
 func _advance_day() -> void:
 	var sun_world: Vector3 = Vector3.ZERO
-	if _f._sun_light != null:
-		sun_world = _f._sun_light.global_transform.basis.z
+	if _f._star != null:
+		sun_world = _f._star.global_position - _f.centre()
 	if sun_world.length() < 0.001:
 		return                                           # no sun in the scene: no day, and nothing to measure
 	sun_world = sun_world.normalized()

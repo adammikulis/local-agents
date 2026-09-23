@@ -50,8 +50,7 @@ func setup(field, camera: Node3D, terrain, _sun, center: Vector3, transparent: b
 	material_override = _mat
 
 	# Ring the surface whenever anything splashes (meteor / tornado / fish / thrown rock / flood / plant).
-	if field._inject != null and field._inject.has_signal("splashed"):
-		field._inject.splashed.connect(_on_splashed)
+	field.splashed.connect(_on_splashed)
 	_ready = true
 
 
