@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # THE HUD PALETTE IS DECLARED ONCE, in addons/local_agents/game/ui/HudTheme.tres. A colour whose RGB the
-# theme carries, written as a literal in any other .gd/.tscn/.tres under game/ui/, fails. Pure black
+# theme carries, written as a literal in any other .gd/.tscn/.tres/.svg under game/ui/, fails. Pure black
 # (shadows, clear fills) is not palette.
 # EXIT 0 none · 1 found · 2 could not run.
 set -uo pipefail
@@ -18,15 +18,23 @@ lit = re.compile(r'Color\(\s*([-0-9.eE]+)\s*,\s*([-0-9.eE]+)\s*,\s*([-0-9.eE]+)\
 def rgbs(text):
     return [tuple(round(float(m.group(i)), 3) for i in (1, 2, 3)) for m in lit.finditer(text)]
 palette = {c for c in rgbs(open(theme, encoding='utf-8').read()) if c != (0.0, 0.0, 0.0)}
+hexc = re.compile(r'#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b')
+def hexes(text):
+    out = []
+    for m in hexc.finditer(text):
+        h = m.group(1)
+        h = ''.join(ch * 2 for ch in h) if len(h) == 3 else h
+        out.append(tuple(int(h[i:i + 2], 16) for i in (0, 2, 4)))
+    return out
 scanned, hits = 0, []
 for d, _, files in os.walk(ui):
     for f in sorted(files):
         p = os.path.join(d, f)
-        if p == theme or not f.endswith(('.gd', '.tscn', '.tres')):
+        if p == theme or not f.endswith(('.gd', '.tscn', '.tres', '.svg')):
             continue
         scanned += 1
         for n, line in enumerate(open(p, encoding='utf-8', errors='replace'), 1):
-            if any(c in palette for c in rgbs(line)):
+            if any(c in palette for c in rgbs(line)) or any(max(abs(h[i] - q[i] * 255) for i in range(3)) <= 1 for h in hexes(line) for q in palette):
                 hits.append('  %s:%d: %s' % (os.path.relpath(p, ui), n, line.strip()))
 print('HUD_PALETTE={"colours":%d,"files":%d,"count":%d}' % (len(palette), scanned, len(hits)))
 print('\n'.join(hits))

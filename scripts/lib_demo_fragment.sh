@@ -21,3 +21,35 @@ demo_fragment_parent() {
 	done <<< "$refs"
 	return 1
 }
+
+# The scene and every scene it inherits, repo-relative, one per line: follows the root's
+# instance=ExtResource.
+#   demo_scene_chain <repo_root> <scene_rel>
+demo_scene_chain() {
+	local root="$1" rel="$2" id
+	while [ -n "$rel" ] && [ -f "$root/$rel" ]; do
+		printf '%s\n' "$rel"
+		id="$(sed -n 's/^\[node name="[^"]*" instance=ExtResource("\([^"]*\)")\]$/\1/p' "$root/$rel" | head -1)"
+		[ -n "$id" ] || return 0
+		rel="$(grep -F " id=\"$id\"" "$root/$rel" | sed -n 's/.*path="res:\/\/\([^"]*\)".*/\1/p' | head -1)"
+	done
+}
+
+# A scene honours --run-frames when it, its sibling script, or a scene it inherits builds a
+# LocalAgentDemoHarness.
+#   demo_has_harness <repo_root> <scene_rel>
+demo_has_harness() {
+	local f
+	grep -qs 'DemoHarness' "$1/${2%.tscn}.gd" && return 0
+	while IFS= read -r f; do
+		grep -qs 'DemoHarness' "$1/$f" && return 0
+	done <<< "$(demo_scene_chain "$1" "$2")"
+	return 1
+}
+
+# The voxel world's field needs a compute device, which headless lacks: it and every scene inheriting it
+# run through scripts/run_sim_offscreen.sh.
+#   demo_needs_window <repo_root> <scene_rel>
+demo_needs_window() {
+	demo_scene_chain "$1" "$2" | grep -qx 'addons/local_agents/game/VoxelWorld.tscn'
+}

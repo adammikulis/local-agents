@@ -9,7 +9,7 @@
 # engine flag: a scene with no harness ignores it and never exits, so it is refused.
 set -eo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_demo_fragment.sh"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_demo_fragment.sh" || exit 2
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -24,10 +24,8 @@ now_ms() {
   perl -MTime::HiRes=time -e 'printf "%d", time * 1000' 2>/dev/null || echo $(( $(date +%s) * 1000 ))
 }
 
-# A scene honours the run contract when it, or its sibling script, builds a LocalAgentDemoHarness.
 supports_contract() {
-  local name="$1"
-  grep -qs 'DemoHarness' "$EXAMPLES_DIR/$name.gd" "$EXAMPLES_DIR/$name.tscn"
+  demo_has_harness "$REPO_ROOT" "$EXAMPLES_REL/$1.tscn"
 }
 
 list_demos() {
@@ -35,7 +33,9 @@ list_demos() {
   for f in "$EXAMPLES_DIR"/*.tscn; do
     name="$(basename "$f" .tscn)"
     if demo_fragment_parent "$REPO_ROOT" "$EXAMPLES_REL/$name.tscn" >/dev/null; then continue; fi
-    if supports_contract "$name"; then
+    if demo_needs_window "$REPO_ROOT" "$EXAMPLES_REL/$name.tscn"; then
+      printf '  %-24s needs a window — scripts/run_sim_offscreen.sh\n' "$name"
+    elif supports_contract "$name"; then
       printf '  %-24s honours --run-frames\n' "$name"
     else
       printf '  %-24s no harness — ignores --run-frames, would run forever\n' "$name"
@@ -44,7 +44,7 @@ list_demos() {
   echo ""
   echo "  Scenes with no harness: run them with the engine flag instead, e.g."
   echo "    $GODOT --headless --path . $EXAMPLES_REL/<name>.tscn --quit-after 120"
-  echo "  game/VoxelWorld.tscn needs a real window: use scripts/run_sim_offscreen.sh."
+  echo "  game/VoxelWorld.tscn and the scenes inheriting it need a real window: use scripts/run_sim_offscreen.sh."
 }
 
 # Returns the child's exit code; prints the marker line it emitted.
@@ -63,6 +63,11 @@ run_one() {
     return 2
   fi
   [ "$frag" -eq 1 ] || return 2
+  if demo_needs_window "$REPO_ROOT" "$scene"; then
+    echo "run_demo: '$name' inherits game/VoxelWorld.tscn, whose field needs a compute device headless lacks." >&2
+    echo "  scripts/run_sim_offscreen.sh --path . $scene -- --run-frames=$frames" >&2
+    return 2
+  fi
   if ! supports_contract "$name"; then
     echo "run_demo: '$name' has no LocalAgentDemoHarness — it ignores --run-frames and never exits." >&2
     echo "run_demo: run it with the engine flag instead:" >&2

@@ -18,7 +18,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
-. "$ROOT/scripts/lib_demo_fragment.sh"
+. "$ROOT/scripts/lib_demo_fragment.sh" || exit 2
 
 EXAMPLES_DIR="addons/local_agents/examples"
 CATALOG_DIR="$EXAMPLES_DIR/demos"
