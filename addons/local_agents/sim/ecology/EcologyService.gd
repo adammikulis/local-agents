@@ -290,8 +290,8 @@ func _place_on_surface(world_pos):
 	return _spawner._place_on_surface(world_pos)
 
 
-func _tangent_offset_point(anchor: Vector3, u: float, v: float) -> Vector3:
-	return _spawner._tangent_offset_point(anchor, u, v)
+func _tangent_offset_raw(anchor: Vector3, u: float, v: float) -> Vector3:
+	return _spawner._tangent_offset_raw(anchor, u, v)
 
 
 func _surface_radius(dir: Vector3) -> float:
@@ -486,7 +486,7 @@ func debug_seed_family() -> Node:
 		var pb: Node3D = adults[1] as Node3D
 		var kids: Array = []
 		for i in range(2):
-			var placed = _place_on_surface(_tangent_offset_point(pa.global_position, LASimRng.for_domain("life").randf_range(-2.0, 2.0), LASimRng.for_domain("life").randf_range(-2.0, 2.0)))
+			var placed = _place_on_surface(_tangent_offset_raw(pa.global_position, LASimRng.for_domain("life").randf_range(-2.0, 2.0), LASimRng.for_domain("life").randf_range(-2.0, 2.0)))
 			if placed == null:
 				continue
 			var child = _instance_actor(kind, placed, _breeding._breed_genome(pa, pb))

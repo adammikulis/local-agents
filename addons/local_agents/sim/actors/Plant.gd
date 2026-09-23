@@ -100,16 +100,12 @@ func setup(_terrain, _config: Dictionary) -> void:
 	_sync_render()   # push the initial (freshly-grown) pose into the instanced batch
 
 
-## Stand radially and sit on the solid surface: snap onto the surface along our radial ray and align
-## local +Y to the radial "up".
+## Stand radially: local +Y along the radial "up". The ecology places a plant on the solid surface.
 func _orient_to_ground() -> void:
 	if terrain == null:
 		return
 	var center: Vector3 = terrain.planet_center()
 	var up: Vector3 = (global_position - center).normalized()
-	var surf: Vector3 = terrain.surface_point(up)         # world point on the solid surface along our ray
-	if not is_nan(surf.x):
-		global_position = surf
 	# Build a radial basis: local +Y = up, with an arbitrary (stable) tangent frame.
 	var ref: Vector3 = Vector3.FORWARD if absf(up.dot(Vector3.FORWARD)) < 0.9 else Vector3.RIGHT
 	var right: Vector3 = up.cross(ref).normalized()

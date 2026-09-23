@@ -160,7 +160,7 @@ func _init() -> void:
 		g_field[c * 3 + 2] = gv.z
 		solid[c] = 1 if p.y < 0.0 else 0
 	LABallistics.set_system([])
-	LABallistics.set_field(ga, g_field, solid, [], Basis.IDENTITY, Vector3.ZERO)
+	LABallistics.set_field(ga, g_field, solid, null, [], Basis.IDENTITY, Vector3.ZERO)
 	var start: Vector3 = Vector3(0.0, A_DROP_H, 0.0)
 	var g_here: float = LABallistics.g_at(start).length()
 	var res: Array = _fall(start, A_DT, 200000)
@@ -180,7 +180,7 @@ func _init() -> void:
 	# CONTROL: no gravity, no landing.
 	var zero_g: PackedFloat32Array = PackedFloat32Array()
 	zero_g.resize(ga.cell_count * 3)
-	LABallistics.set_field(ga, zero_g, solid, [], Basis.IDENTITY, Vector3.ZERO)
+	LABallistics.set_field(ga, zero_g, solid, null, [], Basis.IDENTITY, Vector3.ZERO)
 	var control: Array = _fall(start, A_DT, 4000)
 	if bool(control[0]):
 		fail += 1
@@ -212,7 +212,7 @@ func _init() -> void:
 	if solved.size() != gb.cell_count * 3:
 		_fail("the gravity solve returned no field — refusing to report a pass.")
 		return
-	LABallistics.set_field(gb, solved, b_solid, [], Basis.IDENTITY, Vector3.ZERO)
+	LABallistics.set_field(gb, solved, b_solid, null, [], Basis.IDENTITY, Vector3.ZERO)
 	var b_start: Vector3 = Vector3(0.0, 6.0, 0.0)
 	var b_res: Array = _fall(b_start, B_DT, 200000)
 	var b_land: Vector3 = b_res[3]
@@ -318,8 +318,11 @@ func _entry(with_air: bool) -> Dictionary:
 	for c in grid.cell_count:
 		var lo: float = grid.cell_world_pos(c).y - 0.5 * E_CELL
 		amount[c] = _shell(rho0, h_scale, lo) / (E_CELL * molar)
-	var mirrors: Array = [[amount, molar]] if with_air else []
-	LABallistics.set_field(grid, zero_g, open, mirrors, Basis.IDENTITY, Vector3.ZERO)
+	var air: LAFieldMirrors = LAFieldMirrors.new()
+	air.alloc(PackedStringArray(["air"]), grid.cell_count)
+	air.set_array("air", amount)
+	var channels: Array = [["air", molar]] if with_air else []
+	LABallistics.set_field(grid, zero_g, open, air, channels, Basis.IDENTITY, Vector3.ZERO)
 	var start: Vector3 = Vector3(origin.x + 1.5 * E_CELL, (float(E_NY) - 0.5) * E_CELL,
 		origin.z + 1.5 * E_CELL)
 	var v0: float = sqrt(2.0 * mu / r_body)

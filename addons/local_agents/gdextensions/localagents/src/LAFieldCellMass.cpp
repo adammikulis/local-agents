@@ -439,12 +439,35 @@ PackedStringArray LAFieldCellMass3D::mirror_names(Object *p_field) {
 	return out;
 }
 
-double LAFieldCellMass3D::kg_m3_at(const Array &p_mirrors, int p_c) {
+Array LAFieldCellMass3D::mass_channels(Object *p_field) {
+	Array out;
+	LAFieldMirrors *m = LAFieldMirrors::mirrors_of(p_field);
+	if (!m || m->cells() != int(p_field->get("_cell_count"))) {
+		return out;
+	}
+	const Dictionary rows = la_call_gd(CHANNELS_GD, "rows", Array());
+	const Dictionary table = LASubstances::table();
+	const Array names = rows.keys();
+	for (int i = 0; i < names.size(); i++) {
+		const String name = names[i];
+		const Dictionary row = rows[name];
+		if (String(row.get("unit", "")) != "mol_m3" || !m->has(name)) {
+			continue;
+		}
+		const Dictionary s = table.get(String(row.get("substance", "")), Dictionary());
+		Array pair;
+		pair.append(name);
+		pair.append(double(s.get("molar_mass", 0.0)));
+		out.append(pair);
+	}
+	return out;
+}
+
+double LAFieldCellMass3D::kg_m3_at(LAFieldMirrors *p_mirrors, const Array &p_channels, int p_c) {
 	double m = 0.0;
-	for (int i = 0; i < p_mirrors.size(); i++) {
-		const Array pair = p_mirrors[i];
-		const PackedFloat32Array arr = pair[0];
-		m += MAX(double(arr[p_c]), 0.0) * double(pair[1]);
+	for (int i = 0; i < p_channels.size(); i++) {
+		const Array pair = p_channels[i];
+		m += MAX(p_mirrors->at(String(pair[0]), p_c), 0.0) * double(pair[1]);
 	}
 	return m;
 }
@@ -469,6 +492,6 @@ void LAFieldCellMass3D::_bind_methods() {
 			&LAFieldCellMass3D::mirrors);
 	ClassDB::bind_static_method("LAFieldCellMass3D", D_METHOD("mirror_names", "field"),
 			&LAFieldCellMass3D::mirror_names);
-	ClassDB::bind_static_method("LAFieldCellMass3D", D_METHOD("kg_m3_at", "mirrors", "c"),
-			&LAFieldCellMass3D::kg_m3_at);
+	ClassDB::bind_static_method("LAFieldCellMass3D", D_METHOD("mass_channels", "field"),
+			&LAFieldCellMass3D::mass_channels);
 }

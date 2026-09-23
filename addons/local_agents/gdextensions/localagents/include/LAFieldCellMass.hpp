@@ -9,6 +9,8 @@
 
 namespace godot {
 
+class LAFieldMirrors;
+
 // THE ONE WALK FROM CHANNELS TO KILOGRAMS. A channel amount is mol/m^3, so a cell's mass is the sum over
 // every matter channel of amount * molar mass * that cell's own volume.
 class LAFieldCellMass3D : public RefCounted {
@@ -37,8 +39,10 @@ public:
 			double p_r_body, double p_t_surface_c, const PackedFloat32Array &p_depth);
 	static Dictionary seed_enthalpy(Object *p_field, Object *p_grid, const PackedFloat32Array &p_t_rock,
 			double p_t_surface_c, const PackedFloat32Array &p_p_pa, const PackedFloat32Array &p_p_rock);
+	// [channel name, molar mass kg/mol] for every mol_m3 channel the field's mirrors hold, in mirrors() order.
+	static Array mass_channels(Object *p_field);
 	// Moles per m^3 summed into kilograms per m^3 for one cell. Times the cell's own volume is its mass.
-	static double kg_m3_at(const Array &p_mirrors, int p_c);
+	static double kg_m3_at(LAFieldMirrors *p_mirrors, const Array &p_channels, int p_c);
 
 protected:
 	static void _bind_methods();

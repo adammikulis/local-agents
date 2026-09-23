@@ -8,6 +8,8 @@ const GROUP: String = "gravity_body"
 
 static var _nodes: Array = []
 static var _published_frame: int = -1
+static var _mass_channels: Array = []        # LAFieldCellMass3D.mass_channels of the published field
+static var _mass_channels_of: int = 0
 
 
 ## A body pulls only once it can say how much matter it is. A body whose mass is still unmeasured reports
@@ -114,5 +116,8 @@ static func publish_field(field) -> void:
 		LABallistics.clear_field()
 		return
 	field.sync_body_frame()
+	if _mass_channels_of != field.get_instance_id() or _mass_channels.is_empty():
+		_mass_channels = LAFieldCellMass3D.mass_channels(field)
+		_mass_channels_of = field.get_instance_id()
 	LABallistics.set_field(field._grid, field._gravity.mirror(), field._solid,
-		LAFieldCellMass3D.mirrors(field), field._body_basis, field.centre())
+		field._mirrors, _mass_channels, field._body_basis, field.centre())

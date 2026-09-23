@@ -126,7 +126,7 @@ Reading: `tick_environment` in `CreatureMetabolism.gd` calls `_combust()` whenev
 
 `scripts/check_life_demo.sh` fails "the worst frame of the run cost more than 1/30 s";
 `LA_LIFE_MIN_FPS=15 scripts/check_life_demo.sh` passes.
-Reading: `_tick_plant_seeding` in `EcologyPlants.gd` calls `_eco._instance_actor` inside one loop over the whole `plant` group.
+Reading: every creature whose `tick_environment` reaches `_combust()` in one physics frame also runs `die()`, `broadcast_call` over the whole `creature` group and `LACreatureRagdoll.launch` in that frame.
 
 ## 15. NOT EXAMINED UNTIL THE RUNG-2 DEMO IS APPROVED — rung 3
 
