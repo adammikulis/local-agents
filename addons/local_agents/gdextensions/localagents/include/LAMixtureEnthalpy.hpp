@@ -32,7 +32,7 @@ public:
 	// Elements one formula may carry on the GPU — enthalpy.glsli LA_MAX_EL.
 	static const int MAX_EL = 5;
 	// The ladder of one substance as the kernel's props row carries it, THERMAL_ROW_WORDS floats.
-	static const int THERMAL_ROW_WORDS = 24 + 4 * MAX_EL;
+	static const int THERMAL_ROW_WORDS = 29 + 4 * MAX_EL;
 	static PackedFloat32Array thermal_row(const String &p_id);
 	// J/kg/K of the phase this substance stands in at (t, p) — state_derive.glsl la_phase_c.
 	static double phase_specific_heat(const String &p_id, double p_t_c, double p_p_pa);

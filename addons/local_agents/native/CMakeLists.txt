@@ -58,7 +58,8 @@ add_executable(lasim
     src/tests/PropProbes.cpp
     src/tests/PropSparse.cpp)
 # bindings.glsli and generated.glsli are #include'd as C++ by the property tests: one table, both sides.
-target_include_directories(lasim PRIVATE include src "${LA_KERNEL_DIR}")
+target_include_directories(lasim PRIVATE include src "${LA_KERNEL_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../gdextensions/localagents/include")
 target_link_libraries(lasim PRIVATE la_device)
 
 file(GLOB LA_KERNEL_SOURCES "${LA_KERNEL_DIR}/*.glsl" "${LA_KERNEL_DIR}/*.glsli")

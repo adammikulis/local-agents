@@ -10,8 +10,10 @@ namespace godot {
 struct LAPhaseEos {
 	double rho = 0.0;          // kg/m^3 at t_ref_c and one atmosphere
 	double t_ref_c = 0.0;
-	double alpha = 0.0;        // 1/K at one atmosphere
-	double k = 0.0;            // Pa, K_T; 0 where unmeasured
+	bool has_alpha = false;
+	double alpha = 0.0;        // 1/K at one atmosphere; NaN where unmeasured
+	bool has_k = false;
+	double k = 0.0;            // Pa, K_T; NaN where unmeasured
 	double kp = 0.0;
 	double kpp = 0.0;          // 1/Pa
 	bool fourth = false;       // K'' declared: Birch-Murnaghan fourth order
@@ -31,9 +33,15 @@ struct LACondensedEos {
 	double melt_c = 0.0;        // solidus at p_ref
 	double width = 0.0;         // liquidus - solidus, K
 	double p_ref = 0.0;
-	double rho_fus_solid = 0.0; // each phase at melt_c and p_ref: the Clapeyron pair
-	double rho_fus_liquid = 0.0;
-	double slope_k_per_pa = 0.0;
+	// The melting line T_m(p): 0 the Clapeyron line T = melt_c + a1 (p - p0) with a1 in K/Pa; 1 Simon,
+	// p = p0 + a1 ((T/T0)^c1 - 1); 2 a reduced polynomial, p = p0 (1 + a1 th^c1 + a2 th^c2), th = T/T0 - 1.
+	int fusion_kind = 0;
+	double fusion_t0_k = 0.0;
+	double fusion_p0 = 0.0;
+	double fusion_a1 = 0.0;
+	double fusion_c1 = 0.0;
+	double fusion_a2 = 0.0;
+	double fusion_c2 = 0.0;
 };
 
 // A fluid's Peng-Robinson constants: a(T) = a_c (1 + kappa (1 - sqrt(T/Tc)))^2, b.

@@ -9,7 +9,7 @@ const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/st
 const FluxPassScript: GDScript = preload("res://addons/local_agents/sim/material/sphere_passes/FluxPass.gd")
 
 ## props row layout — state_derive.glsl PROP_*.
-const PROP_STRIDE: int = 74
+const PROP_STRIDE: int = 79
 const PROP_M: int = 0
 const PROP_MOL_PER_KG: int = 1
 const PROP_ENTRY: int = 2
@@ -158,6 +158,7 @@ func _props() -> PackedFloat32Array:
 	out.resize(channels.size() * PROP_STRIDE + DET_SLOTS)
 	var rows: Dictionary = LAChannels.rows()
 	var table: Dictionary = LASubstances.table()
+	var carriers: Dictionary = {}
 	for i in channels.size():
 		var name: String = channels[i]
 		var row: Dictionary = rows[name]
@@ -169,6 +170,7 @@ func _props() -> PackedFloat32Array:
 				% [name, unit] + "A channel amount is moles per m^3; without it the channel's mass is a guess.")
 			return PackedFloat32Array()
 		var entry: int = LAMatterChannels.entry_of(id)
+		carriers[entry] = true
 		var ladder: PackedFloat32Array = LAMixtureEnthalpy.thermal_row(id)
 		if ladder.size() != PROP_STRIDE - PROP_LADDER:
 			return PackedFloat32Array()
@@ -211,6 +213,10 @@ func _props() -> PackedFloat32Array:
 		_pack_phase(out, base + PROP_LIQUID, melt, molar[i])
 		out[base + PROP_LITHIC] = 1.0 if bool(row.get("lithic", false)) or bool(row.get("lattice", false)) else 0.0
 		out[base + PROP_RAD_GROUP] = float(_rad_group(s.get("traces", {})))
+	# The kernel reads the water and rock carriers by index; a table without either has no water or rock row.
+	if not (carriers.has(LAMatterChannels.Entry.H2O) and carriers.has(LAMatterChannels.Entry.SILICATE)):
+		push_error("StateDerivePass: the channel table carries no water or no silicate channel.")
+		return PackedFloat32Array()
 	# The amounts the detect phase compares against, each read back from its ONE declaration, so the
 	# kernel and the row that counts its cells ask the same question.
 	var body: float = float(LAReduceRecords.row("lava_hot").get("threshold", NAN))

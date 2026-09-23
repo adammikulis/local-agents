@@ -449,7 +449,7 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 	// la_eos_p's own coefficients per cell at the amounts the composition laid down, and the mass those
 	// amounts weigh. A gas is the A term and the Peng-Robinson sums; a condensed phase is B at one
 	// atmosphere, and a condensed phase the fluid carries is C, as the derive books them.
-	const double rho_pore = LASubstances::fusion_liquid_density("h2o");
+	const LACondensedEos &eos_water = LAPhaseEosFn::condensed("h2o");
 	std::vector<double> a_rt(cc, 0.0), s_a(cc, 0.0), s_b(cc, 0.0), b_vol(cc, 0.0), c_comp(cc, 0.0), rho(cc, 0.0),
 			rho_lith(cc, 0.0);
 	for (size_t i = 0; i < nm; i++) {
@@ -472,14 +472,17 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 				continue;
 			}
 			const double kg = n * vol[c] * mm[i];
-			// Pore water fills the rock's pores at the liquid's density at its melting point, as the derive books it.
+			// Pore water is the lattice's, at the rock's temperature through the one rule, as the derive books it.
 			const double kg_pore = mats[i].name == "h2o_pore" ? kg : 0.0;
 			// A lithic phase stands at its cell's rock temperature, the derive's lattice volume.
 			const double t_here = (is_lithic[i] && c < p_t_rock.size()) ? double(p_t_rock[c]) : t_c;
 			const double v = LAPhaseEosFn::condensed_volume(*eos[i], t_here, p_std);
 			ERR_FAIL_COND_V_MSG(kg > kg_pore && !(v > 0.0), Dictionary(), "LAFieldLithostaticSeed: \""
 					+ mats[i].substance + "\" has no measured volume at the seed's state.");
-			b_vol[c] += (kg - kg_pore) * v + (rho_pore > 0.0 ? kg_pore / rho_pore : 0.0);
+			const double v_pore = kg_pore > 0.0 ? LAPhaseEosFn::condensed_volume(eos_water, t_here, p_std) : 0.0;
+			ERR_FAIL_COND_V_MSG(kg_pore > 0.0 && !(v_pore > 0.0), Dictionary(),
+					"LAFieldLithostaticSeed: pore water has no measured volume at the seed's state.");
+			b_vol[c] += (kg - kg_pore) * v + kg_pore * v_pore;
 			// LOOSE GRAINS PRESS NOTHING: the fluid alone is compressed.
 			c_comp[c] += is_lithic[i] ? 0.0 : (kg - kg_pore) * LAPhaseEosFn::condensed_compressibility(*eos[i], t_here, p_std);
 		}
@@ -524,8 +527,16 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 	p_fluid.resize(cc);
 	float *pf = p_fluid.ptrw();
 	for (int c = 0; c < cc; c++) {
-		if (rho[c] > 0.0) {
+		// A LOCKED CELL WITH NO FREE FLUID states no fluid pressure: its rock carries the column the march
+		// below writes, and its volume at one atmosphere is not the one it stands at.
+		const bool fluid = a_rt[c] > 0.0 || c_comp[c] > 0.0;
+		if (rho[c] > 0.0 && (fluid || solid[c] == 0)) {
 			p_at[c] = LAPhaseEosFn::mixture_pressure(vol[c], a_rt[c], s_a[c], s_b[c], b_vol[c], c_comp[c], p_std);
+			ERR_FAIL_COND_V_MSG(std::isnan(p_at[c]), Dictionary(), "LAFieldLithostaticSeed: an open cell overfilled "
+					"by incompressible matter, or a gas packed past its co-volume, states no pressure.");
+		} else if (rho[c] > 0.0) {
+			ERR_FAIL_COND_V_MSG(!walkable, Dictionary(), "LAFieldLithostaticSeed: a locked cell with no fluid has no "
+					"column to take its pressure from.");
 		}
 		pf[c] = float(p_at[c]);
 	}

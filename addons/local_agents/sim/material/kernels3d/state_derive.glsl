@@ -170,7 +170,7 @@ const float SOLID_IN = 0.6;    // LAPhysical.SEDIMENT_LOAD_BEARING_SOLID_FRAC
 const float SOLID_OUT = 0.555; // LAPhysical.SEDIMENT_RIGIDITY_SOLID_FRAC
 
 // One row of `props` per channel, built from LASubstances by StateDerivePass. A channel amount is mol/m^3.
-const int PROP_STRIDE = 74;        // StateDerivePass.PROP_STRIDE
+const int PROP_STRIDE = 79;        // StateDerivePass.PROP_STRIDE
 // The (T, p) solve's budget: under-relaxed, so a pair on a latent plateau converges onto it.
 const int LA_STATE_STEPS = 64;
 const float LA_STATE_TOL = 1.0e-6;
@@ -191,8 +191,8 @@ const int PROP_PR_TC = 11;         // K
 const int PROP_SOLID = 12;
 const int PROP_LIQUID = 21;
 const int PH_FULL = 0;             // mol/m^3 of the phase at its reference; 0 = the table names none
-const int PH_ALPHA = 1;            // 1/K at one atmosphere
-const int PH_BULK = 2;             // Pa, isothermal; 0 = unmeasured, left unsqueezed
+const int PH_ALPHA = 1;            // 1/K at one atmosphere; NaN = unmeasured
+const int PH_BULK = 2;             // Pa, isothermal; NaN = unmeasured
 const int PH_KP = 3;
 const int PH_B4 = 4;               // Birch-Murnaghan fourth-order coefficient; 0 at third order
 const int PH_TREF = 5;             // C
@@ -205,8 +205,8 @@ const int PROP_LADDER = 30;        // LAMixtureEnthalpy::THERMAL_ROW_WORDS float
 const int TH_C_SOL = 0;            // J/kg/K of the solid phase
 const int TH_C_LIQ = 1;
 const int TH_C_GAS = 2;
-const int TH_RHO_SOL = 3;          // kg/m^3 at the melting point: the Clapeyron pair
-const int TH_RHO_LIQ = 4;
+const int TH_LINE_A1 = 3;        // the melting line's first coefficient
+const int TH_LINE_P0 = 4;           // Pa, the melting line's p0
 const int TH_FUSION_T0 = 5;        // C the first melt appears
 const int TH_FUSION_T1 = 6;        // C the last crystal goes
 const int TH_VAPOUR_T = 7;         // C the vapour curve's second anchor
@@ -230,6 +230,11 @@ const int TH_EL_N = 24;            // LA_MAX_EL slots each, in formula order
 const int TH_EL_CHI = 29;
 const int TH_EL_G0 = 34;
 const int TH_EL_G1 = 39;
+const int TH_LINE_KIND = 44;       // 0 Clapeyron, 1 Simon, 2 reduced polynomial
+const int TH_LINE_T0 = 45;         // K
+const int TH_LINE_C1 = 46;
+const int TH_LINE_A2 = 47;
+const int TH_LINE_C2 = 48;
 
 float rad_w_kg(int group) {
 	if (group == 1) { return params.rad_w_kg_1; }
@@ -260,7 +265,7 @@ SubstanceTh la_sub_of(int i) {
 	}
 	return SubstanceTh(
 		props[b + TH_C_SOL], props[b + TH_C_LIQ], props[b + TH_C_GAS],
-		props[b + TH_RHO_SOL], props[b + TH_RHO_LIQ],
+		props[b + TH_LINE_A1], props[b + TH_LINE_P0],
 		props[b + TH_FUSION_T0], props[b + TH_FUSION_T1],
 		props[b + TH_VAPOUR_T], props[b + TH_VAPOUR_P],
 		props[b + TH_TRIPLE_T], props[b + TH_TRIPLE_P],
@@ -270,7 +275,9 @@ SubstanceTh la_sub_of(int i) {
 		props[b + TH_S_GAS], props[b + TH_S_ATOMS], props[b + TH_NU],
 		props[b + TH_HAS_FUSION] != 0.0, props[b + TH_HAS_VAPOUR] != 0.0,
 		props[b + TH_IAPWS] != 0.0, int(props[b + TH_N_EL]),
-		el_n, el_chi, el_g0, el_g1);
+		el_n, el_chi, el_g0, el_g1,
+		int(props[b + TH_LINE_KIND]), props[b + TH_LINE_T0], props[b + TH_LINE_C1],
+		props[b + TH_LINE_A2], props[b + TH_LINE_C2]);
 }
 
 // THE CELL ON THE BENCH: the channels it holds, and what each weighs in the reservoir being solved.
@@ -287,11 +294,11 @@ SubstanceTh la_mix_sub(int k) { return la_sub_of(mix_ch[k]); }
 
 // The capacity of the phase this substance stands in at (T, p): dh/dT off its own ladder, off a plateau.
 float la_phase_c(SubstanceTh s, float t_c, float p_pa) {
-	if (!s.has_melt) { return s.c_sol > 0.0 ? s.c_sol : s.c_liq; }
+	if (!s.has_melt && !s.has_boil) { return s.c_sol > 0.0 ? s.c_sol : s.c_liq; }
 	if (la_sublimes_at(s, p_pa)) {
 		return t_c <= la_sublimation_c_at(s, p_pa) ? s.c_sol : s.c_gas;
 	}
-	if (t_c <= la_melt_c_at(s, p_pa, 0.0)) { return s.c_sol; }
+	if (s.has_melt && t_c <= la_melt_c_at(s, p_pa, 0.0)) { return s.c_sol; }
 	if (!s.has_boil || t_c <= la_boil_c_at(s, p_pa)) { return s.c_liq; }
 	return s.c_gas;
 }
@@ -332,24 +339,24 @@ float la_ph_strain(int i, int blk, float dp) {
 }
 
 float la_ph_k_t(int i, int blk, float strain) {
-	float k = la_ph(i, blk, PH_BULK);
-	return k > 0.0 ? la_bm_k_t(strain, k, 1.5 * (la_ph(i, blk, PH_KP) - 4.0), la_ph(i, blk, PH_B4)) : 0.0;
+	return la_bm_k_t(strain, la_ph(i, blk, PH_BULK), 1.5 * (la_ph(i, blk, PH_KP) - 4.0), la_ph(i, blk, PH_B4));
 }
 
-// m^3 of `mol` moles of one phase at (t, dp) under the squeeze `sq`. The expansivity falls under pressure
-// as alpha * K_T stays constant (Anderson 1995), K_T = K0 + K0' P. Native twin LAPhaseEosFn::phase_volume.
+// LA_APPROX: separable_thermal_compression
+// m^3 of `mol` moles of one phase at (t, dp) squeezed by `sq`, alpha * K_T held. Twin LAPhaseEosFn::phase_volume.
 float la_ph_volume(int i, int blk, float mol, float t, float dp, float sq) {
 	float full = la_ph(i, blk, PH_FULL);
 	if (!(full > 0.0) || mol <= 0.0) {
 		return 0.0;
 	}
 	float k = la_ph(i, blk, PH_BULK);
-	float al = la_ph(i, blk, PH_ALPHA) * ((k > 0.0 && dp > 0.0) ? k / (k + la_ph(i, blk, PH_KP) * dp) : 1.0);
 	float dt = t - la_ph(i, blk, PH_TREF);
+	float al = dt == 0.0 ? 0.0 : la_ph(i, blk, PH_ALPHA) * (dp == 0.0 ? 1.0 : k / (k + la_ph(i, blk, PH_KP) * dp));
 	float th = la_ph(i, blk, PH_LINEAR) > 0.0 ? 1.0 / (1.0 - al * dt) : 1.0 + al * dt;
 	return mol / full * th * sq;
 }
 
+// LA_APPROX: linear_melt_lever
 // The melt share of one channel at t: linear across an interval, the pinned progress at a point.
 float la_ph_phi(int i, float t, float sol, float wid, bool pinned, float progress) {
 	if (!(la_ph(i, PROP_SOLID, PH_FULL) > 0.0)) {
@@ -382,7 +389,7 @@ void la_melt_interval(int i, float p_pa, out float sol, out float wid) {
 }
 
 void la_bench_at(float p_pa) {
-	float dp = max(p_pa, 0.0) - LA_P_STD;
+	float dp = p_pa - LA_P_STD;
 	for (int k = 0; k < LA_CHANNEL_SLOTS; ++k) {
 		if (k >= mix_n) { break; }
 		int i = mix_ch[k];
@@ -406,7 +413,7 @@ struct FluidVol { float b; float g; float c; };
 
 FluidVol la_fluid_volumes(float p_pa, float t, bool pinned, float progress) {
 	FluidVol v = FluidVol(0.0, 0.0, 0.0);
-	float dp = max(p_pa, 0.0) - LA_P_STD;
+	float dp = p_pa - LA_P_STD;
 	for (int k = 0; k < LA_CHANNEL_SLOTS; ++k) {
 		if (k >= mix_n) { break; }
 		int i = mix_ch[k];
@@ -421,7 +428,7 @@ FluidVol la_fluid_volumes(float p_pa, float t, bool pinned, float progress) {
 		if (props[i * PROP_STRIDE + PROP_LITHIC] > 0.0) {
 			v.g += vs + vl;
 		} else {
-			v.c += (bench_kt_s[k] > 0.0 ? vs / bench_kt_s[k] : 0.0) + (bench_kt_l[k] > 0.0 ? vl / bench_kt_l[k] : 0.0);
+			v.c += (vs > 0.0 ? vs / bench_kt_s[k] : 0.0) + (vl > 0.0 ? vl / bench_kt_l[k] : 0.0);
 		}
 	}
 	return v;
@@ -430,7 +437,7 @@ FluidVol la_fluid_volumes(float p_pa, float t, bool pinned, float progress) {
 // THE LATTICE STANDS UNDER THE ROCK'S OWN PRESSURE, not the pore fluid's: a cemented frame carries the
 // column over it. Its grains' volume at the lattice's own temperature, m^3.
 float la_lattice_volume(float p_rock, float t_l, bool pinned_l, float progress_l) {
-	float dp = max(p_rock, 0.0) - LA_P_STD;
+	float dp = p_rock - LA_P_STD;
 	float v = 0.0;
 	for (int k = 0; k < LA_CHANNEL_SLOTS; ++k) {
 		if (k >= mix_n) { break; }
@@ -451,14 +458,48 @@ float la_lattice_volume(float p_rock, float t_l, bool pinned_l, float progress_l
 	return v;
 }
 
-// sqrt(a(T)) of one channel's fluid, (Pa m^6)^(1/2)/mol.
-float la_pr_sqrt_a(int i, float t_k) {
+// m^3/kg of the water channel at (t, p): liquid on the IAPWS curve or ice, each squeezed on its own
+// isotherm, split by the melting point the way the free water is.
+float la_water_v_m3_kg(int wc, SubstanceTh w, float t, float p_pa, bool pinned, float progress) {
+	float dp = p_pa - LA_P_STD;
+	float melt_t = la_melt_c_at(w, p_pa, 0.0);
+	float molten = (pinned && t == melt_t) ? progress : (t < melt_t ? 0.0 : 1.0);
+	float v_liq = la_water_liquid_v_m3_kg(t) * la_bm_squeeze(la_ph_strain(wc, PROP_LIQUID, dp));
+	float v_ice = la_ph_volume(wc, PROP_SOLID, 1.0 / props[wc * PROP_STRIDE + PROP_M], t, dp,
+		la_bm_squeeze(la_ph_strain(wc, PROP_SOLID, dp)));
+	return molten * v_liq + (1.0 - molten) * v_ice;
+}
+
+// One species' share of the Peng-Robinson mixture sums at T, `n` moles of channel i's fluid: s_a =
+// sum n sqrt(a(T)) with its first two T-derivatives, and s_b = sum n b.
+void la_pr_add(int i, float n, float t_k, inout vec4 s) {
 	int base = i * PROP_STRIDE;
 	float tc = props[base + PROP_PR_TC];
-	if (!(tc > 0.0)) {
-		return 0.0;
+	if (n <= 0.0) {
+		return;
 	}
-	return sqrt(props[base + PROP_PR_A]) * abs(1.0 + props[base + PROP_PR_KAPPA] * (1.0 - sqrt(max(t_k, 0.0) / tc)));
+	float kap = props[base + PROP_PR_KAPPA];
+	float ra = sqrt(props[base + PROP_PR_A]);
+	float rt = sqrt(t_k / tc);
+	float u = 1.0 + kap * (1.0 - rt);
+	float sg = u < 0.0 ? -1.0 : 1.0;
+	s.x += n * ra * abs(u);
+	s.y += n * ra * sg * (-0.5 * kap / sqrt(t_k * tc));
+	s.z += n * ra * sg * (0.25 * kap / (t_k * sqrt(t_k * tc)));
+	s.w += n * props[base + PROP_PR_B];
+}
+
+// The cell's gas at T: every gas channel's own moles and its vapours'.
+vec4 la_pr_sums(float t_k, int ch_w, float n_h2o_vap, int ch_r, float n_sil_vap) {
+	vec4 s = vec4(0.0);
+	la_pr_add(ch_w, n_h2o_vap, t_k, s);
+	la_pr_add(ch_r, n_sil_vap, t_k, s);
+	for (int k = 0; k < LA_CHANNEL_SLOTS; ++k) {
+		if (k >= mix_n) { break; }
+		int i = mix_ch[k];
+		la_pr_add(i, mix_mf[k] * props[i * PROP_STRIDE + PROP_MOL_PER_KG], t_k, s);
+	}
+	return s;
 }
 
 // The enthalpy one channel holds at the state the solve landed on, J.
@@ -827,8 +868,9 @@ void main() {
 	float inv_vol = (vol > 0.0) ? 1.0 / vol : 0.0;
 	// The water and rock rows, read once: the lattice's temperature comes off its own energy, with no gas
 	// room and the rock's own pressure for its melting point.
-	SubstanceTh w_sub = la_sub_of(max(ch_h2o, 0));
-	SubstanceTh r_sub = la_sub_of(max(ch_sil, 0));
+	// StateDerivePass packs a water and a rock entry in every table, so both indices are set.
+	SubstanceTh w_sub = la_sub_of(ch_h2o);
+	SubstanceTh r_sub = la_sub_of(ch_sil);
 	bool pinned_l = false;
 	float progress_l = 0.0;
 	// Solved with the fluid below, at the pressure that solve is standing on.
@@ -839,10 +881,9 @@ void main() {
 	lattice_frac[g] = clamp(v_lat, 0.0, 1.0);
 	float rho = total * inv_vol;     // kg/m^3, gas included: gravity pulls on all of it
 	rho_bulk[g] = rho;
-	// Pore water is the lattice's, filling the rock's pores at the table's liquid density.
+	// Pore water is the lattice's; its volume is read at the lattice's own state inside the solve.
 	float pore_kg = m_h2o_lat;
-	float pore_m3 = w_sub.rho_liq > 0.0 ? pore_kg / w_sub.rho_liq : 0.0;
-	lithic_frac[g] = clamp(lith_frac + pore_m3 * inv_vol, 0.0, 1.0);
+	float pore_m3 = 0.0;
 	lithic_kg[g] = (lith_kg + pore_kg) * inv_vol;
 	vec3 v_frame = cross(omega, r_vec);
 	pe_j_m3[g] = rho * (params.grav_self * (grav_phi[g] + grav_ref[g]) - 0.5 * dot(v_frame, v_frame));
@@ -858,6 +899,7 @@ void main() {
 		temp[g] = -LA_KELVIN_OFFSET;   // no matter, so no temperature
 		temp_lith[g] = -LA_KELVIN_OFFSET;
 		cap_lith[g] = 0.0;
+		lithic_frac[g] = 0.0;
 		if (solid[g] == 0.0) {
 			pressure[g] = 0.0;
 		}
@@ -922,7 +964,7 @@ void main() {
 	float p_pa = max(solid[g] != 0.0 ? p_fluid[g] : pressure[g], 0.0);
 	float e_fluid = e_j_m3[g];
 	// The fluid's room: the cell less what its condensed lithic matter fills. H = U + pV over it.
-	float room_f = 1.0 - clamp(lith_frac + pore_m3 * inv_vol, 0.0, 1.0);
+	float room_f = 1.0 - clamp(lith_frac, 0.0, 1.0);
 	float f_solid = 0.0;
 	float f_liquid = 0.0;
 	float f_vapour = 0.0;
@@ -937,7 +979,7 @@ void main() {
 	float room_gas = 0.0;
 	FluidVol cv = FluidVol(0.0, 0.0, 0.0);
 	// The free water's own phases, off its row's blocks: the one rule, not a copy of its numbers.
-	int wc = max(ch_h2o, 0);
+	int wc = ch_h2o;
 	float mol_per_kg_h2o = 1.0 / props[wc * PROP_STRIDE + PROP_M];
 	// ONE STATE: the ladder gives T(h, p) and the EOS p(T) off the same matter, so they solve together.
 	float p_lo = 0.0;
@@ -960,6 +1002,8 @@ void main() {
 			t_l = la_mix_state(e_lith_j_m3[g] * vol, p_rock, 0.0, 0.0, pinned_l, progress_l);
 			mix_sel = 0;
 		}
+		pore_m3 = pore_kg * la_water_v_m3_kg(wc, w_sub, t_l, p_rock, pinned_l, progress_l);
+		room_f = 1.0 - clamp(lith_frac + pore_m3 * inv_vol, 0.0, 1.0);
 		lat_vol = la_lattice_volume(p_rock, t_l, pinned_l, progress_l) + pore_m3;
 		if (total_f <= 0.0) {
 			// Bare lattice with no fluid: nothing to solve a fluid state for, and the rock's is the cell's.
@@ -973,7 +1017,7 @@ void main() {
 		room_gas = max(vol - lat_vol, 0.0);
 		float room_prev = -1.0;
 		// The free water's own squeeze here: the strain is a function of p, so the room loop re-reads it.
-		float dp_w = max(p_pa, 0.0) - LA_P_STD;
+		float dp_w = p_pa - LA_P_STD;
 		float f_bm_liq = la_ph_strain(wc, PROP_LIQUID, dp_w);
 		float f_bm_ice = la_ph_strain(wc, PROP_SOLID, dp_w);
 		float sq_liq = la_bm_squeeze(f_bm_liq);
@@ -1032,16 +1076,9 @@ void main() {
 		float n_gas = n_gas_mol + f_vapour * mol_h2o_f + f_vap_sil * mol_sil;
 		float tk = max(t_c + LA_KELVIN_OFFSET, 1.0);
 		// The gas mixture's Peng-Robinson sums, the vapours with their own rows' constants.
-		float s_a = f_vapour * mol_h2o_f * la_pr_sqrt_a(wc, tk) + f_vap_sil * mol_sil * la_pr_sqrt_a(max(ch_sil, 0), tk);
-		float s_b = f_vapour * mol_h2o_f * props[wc * PROP_STRIDE + PROP_PR_B]
-			+ f_vap_sil * mol_sil * props[max(ch_sil, 0) * PROP_STRIDE + PROP_PR_B];
-		for (int k = 0; k < LA_CHANNEL_SLOTS; ++k) {
-			if (k >= mix_n) { break; }
-			int i = mix_ch[k];
-			float n_i = mix_mf[k] * props[i * PROP_STRIDE + PROP_MOL_PER_KG];
-			s_a += n_i * la_pr_sqrt_a(i, tk);
-			s_b += n_i * props[i * PROP_STRIDE + PROP_PR_B];
-		}
+		vec4 pr = la_pr_sums(tk, ch_h2o, f_vapour * mol_h2o_f, ch_sil, f_vap_sil * mol_sil);
+		float s_a = pr.x;
+		float s_b = pr.w;
 		// A LOCKED CELL'S FREE FLUID KEEPS THE PRESSURE IT WAS SEALED WITH: its room is the rock's volume
 		// error, which the pressure split names hypersensitive, so no state function sets it there.
 		if (solid[g] != 0.0) {
@@ -1085,6 +1122,7 @@ void main() {
 	if (total_l <= 0.0) {
 		t_l = t_c;
 	}
+	lithic_frac[g] = clamp(lith_frac + pore_m3 * inv_vol, 0.0, 1.0);
 	temp[g] = t_c;
 	temp_lith[g] = t_l;
 	if (solid[g] == 0.0) {
@@ -1146,20 +1184,38 @@ void main() {
 	h2o_vapour[g] = f_vapour;
 	// The state its own water stands at: the IAPWS liquid curve at this temperature, squeezed here.
 	float v_liq_here = la_water_liquid_v_m3_kg(t_c)
-		* la_bm_squeeze(la_ph_strain(wc, PROP_LIQUID, max(p_pa, 0.0) - LA_P_STD));
+		* la_bm_squeeze(la_ph_strain(wc, PROP_LIQUID, p_pa - LA_P_STD));
 	water_rho[g] = v_liq_here > 0.0 ? 1.0 / v_liq_here : 0.0;
 	liquid[g] = max(h2o[g], 0.0) * f_liquid;
 	// The condensed FLUID's bulk modulus: its own volume over its own compressibility, the grains out.
 	float fluid_vol = b_vol - lat_vol - cv.g;
 	k_cond[g] = (c_comp > 0.0 && fluid_vol > 0.0) ? fluid_vol / c_comp : 0.0;
-	// The gas mixture's own specific gas constant and gamma, vapour included; its sound speed where gas
-	// stands, the condensed fluid's own where none does.
-	float m_g = m_gas + f_vapour * m_h2o;
-	float n_g = n_gas_mol + f_vapour * mol_h2o_f;
-	float cp_g = cp_gas + f_vapour * m_h2o * w_sub.c_gas;
-	float nr = n_g * LA_R_J_MOL_K;
-	float r_s = m_g > 0.0 ? nr / m_g : 0.0;
-	float gam = cp_g > nr ? cp_g / (cp_g - nr) : 0.0;
+	// THE GAS AS THE FACES READ IT: its own p / (rho T) and its isentropic exponent K_S / p off the
+	// Peng-Robinson mixture in the room it stands in, vapours included. Ideal, they are R_s and cp/cv.
+	float n_all = n_gas_mol + f_vapour * mol_h2o_f + f_vap_sil * mol_sil;
+	float m_all = m_gas + f_vapour * m_h2o + f_vap_sil * m_sil_f;
+	float cp_ig = cp_gas + f_vapour * m_h2o * w_sub.c_gas + f_vap_sil * m_sil_f * r_sub.c_gas;
+	float tk_g = t_c + LA_KELVIN_OFFSET;
+	float r_s = 0.0;
+	float gam = 0.0;
+	if (n_all > 0.0 && room_gas > 0.0 && p_pa > 0.0) {
+		vec4 pr = la_pr_sums(tk_g, ch_h2o, f_vapour * mol_h2o_f, ch_sil, f_vap_sil * mol_sil);
+		float nr = n_all * LA_R_J_MOL_K;
+		float vg = room_gas - pr.w;
+		float dd = room_gas * room_gas + 2.0 * pr.w * room_gas - pr.w * pr.w;
+		float a_mix = pr.x * pr.x;
+		float da = 2.0 * pr.x * pr.y;
+		float d2a = 2.0 * (pr.y * pr.y + pr.x * pr.z);
+		float dp_dv = -nr * tk_g / (vg * vg) + 2.0 * a_mix * (room_gas + pr.w) / (dd * dd);
+		float dp_dt = nr / vg - da / dd;
+		float sq2 = sqrt(2.0);
+		float lnf = pr.w > 0.0 ? log((room_gas + (1.0 - sq2) * pr.w) / (room_gas + (1.0 + sq2) * pr.w))
+			/ (2.0 * sq2 * pr.w) : -1.0 / room_gas;
+		float cv = cp_ig - nr - tk_g * d2a * lnf;
+		float cp = cv - tk_g * dp_dt * dp_dt / dp_dv;
+		r_s = m_all > 0.0 ? p_pa * room_gas / (m_all * tk_g) : 0.0;
+		gam = cv > 0.0 ? -(cp / cv) * room_gas * dp_dv / p_pa : 0.0;
+	}
 	gas_r[g] = r_s;
 	gas_gamma[g] = gam;
 	float k_f = (c_comp > 0.0 && fluid_vol > 0.0) ? fluid_vol / c_comp : 0.0;

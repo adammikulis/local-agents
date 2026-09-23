@@ -10,6 +10,7 @@ func _init() -> void:
 	var bare: PackedStringArray = PackedStringArray()
 	var flat: PackedStringArray = PackedStringArray()
 	var slack: PackedStringArray = PackedStringArray()
+	var unstated: PackedStringArray = PackedStringArray()
 	for name in LAMatterChannels.CHANNELS:
 		var row: Dictionary = rows.get(String(name), {})
 		var id: String = String(row.get("substance", ""))
@@ -36,6 +37,9 @@ func _init() -> void:
 			# One bar to the pressure at Earth's centre, 364 GPa (Dziewonski & Anderson 1981, PREM).
 			var p_pa: float = pow(10.0, 5.0 + 0.2731 * float(e))
 			var rho: float = LASubstances.density(id, 1000.0, p_pa)
+			if not (rho > 0.0):
+				unstated.append("%s (%s at %s Pa)" % [String(name), id, p_pa])
+				break
 			if rho < prev:
 				slack.append("%s (%s at %s Pa)" % [String(name), id, p_pa])
 				break
@@ -46,7 +50,9 @@ func _init() -> void:
 		printerr("bulk modulus with no pressure derivative: %s" % String(", ").join(flat))
 	if slack.size() > 0:
 		printerr("density falls as pressure rises: %s" % String(", ").join(slack))
-	var failures: int = bare.size() + flat.size() + slack.size()
-	print('CONDENSED_MODULI={"asked":%d,"bare":%d,"flat":%d,"slack":%d,"failures":%d}'
-		% [asked, bare.size(), flat.size(), slack.size(), failures])
+	if unstated.size() > 0:
+		printerr("no density stated: %s" % String(", ").join(unstated))
+	var failures: int = bare.size() + flat.size() + slack.size() + unstated.size()
+	print('CONDENSED_MODULI={"asked":%d,"bare":%d,"flat":%d,"slack":%d,"unstated":%d,"failures":%d}'
+		% [asked, bare.size(), flat.size(), slack.size(), unstated.size(), failures])
 	quit(1 if failures > 0 else 0)

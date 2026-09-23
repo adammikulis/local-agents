@@ -1,11 +1,11 @@
-// A cell's pressure: its gas in the room its condensed volume B leaves, B squeezed at compressibility C,
-// both off Birch-Murnaghan below.
+// A cell's pressure: its gas in the room its condensed volume B leaves, B squeezed at compressibility C.
 #ifndef LA_EOS_GLSLI
 #define LA_EOS_GLSLI
 
-// Birch-Murnaghan (Birch 1947, Phys. Rev. 71:809; fourth order, Birch 1978, JGR 83:1257), strain
-// f = ((V0/V)^(2/3)-1)/2: P = 3 K0 f (1+2f)^(5/2) (1 + a f + b4 f^2), a = 3/2(K0'-4), b4 zero at third order.
-// Native twin LAPhaseEos.cpp. v0(1 - P/K) has no root at P ~ K.
+// A state the equation cannot give: gas past its co-volume, a phase past its bracket or unmeasured.
+#define LA_NAN uintBitsToFloat(0x7FC00000u)
+
+// Birch-Murnaghan P(f), a = 3/2(K0'-4), b4 zero at third order. Native twin LABirchMurnaghan.hpp.
 float la_bm_p(float f, float k0, float a, float b4) {
 	float u = 1.0 + 2.0 * f;
 	return 3.0 * k0 * f * u * u * sqrt(u) * (1.0 + a * f + b4 * f * f);
@@ -16,13 +16,13 @@ float la_bm_dp(float f, float k0, float a, float b4) {
 	return 3.0 * k0 * u * sqrt(u) * ((u + 5.0 * f) * (1.0 + a * f + b4 * f * f) + f * u * (a + 2.0 * b4 * f));
 }
 
-// Newton inside the bracket [lo, hi] where P(f) rises; NaN for a pressure the bracket cannot reach.
+// Newton inside the bracket [lo, hi] where P(f) rises; NaN past it or where the modulus is NaN.
 float la_bm_strain_in(float p_pa, float k0, float a, float b4, float lo, float hi) {
-	if (!(k0 > 0.0) || p_pa == 0.0) {
+	if (p_pa == 0.0) {
 		return 0.0;
 	}
-	if (p_pa < la_bm_p(lo, k0, a, b4) || p_pa > la_bm_p(hi, k0, a, b4)) {
-		return uintBitsToFloat(0x7FC00000u);
+	if (!(p_pa >= la_bm_p(lo, k0, a, b4) && p_pa <= la_bm_p(hi, k0, a, b4))) {
+		return LA_NAN;
 	}
 	float f = clamp(p_pa / (3.0 * k0), lo, hi);
 	for (int i = 0; i < 20; ++i) {
@@ -36,24 +36,6 @@ float la_bm_strain_in(float p_pa, float k0, float a, float b4, float lo, float h
 		f = (step > lo && step < hi) ? step : 0.5 * (lo + hi);
 	}
 	return f;
-}
-
-// Third order, bracketed at the turning points of P(f), 9a f^2 + (7 + 2a) f + 1 = 0.
-float la_bm_strain(float p_pa, float k0, float kprime) {
-	float a = 1.5 * (kprime - 4.0);
-	float lo = -0.45;
-	float hi = 1.5;
-	float disc = (7.0 + 2.0 * a) * (7.0 + 2.0 * a) - 36.0 * a;
-	if (a != 0.0 && disc > 0.0) {
-		float s = sqrt(disc);
-		float r1 = (-(7.0 + 2.0 * a) + s) / (18.0 * a);
-		float r2 = (-(7.0 + 2.0 * a) - s) / (18.0 * a);
-		lo = r1 < 0.0 ? max(lo, r1) : lo;
-		hi = r1 < 0.0 ? hi : min(hi, r1);
-		lo = r2 < 0.0 ? max(lo, r2) : lo;
-		hi = r2 < 0.0 ? hi : min(hi, r2);
-	}
-	return la_bm_strain_in(p_pa, k0, a, 0.0, lo, hi);
 }
 
 float la_bm_squeeze(float f) {
@@ -75,11 +57,12 @@ float la_eos_p(float vol, float a_gas_rt, float s_a, float s_b, float b_vol, flo
 	}
 	if (c_comp <= 0.0) {
 		float room = vol - b_vol;
-		return room > s_b ? a_gas_rt / (room - s_b) - s_a * s_a / (room * room + 2.0 * s_b * room - s_b * s_b) : 0.0;
+		return room > s_b ? a_gas_rt / (room - s_b) - s_a * s_a / (room * room + 2.0 * s_b * room - s_b * s_b) : LA_NAN;
 	}
-	// No gas at all: the condensed phases alone are squeezed into the cell.
+	// No gas at all: condensed phases that overfill the cell are squeezed into it; a room they leave is
+	// vacuum.
 	if (a_gas_rt <= 0.0) {
-		return p_ref + (b_vol - vol) / c_comp;
+		return b_vol > vol ? p_ref + (b_vol - vol) / c_comp : 0.0;
 	}
 	float k = vol - b_vol - s_b - c_comp * p_ref;
 	float disc = sqrt(k * k + 4.0 * c_comp * a_gas_rt);

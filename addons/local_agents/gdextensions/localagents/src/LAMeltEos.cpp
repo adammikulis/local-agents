@@ -34,26 +34,26 @@ constexpr double FEO_V_REF_T_K = 1723.0;
 
 // Third- and fourth-order Birch-Murnaghan/Mie-Grueneisen fits to shocked liquids (Thomas & Asimow 2013, JGR
 // 118:5738): the principal isentrope through rho0 at T0, adiabatic K_S, K_S', K_S'' in 1/Pa, the
-// Grueneisen parameter gamma = gamma0 (rho0/rho)^q, and Cp at T0. Mg2SiO4 BM3 (Table 3); Fe2SiO4 BM3
-// (Table 4, from Thomas et al. 2012, JGR 117:B10206), CaAl2Si2O8 BM4 and MgSiO3 BM4 (Table 4).
+// Grueneisen parameter gamma = gamma0 (rho0/rho)^q, and Cp at T0. Mg2SiO4 BM3 (Table 3); CaMgSi2O6 BM3,
+// Fe2SiO4 BM3 (both from Thomas et al. 2012, JGR 117:B10206), CaAl2Si2O8 BM4 and MgSiO3 BM4 (Table 4).
 constexpr double FO_LIQ_T0_K = 2273.0;
 constexpr double FO_LIQ_RHO0_KG_M3 = 2597.0;
 constexpr double FO_LIQ_GAMMA0 = 0.396;
-constexpr double FO_LIQ_Q = 2.02;
+constexpr double FO_LIQ_Q = -2.02;
 constexpr double FO_LIQ_KS_PA = 16.41e9;
 constexpr double FO_LIQ_KS_DERIV = 7.37;
 constexpr double FO_LIQ_CP_J_KGK = 1926.18;
 constexpr double FA_LIQ_T0_K = 1573.0;
 constexpr double FA_LIQ_RHO0_KG_M3 = 3699.0;
 constexpr double FA_LIQ_GAMMA0 = 0.412;
-constexpr double FA_LIQ_Q = 0.95;
+constexpr double FA_LIQ_Q = -0.95;
 constexpr double FA_LIQ_KS_PA = 21.99e9;
 constexpr double FA_LIQ_KS_DERIV = 7.28;
 constexpr double FA_LIQ_CP_J_KGK = 1182.35;
 constexpr double AN_LIQ_T0_K = 1932.0;
 constexpr double AN_LIQ_RHO0_KG_M3 = 2560.0;
 constexpr double AN_LIQ_GAMMA0 = 0.174;
-constexpr double AN_LIQ_Q = 1.86;
+constexpr double AN_LIQ_Q = -1.86;
 constexpr double AN_LIQ_KS_PA = 19.77e9;
 constexpr double AN_LIQ_KS_DERIV = 3.73;
 constexpr double AN_LIQ_KS_DERIV2_PER_PA = 0.38e-9;
@@ -61,16 +61,32 @@ constexpr double AN_LIQ_CP_J_KGK = 1528.72;
 constexpr double EN_LIQ_T0_K = 1673.0;
 constexpr double EN_LIQ_RHO0_KG_M3 = 2617.0;
 constexpr double EN_LIQ_GAMMA0 = 0.365;
-constexpr double EN_LIQ_Q = 0.88;
+constexpr double EN_LIQ_Q = -0.88;
 constexpr double EN_LIQ_KS_PA = 24.66e9;
 constexpr double EN_LIQ_KS_DERIV = 10.07;
-constexpr double EN_LIQ_KS_DERIV2_PER_PA = 2.35e-9;
+constexpr double EN_LIQ_KS_DERIV2_PER_PA = -2.35e-9;
 constexpr double EN_LIQ_CP_J_KGK = 1761.15;
+constexpr double DI_LIQ_T0_K = 1673.0;
+constexpr double DI_LIQ_RHO0_KG_M3 = 2643.0;
+constexpr double DI_LIQ_GAMMA0 = 0.493;
+constexpr double DI_LIQ_Q = -1.28;
+constexpr double DI_LIQ_KS_PA = 24.57e9;
+constexpr double DI_LIQ_KS_DERIV = 6.77;
+constexpr double DI_LIQ_CP_J_KGK = 1612.56;
 
 // Molten NaCl at its melting point and the fall of its density with temperature, kg/m^3 and
 // kg/(m^3 K) (Janz 1988, J. Phys. Chem. Ref. Data 17 Suppl. 2; CRC 97th ed. 4-128).
 constexpr double HALITE_LIQUID_DENSITY_KG_M3 = 1556.0;
 constexpr double HALITE_LIQUID_DENSITY_SLOPE_KG_M3K = 0.543;
+
+// Molten NaCl's sound speed at 1253 K, m/s (Bockris & Richards 1957, Proc. R. Soc. A 241:44, as quoted by
+// Bryk, Ruocco & Seitsonen 2023, Sci. Rep. 13:18042), and its heat capacity there, J/(mol K), off the
+// liquid's Shomate fit (Chase 1998, NIST-JANAF, via the NIST WebBook).
+constexpr double HALITE_LIQUID_SOUND_T_K = 1253.0;
+constexpr double HALITE_LIQUID_SOUND_M_S = 1586.3;
+constexpr double HALITE_LIQUID_CP_J_MOLK = 67.80;
+// Second-order Birch-Murnaghan (Birch 1947): K' fixed where no pressure derivative is measured, exact.
+constexpr double SECOND_ORDER_BM_DERIV = 4.0;
 
 // cm^3 to m^3, exact.
 constexpr double CM3_TO_M3 = 1.0e-6;
@@ -114,6 +130,8 @@ const MgFit FA_LIQ = { FA_LIQ_T0_K, FA_LIQ_RHO0_KG_M3, FA_LIQ_GAMMA0, FA_LIQ_Q, 
 	false, FA_LIQ_CP_J_KGK };
 const MgFit AN_LIQ = { AN_LIQ_T0_K, AN_LIQ_RHO0_KG_M3, AN_LIQ_GAMMA0, AN_LIQ_Q, AN_LIQ_KS_PA, AN_LIQ_KS_DERIV,
 	AN_LIQ_KS_DERIV2_PER_PA, true, AN_LIQ_CP_J_KGK };
+const MgFit DI_LIQ = { DI_LIQ_T0_K, DI_LIQ_RHO0_KG_M3, DI_LIQ_GAMMA0, DI_LIQ_Q, DI_LIQ_KS_PA, DI_LIQ_KS_DERIV, 0.0,
+	false, DI_LIQ_CP_J_KGK };
 const MgFit EN_LIQ = { EN_LIQ_T0_K, EN_LIQ_RHO0_KG_M3, EN_LIQ_GAMMA0, EN_LIQ_Q, EN_LIQ_KS_PA, EN_LIQ_KS_DERIV,
 	EN_LIQ_KS_DERIV2_PER_PA, true, EN_LIQ_CP_J_KGK };
 
@@ -292,15 +310,32 @@ Dictionary LAMeltEos::enstatite_melt_compression(double p_t_c) {
 	return mg_isotherm(EN_LIQ, p_t_c);
 }
 
+Dictionary LAMeltEos::diopside_melt_compression(double p_t_c) {
+	return mg_isotherm(DI_LIQ, p_t_c);
+}
+
 Dictionary LAMeltEos::anorthite_melt_compression(double p_t_c) {
 	return mg_isotherm(AN_LIQ, p_t_c);
 }
 
+// The liquid at the temperature its sound speed was measured: Janz's density there, K_S = rho c^2, and
+// K_T = K_S / (1 + alpha gamma T) with gamma = alpha K_S / (rho c_p).
 Dictionary LAMeltEos::halite_melt(double p_melt_c) {
+	const double t_c = HALITE_LIQUID_SOUND_T_K - kelvin();
+	const double rho = HALITE_LIQUID_DENSITY_KG_M3 - HALITE_LIQUID_DENSITY_SLOPE_KG_M3K * (t_c - p_melt_c);
+	const double alpha = HALITE_LIQUID_DENSITY_SLOPE_KG_M3K / rho;
+	const double k_s = rho * HALITE_LIQUID_SOUND_M_S * HALITE_LIQUID_SOUND_M_S;
+	Dictionary f;
+	f["Na"] = 1.0;
+	f["Cl"] = 1.0;
+	const double cp = HALITE_LIQUID_CP_J_MOLK / LAElementAbundances::molar_mass(f);
 	Dictionary out;
-	out["density_melt"] = HALITE_LIQUID_DENSITY_KG_M3;
-	out["density_melt_ref_t_c"] = p_melt_c;
-	out["expansion_melt_per_k"] = HALITE_LIQUID_DENSITY_SLOPE_KG_M3K / HALITE_LIQUID_DENSITY_KG_M3;
+	out["density_melt"] = rho;
+	out["density_melt_ref_t_c"] = t_c;
+	out["expansion_melt_per_k"] = alpha;
 	out["density_melt_linear"] = true;
+	out["bulk_modulus_melt_pa"] = k_s / (1.0 + alpha * alpha * k_s * HALITE_LIQUID_SOUND_T_K / (rho * cp));
+	// LA_APPROX: unmeasured_pressure_derivative
+	out["bulk_modulus_melt_deriv"] = SECOND_ORDER_BM_DERIV;
 	return out;
 }

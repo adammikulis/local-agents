@@ -241,6 +241,12 @@ kind = "text"
 marker = "^check_stack_ssot: OK"
 
 [[gate]]
+name = "check_derive_props_layout"
+script = "scripts/check_derive_props_layout.sh"
+kind = "text"
+marker = "^check_derive_props_layout: OK"
+
+[[gate]]
 name = "check_stack_balance"
 script = "scripts/check_stack_balance.sh"
 kind = "gpu"

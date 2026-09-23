@@ -18,6 +18,8 @@ Dictionary oxide_melt(const Dictionary &p_formula, double p_t_c);
 Dictionary olivine_melt_compression(double p_mg, double p_t_c);
 // MgSiO3 liquid at `p_t_c`.
 Dictionary enstatite_melt_compression(double p_t_c);
+// CaMgSi2O6 liquid at `p_t_c`.
+Dictionary diopside_melt_compression(double p_t_c);
 // CaAl2Si2O8 liquid at `p_t_c`.
 Dictionary anorthite_melt_compression(double p_t_c);
 // Molten NaCl, measured at its melting point `p_melt_c`.

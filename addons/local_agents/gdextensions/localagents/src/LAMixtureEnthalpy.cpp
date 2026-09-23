@@ -1,6 +1,7 @@
 #include "LAMixtureEnthalpy.hpp"
 
 #include "LAPhysicalRead.hpp"
+#include "LAPhaseEos.hpp"
 #include "LASubstances.hpp"
 
 #include <godot_cpp/core/class_db.hpp>
@@ -330,8 +331,9 @@ PackedFloat32Array LAMixtureEnthalpy::thermal_row(const String &p_id) {
 	w[0] = float(prop(p_id, "specific_heat_solid", c_liq));
 	w[1] = float(c_liq);
 	w[2] = float(prop(p_id, "specific_heat_gas", c_liq));
-	w[3] = float(LASubstances::fusion_solid_density(p_id));
-	w[4] = float(LASubstances::fusion_liquid_density(p_id));
+	const LACondensedEos &fus = LAPhaseEosFn::condensed(p_id);
+	w[3] = float(fus.fusion_a1);
+	w[4] = float(fus.fusion_p0);
 	const double melt_c = prop(p_id, "melt_c", kInf);
 	const double l_fus = prop(p_id, "latent_fusion_j_kg", 0.0);
 	const bool has_melt = has_fusion(p_id);
@@ -352,7 +354,7 @@ PackedFloat32Array LAMixtureEnthalpy::thermal_row(const String &p_id) {
 				p_id));
 	}
 	w[5] = has_melt ? float(melt_c) : 0.0f;
-	w[6] = has_melt ? float(prop(p_id, "liquidus_c", melt_c)) : 0.0f;
+	w[6] = has_melt ? float(melt_c + LAPhaseEosFn::condensed(p_id).width) : 0.0f;
 	w[7] = std::isfinite(boil_c) ? float(boil_c) : 0.0f;
 	w[8] = float(prop(p_id, "boil_ref_p_pa", la_physical("STANDARD_PRESSURE_PA")));
 	w[9] = float(prop(p_id, "triple_t_c", 0.0));
@@ -368,6 +370,12 @@ PackedFloat32Array LAMixtureEnthalpy::thermal_row(const String &p_id) {
 	w[21] = has_boil ? 1.0f : 0.0f;
 	w[22] = iapws ? 1.0f : 0.0f;
 	w[23] = float(formula.size());
+	// The rest of the melting line: its form and the coefficients past words 3 and 4.
+	w[24 + 4 * MAX_EL] = float(fus.fusion_kind);
+	w[25 + 4 * MAX_EL] = float(fus.fusion_t0_k);
+	w[26 + 4 * MAX_EL] = float(fus.fusion_c1);
+	w[27 + 4 * MAX_EL] = float(fus.fusion_a2);
+	w[28 + 4 * MAX_EL] = float(fus.fusion_c2);
 	// The gas tail's own atoms: the free-atom entropies the law of mass action needs, and the elements
 	// the Saha equation walks. A substance whose free atoms the table does not measure never dissociates.
 	const Dictionary entropy = LASubstances::element_entropy_j_molk();
@@ -398,13 +406,13 @@ double LAMixtureEnthalpy::phase_specific_heat(const String &p_id, double p_t_c, 
 	const double c_liq = prop(p_id, "specific_heat", 0.0);
 	const double c_sol = prop(p_id, "specific_heat_solid", c_liq);
 	const double c_gas = prop(p_id, "specific_heat_gas", c_liq);
-	if (!has_fusion(p_id)) {
+	if (!has_fusion(p_id) && !has_vaporisation(p_id)) {
 		return c_sol;
 	}
 	if (LASubstances::sublimes_at(p_id, p_p_pa) && has_vaporisation(p_id)) {
 		return p_t_c <= LASubstances::sublimation_c_at(p_id, p_p_pa) ? c_sol : c_gas;
 	}
-	if (p_t_c <= LASubstances::melt_c_at(p_id, p_p_pa, 0.0)) {
+	if (has_fusion(p_id) && p_t_c <= LASubstances::melt_c_at(p_id, p_p_pa, 0.0)) {
 		return c_sol;
 	}
 	const double boil = LASubstances::boil_c_at(p_id, p_p_pa);

@@ -4,6 +4,8 @@
 #include "Rig.hpp"
 #include "Rng.hpp"
 
+#include "LABirchMurnaghan.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -20,7 +22,7 @@ constexpr uint32_t kDraws = 4;
 
 // state_derive.glsl's per-channel substance table: PROP_STRIDE words per channel, then the detection
 // thresholds. scripts/check_kernel_properties.sh holds these to the kernel's own declarations.
-constexpr uint32_t kPropStride = 74;
+constexpr uint32_t kPropStride = 79;
 constexpr uint32_t kPropM = 0;
 constexpr uint32_t kPropMolPerKg = 1;
 constexpr uint32_t kPropEntry = 2;
@@ -29,6 +31,10 @@ constexpr uint32_t kPropFull = 4;
 constexpr uint32_t kPropLithic = 5;
 constexpr uint32_t kPropRadGroup = 6;
 constexpr uint32_t kPropCondensed = 7;
+constexpr uint32_t kPropPrA = 8;
+constexpr uint32_t kPropPrB = 9;
+constexpr uint32_t kPropPrKappa = 10;
+constexpr uint32_t kPropPrTc = 11;
 // The solid's and the melt's equation-of-state blocks.
 constexpr uint32_t kPropSolid = 12;
 constexpr uint32_t kPropLiquid = 21;
@@ -36,7 +42,9 @@ constexpr uint32_t kPhFull = 0;
 constexpr uint32_t kPhAlpha = 1;
 constexpr uint32_t kPhBulk = 2;
 constexpr uint32_t kPhKp = 3;
+constexpr uint32_t kPhB4 = 4;
 constexpr uint32_t kPhTref = 5;
+constexpr uint32_t kPhLinear = 6;
 constexpr uint32_t kPhFLo = 7;
 constexpr uint32_t kPhFHi = 8;
 // The channel's own phase ladder, from PROP_LADDER: every condensed channel melts where its row says.
@@ -44,8 +52,8 @@ constexpr uint32_t kPropLadder = 30;
 constexpr uint32_t kThCSol = 0;
 constexpr uint32_t kThCLiq = 1;
 constexpr uint32_t kThCGas = 2;
-constexpr uint32_t kThRhoSol = 3;
-constexpr uint32_t kThRhoLiq = 4;
+constexpr uint32_t kThLineA1 = 3;
+constexpr uint32_t kThLineP0 = 4;
 constexpr uint32_t kThFusionT0 = 5;
 constexpr uint32_t kThFusionT1 = 6;
 constexpr uint32_t kThLFus = 13;
@@ -111,23 +119,6 @@ struct World {
 	float sea_radius = 0.0f;
 };
 
-// The third-order Birch-Murnaghan strain bracket: P(f) rises between the roots of 9a f^2 + (7 + 2a) f + 1.
-void bm3_bracket(float p_kp, float &r_lo, float &r_hi) {
-	const double a = 1.5 * (double(p_kp) - 4.0);
-	double lo = -0.45;
-	double hi = 1.5;
-	const double disc = (7.0 + 2.0 * a) * (7.0 + 2.0 * a) - 36.0 * a;
-	if (a != 0.0 && disc > 0.0) {
-		for (double sgn : { 1.0, -1.0 }) {
-			const double r = (-(7.0 + 2.0 * a) + sgn * std::sqrt(disc)) / (18.0 * a);
-			lo = r < 0.0 ? std::max(lo, r) : lo;
-			hi = r < 0.0 ? hi : std::min(hi, r);
-		}
-	}
-	r_lo = float(lo);
-	r_hi = float(hi);
-}
-
 // A substance table shaped like a real one — a molar mass, a heat capacity, a mixture entry, a fullness
 // — with every row's numbers drawn rather than quoted: the properties below hold for any of them.
 std::vector<float> draw_props(Rng &rng) {
@@ -146,21 +137,39 @@ std::vector<float> draw_props(Rng &rng) {
 		p[b + kPropLambda] = rng.decades(0.02f, 5.0f);
 		p[b + kPropFull] = rho / m;
 		const float alpha = rng.decades(1.0e-5f, 3.0e-4f);
-		const float bulk = rng.chance(0.3f) ? 0.0f : rng.decades(1.0e9f, 2.0e11f);
+		const float bulk = rng.decades(1.0e9f, 2.0e11f);
 		const float tref = rng.range(0.0f, 25.0f);
+		// A density linear in T only where it stays positive over the drawn temperatures.
+		const bool linear = alpha < 1.0e-4f && rng.chance(0.5f);
 		p[b + kPropLithic] = (condensed && rng.chance(0.5f)) ? 1.0f : 0.0f;
 		p[b + kPropRadGroup] = float(rng.below(5));
 		p[b + kPropCondensed] = condensed ? 1.0f : 0.0f;
 		// The span the measured rows cover, halite to orthoenstatite.
 		const float kp = rng.range(3.3f, 8.7f);
+		// Fourth order half the time, K'' within the span the measured melts cover, -K'/K0 to +K'/K0.
+		const double b4 = rng.chance(0.5f)
+				? la_bm::b4(bulk, kp, double(rng.range(-1.0f, 1.0f)) * kp / bulk, true) : 0.0;
+		double f_lo = 0.0;
+		double f_hi = 0.0;
+		la_bm::bracket(kp, b4, f_lo, f_hi);
 		// Solid and melt alike, so neither the melting curve nor the volume jumps across it.
 		for (uint32_t blk : { kPropSolid, kPropLiquid }) {
 			p[b + blk + kPhFull] = condensed ? rho / m : 0.0f;
 			p[b + blk + kPhAlpha] = alpha;
 			p[b + blk + kPhBulk] = bulk;
 			p[b + blk + kPhKp] = kp;
+			p[b + blk + kPhB4] = float(b4);
 			p[b + blk + kPhTref] = tref;
-			bm3_bracket(kp, p[b + blk + kPhFLo], p[b + blk + kPhFHi]);
+			p[b + blk + kPhLinear] = linear ? 1.0f : 0.0f;
+			p[b + blk + kPhFLo] = float(f_lo);
+			p[b + blk + kPhFHi] = float(f_hi);
+		}
+		// A gas is a Peng-Robinson fluid over the span the table's gases cover, hydrogen to water.
+		if (!condensed) {
+			p[b + kPropPrTc] = rng.range(33.0f, 650.0f);
+			p[b + kPropPrA] = rng.decades(0.02f, 0.6f);
+			p[b + kPropPrB] = rng.range(1.5e-5f, 4.0e-5f);
+			p[b + kPropPrKappa] = rng.range(0.03f, 0.9f);
 		}
 		// A LADDER PER CHANNEL. A condensed phase melts: a solidus, a liquidus at or above it, and the
 		// fusion enthalpy it costs to cross. Neither solid nor melt is compressed here, so the melting
@@ -169,8 +178,8 @@ std::vector<float> draw_props(Rng &rng) {
 		p[t + kThCSol] = rng.range(400.0f, 4200.0f);
 		p[t + kThCLiq] = rng.range(400.0f, 4200.0f);
 		p[t + kThCGas] = rng.range(400.0f, 4200.0f);
-		p[t + kThRhoSol] = rho;
-		p[t + kThRhoLiq] = rho;
+		p[t + kThLineA1] = 0.0f;
+		p[t + kThLineP0] = 101325.0f;
 		p[t + kThNu] = 1.0f;
 		p[t + kThNEl] = 1.0f;
 		p[t + kThElN] = 1.0f;
@@ -448,16 +457,14 @@ bool prop_derive_melting_costs_its_latent_heat(Case &c) {
 			continue;
 		}
 		const uint32_t base = ci * kPropStride;
-		// Half a cell of it and nothing else: one boundary in the world, and the phase it is in fills no
-		// more than the room it has, so the pressure the cell settles at is nothing pushing back.
-		w.props[base + kPropSolid + kPhBulk] = 0.0f;
-		w.props[base + kPropLiquid + kPhBulk] = 0.0f;
+		// Half a cell of it and nothing else: one boundary in the world, and the phase it is in stands in
+		// vacuum, so the pressure the cell settles at is nothing pushing back.
 		rig.put(LA_BIND_DERIVE_PROPS, w.props);
 		const double molar = double(w.props[base + kPropM]);
 		const double c_sol = double(w.props[base + kPropLadder + kThCSol]);
 		const double c_liq = double(w.props[base + kPropLadder + kThCLiq]);
 		const double l_fus = double(w.props[base + kPropLadder + kThLFus]);
-		// rho_sol == rho_liq, so the melting curve has no Clapeyron slope and the plateau stands here.
+		// The drawn Clapeyron slope is zero, so the plateau stands here at any pressure.
 		const double t0 = double(w.props[base + kPropLadder + kThFusionT0]);
 		const double amt = 0.5 * double(w.props[base + kPropFull]);
 		std::vector<float> a(n, float(amt));
