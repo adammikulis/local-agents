@@ -1,8 +1,9 @@
-[gd_scene load_steps=4 format=3 uid="uid://bsimworldplanet1"]
+[gd_scene load_steps=5 format=3 uid="uid://bsimworldplanet1"]
 
 [ext_resource type="Script" path="res://addons/local_agents/examples/SimWorldPlanetDemo.gd" id="1_sw"]
 [ext_resource type="Script" path="res://addons/local_agents/sim/SimWorld.gd" id="2_simworld"]
 [ext_resource type="Script" path="res://addons/local_agents/runtime/DemoHarness.gd" id="3_harness"]
+[ext_resource type="PackedScene" path="res://addons/local_agents/game/render/SimWorldView.tscn" id="4_view"]
 
 [node name="SimWorldPlanetDemo" type="Node3D"]
 script = ExtResource("1_sw")
@@ -14,7 +15,6 @@ world_type = 0
 build_on_ready = true
 caves_enabled = true
 grid_res = 16
-sun_enabled = true
 auto_spawn = true
 initial_counts = Dictionary[String, int]({
 "bird": 10,
@@ -24,14 +24,14 @@ initial_counts = Dictionary[String, int]({
 })
 forest_clusters = 6
 
+[node name="SimWorldView" parent="SimWorld" node_paths=PackedStringArray("sim_world") instance=ExtResource("4_view")]
+sim_world = NodePath("..")
+
 [node name="Camera3D" type="Camera3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 7300000)
 near = 1000.0
 far = 20000000.0
 current = true
-
-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
-transform = Transform3D(0.8775826, 0, -0.4794255, -0.270704, 0.8253356, -0.4955204, 0.395687, 0.5646425, 0.7243001, 0, 0, 0)
 
 [node name="DemoHarness" type="Node" parent="."]
 script = ExtResource("3_harness")

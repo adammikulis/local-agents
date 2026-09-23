@@ -6,6 +6,9 @@ extends Node3D
 
 enum WorldType { SPHERE, FLAT }
 
+## spawn_world() finished: terrain(), material_field() and ecology() are live.
+signal world_built
+
 const MaterialFieldScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialField3D.gd")
 const EcologyServiceScript: GDScript = preload("res://addons/local_agents/sim/ecology/EcologyService.gd")
 const FlatTerrainScript: GDScript = preload("res://addons/local_agents/creatures/terrain/adapters/FlatGroundTerrain.gd")
@@ -50,9 +53,6 @@ const SLOW_BUILD_CELLS: int = 250000
 ## slice's local vertical, so it must be nonzero.
 @export var slice_offset_m: Vector3 = Vector3.ZERO
 
-@export_subgroup("Lighting")
-@export var sun_enabled: bool = true
-
 @export_group("Flat bounds")
 @export_custom(PROPERTY_HINT_RANGE, "1,2000,1,or_greater,suffix:m") var flat_extent: Vector3 = Vector3(120.0, 40.0, 120.0): set = _set_flat_extent
 ## Edge length of one field cell, in world units. Must be greater than 0: the build divides the extent
@@ -79,7 +79,6 @@ var _terrain: Variant = null     # LAVoxelTerrainService (sphere) or LAFlatGroun
 var _material: Variant = null    # LAMaterialField3D
 var _ecology: Variant = null     # LAEcologyService
 var _actors_root: Node3D = null
-var _sun: DirectionalLight3D = null
 
 var _built: bool = false
 var _spawned: bool = false
@@ -136,6 +135,7 @@ func spawn_world() -> void:
 	_ecology.setup(_terrain, _actors_root)
 	if _ecology.has_method("set_material_field"):
 		_ecology.set_material_field(_material)
+	world_built.emit()
 
 
 ## The radius the seeded matter fills before it is laid down: its mass over the density of what it is made
@@ -164,12 +164,6 @@ func _build_sphere() -> bool:
 	})
 	_terrain = _body.terrain()
 	_actors_root = _body.actors_root
-	# A sun so the field's solar/thermal pass has a real light (drives heating → biomass). Fixed in space.
-	if sun_enabled:
-		_sun = DirectionalLight3D.new()
-		_sun.name = "Sun"
-		_sun.rotation = Vector3(-0.9, 0.4, 0.0)
-		add_child(_sun)
 	# Cartesian box enclosing the planet and the air above it. METRES: the gravity solve is SI.
 	_material = MaterialFieldScript.new()
 	_material.name = "MaterialField"
@@ -205,8 +199,6 @@ func _build_sphere() -> bool:
 			LAFieldGridBudget.target_edge_m(body_seed, seed_radius(), LABodySeeds.surface_temp_c()), seed_radius())
 	if _material.has_method("sample_solidity"):
 		_material.sample_solidity()
-	if _sun != null and _material.has_method("set_sun"):
-		_material.set_sun(_sun)
 	return true
 
 

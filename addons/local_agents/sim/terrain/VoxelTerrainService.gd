@@ -2,8 +2,9 @@ class_name LAVoxelTerrainService
 extends RefCounted
 
 
-const SHADER_PATH: String = "res://addons/local_agents/sim/shaders/VoxelTerrainTriplanar.gdshader"
 const PlanetGenScript: GDScript = preload("res://addons/local_agents/sim/terrain/SpherePlanetGenerator.gd")
+## The authored look the terrain is built with; a view replaces it through set_terrain_material().
+const TERRAIN_MATERIAL: ShaderMaterial = preload("res://addons/local_agents/sim/shaders/VoxelTerrainMaterial.tres")
 
 const MAX_LOD: int = 23                   # godot_voxel's cap: VoxelLodTerrain rejects lod_count >= 24
 
@@ -72,14 +73,7 @@ func build_planet(parent: Node3D, opts: Dictionary = {}) -> void:
 	terrain.name = "VoxelTerrain"
 	terrain.mesher = mesher
 	terrain.generator = gen
-	terrain.material = _make_material()
-	# Tell the triplanar shader to band climate RADIALLY (snow/beach/slope keyed off height above the sea
-	# shell + radial up) instead of by world-Y — else all the "snow" piles at the +Y pole.
-	if terrain.material is ShaderMaterial:
-		var tm: ShaderMaterial = terrain.material
-		tm.set_shader_parameter("planet_enabled", 1.0)
-		tm.set_shader_parameter("planet_center", _center)
-		tm.set_shader_parameter("planet_sea_radius", _sea_radius)
+	terrain.material = TERRAIN_MATERIAL.duplicate()
 	terrain.lod_count = _lod_count_for(terrain.lod_distance)
 	terrain.view_distance = int(opts.get("view_distance", 8000))
 	terrain.generate_collisions = true
@@ -112,6 +106,13 @@ func generator_options() -> Dictionary:
 func set_shader_param(param: String, value) -> void:
 	if _terrain != null and _terrain.material is ShaderMaterial:
 		(_terrain.material as ShaderMaterial).set_shader_parameter(param, value)
+
+
+## Draw the terrain with its own copy of `mat`, so uniforms set at runtime stay this world's.
+func set_terrain_material(mat: ShaderMaterial) -> void:
+	if _terrain != null:
+		_terrain.material = mat.duplicate()
+
 
 ## THE LOD PYRAMID SPANS THE BODY OR ITS FAR SIDE IS NEVER MESHED. The coarsest level reaches
 ## lod_distance * 2^(lod_count-1) metres and the far limb stands 2R away, so the count is read off the
@@ -302,11 +303,3 @@ func meshed_resolution_at(world_pos: Vector3) -> float:
 		if bool(info.get("meshed", false)) and bool(info.get("visible", false)):
 			return pow(2.0, float(lod))
 	return INF
-
-
-func _make_material() -> ShaderMaterial:
-	var mat: ShaderMaterial = ShaderMaterial.new()
-	var sh: Shader = load(SHADER_PATH) as Shader
-	if sh != null:
-		mat.shader = sh
-	return mat
