@@ -129,6 +129,7 @@ name = "check_demo_catalog"
 script = "scripts/check_demo_catalog.sh"
 kind = "text"
 marker = "^check_demo_catalog: OK"
+mutation = "python3 -c \"p='addons/local_agents/examples/DemoLauncher.tscn'; s=open(p).read(); open(p,'w').write(s.replace('examples/DemoRow.tscn', 'examples/DemoRowGone.tscn'))\""
 
 [[gate]]
 name = "check_fakes"
@@ -871,3 +872,10 @@ script = "scripts/check_gate_registered.sh"
 kind = "text"
 marker = "^check_gate_registered: OK"
 mutation = "printf '#!/usr/bin/env bash\\nexit 0\\n' > scripts/check_mutant_orphan.sh"
+
+[[gate]]
+name = "check_hud_palette"
+script = "scripts/check_hud_palette.sh"
+kind = "text"
+marker = "^check_hud_palette: OK"
+mutation = "printf 'theme_override_colors/font_color = Color(0.62, 0.66, 0.72, 1)\\n' >> addons/local_agents/game/ui/GameHud.tscn"

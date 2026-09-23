@@ -6,17 +6,12 @@ signal spawn_selected(kind: String)
 ## Re-exposed from the audio menu; VoxelWorld listens to gate its live mood feed.
 signal music_auto_adapt_changed(on: bool)
 
-const EMOJI_FONT_PATH: String = "res://addons/local_agents/assets/fonts/emoji.ttf"
-
 ## The groups this world's living things join; the status row counts them.
 const LIVING_GROUPS: Array[String] = ["creature", "fish", "plant", "tree"]
 
-# Off-screen isometric render size for a spawn button's model thumbnail, in pixels.
-const THUMB_PX: int = 64
-
 # The palette is split into two visible clusters. Order within each drives the number hotkeys
-# (LIFE -> 1..8, IMPACT -> Shift+1..8); KINDS is the flat union for lookups. A meteor is the only thing
-# the player can cause: weather and geology are observed, never spawned.
+# (LIFE -> 1..8, IMPACT -> Shift+1..8). A meteor is the only thing the player can cause: weather and
+# geology are observed, never spawned.
 const FLORA_KINDS: PackedStringArray = ["plant", "tree"]
 const LIFE_KINDS: PackedStringArray = [
 	"plant", "tree", "rabbit", "fox", "bird", "vulture", "villager", "fish",
@@ -24,11 +19,6 @@ const LIFE_KINDS: PackedStringArray = [
 const IMPACT_KINDS: PackedStringArray = [
 	"meteor",
 ]
-const KINDS: PackedStringArray = [
-	"plant", "tree", "rabbit", "fox", "bird", "vulture", "villager", "fish",
-	"meteor",
-]
-
 const KIND_LABELS: Dictionary = {
 	"plant": "Plant",
 	"tree": "Tree",
@@ -41,8 +31,8 @@ const KIND_LABELS: Dictionary = {
 	"meteor": "Meteor",
 }
 
-# Emoji glyph per kind, self-colored by the emoji font. Swapping a glyph needs its codepoint added to the
-# pyftsubset build in assets/fonts/.
+# Emoji glyph per kind, drawn in HudTheme's PaletteButton font. Swapping a glyph needs its codepoint added
+# to the pyftsubset build in assets/fonts/.
 const KIND_SYMBOLS: Dictionary = {
 	"plant": "🌱",
 	"tree": "🌲",
@@ -55,9 +45,20 @@ const KIND_SYMBOLS: Dictionary = {
 	"meteor": "☄",
 }
 
-# Palette / theme colors (cohesive dark theme).
+# HudTheme.tres type variations.
+const STYLE_TITLE: StringName = &"InspectorTitle"
+const STYLE_TITLE_IDLE: StringName = &"InspectorTitleIdle"
+const STYLE_LINE: StringName = &"InspectorLine"
+const STYLE_HINT: StringName = &"InspectorHint"
+const STYLE_BADGE: StringName = &"HotkeyBadge"
+const STYLE_BADGE_LOCKED: StringName = &"HotkeyBadgeLocked"
 
-@onready var _root: Control = $HudRoot
+@export_group("Palette")
+## Instanced once per offered kind; its HotkeyBadge child carries the key.
+@export var palette_button: PackedScene
+## The off-screen stage a spawn button's model is rendered in for its thumbnail.
+@export var thumbnail_studio: PackedScene
+
 @onready var _status_panel: PanelContainer = $HudRoot/StatusBar
 @onready var _inspector_panel: PanelContainer = $HudRoot/Inspector
 @onready var _palette_panel: PanelContainer = $HudRoot/SpawnPalette
@@ -74,22 +75,14 @@ const KIND_SYMBOLS: Dictionary = {
 
 var _armed_kind: String = ""
 
-var _theme: Theme
-var _emoji_font: FontFile
 var _palette_group: ButtonGroup
-var _kind_buttons: Dictionary = {}       # kind -> Button, so thumbnails can be filled in async
-var _kind_badges: Dictionary = {}        # kind -> Label, the hotkey-number badge (dimmed when locked)
+var _kind_buttons: Dictionary[String, Button] = {}
 
 var _perf_detail: bool = false      # DEBUG-panel "Detailed perf": expands the FPS readout
 var _ui_panels: Array[Control] = []
 
 
 func _ready() -> void:
-	_emoji_font = _load_emoji_font()
-	_theme = _build_theme()
-	_root.theme = _theme
-
-	_select_button.icon = _make_cursor_icon()
 	_select_button.pressed.connect(_on_select_pressed)
 	_audio_button.toggled.connect(_on_audio_button_toggled)
 	_audio_panel.auto_adapt_changed.connect(_on_audio_auto_adapt_changed)
@@ -146,25 +139,25 @@ func show_inspector(payload: Dictionary) -> void:
 		return
 	var title: String = String(payload.get("title", "Entity"))
 	_inspector_title.text = title
-	_inspector_title.add_theme_color_override("font_color", LAUiStyle.COL_TEXT_HEADING)
+	_inspector_title.theme_type_variation = STYLE_TITLE
 
 	_clear_children(_inspector_lines)
 	var lines: Array = payload.get("lines", [])
 	if lines.is_empty():
-		var empty: Label = _make_line_label("(no details)", LAUiStyle.COL_TEXT_DIM)
+		var empty: Label = _make_line_label("(no details)", STYLE_HINT)
 		_inspector_lines.add_child(empty)
 	else:
 		for entry in lines:
-			_inspector_lines.add_child(_make_line_label(str(entry), LAUiStyle.COL_TEXT))
+			_inspector_lines.add_child(_make_line_label(str(entry), STYLE_LINE))
 
 
 func clear_inspector() -> void:
 	if _inspector_title == null:
 		return
 	_inspector_title.text = "Inspector"
-	_inspector_title.add_theme_color_override("font_color", LAUiStyle.COL_TEXT_DIM)
+	_inspector_title.theme_type_variation = STYLE_TITLE_IDLE
 	_clear_children(_inspector_lines)
-	var hint: Label = _make_line_label("Click an entity to inspect.", LAUiStyle.COL_TEXT_DIM)
+	var hint: Label = _make_line_label("Click an entity to inspect.", STYLE_HINT)
 	_inspector_lines.add_child(hint)
 
 
@@ -203,12 +196,12 @@ func arm_kind(kind: String) -> void:
 	if not LAGameProgression.spawn_unlocked(kind):
 		set_status("%s is locked. Earn it in the campaign." % String(KIND_LABELS.get(kind, kind)))
 		return
-	for btn in _palette_group.get_buttons():
-		if String(btn.get_meta("kind", "")) == kind:
-			btn.button_pressed = true               # -> _on_palette_toggled emits the kind
-			return
-	# No button: this world holds nothing that kind is made of, so the hotkey says so rather than nothing.
-	set_status("There are no %s in this world." % String(KIND_LABELS.get(kind, kind)).to_lower())
+	var btn: Button = _kind_buttons.get(kind)
+	if btn == null:
+		# No button: this world holds nothing that kind is made of, so the hotkey says so rather than nothing.
+		set_status("There are no %s in this world." % String(KIND_LABELS.get(kind, kind)).to_lower())
+		return
+	btn.button_pressed = true                   # -> _on_palette_toggled emits the kind
 
 
 ## Wire the audio menu to the live audio director.
@@ -248,12 +241,12 @@ func _build_palette_buttons() -> void:
 		var alive: bool = LAWorldOffers.has_flora() if FLORA_KINDS.has(kind) \
 			else LAWorldOffers.offers_species(kind)
 		if alive:
-			_life_cluster.add_child(_make_kind_button(_palette_group, kind))
+			_add_kind_button(_life_cluster, kind)
 	# A rock from space needs a world that can answer for its fall, its heat and its crater.
 	_disaster_cluster.visible = LAWorldOffers.has_impacts()
 	if _disaster_cluster.visible:
 		for kind in IMPACT_KINDS:
-			_disaster_cluster.add_child(_make_kind_button(_palette_group, kind))
+			_add_kind_button(_disaster_cluster, kind)
 	# Nothing to place: the panel goes, not just its contents.
 	_palette_panel.visible = _life_cluster.visible or _disaster_cluster.visible
 
@@ -263,76 +256,44 @@ func _build_palette_buttons() -> void:
 		str(_disaster_cluster.visible).to_lower(), JSON.stringify(_kind_buttons.keys())])
 
 	# Swap the life/prop buttons' emoji glyphs for isometric renders of their actual models
-	# (async: renders into an off-screen SubViewport over the next few frames).
+	# (async: renders in the off-screen thumbnail studio over the next few frames).
 	_generate_thumbnails()
 
 
-## An icon-only spawn button: the kind's emoji glyph (bundled emoji font), a name+hotkey
-## tooltip, joined to the shared exclusive group and tagged with its "kind" meta. Falls back
-## to the text label if the emoji font failed to load, so a button is never blank.
-func _make_kind_button(group: ButtonGroup, kind: String) -> Button:
+## An icon-only spawn button instanced from `palette_button`: the kind's emoji glyph, a name+hotkey tooltip,
+## the hotkey on its badge, and a place in the shared exclusive group.
+func _add_kind_button(cluster: HBoxContainer, kind: String) -> void:
 	var label: String = String(KIND_LABELS.get(kind, kind))
 	var hotkey: String = LAHotkeyRegistry.spawn_label(kind)
-	var btn: Button = Button.new()
-	if _emoji_font != null:
-		btn.text = String(KIND_SYMBOLS.get(kind, ""))
-		btn.add_theme_font_override("font", _emoji_font)
-		btn.add_theme_font_size_override("font_size", 22)
-	else:
-		btn.text = label
+	var btn: Button = palette_button.instantiate() as Button
+	btn.text = String(KIND_SYMBOLS.get(kind, ""))
 	if hotkey.is_empty():
 		btn.tooltip_text = "Arm %s for placement" % label
 	else:
 		btn.tooltip_text = "%s  (%s)\nRight-click terrain to place" % [label, hotkey]
-	btn.toggle_mode = true
-	btn.button_group = group
-	btn.focus_mode = Control.FOCUS_NONE
-	btn.custom_minimum_size = Vector2(52.0, 56.0)
-	btn.set_meta("kind", kind)
+	btn.button_group = _palette_group
 	btn.toggled.connect(_on_palette_toggled)
-	# Campaign gating: disable the entries the player has not earned yet (sandbox / no progression = all on).
-	btn.disabled = not LAGameProgression.spawn_unlocked(kind)
-	_kind_buttons[kind] = btn
-	_attach_hotkey_badge(btn, kind)
-	return btn
-
-
-## Draw the hotkey number ("1".."8" / "⇧1"..) in a palette button's top-left corner. A child Label, so the
-## later emoji->thumbnail icon swap does not touch it. No key -> no badge.
-func _attach_hotkey_badge(btn: Button, kind: String) -> void:
-	var hotkey: String = LAHotkeyRegistry.spawn_label(kind)
-	if hotkey.is_empty():
-		return
-	var badge: Label = Label.new()
-	badge.name = "HotkeyBadge"
+	var badge: Label = btn.get_node("HotkeyBadge") as Label
 	badge.text = hotkey
-	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	badge.add_theme_font_size_override("font_size", 10)
-	badge.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
-	badge.offset_left = 4.0
-	badge.offset_top = 1.0
-	btn.add_child(badge)
-	_kind_badges[kind] = badge
-	_style_hotkey_badge(kind)
+	badge.visible = not hotkey.is_empty()
+	cluster.add_child(btn)
+	_kind_buttons[kind] = btn
+	_apply_lock(kind)
 
 
-## Colour a badge for the entry's lock state: bright accent when unlocked, dimmed when locked.
-func _style_hotkey_badge(kind: String) -> void:
-	var badge: Label = _kind_badges.get(kind, null)
-	if badge == null or not is_instance_valid(badge):
-		return
+## Campaign gating: an entry the player has not earned is disabled and its badge dimmed (sandbox / no
+## progression = all on).
+func _apply_lock(kind: String) -> void:
+	var btn: Button = _kind_buttons[kind]
 	var unlocked: bool = LAGameProgression.spawn_unlocked(kind)
-	badge.add_theme_color_override("font_color", LAUiStyle.COL_ACCENT if unlocked else Color(LAUiStyle.COL_TEXT_DIM.r, LAUiStyle.COL_TEXT_DIM.g, LAUiStyle.COL_TEXT_DIM.b, 0.35))
+	btn.disabled = not unlocked
+	(btn.get_node("HotkeyBadge") as Label).theme_type_variation = STYLE_BADGE if unlocked else STYLE_BADGE_LOCKED
 
 
-## Re-enable each palette entry whose spawn capability is now unlocked (campaign). Wired to the
-## progression's capability_unlocked signal; a no-op when no progression instance exists.
+## Wired to the progression's capability_unlocked signal; a no-op when no progression instance exists.
 func _refresh_palette_locks() -> void:
-	for kind in _kind_buttons:
-		var btn: Button = _kind_buttons[kind]
-		if btn != null and is_instance_valid(btn):
-			btn.disabled = not LAGameProgression.spawn_unlocked(String(kind))
-		_style_hotkey_badge(String(kind))
+	for kind: String in _kind_buttons:
+		_apply_lock(kind)
 
 
 # ---------------------------------------------------------------------------
@@ -352,7 +313,7 @@ func _on_palette_toggled(_pressed_state: bool) -> void:
 	var pressed_btn: BaseButton = _palette_group.get_pressed_button()
 	var current: String = ""
 	if pressed_btn != null:
-		current = String(pressed_btn.get_meta("kind", ""))
+		current = String(_kind_buttons.find_key(pressed_btn))
 	if current == _armed_kind:
 		return
 	_armed_kind = current
@@ -373,154 +334,10 @@ func _on_select_pressed() -> void:
 		spawn_selected.emit("")
 
 
-## Load the bundled emoji subset for the palette symbols. load_dynamic_font works straight from the raw
-## .ttf with no editor import step. Returns null on any failure, and the palette falls back to text labels.
-func _load_emoji_font() -> FontFile:
-	if not FileAccess.file_exists(EMOJI_FONT_PATH):
-		push_warning("SpawnPaletteHud: emoji font missing at %s -- palette falls back to text." % EMOJI_FONT_PATH)
-		return null
-	var f: FontFile = FontFile.new()
-	var err: int = f.load_dynamic_font(EMOJI_FONT_PATH)
-	if err != OK:
-		push_warning("SpawnPaletteHud: failed to load emoji font (err %d)." % err)
-		return null
-	return f
-
-
-func _build_theme() -> Theme:
-	var t: Theme = Theme.new()
-	t.default_font_size = 15
-
-	var panel_sb: StyleBoxFlat = _panel_stylebox(LAUiStyle.COL_BG)
-	t.set_stylebox("panel", "PanelContainer", panel_sb)
-
-	# Buttons.
-	var btn_normal: StyleBoxFlat = _button_stylebox(LAUiStyle.COL_BG_2, LAUiStyle.COL_BORDER)
-	var btn_hover: StyleBoxFlat = _button_stylebox(Color(0.18, 0.20, 0.25, 0.98), LAUiStyle.COL_ACCENT.lerp(LAUiStyle.COL_BORDER, 0.4))
-	var btn_pressed: StyleBoxFlat = _button_stylebox(LAUiStyle.COL_ACCENT_DIM, LAUiStyle.COL_ACCENT)
-	btn_pressed.border_width_left = 2
-	btn_pressed.border_width_right = 2
-	btn_pressed.border_width_top = 2
-	btn_pressed.border_width_bottom = 2
-	var btn_focus: StyleBoxFlat = _button_stylebox(Color(0, 0, 0, 0), LAUiStyle.COL_ACCENT)
-
-	t.set_stylebox("normal", "Button", btn_normal)
-	t.set_stylebox("hover", "Button", btn_hover)
-	t.set_stylebox("pressed", "Button", btn_pressed)
-	t.set_stylebox("hover_pressed", "Button", btn_pressed)
-	t.set_stylebox("focus", "Button", btn_focus)
-	t.set_stylebox("disabled", "Button", btn_normal)
-	t.set_color("font_color", "Button", LAUiStyle.COL_TEXT)
-	t.set_color("font_disabled_color", "Button", Color(LAUiStyle.COL_TEXT_DIM.r, LAUiStyle.COL_TEXT_DIM.g, LAUiStyle.COL_TEXT_DIM.b, 0.35))
-	t.set_color("font_hover_color", "Button", LAUiStyle.COL_TEXT_HEADING)
-	t.set_color("font_pressed_color", "Button", LAUiStyle.COL_ACCENT)
-	t.set_color("font_hover_pressed_color", "Button", LAUiStyle.COL_ACCENT)
-	t.set_constant("h_separation", "Button", 8)
-	t.set_font_size("font_size", "Button", 14)
-
-	t.set_color("font_color", "Label", LAUiStyle.COL_TEXT)
-
-	var sep_sb: StyleBoxLine = StyleBoxLine.new()
-	sep_sb.color = LAUiStyle.COL_BORDER
-	sep_sb.vertical = true
-	t.set_stylebox("separator", "VSeparator", sep_sb)
-
-	# OptionButton reuses the Button styleboxes plus a styled dropdown popup.
-	t.set_stylebox("normal", "OptionButton", btn_normal)
-	t.set_stylebox("hover", "OptionButton", btn_hover)
-	t.set_stylebox("pressed", "OptionButton", btn_pressed)
-	t.set_stylebox("focus", "OptionButton", btn_focus)
-	t.set_stylebox("disabled", "OptionButton", btn_normal)
-	t.set_color("font_color", "OptionButton", LAUiStyle.COL_TEXT)
-	t.set_color("font_hover_color", "OptionButton", LAUiStyle.COL_TEXT_HEADING)
-	t.set_font_size("font_size", "OptionButton", 13)
-
-	var popup_sb: StyleBoxFlat = _panel_stylebox(LAUiStyle.COL_BG_2)
-	popup_sb.set_content_margin_all(4)
-	t.set_stylebox("panel", "PopupMenu", popup_sb)
-	t.set_color("font_color", "PopupMenu", LAUiStyle.COL_TEXT)
-	t.set_color("font_hover_color", "PopupMenu", LAUiStyle.COL_TEXT_HEADING)
-	var popup_hover: StyleBoxFlat = StyleBoxFlat.new()
-	popup_hover.bg_color = LAUiStyle.COL_ACCENT_DIM
-	popup_hover.set_corner_radius_all(4)
-	t.set_stylebox("hover", "PopupMenu", popup_hover)
-
-	# HSlider: a thin track with a bright round grabber.
-	var slider_track: StyleBoxFlat = StyleBoxFlat.new()
-	slider_track.bg_color = LAUiStyle.COL_BG_2
-	slider_track.set_corner_radius_all(3)
-	slider_track.content_margin_top = 3
-	slider_track.content_margin_bottom = 3
-	t.set_stylebox("slider", "HSlider", slider_track)
-	var slider_fill: StyleBoxFlat = StyleBoxFlat.new()
-	slider_fill.bg_color = LAUiStyle.COL_ACCENT_DIM
-	slider_fill.set_corner_radius_all(3)
-	t.set_stylebox("grabber_area", "HSlider", slider_fill)
-	t.set_stylebox("grabber_area_highlight", "HSlider", slider_fill)
-	var grabber: ImageTexture = _make_grabber_icon()
-	t.set_icon("grabber", "HSlider", grabber)
-	t.set_icon("grabber_highlight", "HSlider", grabber)
-	t.set_icon("grabber_disabled", "HSlider", grabber)
-
-	# CheckButton keeps the default engine on/off icons.
-	t.set_color("font_color", "CheckButton", LAUiStyle.COL_TEXT)
-	t.set_color("font_hover_color", "CheckButton", LAUiStyle.COL_TEXT_HEADING)
-	t.set_font_size("font_size", "CheckButton", 13)
-	var transparent: StyleBoxEmpty = StyleBoxEmpty.new()
-	t.set_stylebox("normal", "CheckButton", transparent)
-	t.set_stylebox("hover", "CheckButton", transparent)
-	t.set_stylebox("pressed", "CheckButton", transparent)
-	t.set_stylebox("focus", "CheckButton", transparent)
-
-	var scroll_grabber: StyleBoxFlat = StyleBoxFlat.new()
-	scroll_grabber.bg_color = LAUiStyle.COL_BORDER
-	scroll_grabber.set_corner_radius_all(3)
-	t.set_stylebox("grabber", "VScrollBar", scroll_grabber)
-	t.set_stylebox("grabber_highlight", "VScrollBar", scroll_grabber)
-	t.set_stylebox("grabber_pressed", "VScrollBar", scroll_grabber)
-
-	return t
-
-
-## A small round grabber texture for the volume/parameter sliders (no external assets).
-func _make_grabber_icon() -> ImageTexture:
-	var s: int = 16
-	var img: Image = Image.create(s, s, false, Image.FORMAT_RGBA8)
-	img.fill(Color(0, 0, 0, 0))
-	var c: Vector2 = Vector2(s / 2.0, s / 2.0)
-	var r: float = s / 2.0 - 1.0
-	for y in s:
-		for x in s:
-			var d: float = Vector2(x + 0.5, y + 0.5).distance_to(c)
-			if d <= r - 3.0:
-				img.set_pixel(x, y, LAUiStyle.COL_ACCENT)
-			elif d <= r:
-				img.set_pixel(x, y, LAUiStyle.COL_TEXT_HEADING)
-	return ImageTexture.create_from_image(img)
-
-
-func _panel_stylebox(bg: Color) -> StyleBoxFlat:
-	return LAUiStyle.flat_box(bg, LAUiStyle.COL_BORDER, 1, 0.35, 8)
-
-
-func _button_stylebox(bg: Color, border: Color) -> StyleBoxFlat:
-	var sb: StyleBoxFlat = StyleBoxFlat.new()
-	sb.bg_color = bg
-	sb.set_corner_radius_all(8)
-	sb.set_border_width_all(1)
-	sb.border_color = border
-	sb.content_margin_left = 12
-	sb.content_margin_right = 12
-	sb.content_margin_top = 6
-	sb.content_margin_bottom = 6
-	return sb
-
-
-func _make_line_label(text: String, color: Color) -> Label:
+func _make_line_label(text: String, style: StringName) -> Label:
 	var l: Label = Label.new()
 	l.text = text
-	l.add_theme_color_override("font_color", color)
-	l.add_theme_font_size_override("font_size", 14)
+	l.theme_type_variation = style
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	return l
@@ -549,7 +366,7 @@ func _generate_thumbnails() -> void:
 		var model_id: String = _thumb_model_id(kind)
 		if LAActorModels.path(model_id).is_empty():
 			continue
-		var btn: Button = _kind_buttons.get(kind, null)
+		var btn: Button = _kind_buttons.get(kind)
 		if btn == null:
 			continue
 		var tex: ImageTexture = await _render_thumbnail(model_id)
@@ -559,8 +376,8 @@ func _generate_thumbnails() -> void:
 			btn.expand_icon = true
 
 
-# Build the model in an isolated SubViewport under an orthographic isometric camera, let it draw,
-# and read the framebuffer back into an ImageTexture. Returns null if it couldn't render.
+# Pose the model in the thumbnail studio, let it draw, and read the framebuffer back into an
+# ImageTexture. Returns null if it couldn't render.
 func _render_thumbnail(model_id: String) -> ImageTexture:
 	var def: Dictionary = LAActorModels.get_def(model_id)
 	var model: Node3D = LAModelVisual.build(
@@ -570,61 +387,16 @@ func _render_thumbnail(model_id: String) -> ImageTexture:
 		return null
 	LAModelVisual.recolor(model, LAActorModels.recolor(model_id))   # match the in-world foliage fix
 
-	var sv: SubViewport = SubViewport.new()
-	sv.size = Vector2i(THUMB_PX, THUMB_PX)
-	sv.transparent_bg = true
-	sv.own_world_3d = true
-	sv.msaa_3d = Viewport.MSAA_4X
-	sv.render_target_update_mode = SubViewport.UPDATE_ALWAYS
-
-	var cam: Camera3D = Camera3D.new()
-	cam.projection = Camera3D.PROJECTION_ORTHOGONAL
-	cam.size = 1.5
-	# Models face -Z (their nose); view from the -Z side for a 3/4 front portrait.
-	cam.position = Vector3(1.4, 1.15, -1.7)
-	var env: Environment = Environment.new()
-	env.background_mode = Environment.BG_CLEAR_COLOR
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.62, 0.64, 0.68)
-	env.ambient_light_energy = 1.0
-	cam.environment = env
-	sv.add_child(cam)
-
-	var light: DirectionalLight3D = DirectionalLight3D.new()
-	light.rotation_degrees = Vector3(-45.0, 40.0, 0.0)
-	light.light_energy = 1.3
-	sv.add_child(light)
-
-	sv.add_child(model)
-	add_child(sv)
-	cam.look_at(Vector3.ZERO, Vector3.UP)   # aim once the camera is inside the tree
+	var studio: SubViewport = thumbnail_studio.instantiate() as SubViewport
+	studio.add_child(model)
+	add_child(studio)
 
 	# Two frames so the SubViewport actually draws before we read it back.
 	await get_tree().process_frame
 	await get_tree().process_frame
 
-	var img: Image = sv.get_texture().get_image()
-	sv.queue_free()
+	var img: Image = studio.get_texture().get_image()
+	studio.queue_free()
 	if img == null or img.is_empty():
 		return null
-	return ImageTexture.create_from_image(img)
-
-
-# ---------------------------------------------------------------------------
-# Icon generation (drawn to an Image -> ImageTexture, no external files)
-# ---------------------------------------------------------------------------
-
-func _make_cursor_icon() -> ImageTexture:
-	var s: int = 30
-	var img: Image = Image.create(s, s, false, Image.FORMAT_RGBA8)
-	img.fill(Color(0, 0, 0, 0))
-	# A simple crosshair.
-	var mid: int = s / 2
-	for i in s:
-		img.set_pixel(mid, i, LAUiStyle.COL_TEXT)
-		img.set_pixel(i, mid, LAUiStyle.COL_TEXT)
-	for i in range(mid - 3, mid + 4):
-		if i >= 0 and i < s:
-			img.set_pixel(i, mid, LAUiStyle.COL_ACCENT)
-			img.set_pixel(mid, i, LAUiStyle.COL_ACCENT)
 	return ImageTexture.create_from_image(img)
