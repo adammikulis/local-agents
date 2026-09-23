@@ -87,6 +87,10 @@ blk="$(cd "$TREE" && bash scripts/check_comment_block.sh 2>&1 | rg -N '^COMMENT_
 [ -n "$blk" ] || { echo "write_ceilings: check_comment_block.sh printed no COMMENT_BLOCK= line." >&2; exit 2; }
 lower COMMENT_BLOCK_CEILING "$(field "$blk" count)"
 
+pres="$(cd "$TREE" && bash scripts/check_presentation_in_sim.sh 2>&1 | rg -N '^PRESENTATION_IN_SIM=' || true)"
+[ -n "$pres" ] || { echo "write_ceilings: check_presentation_in_sim.sh printed no PRESENTATION_IN_SIM= line." >&2; exit 2; }
+lower PRESENTATION_IN_SIM_CEILING "$(field "$pres" count)"
+
 # Uncited values in the authority files, which check_model_parameters.sh exempts from its own registry.
 # READ THE MACHINE LINES, not a prose message: the gate prints both counts unconditionally, pass or fail.
 cited="$(cd "$TREE" && bash scripts/check_cited_authority.sh 2>&1 || true)"
