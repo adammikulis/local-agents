@@ -20,10 +20,12 @@
 #include <godot_cpp/variant/utility_functions.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <functional>
 #include <limits>
 #include <numeric>
+#include <thread>
 #include <vector>
 
 using namespace godot;
@@ -40,6 +42,31 @@ Vector3 field_centre(Object *p_field) {
 	Array args;
 	args.append(p_field);
 	return la_call_gd(GEOMETRY_GD, "centre", args);
+}
+
+// p_fn(i) for every i in [0, p_count) across the host's cores, claimed in chunks off one counter.
+// p_fn writes only index i's own slots.
+template <typename F>
+void for_each_index_parallel(int p_count, const F &p_fn) {
+	const int workers = int(MAX(std::thread::hardware_concurrency(), 1u));
+	const int chunk = 16;
+	std::atomic<int> next(0);
+	auto run = [&]() {
+		for (int lo = next.fetch_add(chunk); lo < p_count; lo = next.fetch_add(chunk)) {
+			const int hi = MIN(lo + chunk, p_count);
+			for (int i = lo; i < hi; i++) {
+				p_fn(i);
+			}
+		}
+	};
+	std::vector<std::thread> pool;
+	for (int t = 1; t < workers; t++) {
+		pool.emplace_back(run);
+	}
+	run();
+	for (std::thread &t : pool) {
+		t.join();
+	}
 }
 
 // A channel mirror, held by NAME so it can be written back: a godot-cpp Packed array is copy-on-write, so
@@ -196,38 +223,80 @@ void column_section(const CubeColumn &p_col, double p_s0, double p_mid, double p
 	}
 }
 
-// int_0^1 u^j exp(-z u) du, j = 0..2: the exponential's own moments over a segment. Series inside the
-// radius where the closed form cancels.
-void exp_moments(double p_z, double p_e[3]) {
-	if (std::abs(p_z) < 0.5) {
-		for (int j = 0; j < 3; j++) {
-			double term = 1.0, sum = 1.0 / double(j + 1);
-			for (int i = 1; i < 24; i++) {
-				term *= -p_z / double(i);
-				sum += term / double(i + j + 1);
-			}
-			p_e[j] = sum;
-		}
-		return;
+// The n-point Gauss-Legendre rule on [-1, 1]: Newton on P_n from the Chebyshev guess, per thread.
+const std::vector<double> &gauss_legendre(int p_n) {
+	thread_local std::vector<std::vector<double>> rules;
+	if (int(rules.size()) <= p_n) {
+		rules.resize(p_n + 1);
 	}
-	const double q = std::exp(-p_z);
-	p_e[0] = (1.0 - q) / p_z;
-	p_e[1] = (1.0 - (1.0 + p_z) * q) / (p_z * p_z);
-	p_e[2] = (2.0 - (2.0 + 2.0 * p_z + p_z * p_z) * q) / (p_z * p_z * p_z);
+	std::vector<double> &r = rules[p_n];
+	if (!r.empty()) {
+		return r;
+	}
+	r.assign(2 * p_n, 0.0);   // node, weight, node, weight...
+	for (int i = 0; i < (p_n + 1) / 2; i++) {
+		double x = std::cos(Math::PI * (double(i) + 0.75) / (double(p_n) + 0.5));
+		double dp = 1.0;
+		for (int it = 0; it < 100; it++) {
+			double p0 = 1.0, p1 = x;
+			for (int k = 2; k <= p_n; k++) {
+				const double p2 = ((2.0 * k - 1.0) * x * p1 - (k - 1.0) * p0) / double(k);
+				p0 = p1;
+				p1 = p2;
+			}
+			const double pn = p_n == 1 ? x : p1;
+			const double pm = p_n == 1 ? 1.0 : p0;
+			dp = double(p_n) * (x * pn - pm) / (x * x - 1.0);
+			const double dx = pn / dp;
+			x -= dx;
+			if (std::abs(dx) <= std::numeric_limits<double>::epsilon() * std::abs(x)) {
+				break;
+			}
+		}
+		const double w = 2.0 / ((1.0 - x * x) * dp * dp);
+		r[2 * i] = -x;
+		r[2 * i + 1] = w;
+		r[2 * (p_n - 1 - i)] = x;
+		r[2 * (p_n - 1 - i) + 1] = w;
+	}
+	return r;
 }
+
+// Bernstein-ellipse parameters tau = ln rho the bound is minimised over. Any tau > 0 is a valid bound;
+// the set decides only how tight it is.
+struct EllipseSet {
+	double tau[25], cosh_tau[25], log_rho2m1[25];
+	EllipseSet() {
+		for (int k = 0; k < 25; k++) {
+			tau[k] = std::pow(2.0, 0.5 * double(k)) / 32.0;
+			cosh_tau[k] = std::cosh(tau[k]);
+			log_rho2m1[k] = std::log(std::expm1(2.0 * tau[k]));
+		}
+	}
+};
 
 // WHAT ONE CELL'S GAS WEIGHS AGAINST THE DATUM'S: exp(-(phi - phi_0) / (R T / M)) integrated over the
 // volume the cell's rock and sea leave, over the cell's whole volume. The gas stands on them, so the room
-// is the cube above the level that leaves p_cut of it below. Every segment carries the section's exact
-// polynomial against an exponent linear in s, in the potential of the monopole this cell's own gravity
-// states; p_sub splits a segment where that potential's curvature over it would show.
+// is the cube above the level that leaves p_cut of it below, in the potential of the monopole this cell's
+// own gravity states. Each segment between the section's breakpoints is a polynomial times an entire
+// exponential, taken by Gauss-Legendre at the node count whose error bound holds to float precision
+// against a lower bound of the segment's own integral. The bound: Chebyshev coefficients |a_k| <=
+// 2 M rho^-k for |f| <= M on the Bernstein ellipse (Trefethen, ATAP Thm 8.1); the n-point rule is exact
+// below T_2n and odd T_k vanish, and |I(T_k) - I_n(T_k)| <= 2 + 2 / (k^2 - 1), so
+// |I - I_n| <= 4 M (1 + 1 / (4 n^2 - 1)) rho^(2 - 2n) / (rho^2 - 1). NAN when no count can.
 double cell_air_share(const CubeColumn &p_col, double p_cut, double p_phi_c, double p_phi_0,
-		double p_g, double p_r, double p_rt, int p_sub) {
+		double p_g, double p_r, double p_rt) {
+	static const EllipseSet ELLIPSES;
+	const double log_eps32 = std::log(double(std::numeric_limits<float>::epsilon()));
+	// Past this many terms the double sum's own rounding reaches float precision.
+	const double n_cap = double(std::numeric_limits<float>::epsilon()) / std::numeric_limits<double>::epsilon();
 	const double half = 0.5 * p_col.span;
 	const double gm_eff = p_g * p_r * p_r;
 	const bool radial = p_r > p_col.span;
-	auto phi_at = [&](double z) {
-		return radial ? p_phi_c + gm_eff * (1.0 / p_r - 1.0 / (p_r + z)) : p_phi_c + p_g * z;
+	// The exponent, decreasing in z: its real part on the ellipse is bounded by its value at the lowest z.
+	auto exponent = [&](double z) {
+		return radial ? -((p_phi_c - p_phi_0) + gm_eff * z / (p_r * (p_r + z))) / p_rt
+					  : -((p_phi_c - p_phi_0) + p_g * z) / p_rt;
 	};
 	double bp[10];
 	int nb = 0;
@@ -247,24 +316,58 @@ double cell_air_share(const CubeColumn &p_col, double p_cut, double p_phi_c, dou
 	std::sort(bp, bp + nb);
 	double out = 0.0;
 	for (int b = 0; b + 1 < nb; b++) {
-		const double seg = (bp[b + 1] - bp[b]) / double(p_sub);
-		if (!(seg > 0.0)) {
+		const double len = bp[b + 1] - bp[b];
+		if (!(len > 0.0)) {
 			continue;
 		}
-		for (int q = 0; q < p_sub; q++) {
-			const double s0 = bp[b] + seg * double(q);
-			double a[3];
-			column_section(p_col, s0, s0 + 0.5 * seg, a);
-			const double f0 = phi_at(s0 - half), f1 = phi_at(s0 + seg - half);
-			double e[3];
-			exp_moments((f1 - f0) / p_rt, e);
-			out += std::exp(-(f0 - p_phi_0) / p_rt) * seg
-					* (a[0] * e[0] + a[1] * seg * e[1] + a[2] * seg * seg * e[2]);
+		const double h = 0.5 * len;
+		const double zm = bp[b] + h - half;
+		double a[3];
+		column_section(p_col, bp[b], bp[b] + h, a);
+		const double area = a[0] * len + a[1] * len * len / 2.0 + a[2] * len * len * len / 3.0;
+		if (!(area > 0.0)) {
+			continue;
 		}
+		// The section is non-negative, so the exponent's least value times its integral bounds I below.
+		const double log_tol = log_eps32 + exponent(zm + h) + std::log(area);
+		auto log_bound = [&](int k, double n) -> double {
+			const double reach = h * ELLIPSES.cosh_tau[k];
+			if (radial && !(p_r + zm - reach > 0.0)) {
+				return INFINITY;
+			}
+			const double t = h + reach;
+			const double a_max = std::abs(a[0]) + std::abs(a[1]) * t + std::abs(a[2]) * t * t;
+			return std::log(4.0 * (1.0 + 1.0 / (4.0 * n * n - 1.0))) + std::log(h * a_max) + exponent(zm - reach)
+					+ (2.0 - 2.0 * n) * ELLIPSES.tau[k] - ELLIPSES.log_rho2m1[k];
+		};
+		double n_need = INFINITY;
+		for (int k = 0; k < 25; k++) {
+			// log_bound(k, n) <= log_bound(k, 1) - (2n - 2) tau.
+			const double excess = log_bound(k, 1.0) - log_tol;
+			n_need = std::min(n_need, 1.0 + std::ceil(std::max(excess, 0.0) / (2.0 * ELLIPSES.tau[k])));
+		}
+		if (!(n_need <= n_cap)) {
+			return NAN;
+		}
+		const int n = int(n_need);
+		bool held = false;
+		for (int k = 0; k < 25 && !held; k++) {
+			held = n >= 1 && log_bound(k, double(n)) <= log_tol;
+		}
+		if (!held) {
+			return NAN;
+		}
+		const std::vector<double> &rule = gauss_legendre(n);
+		double sum = 0.0;
+		for (int i = 0; i < n; i++) {
+			const double x = rule[2 * i];
+			const double t = h * (1.0 + x);
+			sum += rule[2 * i + 1] * (a[0] + a[1] * t + a[2] * t * t) * std::exp(exponent(zm + h * x));
+		}
+		out += h * sum;
 	}
 	return out;
 }
-
 
 } // namespace
 
@@ -721,8 +824,8 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c,
 	// LA_APPROX: chord_quadrature_lattice
 	const PackedFloat32Array rock = p_field->get("_rock_fraction");
 	const PackedFloat32Array water = p_field->get("_water_fraction");
-	std::vector<double> shape(cc, 0.0), curve(cc, 0.0), vol(cc, 0.0);
-	auto air_of = [&](int c, int sub) -> double {
+	std::vector<double> shape(cc, 0.0);
+	auto air_of = [&](int c) -> double {
 		const Vector3 g(p_gravity[c * 3], p_gravity[c * 3 + 1], p_gravity[c * 3 + 2]);
 		const double gmag = double(g.length());
 		const double taken = (c < rock.size() ? std::max(double(rock[c]), 0.0) : 0.0)
@@ -747,42 +850,18 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c,
 			cut = 0.5 * (lo + hi);
 		}
 		const double r_c = double((centres[c] - centre).length());
-		return cell_air_share(col, cut, double(p_phi[c]), phi_0, gmag, r_c, rt_over_m, sub);
+		return cell_air_share(col, cut, double(p_phi[c]), phi_0, gmag, r_c, rt_over_m);
 	};
+	for_each_index_parallel(cc, [&](int c) {
+		if (sky[c] != 0 && std::isfinite(double(p_phi[c]))) {
+			shape[c] = air_of(c);
+		}
+	});
 	for (int c = 0; c < cc; c++) {
-		if (sky[c] == 0 || !std::isfinite(double(p_phi[c]))) {
-			continue;
-		}
-		const double e = double(edges[c]);
-		vol[c] = e * e * e;
-		shape[c] = air_of(c, 1);
-		// How far the 1/r potential departs from the straight line a segment carries, in R T / M.
-		const Vector3 g(p_gravity[c * 3], p_gravity[c * 3 + 1], p_gravity[c * 3 + 2]);
-		const double r_c = double((centres[c] - centre).length());
-		curve[c] = r_c > 0.0 ? double(g.length()) * 3.0 * e * e / (4.0 * r_c * rt_over_m) : 0.0;
-	}
-	// A SEGMENT IS SPLIT WHERE ITS CURVATURE WOULD SHOW IN THE TOTAL, and nowhere else: the error a cell
-	// carries is its own share of the air times what the straight line costs it.
-	{
-		double held = 0.0;
-		int sky_n = 0;
-		for (int c = 0; c < cc; c++) {
-			held += shape[c] * vol[c];
-			sky_n += sky[c] != 0 ? 1 : 0;
-		}
-		const double allow = eps32 * held / double(MAX(sky_n, 1));
-		for (int c = 0; c < cc; c++) {
-			const double err = std::expm1(curve[c]) * shape[c] * vol[c];
-			if (!(err > allow)) {
-				continue;
-			}
-			const double n = std::ceil(std::sqrt(err / allow));
-			if (!(n <= 65536.0)) {
-				UtilityFunctions::push_error("LAFieldLithostaticSeed.shape_atmosphere: a cell's potential "
-						"curves so far across it that the barometric integral does not converge over it.");
-				return;
-			}
-			shape[c] = air_of(c, int(n));
+		if (std::isnan(shape[c])) {
+			UtilityFunctions::push_error("LAFieldLithostaticSeed.shape_atmosphere: no Gauss-Legendre count "
+					"holds a cell's barometric integral to float precision under its error bound.");
+			return;
 		}
 	}
 	for (size_t i = 0; i < gases.size(); i++) {
