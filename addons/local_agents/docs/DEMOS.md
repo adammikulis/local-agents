@@ -146,7 +146,7 @@ The whole game shell around the planet: herds, emergent disasters, a HUD and a l
 
 - Scene: `res://addons/local_agents/game/VoxelWorld.tscn`
 - Requires: the godot_voxel GDExtension (addons/zylann.voxel/)
-- Run: `scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn -- --run-frames=200`. It lives outside `addons/local_agents/examples/`, so `scripts/run_demo.sh` cannot address it, and headless has no compute device for its field, so the wrapper gives it a real window placed off-screen.
+- Run: `scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn -- --run-frames=200`. Headless has no compute device for the voxel world's field, so the wrapper gives it a real window placed off-screen.
 
 ## 13. Slice, rung 0: state
 
@@ -154,7 +154,7 @@ One box of the planet, laid on the real terrain and stepped by the bottom rung a
 
 - Scene: `res://addons/local_agents/examples/SliceRung0Demo.tscn`
 - Requires: the godot_voxel GDExtension (addons/zylann.voxel/)
-- Run headless: `godot --headless --path . addons/local_agents/examples/SliceRung0Demo.tscn --quit-after 120`, since it builds no harness.
+- Run: `scripts/run_sim_offscreen.sh --path . addons/local_agents/examples/SliceRung0Demo.tscn -- --run-frames=200`. Headless has no compute device for the voxel world's field, so the wrapper gives it a real window placed off-screen.
 
 ## 14. Slice, rung 1: gravity
 
@@ -162,7 +162,7 @@ The same box as rung 0 with one process added: the potential of the mass that is
 
 - Scene: `res://addons/local_agents/examples/SliceRung1Demo.tscn`
 - Requires: the godot_voxel GDExtension (addons/zylann.voxel/)
-- Run headless: `godot --headless --path . addons/local_agents/examples/SliceRung1Demo.tscn --quit-after 120`, since it builds no harness.
+- Run: `scripts/run_sim_offscreen.sh --path . addons/local_agents/examples/SliceRung1Demo.tscn -- --run-frames=200`. Headless has no compute device for the voxel world's field, so the wrapper gives it a real window placed off-screen.
 
 ## 15. Life on the planet, backdrop faked
 
@@ -170,4 +170,4 @@ The same coastal box the rung-0 demo lays down, run at the highest rung the ladd
 
 - Scene: `res://addons/local_agents/examples/LifeDemo.tscn`
 - Requires: the godot_voxel GDExtension (addons/zylann.voxel/)
-- Run headless: `godot --headless --path . addons/local_agents/examples/LifeDemo.tscn --quit-after 120`, since it builds no harness.
+- Run: `scripts/run_sim_offscreen.sh --path . addons/local_agents/examples/LifeDemo.tscn -- --run-frames=200`. Headless has no compute device for the voxel world's field, so the wrapper gives it a real window placed off-screen.
