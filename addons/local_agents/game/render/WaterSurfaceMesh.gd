@@ -22,8 +22,8 @@ func build(field, inv_xform: Transform3D, cam_radial: Vector3, cap_cos: float,
 	var centre: Vector3 = LAFieldGeometry.centre(field)
 	var half: float = 0.5 * grid.cell_size
 
-	for c in grid.cell_count:
-		if solid[c] != 0 or q.liquid_at(c) < render_min:
+	for c in field._mirrors.cells_with_phase_mass("h2o", "h2o_liquid", render_min):
+		if solid[c] != 0:
 			continue
 		var hi: int = LAFieldGeometry.above(field, c)
 		if hi >= 0 and (solid[hi] != 0 or q.liquid_at(hi) >= render_min):

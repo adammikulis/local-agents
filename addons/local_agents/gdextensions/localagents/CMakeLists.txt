@@ -48,6 +48,7 @@ set(SRC
     src/LAFieldDriver.cpp
     src/LAFieldLedger.cpp
     src/LAFieldMirrors.cpp
+    src/LAThreadClock.cpp
     src/LAFieldSnapshot.cpp
     src/LAFieldStateCache.cpp
     src/LAFieldHydrosphereSeed.cpp

@@ -34,7 +34,7 @@ func _tick_plant_seeding() -> void:
 		# each vegetation type self-limits. No type-branch: the kind + cap come from the parent + its data file.
 		var kind: String = String(p.species) if "species" in p else "plant"
 		var cap: int = int(_eco._veg_config(kind).get("pop_cap", 0))
-		if LAFakes.capped("population_caps", _eco.get_tree().get_nodes_in_group("species_%s" % kind).size(), cap):
+		if LAFakes.capped("population_caps", _eco.get_tree().get_node_count_in_group("species_%s" % kind), cap):
 			if p.has_method("consume"):
 				p.consume()                         # at cap: consume the seed so it re-readies later
 			continue
@@ -93,5 +93,5 @@ func _tick_tree_seeding() -> void:
 		if _eco._biomass_at(placed) < thresh:
 			continue                                # seedling site not fertile enough — keeps groves dense, not scattered
 		_eco._instance_actor("tree", placed)
-		if LAFakes.capped("population_caps", _eco.get_tree().get_nodes_in_group("tree").size(), TREE_POP_CAP):
+		if LAFakes.capped("population_caps", _eco.get_tree().get_node_count_in_group("tree"), TREE_POP_CAP):
 			return

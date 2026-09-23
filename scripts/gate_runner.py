@@ -48,7 +48,8 @@ def load_gates(path=GATES_TOML):
             "script": g["script"],
             "kind": g["kind"],
             "marker": g["marker"],
-            "mutation": g.get("mutation"),
+            "mutations": [m for m in ([g["mutation"]] if isinstance(g.get("mutation"), str)
+                                      else g.get("mutation", [])) if m],
             "args": list(g.get("args", [])),
             "env": dict(g.get("env", {})),
             "needs": list(g.get("needs", [] if g["kind"] == "text" else ["import", "capture"])),
@@ -278,10 +279,15 @@ def cmd_mutate(args):
     if g is None:
         print("gate_runner: no gate named '%s'." % args.mutate, file=sys.stderr)
         return 2
-    if not g["mutation"]:
+    if not g["mutations"]:
         print("gate_runner: %s declares no mutation in gates.toml. A gate nobody can make fail on "
               "purpose is not a gate — write one." % g["name"], file=sys.stderr)
         return 2
+    return max(mutate_one(g, m) for m in g["mutations"])
+
+
+def mutate_one(g, mutation):
+    """One mutation, in its own scratch tree."""
     scratch = os.path.join(tempfile.mkdtemp(prefix="la_mutate_"), "tree")
     ledger = os.path.join(tempfile.mkdtemp(prefix="la_mutate_ledger."), "launches.log")
     open(ledger, "w").close()
@@ -295,7 +301,7 @@ def cmd_mutate(args):
             print("MUTATION_UNRUNNABLE: %s is already %d on the unmutated tree, so this proves "
                   "nothing." % (g["name"], rc0))
             return 2
-        if subprocess.run(["bash", "-c", g["mutation"]], cwd=scratch).returncode != 0:
+        if subprocess.run(["bash", "-c", mutation], cwd=scratch).returncode != 0:
             print("MUTATION_UNRUNNABLE: %s — the mutation command itself failed." % g["name"])
             return 2
         arm_scratch(g, scratch)
@@ -303,9 +309,9 @@ def cmd_mutate(args):
         sys.stdout.write(out1)
         if rc1 == 0:
             print("MUTATION_SURVIVED: %s stayed green under `%s`. It cannot fail, so it is not a "
-                  "gate." % (g["name"], g["mutation"]))
+                  "gate." % (g["name"], mutation))
             return 1
-        print("MUTATION_KILLED: %s went %d under `%s`." % (g["name"], rc1, g["mutation"]))
+        print("MUTATION_KILLED: %s went %d under `%s`." % (g["name"], rc1, mutation))
         return 0
     finally:
         git(ROOT, "worktree", "remove", "--force", scratch, check=False)

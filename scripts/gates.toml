@@ -6,7 +6,7 @@
 # kind = "headless" can start an engine or reads this run's ledger; runs alone, in order.
 # kind = "gpu"      needs a real device; LA_NO_GPU=1 skips exactly these.
 # marker            the verdict line a passing gate must print, so silence is not a pass.
-# mutation          a shell command that must turn the gate red, for --mutate.
+# mutation          a shell command, or a list of them, each of which must turn the gate red.
 # needs             what a --mutate scratch tree must be given: "import", "capture", "body"
 #                   (a body-scoped gate: NOT EXAMINED on a slice arm).
 
@@ -158,7 +158,10 @@ name = "check_life_demo"
 script = "scripts/check_life_demo.sh"
 kind = "gpu"
 marker = "^check_life_demo: OK"
-mutation = "perl -0pi -e 's/LAFakes\\.draw\\(\"plant_carbon\", want_mass\\)/0.0/' addons/local_agents/sim/actors/Plant.gd"
+mutation = [
+	"perl -0pi -e 's/LAFakes\\.draw\\(\"plant_carbon\", want_mass\\)/0.0/' addons/local_agents/sim/actors/Plant.gd",
+	"perl -0pi -e 's/(func step\\(delta: float\\) -> void:\\n)/$1\\tvar mutant_t0: int = Time.get_ticks_usec()\\n\\twhile Time.get_ticks_usec() - mutant_t0 < 50000:\\n\\t\\tpass\\n/' addons/local_agents/game/RenderLayer.gd",
+]
 needs = ["import"]
 
 [[gate]]

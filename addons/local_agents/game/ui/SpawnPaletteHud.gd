@@ -115,7 +115,7 @@ func _process(_delta: float) -> void:
 	var tree: SceneTree = get_tree()
 	if tree != null:
 		for grp in LIVING_GROUPS:
-			alive += tree.get_nodes_in_group(grp).size()
+			alive += tree.get_node_count_in_group(grp)
 	var ents: String = "   |   %d alive" % alive if alive > 0 else ""
 	if _perf_detail:
 		var frame_ms: float = Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
