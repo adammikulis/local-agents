@@ -95,6 +95,7 @@ func setup(_terrain, _config: Dictionary) -> void:
 	add_to_group(GROUP_SELECTABLE)
 	add_to_group(GROUP_PLANT)
 	add_to_group("species_%s" % species)     # per-species group so seeding caps count each vegetation kind
+	LAGroupIndex.shared().joined(self)
 	_orient_to_ground()
 	_apply_growth()
 	_sync_render()   # push the initial (freshly-grown) pose into the instanced batch

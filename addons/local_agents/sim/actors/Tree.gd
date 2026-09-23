@@ -100,6 +100,7 @@ func setup(_terrain, _config: Dictionary = {}) -> void:
 	collision_mask = 0
 	add_to_group(GROUP_SELECTABLE)
 	add_to_group(GROUP_TREE)
+	LAGroupIndex.shared().joined(self)
 
 	# The shared GPU-instanced renderer draws every tree of this species in one batch; without it this
 	# tree carries its own model.

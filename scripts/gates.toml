@@ -166,6 +166,18 @@ mutation = [
 needs = ["import"]
 
 [[gate]]
+name = "check_group_index"
+script = "scripts/check_group_index.sh"
+kind = "gpu"
+marker = "^check_group_index: OK"
+mutation = [
+	"perl -0pi -e 's/(func moved\\(n: Node3D\\) -> void:\\n)/$1\\treturn\\n/' addons/local_agents/creatures/creature/GroupIndex.gd",
+	"perl -0pi -e 's/(func joined\\(n: Node3D\\) -> void:\\n)/$1\\treturn\\n/' addons/local_agents/creatures/creature/GroupIndex.gd",
+	"perl -0pi -e 's/_add\\(g, n3, _cell_of\\(n3\\.position\\)\\)/_add(g, n3, _cell_of(n3.global_position))/' addons/local_agents/creatures/creature/GroupIndex.gd",
+]
+needs = ["import"]
+
+[[gate]]
 name = "check_creature_energy"
 script = "scripts/check_creature_energy.sh"
 kind = "gpu"

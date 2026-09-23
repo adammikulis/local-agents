@@ -317,6 +317,11 @@ func setup(_terrain, _config: Dictionary, _genome_arg = null) -> void:
 	LACreatureSetup.apply(self, _terrain, _config, _genome_arg)
 
 
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_LOCAL_TRANSFORM_CHANGED:
+		LAGroupIndex.shared().moved(self)
+
+
 # Library drop-in self-config: a Creature.tscn placed in a scene with standalone_on_ready = true
 # configures itself here (config empty + no terrain injected). Inert for sim creatures (flag default off).
 func _ready() -> void:

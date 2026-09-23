@@ -111,6 +111,7 @@ static func _become_carcass(c) -> void:
 	c.remove_from_group(c.GROUP_CREATURE)
 	c.add_to_group(c.GROUP_CARRION)
 	c.add_to_group("corpse")
+	LAGroupIndex.shared().joined(c)
 	_freeze_animations(c._model_root if c._model_root != null else c._mesh)
 	_register_carcass(c)
 

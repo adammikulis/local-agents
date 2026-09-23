@@ -96,7 +96,7 @@ static func at_nest(c, pos: Vector3, radius: float = 2.5) -> bool:
 static func _nearest_tree(c, pos: Vector3) -> Node3D:
 	var best: Node3D = null
 	var best_d: float = c.sense_radius * c._sense_mult
-	for t in LASpatialIndex.shared().nearby(c.get_tree(), "tree", pos, best_d):
+	for t in LAGroupIndex.shared().nearby(c.get_tree(), "tree", pos, best_d):
 		if not is_instance_valid(t) or not (t is Node3D):
 			continue
 		var t3: Node3D = t as Node3D

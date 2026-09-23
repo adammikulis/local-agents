@@ -23,7 +23,7 @@ func damage_sphere(world_pos: Vector3, radius: float) -> void:
 # listener decides by its OWN hearing_range, so no line of sight is needed — this is how a sentinel's
 # screech flushes a whole herd and how food calls teach kin past the vision cone.
 func broadcast_call(world_pos: Vector3, from_species: String, call_type: String, caller) -> void:
-	for actor in LASpatialIndex.shared().nearby(get_tree(), "creature", world_pos, LACreatureSetup.max_hearing_range):
+	for actor in LAGroupIndex.shared().nearby(get_tree(), "creature", world_pos, LACreatureSetup.max_hearing_range):
 		if actor == caller or not is_instance_valid(actor) or not (actor is Node3D):
 			continue
 		if not actor.has_method("hear_call"):
