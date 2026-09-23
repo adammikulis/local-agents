@@ -3,8 +3,8 @@ extends Node3D
 
 ## LAMaterialField3D: the DENSE 3D material-flow substrate (successor to the 2.5D LAMaterialField).
 
-## Something struck the water at `world_pos`, `strength` its size; the views draw it.
-signal splashed(world_pos: Vector3, strength: float)
+## Something struck the water at `world_pos`, delivering `joules` of kinetic energy to it; the views draw it.
+signal splashed(world_pos: Vector3, joules: float)
 
 const FieldCacheScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldCache3D.gd")
 const GravityScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldGravity3D.gd")
@@ -462,10 +462,11 @@ func peak_heat() -> float:
 func hot_cell_count(threshold: float = 60.0) -> int:
 	return _queries.hot_cell_count(threshold)
 
-## Announce a splash at a world point: only where the point holds liquid water is there any to throw.
-func splash(world_pos: Vector3, strength: float) -> void:
-	if _queries != null and _queries.is_water_at(world_pos):
-		splashed.emit(world_pos, strength)
+## An impactor delivered `joules` of kinetic energy at a world point: only where the point holds liquid
+## water is there a splash.
+func splash(world_pos: Vector3, joules: float) -> void:
+	if joules > 0.0 and _queries != null and _queries.is_water_at(world_pos):
+		splashed.emit(world_pos, joules)
 
 
 func set_ecology(e) -> void:

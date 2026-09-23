@@ -35,6 +35,9 @@ public:
 
 	static double latent_sublimation_j_kg(const String &p_id);
 	static bool has_eos(const String &p_id);
+	// Reference densities of the solid and the liquid, kg/m^3; 0 where the table names none.
+	static double solid_density(const String &p_id);
+	static double liquid_density(const String &p_id);
 	static double density(const String &p_id, double p_t_c, double p_p_pa);
 	static double full_mol_m3(const String &p_id);
 

@@ -747,6 +747,17 @@ bool is_gas_at(const Dictionary &p_s, const String &p_id, double p_t_c, double p
 	return p_t_c > LASubstances::boil_c_at(p_id, p_p_pa);
 }
 
+// Reference densities of the solid and the liquid, kg/m^3; 0 where the table names none. A row's own
+// `density` is the phase it holds at its reference temperature and one atmosphere; `density_solid` and
+// `density_melt` name the other condensed phases.
+void condensed_densities(const Dictionary &p_s, const String &p_id, double &r_solid, double &r_liquid) {
+	const double t_c = dget(p_s, "density_ref_t_c", pc("LAB_REFERENCE_TEMP_C"));
+	const bool gas = is_gas_at(p_s, p_id, t_c, pc("STANDARD_PRESSURE_PA"));
+	const bool solid = !gas && t_c < dget(p_s, "melt_c", kInf);
+	r_solid = dget(p_s, solid ? "density" : "density_solid", 0.0);
+	r_liquid = dget(p_s, (gas || solid) ? "density_melt" : "density", 0.0);
+}
+
 // ln p = A - B/T, with B fixed by the TWO measured points the table carries -- the triple point and the
 // normal boiling point -- so both are reproduced exactly and B * R_v is the MEAN latent heat over the
 // interval.
@@ -978,6 +989,20 @@ double LASubstances::organic_energy_j_mol(const String &p_element) {
 double LASubstances::latent_sublimation_j_kg(const String &p_id) {
 	const Dictionary s = row_of(p_id);
 	return dget(s, "latent_fusion_j_kg", 0.0) + dget(s, "latent_vaporisation_j_kg", 0.0);
+}
+
+double LASubstances::solid_density(const String &p_id) {
+	double solid = 0.0;
+	double liquid = 0.0;
+	condensed_densities(row_of(p_id), p_id, solid, liquid);
+	return solid;
+}
+
+double LASubstances::liquid_density(const String &p_id) {
+	double solid = 0.0;
+	double liquid = 0.0;
+	condensed_densities(row_of(p_id), p_id, solid, liquid);
+	return liquid;
 }
 
 // True when this row carries an equation of state. A row without one has that dependence UNMEASURED
@@ -1266,10 +1291,10 @@ double LASubstances::melt_c_at(const String &p_id, double p_p_pa, double p_molal
 		return kInf;
 	}
 	// THE REFERENCE densities, not density() at (t, p): this is a rung of the phase ladder, and
-	// enthalpy.glsli carries the same two constants and has no EOS to call.
-	// A substance whose table row is its solid names its melt; one whose row is its liquid names its solid.
-	const double rho_l = dget(s, "density_melt", dget(s, "density", 0.0));
-	const double rho_s = s.has("density_melt") ? dget(s, "density", 0.0) : dget(s, "density_solid", rho_l);
+	// enthalpy.glsli carries the same two constants and has no EOS to call. No slope without both.
+	double rho_s = 0.0;
+	double rho_l = 0.0;
+	condensed_densities(s, p_id, rho_s, rho_l);
 	const double l_fus = dget(s, "latent_fusion_j_kg", 0.0);
 	double t_c = t_ref_c;
 	if (iapws_curves(s)) {
@@ -1561,6 +1586,8 @@ void LASubstances::_bind_methods() {
 	ClassDB::bind_static_method("LASubstances", D_METHOD("organic_energy_j_mol", "element"), &organic_energy_j_mol);
 	ClassDB::bind_static_method("LASubstances", D_METHOD("latent_sublimation_j_kg", "id"), &latent_sublimation_j_kg);
 	ClassDB::bind_static_method("LASubstances", D_METHOD("has_eos", "id"), &has_eos);
+	ClassDB::bind_static_method("LASubstances", D_METHOD("solid_density", "id"), &solid_density);
+	ClassDB::bind_static_method("LASubstances", D_METHOD("liquid_density", "id"), &liquid_density);
 	ClassDB::bind_static_method("LASubstances", D_METHOD("density", "id", "t_c", "p_pa"), &density);
 	ClassDB::bind_static_method("LASubstances", D_METHOD("full_mol_m3", "id"), &full_mol_m3);
 	ClassDB::bind_static_method("LASubstances",

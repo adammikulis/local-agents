@@ -8,8 +8,8 @@
 //   • wind-driven swell — crossed Gerstner/sine waves in the vertex stage, amplitude+choppiness scaled
 //     by `wind_strength` and aimed along `wind_dir` (calm sea when wind is low, choppy in a storm);
 //   • transient impact ripples — a ring buffer of up to RIPPLE_MAX expanding radial waves
-//     (`ripples[i] = (centre.x, centre.z, age_seconds, strength)`) summed into the displacement + a foam
-//     ring at each crest, so a meteor / tornado / lightning splash ripples the sea for free.
+//     (`ripples[i] = (centre.x, centre.z, age_seconds, cavity_m)`) summed into the displacement + a foam
+//     ring at each crest, so an impact the field announces ripples the water.
 // The CA freshwater mesh feeds a per-vertex FLOW direction (vertex COLOR.rg) + steepness (COLOR.b) so a
 // stream scrolls its detail downhill and a waterfall face reads as fast whitewater — falls emerge from
 // the mesh geometry, not a special pass. Differences between the sea and a pond are all UNIFORMS
@@ -43,12 +43,12 @@ uniform float wind_strength : hint_range(0.0, 2.0) = 0.4;  // local wind speed, 
 uniform float ripple_detail = 0.35;   // fine fragment normal sparkle
 
 // --- Impact ripples (ring buffer, aged on the CPU, uploaded each frame) ---
-uniform vec4 ripples[RIPPLE_MAX];     // (centre.x, centre.z, age_seconds, strength)
+uniform vec4 ripples[RIPPLE_MAX];     // (centre.x, centre.z, age_seconds, cavity radius m)
 uniform int ripple_count = 0;
 uniform float ripple_speed;           // ring expansion speed (world units / s); set from RIPPLE_SPEED
-uniform float ripple_amp = 0.9;       // crest height per unit strength
-uniform float ripple_freq = 0.9;      // radial wavenumber
-uniform float ripple_width = 3.2;     // crest thickness (world units)
+uniform float ripple_amp = 0.9;       // crest height per metre of cavity radius
+uniform float ripple_freq = 0.9;      // radial wavenumber at the narrowest crest
+uniform float ripple_width = 3.2;     // narrowest crest thickness (world units); a wider cavity widens it
 uniform float ripple_decay;           // amplitude e-fold time (1/s); set from RIPPLE_DECAY
 
 // --- CA flow (freshwater mesh only; ocean leaves flow_scale = 0) ---
@@ -113,9 +113,10 @@ float ripple_h(vec2 p, out float foam) {
 		float radius = age * ripple_speed;
 		float d = distance(p, r.xy);
 		float ring = d - radius;                       // 0 at the expanding crest
-		float env = exp(-(ring * ring) / (ripple_width * ripple_width));
+		float width = max(ripple_width, r.w);
+		float env = exp(-(ring * ring) / (width * width));
 		float decay = r.w * exp(-age * ripple_decay) / (1.0 + d * 0.02);
-		h += sin(ring * ripple_freq) * env * decay * ripple_amp;
+		h += sin(ring * ripple_freq * ripple_width / width) * env * decay * ripple_amp;
 		foam += env * decay * 0.5;
 	}
 	return h;

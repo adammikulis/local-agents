@@ -262,7 +262,7 @@ func _on_sim_step(step: int) -> void:
 		_settle_accum = 0.0
 	if _material != null and _material.has_method("is_water_at") and _material.is_water_at(global_position):
 		if _material.has_method("water_force_at") and _material.water_force_at(global_position).length() > root_strength:
-			_uproot()
+			queue_free()
 			return
 	var growth_boost: float = _biomass_boost() if growing else 0.0
 	age += delta * (1.0 + growth_boost)
@@ -343,12 +343,6 @@ func _sync_render() -> void:
 		return
 	var b: Basis = transform.basis.scaled(Vector3.ONE * _base_height)
 	_veg.set_xform(RENDER_TYPE, _veg_slot, Transform3D(b, transform.origin))
-
-
-func _uproot() -> void:
-	if _material != null and _material.has_method("splash"):
-		_material.splash(global_position, 1.2)
-	queue_free()
 
 
 func _exit_tree() -> void:

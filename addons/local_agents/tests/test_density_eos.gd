@@ -45,10 +45,11 @@ func run_test(_tree: SceneTree) -> bool:
 	if not (rho_4 > rho_40):
 		ok = _fail("Water at 4 C reads %s kg/m3 and at 40 C reads %s. A lake cannot stratify if its "
 			% [String.num(rho_4, 4), String.num(rho_40, 4)] + "water does not get heavier as it cools.")
-	var expect_gap: float = rho_4 * PC.WATER_VOLUME_EXPANSION_PER_K * 36.0
-	if absf((rho_4 - rho_40) - expect_gap) > expect_gap * 0.05:
-		ok = _fail("The 4 C to 40 C density gap is %s kg/m3 against the %s the expansivity gives. The "
-			% [String.num(rho_4 - rho_40, 4), String.num(expect_gap, 4)] + "EOS is not the one declared.")
+	# Water at one atmosphere, 4 C and 40 C, kg/m^3 (Kell 1975, J. Chem. Eng. Data 20:97).
+	var expect_gap: float = 999.975 - 992.215
+	if absf((rho_4 - rho_40) - expect_gap) > expect_gap * 0.01:
+		ok = _fail("The 4 C to 40 C density gap is %s kg/m3 against the %s measured. The EOS is not water's."
+			% [String.num(rho_4 - rho_40, 4), String.num(expect_gap, 4)])
 
 	# Rock is squeezed by the crust above it.
 	var rho_shallow: float = LASubstances.density("silicate", 25.0, P_ATM)
@@ -70,10 +71,10 @@ func run_test(_tree: SceneTree) -> bool:
 		ok = _fail("Ice is not lighter than the water beside it. Lakes would freeze from the bottom.")
 
 	# A substance with no expansivity or bulk modulus reports its reference value.
-	if LASubstances.has_eos("cellulose"):
-		ok = _fail("cellulose claims an equation of state; this test's premise is stale.")
-	var rho_ref: float = float(LASubstances.table()["cellulose"]["density"])
-	if absf(LASubstances.density("cellulose", 200.0, 5.0e7) - rho_ref) > 0.0:
-		ok = _fail("cellulose moved off its reference value without a coefficient to move it.")
+	if LASubstances.has_eos("fixed_n"):
+		ok = _fail("fixed_n claims an equation of state; this test's premise is stale.")
+	var rho_ref: float = float(LASubstances.table()["fixed_n"]["density"])
+	if absf(LASubstances.density("fixed_n", 200.0, 5.0e7) - rho_ref) > 0.0:
+		ok = _fail("fixed_n moved off its reference value without a coefficient to move it.")
 
 	return ok

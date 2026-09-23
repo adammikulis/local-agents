@@ -28,9 +28,7 @@ func mass() -> float:
 ## The moon is not on a grid of its own, so its size comes from its seeded mass and the density of the rock
 ## it is made of rather than from a measurement it has no way to take.
 func radius() -> float:
-	var row: Dictionary = LASubstances.table().get(ROCK, {})
-	# A row that names its melt is its solid; a row that names its solid is its liquid.
-	var rho: float = float(row.get("density" if row.has("density_melt") else "density_solid", 0.0))
+	var rho: float = LASubstances.solid_density(ROCK)
 	if rho <= 0.0:
 		return -1.0
 	return pow(3.0 * mass() / (4.0 * PI * rho), 1.0 / 3.0)

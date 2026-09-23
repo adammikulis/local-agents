@@ -15,7 +15,7 @@ var declared_vectors: String = LAFieldVectors.SOURCE_UNSET
 @onready var _sky_ctrl: LAVoxelSkyController = $SkyController
 @onready var _veg_renderer: Node3D = $VegetationRenderer
 @onready var _water: Node = $WaterParticles
-@onready var _water_surface: Node = $WaterSurface
+@onready var _water_surface: LAMaterialFieldRender3D = $WaterSurface
 @onready var _vectors: LAFieldVectors = $FieldVectors
 @onready var _heat_tex: LAHeatFieldTexture = $HeatFieldTexture
 @onready var _test_masses: LATestMassView = $TestMassView
@@ -112,8 +112,7 @@ func _build_world_visuals() -> void:
 
 	# THE FREE SURFACE OF EVERY BODY OF WATER THIS WORLD HOLDS, meshed from the field's own water column:
 	# a stream, a lake and an ocean are the same liquid standing at whatever level it stands at.
-	_water_surface.setup(material, _camera, terrain, _sky_ctrl.sun(), body.center(),
-		bool(_render_opts.get("ocean_transparent", true)))
+	_water_surface.setup(material, _camera, body.center(), bool(_render_opts.get("ocean_transparent", true)))
 
 	_sky_ctrl.bind_scene(material, _water)
 

@@ -151,9 +151,9 @@ func _deposit_stone() -> void:
 
 # Splash accent if the rock came down in water.
 func _maybe_splash(at: Vector3) -> void:
-	if _water != null and _water.has_method("is_water_at") and _water.is_water_at(at):
-		if _water.has_method("splash"):
-			_water.splash(at, 1.0)
+	if _water != null and _water.has_method("splash"):
+		var kg: float = STONE_SIDE * STONE_SIDE * STONE_SIDE * LASubstances.solid_density("silicate")
+		_water.splash(at, 0.5 * kg * _speed * _speed)
 
 func _spawn_impact_puff() -> void:
 	var parent: Node = get_parent()

@@ -115,18 +115,17 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
 - [ ] **`t_k()` floors every temperature at 1 K** in `closures.glsli`, `enthalpy.glsli`, `state_derive.glsl`
       and `reactions_sphere3d.glsl`: a cell whose energy solve lands below absolute zero reads 1 K instead of
       failing. Delete the floor; count such cells in a detector row gated to zero.
-- [ ] **`carbonate` has an expansivity and no bulk modulus, and `cellulose` has neither,** so their
-      cells report an incompressible volume in the equation of state. Cite both moduli in `LASubstances`.
-- [ ] **No phase carries a measured `bulk_modulus_deriv`,** so every one of them compresses on `K0' = 4` —
-      the value at which third-order Birch-Murnaghan collapses to second order. That is the standard
-      treatment where `K0'` is unmeasured rather than an invented number, and it is declared as
-      `second_order_birch_murnaghan`, but a phase whose real `K0'` is larger stiffens faster than the
-      table says. The field is read already; only the cited data per phase is missing.
 - [ ] **Solid polymorphs** — ice I…VII, and olivine → wadsleyite → perovskite with depth. A planet's mantle
       structure IS these transitions, each with its own enthalpy and density jump. Maintainer asked for the
       structure to be built.
 - [ ] **Glass vs crystalline.** Quenched basalt releases different heat than slow-cooled; `latent_rock` is
       one number.
+- [ ] **A melt weighs and heats as its solid.** `LASubstances.density("silicate", t_c, p_pa)` above the
+      liquidus returns the rock's expanded density, not its `density_melt`; olivine, pyroxene, plagioclase,
+      halite and apatite carry no melt at all, so `LASubstances.liquid_density` reads 0 for each and their
+      melting curves have no Clapeyron slope. Cite each melt's density, expansivity, modulus and heat capacity.
+      Reading: `LASubstances::density` never reads `density_melt`, and `LAMixtureEnthalpy::thermal_row`
+      fills `specific_heat_solid` and `specific_heat_gas` from `specific_heat`.
 - [ ] **Metastability** — supercooled water, superheated liquid. Real, and arguably beyond this granularity.
 
 ## B. The substrate's state

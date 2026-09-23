@@ -330,11 +330,8 @@ PackedFloat32Array LAMixtureEnthalpy::thermal_row(const String &p_id) {
 	w[0] = float(prop(p_id, "specific_heat_solid", c_liq));
 	w[1] = float(c_liq);
 	w[2] = float(prop(p_id, "specific_heat_gas", c_liq));
-	// A substance whose row is its solid names its melt; one whose row is its liquid names its solid.
-	const double rho_liq = prop(p_id, "density_melt", prop(p_id, "density", 0.0));
-	w[3] = float(s.has("density_melt") ? prop(p_id, "density", 0.0)
-									   : prop(p_id, "density_solid", rho_liq));
-	w[4] = float(rho_liq);
+	w[3] = float(LASubstances::solid_density(p_id));
+	w[4] = float(LASubstances::liquid_density(p_id));
 	const double melt_c = prop(p_id, "melt_c", kInf);
 	const double l_fus = prop(p_id, "latent_fusion_j_kg", 0.0);
 	const bool has_melt = has_fusion(p_id);
