@@ -831,19 +831,19 @@ void LAPlanetComposition::seed(Object *p_field, double p_t_c, const PackedFloat3
 	// Each sample's amount is at its shell's own T; the cell's rock stands at the cell's own T, so every
 	// sample is carried to it over its expansion and the lattice fills exactly the chord's volume there.
 	const Dictionary table = LASubstances::table();
-	std::vector<double> alpha(ch.size(), 0.0), tref(ch.size(), 0.0), k0(ch.size(), 0.0), kp(ch.size(), 4.0);
+	std::vector<double> alpha(ch.size(), 0.0), tref(ch.size(), 0.0), k0(ch.size(), 0.0), kp(ch.size(), 0.0);
 	for (int i = 0; i < ch.size(); i++) {
 		const Dictionary sub = table.get(ch[i], Dictionary());
 		alpha[i] = double(sub.get("expansion_per_k", 0.0));
 		tref[i] = double(sub.get("density_ref_t_c", 0.0));
-		k0[i] = double(sub.get("bulk_modulus_pa", sub.get("bulk_modulus_solid_pa", 0.0)));
-		kp[i] = double(sub.get("bulk_modulus_deriv", 4.0));
+		k0[i] = double(sub.get("bulk_modulus_pa", 0.0));
+		kp[i] = double(sub.get("bulk_modulus_deriv", 0.0));
 	}
 	const Dictionary metal_sub = table.get("metal", Dictionary());
 	const double alpha_m = double(metal_sub.get("expansion_per_k", 0.0));
 	const double tref_m = double(metal_sub.get("density_ref_t_c", 0.0));
-	const double k0_m = double(metal_sub.get("bulk_modulus_pa", metal_sub.get("bulk_modulus_solid_pa", 0.0)));
-	const double kp_m = double(metal_sub.get("bulk_modulus_deriv", 4.0));
+	const double k0_m = double(metal_sub.get("bulk_modulus_pa", 0.0));
+	const double kp_m = double(metal_sub.get("bulk_modulus_deriv", 0.0));
 	const double p_std = la_physical("STANDARD_PRESSURE_PA");
 	// alpha * K_T stays constant under pressure (Anderson 1995): the same law the density carries.
 	auto alpha_at = [&](double a0, double k, double kprime, double p) {

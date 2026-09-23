@@ -221,7 +221,7 @@ const LATENT_HEAT_FUSION_J_KG: float = 3.337e5
 
 ## Basalt enthalpy of crystallisation, J/kg (Lange, Cashman & Navrotsky 1994, CMP 118:169).
 const BASALT_LATENT_HEAT_CRYSTALLISATION_J_KG: float = 4.0e5
-## Basaltic melt at its liquidus, kg/m^3 (Lange & Carmichael 1987, Rev. Mineral. 24:25).
+## Basaltic melt at BASALT_LIQUIDUS_C, kg/m^3 (Lange & Carmichael 1990, Rev. Mineral. 24:25).
 const BASALT_MELT_DENSITY_KG_M3: float = 2650.0
 
 const BASALT_EMISSIVITY: float = 0.95
@@ -356,6 +356,10 @@ const MOLAR_HEAT_CAP_CO2_GAS_J_MOLK: float = 37.129  # cp of the gas at 298.15 K
 const CO2_GAS_SPECIFIC_HEAT_J_KGK: float = MOLAR_HEAT_CAP_CO2_GAS_J_MOLK / MOLAR_MASS_CO2_KG_MOL
 const CO2_LIQUID_SPECIFIC_HEAT_J_KGK: float = 1962.0 # saturated liquid at 220 K
 const DRY_ICE_DENSITY_KG_M3: float = 1562.0          # solid CO2 at 194.7 K (CRC 97th ed.)
+const CO2_LIQUID_DENSITY_KG_M3: float = 1178.46      # saturated liquid at the triple point
+const CO2_LIQUID_EXPANSION_PER_K: float = 3.11e-3    # 216.6-218.6 K at 0.6 MPa (NIST WebBook)
+const CO2_LIQUID_BULK_MODULUS_PA: float = 5.60e8     # isothermal, triple point, 0.6-1.6 MPa (NIST WebBook)
+const CO2_LIQUID_BULK_MODULUS_DERIV: float = 10.0    # dK_T/dP over the same isotherm (NIST WebBook)
 
 # Dihydrogen, NIST Chemistry WebBook (CAS 1333-74-0); liquid cp from Leachman et al. 2009,
 # J. Phys. Chem. Ref. Data 38:721.

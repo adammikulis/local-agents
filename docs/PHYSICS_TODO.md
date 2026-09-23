@@ -120,12 +120,11 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       structure to be built.
 - [ ] **Glass vs crystalline.** Quenched basalt releases different heat than slow-cooled; `latent_rock` is
       one number.
-- [ ] **A melt weighs and heats as its solid.** `LASubstances.density("silicate", t_c, p_pa)` above the
-      liquidus returns the rock's expanded density, not its `density_melt`; olivine, pyroxene, plagioclase,
-      halite and apatite carry no melt at all, so `LASubstances.liquid_density` reads 0 for each and their
-      melting curves have no Clapeyron slope. Cite each melt's density, expansivity, modulus and heat capacity.
-      Reading: `LASubstances::density` never reads `density_melt`, and `LAMixtureEnthalpy::thermal_row`
-      fills `specific_heat_solid` and `specific_heat_gas` from `specific_heat`.
+- [ ] **A melt heats as its solid, and some melts are not squeezed.** `LAMixtureEnthalpy.thermal_row`
+      fills `specific_heat_solid` and `specific_heat_gas` from `specific_heat`. Plagioclase and halite melts
+      carry no `bulk_modulus_melt_pa`; apatite carries no melting point or melt. Clapeyron slopes in
+      `LASubstances.melt_c_at` and `enthalpy.glsli` take each phase at its own reference temperature, not at
+      the melting point. Reading: `LASubstances::melt_c_at` uses `solid.rho` and `liquid.rho` directly.
 - [ ] **Metastability** — supercooled water, superheated liquid. Real, and arguably beyond this granularity.
 
 ## B. The substrate's state

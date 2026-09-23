@@ -46,7 +46,7 @@ func run_test(_tree: SceneTree) -> bool:
 		ok = _fail("Water at 4 C reads %s kg/m3 and at 40 C reads %s. A lake cannot stratify if its "
 			% [String.num(rho_4, 4), String.num(rho_40, 4)] + "water does not get heavier as it cools.")
 	# Water at one atmosphere, 4 C and 40 C, kg/m^3 (Kell 1975, J. Chem. Eng. Data 20:97).
-	var expect_gap: float = 999.975 - 992.215
+	var expect_gap: float = 999.972 - 992.215
 	if absf((rho_4 - rho_40) - expect_gap) > expect_gap * 0.01:
 		ok = _fail("The 4 C to 40 C density gap is %s kg/m3 against the %s measured. The EOS is not water's."
 			% [String.num(rho_4 - rho_40, 4), String.num(expect_gap, 4)])
