@@ -9,28 +9,39 @@ const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/st
 const FluxPassScript: GDScript = preload("res://addons/local_agents/sim/material/sphere_passes/FluxPass.gd")
 
 ## props row layout — state_derive.glsl PROP_*.
-const PROP_STRIDE: int = 56
+const PROP_STRIDE: int = 74
 const PROP_M: int = 0
 const PROP_MOL_PER_KG: int = 1
 const PROP_ENTRY: int = 2
 const PROP_LAMBDA: int = 3
 const PROP_FULL: int = 4
-## The EOS half: rho(T, p) inverted per substance, so pressure is a state function of the cell.
-const PROP_ALPHA: int = 5
-const PROP_BULK: int = 6
-const PROP_TREF: int = 7
 ## 1 where the channel is a rock or metal phase, so the solid flag reads the whole lithic volume.
-const PROP_LITHIC: int = 8
+const PROP_LITHIC: int = 5
 ## 1-based index into the push constant's radiogenic W/kg slots; 0 for a substance with no U/Th/K.
-const PROP_RAD_GROUP: int = 9
+const PROP_RAD_GROUP: int = 6
 ## 1 where the channel is a CONDENSED phase: it fills volume of its own and resists being squeezed. A
 ## dissolved solute rides in its solvent and does neither.
-const PROP_CONDENSED: int = 10
-## dK/dp of the bulk modulus above.
-const PROP_KPRIME: int = 11
+const PROP_CONDENSED: int = 7
+## The fluid's Peng-Robinson constants, LASubstances.eos_of(id).fluid.
+const PROP_PR_A: int = 8
+const PROP_PR_B: int = 9
+const PROP_PR_KAPPA: int = 10
+const PROP_PR_TC: int = 11
+## The solid's and the melt's equations of state, LASubstances.eos_of(id), a PH_* block each.
+const PROP_SOLID: int = 12
+const PROP_LIQUID: int = 21
+const PH_FULL: int = 0
+const PH_ALPHA: int = 1
+const PH_BULK: int = 2
+const PH_KP: int = 3
+const PH_B4: int = 4
+const PH_TREF: int = 5
+const PH_LINEAR: int = 6
+const PH_F_LO: int = 7
+const PH_F_HI: int = 8
 ## The channel substance's own phase ladder, laid out by LAMixtureEnthalpy::thermal_row — every condensed
 ## channel melts and boils where its table row says. state_derive.glsl PROP_LADDER, TH_*.
-const PROP_LADDER: int = 12
+const PROP_LADDER: int = 30
 
 ## Push-constant slots for distinct radiogenic trace mixes, re-evaluated at the run's epoch per step.
 const RAD_GROUPS: int = 4
@@ -175,15 +186,29 @@ func _props() -> PackedFloat32Array:
 		out[base + PROP_FULL] = full[i]
 		for k in ladder.size():
 			out[base + PROP_LADDER + k] = ladder[k]
-		out[base + PROP_ALPHA] = float(s.get("expansion_per_k", 0.0))
 		# CONDENSED fills volume of its own and resists being squeezed, which is what the EOS sums; a gas
-		# is the A term and a dissolved solute rides in its solvent. No modulus is a substance nobody has
-		# measured, and reading one as incompressible lets its cell signal at any speed at all.
-		out[base + PROP_CONDENSED] = 0.0 if mol_per_kg > 0.0 \
-			or String(row.get("phase", "")) == "dissolved" else 1.0
-		out[base + PROP_BULK] = float(s.get("bulk_modulus_pa", s.get("bulk_modulus_solid_pa", 0.0)))
-		out[base + PROP_KPRIME] = float(s.get("bulk_modulus_deriv", s.get("bulk_modulus_solid_deriv", 0.0)))
-		out[base + PROP_TREF] = float(s.get("density_ref_t_c", 0.0))
+		# is the A term and a dissolved solute rides in its solvent.
+		var condensed: bool = not (mol_per_kg > 0.0 or String(row.get("phase", "")) == "dissolved")
+		out[base + PROP_CONDENSED] = 1.0 if condensed else 0.0
+		var eos: Dictionary = LASubstances.eos_of(id)
+		var fluid: Dictionary = eos["fluid"]
+		if mol_per_kg > 0.0 and fluid.is_empty():
+			push_error("StateDerivePass: LASubstances gives gas \"%s\" no fluid equation of state." % id)
+			return PackedFloat32Array()
+		if not fluid.is_empty():
+			out[base + PROP_PR_A] = float(fluid["a_c"])
+			out[base + PROP_PR_B] = float(fluid["b"])
+			out[base + PROP_PR_KAPPA] = float(fluid["kappa"])
+			out[base + PROP_PR_TC] = float(fluid["tc_k"])
+		var solid: Dictionary = eos["solid"]
+		var melt: Dictionary = eos["liquid"]
+		var melts: bool = is_finite(LASubstances.melt_c_at(id, LAPhysical.STANDARD_PRESSURE_PA))
+		if condensed and melts and (solid.is_empty() or melt.is_empty()):
+			push_error("StateDerivePass: LASubstances gives \"%s\" a melting point and not both phases' " % id
+				+ "equations of state, so channel %s would melt into a volume nobody measured." % name)
+			return PackedFloat32Array()
+		_pack_phase(out, base + PROP_SOLID, solid, molar[i])
+		_pack_phase(out, base + PROP_LIQUID, melt, molar[i])
 		out[base + PROP_LITHIC] = 1.0 if bool(row.get("lithic", false)) or bool(row.get("lattice", false)) else 0.0
 		out[base + PROP_RAD_GROUP] = float(_rad_group(s.get("traces", {})))
 	# The amounts the detect phase compares against, each read back from its ONE declaration, so the
@@ -200,6 +225,21 @@ func _props() -> PackedFloat32Array:
 	out[det + 3] = LAMaterialFieldQueries3D.TUBE_MELT_NEAR_ZERO
 	out[det + 4] = LAMaterialFieldQueries3D.MOLTEN_MIN
 	return out
+
+
+## One phase of LASubstances.eos_of() as a PH_* block; zeros where the table names none.
+func _pack_phase(out: PackedFloat32Array, at: int, ph: Dictionary, molar_kg: float) -> void:
+	if ph.is_empty():
+		return
+	out[at + PH_FULL] = float(ph["rho"]) / molar_kg
+	out[at + PH_ALPHA] = float(ph["alpha"])
+	out[at + PH_BULK] = float(ph["k"])
+	out[at + PH_KP] = float(ph["kp"])
+	out[at + PH_B4] = float(ph["b4"])
+	out[at + PH_TREF] = float(ph["t_ref_c"])
+	out[at + PH_LINEAR] = 1.0 if bool(ph["linear_density"]) else 0.0
+	out[at + PH_F_LO] = float(ph["f_lo"])
+	out[at + PH_F_HI] = float(ph["f_hi"])
 
 
 ## 1-based index of this trace mix among the distinct radiogenic mixes; 0 for one with no U/Th/K.

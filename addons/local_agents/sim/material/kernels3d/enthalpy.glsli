@@ -103,41 +103,6 @@ SubstanceTh la_h2o() {
 	);
 }
 
-// LASubstances.table()["silicate"]. Rock melts over solidus -> liquidus and has no vapour boundary here.
-SubstanceTh la_silicate() {
-	return SubstanceTh(
-		840.0,              // LAPhysical.ROCK_SPECIFIC_HEAT_J_KGK
-		840.0,              // LAPhysical.ROCK_SPECIFIC_HEAT_J_KGK
-		840.0,              // LAPhysical.ROCK_SPECIFIC_HEAT_J_KGK
-		2900.0,             // LAPhysical.ROCK_DENSITY_KG_M3
-		2650.0,             // LAPhysical.BASALT_MELT_DENSITY_KG_M3
-		1000.0,             // LAPhysical.BASALT_SOLIDUS_C
-		1200.0,             // LAPhysical.BASALT_LIQUIDUS_C
-		0.0,
-		101325.0,           // LAPhysical.STANDARD_PRESSURE_PA
-		0.0,
-		0.0,
-		0.0,
-		0.0,
-		400000.0,           // LAPhysical.BASALT_LATENT_HEAT_CRYSTALLISATION_J_KG
-		0.0,
-		0.0,
-		0.1161612,          // LAPhysical.MOLAR_MASS_CASIO3_KG_MOL
-		0.0,
-		81.69,              // LAPhysical.ENTROPY_CASIO3_J_MOL_K
-		0.0,
-		5.0,
-		true,
-		false,
-		false,
-		0,
-		float[LA_MAX_EL](0.0, 0.0, 0.0, 0.0, 0.0),
-		float[LA_MAX_EL](0.0, 0.0, 0.0, 0.0, 0.0),
-		float[LA_MAX_EL](0.0, 0.0, 0.0, 0.0, 0.0),
-		float[LA_MAX_EL](0.0, 0.0, 0.0, 0.0, 0.0)
-	);
-}
-
 // Watson: the vaporisation enthalpy falls to zero at the critical point.
 float la_latent_vaporisation_at(SubstanceTh s, float t_c) {
 	if (s.l_vap_ref <= 0.0) { return 0.0; }

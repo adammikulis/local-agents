@@ -16,7 +16,7 @@ REGISTRY="$REPO_ROOT/docs/MODEL_PARAMETERS.md"
 # The authorities describe matter, and BodySeeds the BODIES this system was given: everything else is
 # measured against them, so check_cited_authority.sh holds them instead of this gate. LASubstances is
 # native and outside the scan roots already; it is named so a registry row against it is not a ghost.
-AUTHORITY_FILES="PhysicalConstants.gd LASubstances.cpp LASubstances.hpp BodySeeds.gd LABodySystem.cpp LAPlanetTables.cpp LAWaterCurves.cpp LAMeltEos.cpp"
+AUTHORITY_FILES="PhysicalConstants.gd LASubstances.cpp LASubstances.hpp BodySeeds.gd LABodySystem.cpp LAPlanetTables.cpp LAWaterCurves.cpp LAMeltEos.cpp LAPhaseEos.cpp"
 
 EMIT=0
 [[ "${1:-}" == "--emit" ]] && EMIT=1

@@ -6,7 +6,6 @@ extends SceneTree
 
 func _init() -> void:
 	var rows: Dictionary = LAChannels.rows()
-	var table: Dictionary = LASubstances.table()
 	var asked: int = 0
 	var bare: PackedStringArray = PackedStringArray()
 	var flat: PackedStringArray = PackedStringArray()
@@ -19,15 +18,16 @@ func _init() -> void:
 		if String(row.get("phase", "")) == "dissolved":
 			continue
 		asked += 1
-		var s: Dictionary = table.get(id, {})
-		var k: float = float(s.get("bulk_modulus_pa", s.get("bulk_modulus_solid_pa", 0.0)))
-		if not (k > 0.0):
+		var eos: Dictionary = LASubstances.eos_of(id)
+		var solid: Dictionary = eos["solid"]
+		var own: Dictionary = solid if not solid.is_empty() else eos["liquid"]
+		if not (float(own.get("k", 0.0)) > 0.0):
 			bare.append("%s (%s)" % [String(name), id])
 			continue
-		for pair in [["bulk_modulus_pa", "bulk_modulus_deriv"],
-				["bulk_modulus_solid_pa", "bulk_modulus_solid_deriv"]]:
-			if s.has(pair[0]) and not (float(s.get(pair[1], 0.0)) > 0.0):
-				flat.append("%s (%s.%s)" % [String(name), id, String(pair[1])])
+		for phase in ["solid", "liquid"]:
+			var ph: Dictionary = eos[phase]
+			if float(ph.get("k", 0.0)) > 0.0 and not (float(ph.get("kp", 0.0)) > 0.0):
+				flat.append("%s (%s %s)" % [String(name), id, phase])
 		# Squeeze a phase and it gets denser, at every pressure a planet reaches. Birch-Murnaghan is
 		# invertible only between the turning points of P(f), and a bracket wider than that returns a
 		# root that is not the state.

@@ -120,11 +120,15 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       structure to be built.
 - [ ] **Glass vs crystalline.** Quenched basalt releases different heat than slow-cooled; `latent_rock` is
       one number.
-- [ ] **A melt heats as its solid, and some melts are not squeezed.** `LAMixtureEnthalpy.thermal_row`
-      fills `specific_heat_solid` and `specific_heat_gas` from `specific_heat`. Plagioclase and halite melts
-      carry no `bulk_modulus_melt_pa`; apatite carries no melting point or melt. Clapeyron slopes in
-      `LASubstances.melt_c_at` and `enthalpy.glsli` take each phase at its own reference temperature, not at
-      the melting point. Reading: `LASubstances::melt_c_at` uses `solid.rho` and `liquid.rho` directly.
+- [ ] **A melt heats as its solid, and two melts are not squeezed.** `LAMixtureEnthalpy.thermal_row`
+      fills `specific_heat_solid` and `specific_heat_gas` from `specific_heat`. The halite and silicate melts
+      carry no melt modulus, so `LASubstances.density("halite", 1500.0, 1.0e9)` reads the one-bar melt;
+      apatite carries no melting point or melt. Reading: `LASubstances.eos_of("halite")["liquid"]["k"]` is 0.
+- [ ] **Two solid-row moduli are adiabatic where `bulk_modulus_pa` means K_T.** Reading:
+      `OLIVINE_BULK_MODULUS_PA` is commented `adiabatic K_S` and `IRON_LIQUID_BULK_MODULUS_DERIV` `K'_S0`.
+- [ ] **A dense gas carries its ideal sound speed.** The derive's pressure is the Peng-Robinson mixture's;
+      its sound speed and Mach number are not. Reading: `c_cell` in `state_derive.glsl` is
+      `sqrt(gam * r_s * T)`.
 - [ ] **Metastability** — supercooled water, superheated liquid. Real, and arguably beyond this granularity.
 
 ## B. The substrate's state

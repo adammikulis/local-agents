@@ -19,7 +19,17 @@ float mix_m[LA_MIX_SLOTS];
 
 int la_mix_n() { return LA_MIX_SLOTS; }
 float la_mix_mass(int k) { return mix_m[k]; }
-SubstanceTh la_mix_sub(int k) { return k == 0 ? la_h2o() : la_silicate(); }
+// The second slot melts over an interval and has no vapour curve: the non-IAPWS branches, with water's
+// own numbers, since a compile-only probe needs no substance of its own.
+SubstanceTh la_rock() {
+	SubstanceTh r = la_h2o();
+	r.iapws = false;
+	r.has_boil = false;
+	r.liquidus_c = r.melt_c + r.triple_t_c;
+	return r;
+}
+
+SubstanceTh la_mix_sub(int k) { return k == 0 ? la_h2o() : la_rock(); }
 
 void main() {
 	uint i = gl_GlobalInvocationID.x * 5u;
@@ -34,5 +44,5 @@ void main() {
 	vec4 st = la_enthalpy_to_state(la_h2o(), h_total, p_pa, 0.0);
 	probe[i] = t + st.x + progress + float(pinned)
 		+ la_mix_enthalpy_at(t, p_pa, room_m3, 0.0)
-		+ la_state_to_enthalpy(la_silicate(), t, p_pa, 0.0);
+		+ la_state_to_enthalpy(la_rock(), t, p_pa, 0.0);
 }

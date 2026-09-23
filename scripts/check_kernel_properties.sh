@@ -40,9 +40,10 @@ rm -f /tmp/check_kernel_properties_build.$$
 prop_drift=0
 for pair in "PROP_STRIDE:kPropStride" "PROP_M:kPropM" \
 		"PROP_MOL_PER_KG:kPropMolPerKg" "PROP_ENTRY:kPropEntry" "PROP_LAMBDA:kPropLambda" \
-		"PROP_FULL:kPropFull" "PROP_ALPHA:kPropAlpha" "PROP_BULK:kPropBulk" "PROP_TREF:kPropTref" \
-		"PROP_LITHIC:kPropLithic" "PROP_RAD_GROUP:kPropRadGroup" "PROP_CONDENSED:kPropCondensed" \
-		"PROP_KPRIME:kPropKprime" \
+		"PROP_FULL:kPropFull" "PROP_LITHIC:kPropLithic" "PROP_RAD_GROUP:kPropRadGroup" \
+		"PROP_CONDENSED:kPropCondensed" "PROP_SOLID:kPropSolid" "PROP_LIQUID:kPropLiquid" \
+		"PH_FULL:kPhFull" "PH_ALPHA:kPhAlpha" "PH_BULK:kPhBulk" "PH_KP:kPhKp" "PH_TREF:kPhTref" \
+		"PH_F_LO:kPhFLo" "PH_F_HI:kPhFHi" \
 		"PROP_LADDER:kPropLadder" "TH_C_SOL:kThCSol" "TH_C_LIQ:kThCLiq" "TH_C_GAS:kThCGas" \
 		"TH_RHO_SOL:kThRhoSol" "TH_RHO_LIQ:kThRhoLiq" "TH_FUSION_T0:kThFusionT0" \
 		"TH_FUSION_T1:kThFusionT1" "TH_L_FUS:kThLFus" "TH_NU:kThNu" "TH_HAS_FUSION:kThHasFusion" \

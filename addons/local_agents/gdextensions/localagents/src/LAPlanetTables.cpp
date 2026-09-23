@@ -14,6 +14,7 @@
 
 #include "LAPhysicalRead.hpp"
 #include "LATerrainLattice.hpp"
+#include "LAPhaseEos.hpp"
 #include "LASubstances.hpp"
 #include "LABodySystem.hpp"
 
@@ -409,12 +410,26 @@ static double radiogenic_flux(double p_h_w_kg, double p_m_rock, double p_radius_
 	return p_h_w_kg * MAX(p_m_rock, 0.0) / (4.0 * kPi * p_radius_m * p_radius_m);
 }
 
+// The mantle's expansivity: each shell mineral's own at (T, p), weighted by the volume it fills there.
+static double shell_alpha(double p_t_c, double p_p_pa) {
+	const Dictionary w = LAPlanetComposition::shell_minerals();
+	const Array keys = w.keys();
+	double v = 0.0;
+	double av = 0.0;
+	for (int k = 0; k < keys.size(); k++) {
+		const LACondensedEos &c = LAPhaseEosFn::condensed(String(keys[k]));
+		const double vk = double(w[keys[k]]) * LAPhaseEosFn::condensed_volume(c, p_t_c, p_p_pa);
+		v += vk;
+		av += vk * LAPhaseEosFn::condensed_alpha(c, p_t_c, p_p_pa);
+	}
+	return v > 0.0 ? av / v : 0.0;
+}
+
 // THE BODY STANDS AT ITS OWN GEOTHERM: each shell's density is the composition's at that shell's own
 // temperature and pressure, so the radius that holds the declared mass is the hot body's.
 // THE GEOTHERM ON THE PROFILE'S OWN GRID, kelvin per shell: the conductive lithosphere down to the mantle
 // adiabat, the core-mantle jump, then the core's adiabat. Each adiabat integrates dT/dr = -alpha g T / cp
-// with alpha falling under pressure as alpha * K_T stays constant (Anderson 1995, Equations of State of
-// Solids for Geophysics), K_T = K0 + K0' P off the same Birch-Murnaghan the densities use.
+// with alpha each phase's own at its state, off the one rule the densities use.
 static void geotherm_on_profile(double p_radius_m, double p_t_c, int p_n, int p_i_core, double p_dr,
 		const std::vector<double> &p_m_in, const std::vector<double> &p_p_at, std::vector<double> &r_t_at,
 		double &r_lid_m) {
@@ -425,13 +440,8 @@ static void geotherm_on_profile(double p_radius_m, double p_t_c, int p_n, int p_
 	const double cp_m = double(rock.get("specific_heat", 0.0));
 	const double cp_c = double(metal.get("specific_heat", 0.0));
 	const double k_m = double(rock.get("conductivity", 0.0));
-	const double alpha_m0 = double(rock.get("expansion_per_k", 0.0));
-	const double alpha_c0 = double(metal.get("expansion_per_k", 0.0));
-	const double k0_m = double(rock.get("bulk_modulus_pa", rock.get("bulk_modulus_solid_pa", 0.0)));
-	const double k0_c = double(metal.get("bulk_modulus_pa", metal.get("bulk_modulus_solid_pa", 0.0)));
-	const double kp_m = double(rock.get("bulk_modulus_deriv", 4.0));
-	const double kp_c = double(metal.get("bulk_modulus_deriv", 4.0));
-	const double p_std = la_physical("STANDARD_PRESSURE_PA");
+	const LACondensedEos &eos_c = LAPhaseEosFn::condensed("metal");
+	const double kelvin = la_physical("KELVIN_OFFSET");
 	const double h_w_kg = LARadiogenicDecay::heat_w_kg_of(rock.get("traces", Dictionary()),
 			-la_physical("PLANET_EPOCH_YEARS_BEFORE_PRESENT"));
 	const double a_w_m3 = h_w_kg * rho_m;
@@ -441,10 +451,6 @@ static void geotherm_on_profile(double p_radius_m, double p_t_c, int p_n, int p_
 	// surface it crosses. The body's own decay, not a continental mean measured on a planet with crust.
 	const double m_rock = p_m_in[p_n - 1] - (p_i_core > 0 ? p_m_in[p_i_core - 1] : 0.0);
 	const double q_surf = radiogenic_flux(h_w_kg, m_rock, p_radius_m);
-	auto alpha_at = [&](double a0, double k0, double kp, double p) {
-		const double k_t = k0 + kp * std::max(p - p_std, 0.0);
-		return (k0 > 0.0 && k_t > 0.0) ? a0 * k0 / k_t : a0;
-	};
 	double t_ad = LAPlanetComposition::mantle_potential_temp_k();
 	// THE LID'S BASE, metres: T(z) = Ts + q z / k - a z^2 / (2k) reaching the potential temperature.
 	// The shell grid is coarser than the lithosphere, so this is solved, not counted off it.
@@ -461,7 +467,7 @@ static void geotherm_on_profile(double p_radius_m, double p_t_c, int p_n, int p_
 		lid = lid && t_cond < t_ad;
 		r_t_at[i] = lid ? t_cond : t_ad;
 		const double g = g_const * p_m_in[i] / std::max(r * r, 1.0);
-		t_ad *= 1.0 + alpha_at(alpha_m0, k0_m, kp_m, p_p_at[i]) * g * p_dr / std::max(cp_m, 1.0);
+		t_ad *= 1.0 + shell_alpha(t_ad - kelvin, p_p_at[i]) * g * p_dr / std::max(cp_m, 1.0);
 	}
 	// THE ADIABAT CONTINUES THROUGH THE BOUNDARY, on the core's own expansivity and heat capacity: the
 	// temperature at the top of the core is the one the mantle above it reached.
@@ -470,8 +476,22 @@ static void geotherm_on_profile(double p_radius_m, double p_t_c, int p_n, int p_
 		const double r = (double(i) + 0.5) * p_dr;
 		r_t_at[i] = t_core;
 		const double g = g_const * p_m_in[i] / std::max(r * r, 1.0);
-		t_core *= 1.0 + alpha_at(alpha_c0, k0_c, kp_c, p_p_at[i]) * g * p_dr / std::max(cp_c, 1.0);
+		t_core *= 1.0 + LAPhaseEosFn::condensed_alpha(eos_c, t_core - kelvin, p_p_at[i]) * g * p_dr / std::max(cp_c, 1.0);
 	}
+}
+
+// True where the core's metal, or every shell mineral, has a stated density at (T, p).
+static bool shell_representable(bool p_core, double p_t_c, double p_p_pa) {
+	if (p_core) {
+		return LAPhaseEosFn::representable(LAPhaseEosFn::condensed("metal"), p_t_c, p_p_pa);
+	}
+	const Array keys = LAPlanetComposition::shell_minerals().keys();
+	for (int k = 0; k < keys.size(); k++) {
+		if (!LAPhaseEosFn::representable(LAPhaseEosFn::condensed(String(keys[k])), p_t_c, p_p_pa)) {
+			return false;
+		}
+	}
+	return true;
 }
 
 // ONE SHOT FROM THE CENTRE: for a central pressure, integrate dp/dr = -rho g and dm/dr = 4 pi r^2 rho
@@ -509,6 +529,11 @@ static RadialProfile shoot_profile(double p_centre_pa, double p_t_c, const Radia
 			t_c = p_last.t_at[j];
 		}
 		const bool core = i_core < 0 && (m < f_core * m_target);
+		// A shot past the pressure a present phase's equation of state can state is past the body.
+		if (!shell_representable(core, t_c, p)) {
+			out.n = -1;
+			return out;
+		}
 		const double d = core ? LASubstances::density("metal", t_c, p) : LAPlanetComposition::shell_density(t_c, p);
 		if (!(std::isfinite(d) && d > 0.0)) {
 			out.n = -1;
@@ -828,28 +853,24 @@ void LAPlanetComposition::seed(Object *p_field, double p_t_c, const PackedFloat3
 	const int SUB = 4;
 	const double w_sub = 1.0 / double(SUB * SUB * SUB);
 	std::vector<double> acc(ch.size(), 0.0);
-	// Each sample's amount is at its shell's own T; the cell's rock stands at the cell's own T, so every
-	// sample is carried to it over its expansion and the lattice fills exactly the chord's volume there.
-	const Dictionary table = LASubstances::table();
-	std::vector<double> alpha(ch.size(), 0.0), tref(ch.size(), 0.0), k0(ch.size(), 0.0), kp(ch.size(), 0.0);
-	for (int i = 0; i < ch.size(); i++) {
-		const Dictionary sub = table.get(ch[i], Dictionary());
-		alpha[i] = double(sub.get("expansion_per_k", 0.0));
-		tref[i] = double(sub.get("density_ref_t_c", 0.0));
-		k0[i] = double(sub.get("bulk_modulus_pa", 0.0));
-		kp[i] = double(sub.get("bulk_modulus_deriv", 0.0));
-	}
-	const Dictionary metal_sub = table.get("metal", Dictionary());
-	const double alpha_m = double(metal_sub.get("expansion_per_k", 0.0));
-	const double tref_m = double(metal_sub.get("density_ref_t_c", 0.0));
-	const double k0_m = double(metal_sub.get("bulk_modulus_pa", 0.0));
-	const double kp_m = double(metal_sub.get("bulk_modulus_deriv", 0.0));
+	// Each sample's amount is at its shell's own state; the cell's rock stands at the cell's own T and
+	// pressure, so every sample is carried to it by the ratio of its specific volumes, phases included.
 	const double p_std = la_physical("STANDARD_PRESSURE_PA");
-	// alpha * K_T stays constant under pressure (Anderson 1995): the same law the density carries.
-	auto alpha_at = [&](double a0, double k, double kprime, double p) {
-		const double dp = p - p_std;
-		return (k > 0.0 && dp > 0.0) ? a0 * k / (k + kprime * dp) : a0;
-	};
+	std::vector<const LACondensedEos *> eos(ch.size(), nullptr);
+	for (int i = 0; i < ch.size(); i++) {
+		eos[i] = &LAPhaseEosFn::condensed(String(ch[i]));
+	}
+	const LACondensedEos &eos_metal = LAPhaseEosFn::condensed("metal");
+	std::vector<std::vector<double>> v_shell(prof.n, std::vector<double>(ch.size(), 0.0));
+	std::vector<double> v_metal(prof.n, 0.0);
+	for (int j = 0; j < prof.n; j++) {
+		const double t_j = j < int(prof.t_at.size()) ? prof.t_at[j] : p_t_c;
+		const double p_j = j < int(prof.p_at.size()) ? prof.p_at[j] : p_std;
+		v_metal[j] = LAPhaseEosFn::condensed_volume(eos_metal, t_j, p_j);
+		for (int i = 0; i < ch.size(); i++) {
+			v_shell[j][i] = col[i] >= 0 ? LAPhaseEosFn::condensed_volume(*eos[i], t_j, p_j) : 0.0;
+		}
+	}
 	for (int c = 0; c < cc; c++) {
 		const float f = frac.size() == cc ? frac[c] : (solid[c] != 0 ? 1.0f : 0.0f);
 		cw[c] = f > 0.0f ? 1.0f : 0.0f;
@@ -866,14 +887,12 @@ void LAPlanetComposition::seed(Object *p_field, double p_t_c, const PackedFloat3
 					const Vector3 p = la_cw[c] + Vector3(float((a + 0.5) * se - 0.5 * e), float((b + 0.5) * se - 0.5 * e),
 							float((d + 0.5) * se - 0.5 * e));
 					const int j = std::min(prof.n - 1, int((p - centre).length() / prof.dr));
-					const double t_j = j < int(prof.t_at.size()) ? prof.t_at[j] : p_t_c;
-					const double p_j = j < int(prof.p_at.size()) ? prof.p_at[j] : p_std;
 					if (j < prof.i_core) {
-						m_acc += metal_at[j] * (1.0 + alpha_at(alpha_m, k0_m, kp_m, p_j) * (t_j - tref_m));
+						m_acc += metal_at[j] * v_metal[j];
 						continue;
 					}
 					for (int i = 0; i < ch.size(); i++) {
-						acc[i] += col[i] >= 0 ? amounts[j][col[i]] * (1.0 + alpha_at(alpha[i], k0[i], kp[i], p_j) * (t_j - tref[i])) : 0.0;
+						acc[i] += col[i] >= 0 ? amounts[j][col[i]] * v_shell[j][i] : 0.0;
 					}
 				}
 			}
@@ -881,9 +900,17 @@ void LAPlanetComposition::seed(Object *p_field, double p_t_c, const PackedFloat3
 		const double t_rock = c < p_t_rock.size() ? double(p_t_rock[c]) : p_t_c;
 		const int j_c = std::min(prof.n - 1, int((la_cw[c] - centre).length() / prof.dr));
 		const double p_c = j_c < int(prof.p_at.size()) ? prof.p_at[j_c] : p_std;
-		mw[c] = float(m_acc * w_sub * f / (1.0 + alpha_at(alpha_m, k0_m, kp_m, p_c) * (t_rock - tref_m)));
+		const double vm_c = m_acc > 0.0 ? LAPhaseEosFn::condensed_volume(eos_metal, t_rock, p_c) : 0.0;
+		ERR_FAIL_COND_MSG(m_acc > 0.0 && !(vm_c > 0.0), "LAPlanetComposition: the metal has no measured volume at this cell's state.");
+		mw[c] = m_acc > 0.0 ? float(m_acc * w_sub * f / vm_c) : 0.0f;
 		for (int i = 0; i < ch.size(); i++) {
-			sw[i][c] = float(acc[i] * w_sub * f / (1.0 + alpha_at(alpha[i], k0[i], kp[i], p_c) * (t_rock - tref[i])));
+			if (!(acc[i] > 0.0)) {
+				sw[i][c] = 0.0f;
+				continue;
+			}
+			const double v_c = LAPhaseEosFn::condensed_volume(*eos[i], t_rock, p_c);
+			ERR_FAIL_COND_MSG(!(v_c > 0.0), "LAPlanetComposition: \"" + String(ch[i]) + "\" has no measured volume at this cell's state.");
+			sw[i][c] = float(acc[i] * w_sub * f / v_c);
 		}
 	}
 	LAFieldMirrors::store(p_field, "cement", cement);
