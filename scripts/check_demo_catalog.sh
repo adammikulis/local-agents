@@ -1,28 +1,24 @@
 #!/usr/bin/env bash
-# Gate: the demo catalogue in addons/local_agents/examples/demos/ must describe every demo, exactly
-# once. One LocalAgentDemoEntry resource per demo is the only list, and "drop a file in and it appears"
-# stays true only if a forgotten file is caught here rather than by a user noticing a missing row.
+# Gate: the demo catalogue in addons/local_agents/examples/demos/ describes every demo exactly once, one
+# LocalAgentDemoEntry resource per demo.
 
-# WHAT COUNTS AS A DEMO, applied to the directory rather than a hardcoded list: a .tscn directly in
-# addons/local_agents/examples/ needs an entry, unless it is DemoLauncher.tscn, or a FRAGMENT that
-# another .tscn instances as a sub-scene and which therefore belongs to its parent demo. Entries may
-# point outside examples/, as game/VoxelWorld.tscn does; such a scene is still checked for resolution
-# but is never required to have an entry.
+# A DEMO is a .tscn directly in addons/local_agents/examples/ other than DemoLauncher.tscn and other than
+# a fragment (scripts/lib_demo_fragment.sh). An entry may point outside examples/, as game/VoxelWorld.tscn
+# does; that scene must resolve but needs no entry.
 
-# FAILS WHEN a demo scene has no entry · an entry's `scene` does not resolve · two entries share an
-# `order`, making their row order arbitrary · a .tres in demos/ is not a LocalAgentDemoEntry · or
-# addons/local_agents/docs/DEMOS.md is not what the catalogue renders to right now, checked by running
-# gen_demos_doc.sh --check, without which the hand-written drift comes back through the docs instead.
+# FAILS WHEN a demo scene has no entry · an entry's `scene_path` does not resolve · two entries share an
+# `order` · a .tres in demos/ is not a LocalAgentDemoEntry · addons/local_agents/docs/DEMOS.md differs
+# from what `gen_demos_doc.sh --check` renders.
 
-# Parses .tres as text rather than booting Godot, so it takes no editor lock and is safe beside
-# editor_scan.sh.
+# Parses .tres as text; takes no editor lock.
 #   scripts/check_demo_catalog.sh            # table + verdict
 #   scripts/check_demo_catalog.sh --quiet    # verdict only
-# Exit 0 consistent · 1 not.
+# Exit 0 consistent · 1 not · 2 could not run.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+. "$ROOT/scripts/lib_demo_fragment.sh"
 
 EXAMPLES_DIR="addons/local_agents/examples"
 CATALOG_DIR="$EXAMPLES_DIR/demos"
@@ -39,36 +35,23 @@ if [[ ! -d "$CATALOG_DIR" ]]; then
 fi
 
 # --- Parse every entry ------------------------------------------------------------------------
-# One record per .tres: file|order|scene_path|title|requires_model|requires_voxel|is_entry_resource
-# Properties left at their default are OMITTED by Godot when it saves a resource, so every field
-# defaults here exactly as it does in DemoEntry.gd rather than being treated as missing.
+# One record per .tres: order|scene_path|title|requires_model|requires_voxel_backend|is_entry.
+# Godot omits a property left at its default; each field defaults here as in DemoEntry.gd.
 parse_entry() {
   awk -v entry_script="$ENTRY_SCRIPT" '
-    # [ext_resource type="X" uid="uid://y" path="res://z" id="1_a"]
-    # The id regex carries a leading space on purpose: a bare /id="/ matches inside uid="..." first
-    # (leftmost match), which would read the uid as the resource id on any editor-resaved file.
     /^\[ext_resource/ {
-      type=""; path=""; id="";
-      if (match($0, /type="[^"]*"/)) type = substr($0, RSTART+6, RLENGTH-7);
-      if (match($0, /path="[^"]*"/)) path = substr($0, RSTART+6, RLENGTH-7);
-      if (match($0, / id="[^"]*"/))  id   = substr($0, RSTART+5, RLENGTH-6);
-      if (id != "") { res_path[id] = path; res_type[id] = type; }
-      if (type == "Script" && path == entry_script) is_entry = 1;
+      if ($0 ~ /type="Script"/ && index($0, "path=\"" entry_script "\"")) is_entry = 1;
       next
     }
     /^order = /  { order = $3; next }
     /^title = "/ { if (match($0, /"[^"]*"/)) title = substr($0, RSTART+1, RLENGTH-2); next }
-    # `scene_path = "res://..."` is the current form. The ExtResource branch stays for a .tres still
-    # holding a PackedScene reference, so an un-migrated entry is reported rather than read as empty.
-    /^scene_path = "/ { if (match($0, /"[^"]*"/)) scene_direct = substr($0, RSTART+1, RLENGTH-2); next }
-    /^scene = ExtResource\(/ { if (match($0, /"[^"]*"/)) scene_id = substr($0, RSTART+1, RLENGTH-2); next }
+    /^scene_path = "/ { if (match($0, /"[^"]*"/)) scene = substr($0, RSTART+1, RLENGTH-2); next }
     /^requires_model = /          { model = $3; next }
     /^requires_voxel_backend = /  { voxel = $3; next }
     END {
       if (order == "") order = 0;
       if (model == "") model = "false";
       if (voxel == "") voxel = "false";
-      scene = (scene_direct != "") ? scene_direct : ((scene_id == "") ? "" : res_path[scene_id]);
       printf "%s|%s|%s|%s|%s|%s\n", order, scene, title, model, voxel, (is_entry ? "yes" : "no");
     }
   ' "$1"
@@ -127,19 +110,11 @@ for tres in "${tres_files[@]}"; do
 done
 
 # --- Every demo scene must be catalogued ---------------------------------------------------------
-# Fragment test: is this scene instanced by ANY other .tscn in the addon? Godot always writes the
-# path on an ext_resource line (alongside the uid when there is one), so matching the path is enough.
-is_fragment() {
-  local scene_rel="$1" self="$2"
-  grep -rlF "path=\"res://$scene_rel\"" addons/local_agents --include='*.tscn' 2>/dev/null \
-    | grep -qv "^$self$"
-}
-
 missing=""
 for scene_file in "$EXAMPLES_DIR"/*.tscn; do
   base="$(basename "$scene_file")"
   [[ "$base" == "$LAUNCHER" ]] && continue
-  if is_fragment "$scene_file" "$scene_file"; then continue; fi
+  if demo_fragment_parent "$ROOT" "$scene_file" >/dev/null; then continue; fi
   want="res://$scene_file"
   found=0
   for have in "${scene_paths[@]:-}"; do
@@ -153,12 +128,9 @@ done
 [[ -n "$missing" ]] && printf '%s' "$missing"
 
 # --- The generated demo page must match the catalogue --------------------------------------------
-# addons/local_agents/docs/DEMOS.md is rendered from these same .tres files by scripts/gen_demos_doc.sh,
-# so checking it here is what stops the old three-copies-of-the-list drift returning through the docs.
 GEN_DOC="$ROOT/scripts/gen_demos_doc.sh"
 if [[ ! -x "$GEN_DOC" ]]; then
-  # Not a silent pass. A gate that skips its own work when the tool it shells out to is absent or has
-  # lost its +x bit is a gate that reports delivery while running nothing.
+  # A missing generator is an error, never a skip.
   echo "  ERROR scripts/gen_demos_doc.sh: missing or not executable, cannot verify docs/DEMOS.md"
   errors=$((errors + 1))
 else
@@ -167,8 +139,7 @@ else
   rc_doc=$?
   set -e
   if [[ "$rc_doc" -ne 0 ]]; then
-    # --quiet asked for a verdict, not a 60-line diff. The last line is the verdict, and it already
-    # names the file and the command that fixes it.
+    # --quiet: the verdict line only.
     if [[ "$QUIET" -eq 1 ]]; then
       printf '%s\n' "$doc_out" | tail -n 1 | sed 's/^/  /'
     else
