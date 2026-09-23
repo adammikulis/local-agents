@@ -1,0 +1,207 @@
+[gd_resource type="Theme" format=3]
+
+[ext_resource type="Texture2D" path="res://addons/local_agents/game/ui/icons/grabber.svg" id="1_grabber"]
+[ext_resource type="FontFile" path="res://addons/local_agents/assets/fonts/emoji.ttf" id="2_emoji"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_button_normal"]
+content_margin_left = 12.0
+content_margin_top = 6.0
+content_margin_right = 12.0
+content_margin_bottom = 6.0
+bg_color = Color(0.129, 0.145, 0.184, 0.96)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.24, 0.27, 0.33, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_button_focus"]
+content_margin_left = 12.0
+content_margin_top = 6.0
+content_margin_right = 12.0
+content_margin_bottom = 6.0
+bg_color = Color(0, 0, 0, 0)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.33, 0.7, 0.98, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_button_hover"]
+content_margin_left = 12.0
+content_margin_top = 6.0
+content_margin_right = 12.0
+content_margin_bottom = 6.0
+bg_color = Color(0.18, 0.2, 0.25, 0.98)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.294, 0.528, 0.72, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_button_pressed"]
+content_margin_left = 12.0
+content_margin_top = 6.0
+content_margin_right = 12.0
+content_margin_bottom = 6.0
+bg_color = Color(0.33, 0.7, 0.98, 0.22)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.33, 0.7, 0.98, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_check_button"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_slider_fill"]
+bg_color = Color(0.33, 0.7, 0.98, 0.22)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_slider_track"]
+content_margin_top = 3.0
+content_margin_bottom = 3.0
+bg_color = Color(0.129, 0.145, 0.184, 0.96)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_panel"]
+content_margin_left = 0.0
+content_margin_top = 0.0
+content_margin_right = 0.0
+content_margin_bottom = 0.0
+bg_color = Color(0.086, 0.098, 0.129, 0.94)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.24, 0.27, 0.33, 1)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+shadow_color = Color(0, 0, 0, 0.35)
+shadow_size = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_popup_hover"]
+bg_color = Color(0.33, 0.7, 0.98, 0.22)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_popup_panel"]
+content_margin_left = 4.0
+content_margin_top = 4.0
+content_margin_right = 4.0
+content_margin_bottom = 4.0
+bg_color = Color(0.129, 0.145, 0.184, 0.96)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.24, 0.27, 0.33, 1)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+shadow_color = Color(0, 0, 0, 0.35)
+shadow_size = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_scroll_grabber"]
+bg_color = Color(0.24, 0.27, 0.33, 1)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+
+[sub_resource type="StyleBoxLine" id="StyleBoxLine_separator"]
+color = Color(0.24, 0.27, 0.33, 1)
+vertical = true
+
+[resource]
+default_font_size = 15
+Button/colors/font_color = Color(0.9, 0.92, 0.95, 1)
+Button/colors/font_disabled_color = Color(0.62, 0.66, 0.72, 0.35)
+Button/colors/font_hover_color = Color(0.98, 0.99, 1, 1)
+Button/colors/font_hover_pressed_color = Color(0.33, 0.7, 0.98, 1)
+Button/colors/font_pressed_color = Color(0.33, 0.7, 0.98, 1)
+Button/constants/h_separation = 8
+Button/font_sizes/font_size = 14
+Button/styles/disabled = SubResource("StyleBoxFlat_button_normal")
+Button/styles/focus = SubResource("StyleBoxFlat_button_focus")
+Button/styles/hover = SubResource("StyleBoxFlat_button_hover")
+Button/styles/hover_pressed = SubResource("StyleBoxFlat_button_pressed")
+Button/styles/normal = SubResource("StyleBoxFlat_button_normal")
+Button/styles/pressed = SubResource("StyleBoxFlat_button_pressed")
+CheckButton/colors/font_color = Color(0.9, 0.92, 0.95, 1)
+CheckButton/colors/font_hover_color = Color(0.98, 0.99, 1, 1)
+CheckButton/font_sizes/font_size = 13
+CheckButton/styles/focus = SubResource("StyleBoxEmpty_check_button")
+CheckButton/styles/hover = SubResource("StyleBoxEmpty_check_button")
+CheckButton/styles/normal = SubResource("StyleBoxEmpty_check_button")
+CheckButton/styles/pressed = SubResource("StyleBoxEmpty_check_button")
+HSlider/icons/grabber = ExtResource("1_grabber")
+HSlider/icons/grabber_disabled = ExtResource("1_grabber")
+HSlider/icons/grabber_highlight = ExtResource("1_grabber")
+HSlider/styles/grabber_area = SubResource("StyleBoxFlat_slider_fill")
+HSlider/styles/grabber_area_highlight = SubResource("StyleBoxFlat_slider_fill")
+HSlider/styles/slider = SubResource("StyleBoxFlat_slider_track")
+HotkeyBadge/base_type = &"Label"
+HotkeyBadge/colors/font_color = Color(0.33, 0.7, 0.98, 1)
+HotkeyBadge/font_sizes/font_size = 10
+HotkeyBadgeLocked/base_type = &"Label"
+HotkeyBadgeLocked/colors/font_color = Color(0.62, 0.66, 0.72, 0.35)
+HotkeyBadgeLocked/font_sizes/font_size = 10
+InspectorHint/base_type = &"Label"
+InspectorHint/colors/font_color = Color(0.62, 0.66, 0.72, 1)
+InspectorHint/font_sizes/font_size = 14
+InspectorLine/base_type = &"Label"
+InspectorLine/font_sizes/font_size = 14
+InspectorTitle/base_type = &"Label"
+InspectorTitle/colors/font_color = Color(0.98, 0.99, 1, 1)
+InspectorTitle/font_sizes/font_size = 17
+InspectorTitleIdle/base_type = &"Label"
+InspectorTitleIdle/colors/font_color = Color(0.62, 0.66, 0.72, 1)
+InspectorTitleIdle/font_sizes/font_size = 17
+Label/colors/font_color = Color(0.9, 0.92, 0.95, 1)
+OptionButton/colors/font_color = Color(0.9, 0.92, 0.95, 1)
+OptionButton/colors/font_hover_color = Color(0.98, 0.99, 1, 1)
+OptionButton/font_sizes/font_size = 13
+OptionButton/styles/disabled = SubResource("StyleBoxFlat_button_normal")
+OptionButton/styles/focus = SubResource("StyleBoxFlat_button_focus")
+OptionButton/styles/hover = SubResource("StyleBoxFlat_button_hover")
+OptionButton/styles/normal = SubResource("StyleBoxFlat_button_normal")
+OptionButton/styles/pressed = SubResource("StyleBoxFlat_button_pressed")
+PaletteButton/base_type = &"Button"
+PaletteButton/font_sizes/font_size = 22
+PaletteButton/fonts/font = ExtResource("2_emoji")
+PanelContainer/styles/panel = SubResource("StyleBoxFlat_panel")
+PopupMenu/colors/font_color = Color(0.9, 0.92, 0.95, 1)
+PopupMenu/colors/font_hover_color = Color(0.98, 0.99, 1, 1)
+PopupMenu/styles/hover = SubResource("StyleBoxFlat_popup_hover")
+PopupMenu/styles/panel = SubResource("StyleBoxFlat_popup_panel")
+VScrollBar/styles/grabber = SubResource("StyleBoxFlat_scroll_grabber")
+VScrollBar/styles/grabber_highlight = SubResource("StyleBoxFlat_scroll_grabber")
+VScrollBar/styles/grabber_pressed = SubResource("StyleBoxFlat_scroll_grabber")
+VSeparator/styles/separator = SubResource("StyleBoxLine_separator")
