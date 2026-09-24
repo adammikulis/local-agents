@@ -142,6 +142,8 @@ def drain(gates, root, jobs, ledger_dir, shared_ledger, no_gpu, on_result):
     ledger_of = {i: os.path.join(ledger_dir, "%d.launch" % i) for i in range(len(gates))}
     futures = {i: pool.submit(run_gate, g, root, ledger_of[i], False)
                for i, g in enumerate(gates) if g["kind"] == "text"}
+    # An engine gate times frames on this machine: none starts while the pool still holds a core.
+    concurrent.futures.wait(futures.values())
     try:
         for i, g in enumerate(gates):
             if no_gpu and g["kind"] == "gpu":
