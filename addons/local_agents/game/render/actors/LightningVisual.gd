@@ -2,7 +2,8 @@
 class_name LALightningVisual
 extends Node3D
 
-## A bolt drawn: a jagged channel down the local vertical to where the discharge met the ground, and its flash.
+## A bolt drawn where a discharge met the ground: a jagged channel down the local vertical and its flash,
+## which fades over the afterglow and then frees the bolt.
 
 @export_group("Channel")
 ## Height the channel is drawn down from, m above the strike point.
@@ -16,38 +17,45 @@ extends Node3D
 @export_group("Flash")
 ## Height of the flash above the strike point, m.
 @export var flash_height_m: float = 6.0
+## Seconds the flash takes to fade out; the bolt is freed when it has.
+@export var afterglow_s: float = 0.7
 
 @onready var _bolt: MeshInstance3D = $Bolt
 @onready var _flash: OmniLight3D = $Flash
 
-var _strike: LALightningStrike = null
 var _peak: float = 0.0
+var _age: float = 0.0
 
 
 func _ready() -> void:
+	set_process(false)
 	if Engine.is_editor_hint():
 		return
 	_peak = _flash.light_energy
-	_strike = get_parent() as LALightningStrike
-	if _strike != null:
-		_strike.struck.connect(_on_struck)
 
 
-func _process(_delta: float) -> void:
-	if Engine.is_editor_hint() or _strike == null:
-		return
-	_flash.light_energy = _peak * _strike.remaining()
-
-
-## The channel runs down the vertical the bodies' pull defines; with no body there is none to draw it along.
-func _on_struck(point: Vector3) -> void:
+## Draw the bolt that met the ground at `point`, along the vertical the bodies' pull defines there. With no
+## body there is none to draw it along.
+func strike(point: Vector3) -> void:
 	var up: Vector3 = -LAGravity.acceleration_at(get_tree(), point).normalized()
 	if up == Vector3.ZERO:
 		push_error("LightningVisual: no gravity body at %s, so no up to draw the bolt along." % point)
+		queue_free()
 		return
+	global_position = point
 	_draw_channel(point, up)
 	_flash.global_position = point + up * flash_height_m
 	_flash.visible = true
+	set_process(true)
+
+
+func _process(delta: float) -> void:
+	if Engine.is_editor_hint():
+		return
+	_age += delta
+	_flash.light_energy = _peak * maxf(0.0, 1.0 - _age / afterglow_s)
+	if _age >= afterglow_s:
+		queue_free()
 
 
 func _draw_channel(point: Vector3, up: Vector3) -> void:
@@ -75,11 +83,13 @@ func _draw_channel(point: Vector3, up: Vector3) -> void:
 
 func _get_configuration_warnings() -> PackedStringArray:
 	var out: PackedStringArray = PackedStringArray()
-	if not get_parent() is LALightningStrike:
-		out.append("Draws the LALightningStrike it is a child of: instance it in sim/actors/LightningStrike.tscn.")
 	var bolt: MeshInstance3D = get_node_or_null("Bolt") as MeshInstance3D
 	if bolt == null or not bolt.mesh is ImmediateMesh:
 		out.append("Needs a Bolt MeshInstance3D holding an ImmediateMesh: the channel is drawn into it.")
+	if not get_node_or_null("Flash") is OmniLight3D:
+		out.append("Needs a Flash OmniLight3D: it is the light the bolt throws.")
 	if segments < 1:
 		out.append("Segments must be at least 1: the channel is drawn in that many straight pieces.")
+	if afterglow_s <= 0.0:
+		out.append("Afterglow S must be above 0: the flash fades over it before the bolt is freed.")
 	return out

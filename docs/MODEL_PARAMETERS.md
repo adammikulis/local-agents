@@ -139,10 +139,8 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/streamer/StreamerOverlay.gd` | `FEED_MAX` | 4 | presentation or diagnostic buffer length, not physics | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/sim/actors/Meteor.gd` | `TRANSIENT_DEPTH_PER_DIAMETER` | 1.0 / 3.0 | the observed depth-to-diameter ratio of a transient impact cavity (Melosh 1989, ch. 7), a measured shape of craters rather than a property of matter | a solved excavation flow, which produces the cavity shape instead of asserting it |
 | `addons/local_agents/sim/material/MaterialEjecta3D.gd` | `EJECTION_ANGLE_RAD` | PI / 4.0 | the ejection angle crater ejecta clusters at (Melosh 1989, ch. 5) | the Maxwell Z-model, which gives each parcel its own angle from its launch position |
-| `addons/local_agents/sim/actors/Meteor.gd` | `FX_LINGER` | 1.8 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Nest.gd` | `IDLE_TIMEOUT` | 120.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Nest.gd` | `DISREPAIR_START` | 60.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/LightningStrike.gd` | `LINGER` | 0.7 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Tree.gd` | `MATURE_YEARS` | 60.0 | years from germination to full stem height for a temperate tree | the wood the tree has actually fixed sets its height, and the years fall out |
 | `addons/local_agents/sim/actors/Tree.gd` | `TREE_BIOMASS_FULL` | 0.0025 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Tree.gd` | `TOPPLE_TIME` | 1.5 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |

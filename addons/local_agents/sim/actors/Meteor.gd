@@ -2,14 +2,13 @@ class_name LAMeteor
 extends Node3D
 
 
-const FX_LINGER: float = 1.8               # seconds of FX after impact before free
 ## Transient cavity depth over its diameter (Melosh 1989, Impact Cratering, ch. 7).
 const TRANSIENT_DEPTH_PER_DIAMETER: float = 1.0 / 3.0
 
 ## The rock left its release point as a ball of this radius, m.
 signal launched(radius_m: float)
-## The rock reached the ground at `point`.
-signal impacted(point: Vector3)
+## The rock reached the ground at `point`, into standing water when `into_water`. The node is freed after.
+signal impacted(point: Vector3, into_water: bool)
 
 enum State { IDLE, FALLING, IMPACTED }
 
@@ -19,7 +18,6 @@ var _state: int = State.IDLE
 var _body_id: int = -1                     # the free body LABallistics is flying
 var _impact_velocity: Vector3 = Vector3.ZERO
 var _target: Vector3 = Vector3.ZERO
-var _fx_time: float = 0.0
 var _impact_point: Vector3 = Vector3.ZERO
 var _spawned_at: Vector3 = Vector3.ZERO
 
@@ -64,7 +62,8 @@ func launch(target: Vector3, from_pos: Vector3 = Vector3(INF, INF, INF), size_sc
 		# Player-fired: leave the camera along the aim ray at the local circular-orbit speed and coast.
 		var aim: Vector3 = (target - from_pos).normalized()
 		if aim == Vector3.ZERO:
-			aim = Vector3.DOWN
+			push_error("LAMeteor: a rock aimed at its own release point has no direction to fly in.")
+			return false
 		_spawned_at = from_pos + aim * 3.0
 		var speed: float = LAGravity.circular_speed(get_tree(), _spawned_at)
 		if not _size_from(energy_j, speed):
@@ -178,31 +177,25 @@ static func partition(energy_j: float, thrown_kg: float, g: float, crater_r: flo
 		"ejecta_j": launch, "heat_j": energy_j - launch}
 
 
+## Altitude is the terrain's radial height above its surface, and absent where the terrain gives none.
 func get_inspector_payload() -> Dictionary:
 	var lines: Array = []
-	match _state:
-		State.FALLING:
-			lines.append("Status: falling")
-			lines.append("Speed: %.0f m/s" % float(LABallistics.state(_body_id).get("speed", 0.0)))
-			var alt: float = _terrain.altitude_at(global_position) if _terrain != null and _terrain.has_method("altitude_at") else global_position.y
-			lines.append("Altitude: %.0f" % alt)
-		State.IMPACTED:
-			lines.append("Status: impacted")
-			lines.append("Crater radius: %.0f" % _radius())
-		_:
-			lines.append("Status: idle")
+	if _state == State.FALLING:
+		lines.append("Status: falling")
+		lines.append("Speed: %.0f m/s" % float(LABallistics.state(_body_id).get("speed", 0.0)))
+		var alt: float = _terrain.altitude_at(global_position) \
+			if _terrain != null and _terrain.has_method("altitude_at") else NAN
+		if not is_nan(alt):
+			lines.append("Altitude: %.0f m" % alt)
+	else:
+		lines.append("Status: idle")
 	lines.append("Target: (%.0f, %.0f, %.0f)" % [_target.x, _target.y, _target.z])
 	return {"title": "Meteor", "lines": lines}
 
 
-func _physics_process(delta: float) -> void:
-	match _state:
-		State.FALLING:
-			_follow_body()
-		State.IMPACTED:
-			_fx_time += delta
-			if _fx_time >= FX_LINGER:
-				queue_free()
+func _physics_process(_delta: float) -> void:
+	if _state == State.FALLING:
+		_follow_body()
 
 
 ## The rock is where LABallistics put it. Nothing here integrates: this reads the one integrator's state.
@@ -246,7 +239,6 @@ func _up_at(pos: Vector3) -> Vector3:
 
 func _on_impact() -> void:
 	_state = State.IMPACTED
-	_fx_time = 0.0
 
 	# Momentum into the planet's orbit: the rock's own mass times its impact velocity.
 	var orbits: Node = get_tree().get_first_node_in_group("system_orbits")
@@ -260,19 +252,17 @@ func _on_impact() -> void:
 			var substrate: Object = _ecology.material_field()
 			if substrate != null and substrate.has_method("resample_terrain"):
 				substrate.resample_terrain(_impact_point, r * 1.5)
-	# Big splash if it struck water.
+	var into_water: bool = false
 	if _ecology != null and _ecology.has_method("material_field"):
 		var water: Object = _ecology.material_field()
 		if water != null and water.has_method("is_water_at") and water.is_water_at(_impact_point):
 			water.splash(_impact_point, r)
-			# White-hot rock hitting water flashes to steam — sizzle + a steam hiss.
-			LAAudioDirector.emit(get_tree(), "sizzle", _impact_point)
-			LAAudioDirector.emit(get_tree(), "steam", _impact_point)
+			into_water = true
 	if _ecology != null and _ecology.has_method("material_field") and r > 0.0:
 		_spend_impact(_ecology.material_field(), r)
 
-	impacted.emit(_impact_point)
-	LAAudioDirector.emit(get_tree(), "meteor_impact", _impact_point)
+	impacted.emit(_impact_point, into_water)
+	queue_free()
 
 
 ## THE IMPACT ENERGY IS ONE NUMBER. What the cavity gives up leaves at the launch speed and the rest stays

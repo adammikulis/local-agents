@@ -4,7 +4,6 @@ extends RefCounted
 
 const COMPANION_FOLLOW_DIST: float = 4.0   # a "follow" companion closes to this range, then heels/holds
 
-# The LAThrownRock actor, optional: a core creature runs with sim/ deleted, it just cannot throw.
 const THROWN_ROCK_SCENE: String = "res://addons/local_agents/sim/actors/ThrownRock.tscn"
 
 
@@ -106,19 +105,16 @@ static func _hunt_with_rock(c, pos: Vector3, prey: Node3D, to_prey: Vector3, fal
 
 
 static func _throw_rock_at(c, prey: Node3D) -> void:
-	if not ResourceLoader.exists(THROWN_ROCK_SCENE):
-		return   # no LAThrownRock actor (core/library build with sim/ deleted) — can't throw
 	c.has_rock = false
 	_set_rock_visual(c, false)
 	c._throw_cd = 2.5
 	var parent: Node = c.get_parent()
 	if parent == null:
 		return
-	var rock: Node = (load(THROWN_ROCK_SCENE) as PackedScene).instantiate()
+	var rock: LAThrownRock = (load(THROWN_ROCK_SCENE) as PackedScene).instantiate() as LAThrownRock
 	parent.add_child(rock)
-	if rock.has_method("setup"):
-		rock.setup(c.terrain, c._material)
-	rock.throw_at(c.global_position + Vector3(0, c.size, 0), prey, 26.0)
+	rock.setup(c.terrain, c._material)
+	rock.throw_at(c.global_position + c.terrain.up_at(c.global_position) * c.size, prey, 26.0)
 
 
 ## The meal is drawn out of the prey's body; the remainder stays on it as the carcass a scavenger strips.

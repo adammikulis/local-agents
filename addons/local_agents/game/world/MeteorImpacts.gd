@@ -119,10 +119,6 @@ func _arrival_point() -> Vector3:
 func _arrival_direction() -> Vector3:
 	var rng: LASimRng = LASimRng.for_domain("planet")
 	var v: Vector3 = rng.rand_dir()
-	var tries: int = 0
-	while (v.length() > 1.0 or v.length() < 0.001) and tries < 32:
+	while v.length() > 1.0 or v.length() < 0.001:
 		v = rng.rand_dir()
-		tries += 1
-	if v.length() < 0.001:
-		return Vector3.UP
 	return v.normalized()

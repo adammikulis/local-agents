@@ -11,8 +11,9 @@ DEMOS.md lists the example scenes.
 ## What is in the addon
 
 The addon is one plugin, and the game is deletable. Copy `addons/local_agents/` into your project,
-delete `game/`, and the agent, creature and simulation nodes keep working. The two references into
-`game/` from outside it are both soft, and "What deleting costs you" below names them.
+delete `game/`, and the agent, creature and simulation nodes keep working, except the actors that
+instance their views from `game/render/`. "What deleting costs you" below names every reference into
+`game/` from outside it.
 
 The compiled GDExtension in `gdextensions/localagents/` is a hard dependency. Build it before you run
 anything: `sim/` and the agent nodes name its classes as typed identifiers. INSTALL.md covers the build.
@@ -41,10 +42,10 @@ local-LLM streamer. `LocalAgentSimWorld` in SPHERE mode needs the optional zylan
 from https://github.com/Zylann/godot_voxel, FLAT mode needs nothing beyond this addon.
 `sim/EMERGENCE.md` explains the rule the simulation is built on.
 
-`game/`, `assets/` and `voices/` are the optional Anima game. `audio/` is not: `creatures/creature/
-CreatureThink.gd:158` and four actors under `sim/actors/` call `LAAudioDirector.emit()` to make a
-chomp, an impact or a weather sound. A creature making a noise is a stimulus broadcast like scent, so
-`audio/` is part of the library and deleting it is a parse error.
+`game/`, `assets/` and `voices/` are the optional Anima game. `audio/` is not:
+`creatures/creature/CreatureThink.gd` calls `LAAudioDirector.emit()` to make a kill's chomp. A
+creature making a noise is a stimulus broadcast like scent, so `audio/` is part of the library and
+deleting it is a parse error.
 
 ## Installing into your own project
 
@@ -56,12 +57,16 @@ chomp, an impact or a weather sound. A creature making a noise is a stimulus bro
 
 ### What deleting costs you
 
-Two files outside `game/` name a path inside it, and neither is a hard link. `examples/demos/
-voxel_planet_game.tres` is the catalogue entry for the flagship scene: its `scene_path` is an
-`@export_file` String rather than a `PackedScene`, so the resource still loads and its launcher row
-reports "Its scene is missing" instead of breaking the menu. `creatures/Creature.gd` names the game's
-combustion visual through `LAOptionalScript.resolve`, which returns null when the file is gone, so a
-creature still dies burned without it.
+These files outside `game/` name a path inside it:
+
+- `examples/demos/voxel_planet_game.tres` is the catalogue entry for the flagship scene. Its
+  `scene_path` is an `@export_file` String rather than a `PackedScene`, so the resource still loads
+  and its launcher row reports "Its scene is missing" instead of breaking the menu.
+- `examples/LifeDemo.tscn`, `examples/SliceRung0Demo.tscn` and `examples/SliceRung1Demo.tscn` instance
+  `game/VoxelWorld.tscn`. Delete them and their catalogue entries along with `game/`.
+- `sim/actors/ThrownRock.tscn` and `sim/actors/Meteor.tscn` instance their views from
+  `game/render/actors/`. A creature loads `ThrownRock.tscn` when it throws, so keep
+  `game/render/actors/` if your creatures hunt with rocks.
 
 Deleting `sim/` costs more than you might expect. Two example scenes name a `sim/` script on an
 `ext_resource` line:
@@ -78,15 +83,14 @@ rather than `sim/`, and only its `FieldBox` child loses its script. `SimWorldPla
 null. Neither reports anything at load. The failure surfaces later as a null-instance property access
 inside `demo_report()`, which only a `--run-frames` run reaches.
 
-The launcher does not warn you either. `LADemoLauncher.gate_reason()` at
-`examples/DemoLauncher.gd:90` only calls `ResourceLoader.exists(entry.scene_path)`, and that returns
-true for a `.tscn` whose script is gone, so both rows stay clickable. Delete those two scenes and
-their catalogue entries along with `sim/`, or keep `sim/`.
+The launcher does not warn you either. `LADemoLauncher.gate_reason()` in `examples/DemoLauncher.gd`
+only calls `ResourceLoader.exists(entry.scene_path)`, and that returns true for a `.tscn` whose script
+is gone, so both rows stay clickable. Delete those two scenes and their catalogue entries along with
+`sim/`, or keep `sim/`.
 
-The creature stack itself survives. `creatures/Creature.gd:369` and
-`creatures/creature/CreatureThink.gd:16` are the only other references into `sim/`, and both are plain
-String constants resolved through a guarded `ResourceLoader.exists()` at runtime. Without `sim/` a
-creature simply cannot throw a rock and shows no flame prop when it burns.
+The creature stack does not survive deleting `sim/`. `creatures/Creature.gd` and `creatures/Fish.gd`
+name `LAPhysical`, and other creature scripts name `LAFakes` and `LAThrownRock`, all `sim/` classes,
+as typed identifiers, so without `sim/` they fail to parse.
 
 Enabling the plugin registers the `AgentManager` autoload for you, so you do not add it by hand.
 `plugin.gd` writes it in `_enter_tree()`, and on disable it removes the entry only if the plugin was

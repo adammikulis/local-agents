@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # PRESENTATION MAY NOT LIVE ON THE SIM SIDE. Counts, under addons/local_agents/sim/, every construction of a
-# visual type, every load of a game/render or game/ui resource, and every read of the effects preset.
+# visual type, every load of a game/render or game/ui resource, every read of the effects preset and every
+# sound played.
 # A view belongs under game/render/ as a scene that reads sim state. May fall, may not rise.
 # EXIT 0 at or under the ceiling · 1 rose, or slack on the dev branch · 2 could not run.
 set -uo pipefail
@@ -18,7 +19,8 @@ case "$ceil" in "" | *[!0-9]*) echo "check_presentation_in_sim: the ceiling carr
 VISUAL='\b(MultiMesh|MultiMeshInstance3D|MeshInstance3D|[A-Z][A-Za-z]*Mesh|[A-Z][A-Za-z0-9]*Material3D|ShaderMaterial|ParticleProcessMaterial|GPUParticles3D|CPUParticles3D|OmniLight3D|SpotLight3D|DirectionalLight3D|Label3D|Sprite3D|Decal|Control|CanvasLayer|Label|Button|Panel|[A-Z][A-Za-z]*Container)\.new\('
 LOADS='(pre)?load\("res://addons/local_agents/game/(render|ui)/'
 PRESET='la_effects_scale'
-hits="$(rg -n --glob '!**/thirdparty/**' -g '*.gd' -e "$VISUAL" -e "$LOADS" -e "$PRESET" "$SIM" 2>/dev/null \
+SOUND='\bLAAudioDirector\b|\.play_sfx\(|\bAudioStreamPlayer(2D|3D)?\.new\('
+hits="$(rg -n --glob '!**/thirdparty/**' -g '*.gd' -e "$VISUAL" -e "$LOADS" -e "$PRESET" -e "$SOUND" "$SIM" 2>/dev/null \
 	| rg -v ':[0-9]+:[[:space:]]*#' || true)"
 n=0
 [ -n "$hits" ] && n="$(printf '%s\n' "$hits" | rg -c . || echo 0)"
