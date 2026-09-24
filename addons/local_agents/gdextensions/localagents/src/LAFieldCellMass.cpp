@@ -198,25 +198,6 @@ void LAFieldCellMass3D::regolith(Object *p_field) {
 				+ " rock-bearing cells, tables " + (walkable ? "walked" : "MISSING (surface depth or edges)")
 				+ ", shallowest rock top " + String::num(z_min) + " m.");
 	}
-	// A POROUS ROCK IS GRAINS AND PORES: the composition laid grains through the whole rock volume, and
-	// the share the pores take is not grain.
-	const Dictionary rows = la_call_gd(CHANNELS_GD, "rows", Array());
-	const Array names = rows.keys();
-	for (int i = 0; i < names.size(); i++) {
-		const String name = names[i];
-		if (!bool(Dictionary(rows[name]).get("lithic", false))) {
-			continue;
-		}
-		PackedFloat32Array a = LAFieldMirrors::of(p_field, name);
-		if (a.size() != cc) {
-			continue;
-		}
-		float *aw = a.ptrw();
-		for (int c = 0; c < cc; c++) {
-			aw[c] *= 1.0f - pw[c];
-		}
-		LAFieldMirrors::store(p_field, name, a);
-	}
 	p_field->set("_regolith", mask);
 	LAFieldMirrors::store(p_field, "grain", grain);
 	LAFieldMirrors::store(p_field, "porosity", por);
@@ -283,8 +264,8 @@ double LAFieldCellMass3D::gas_moles_at(Object *p_field, int p_c, double p_cell_m
 	return n;
 }
 
-// THE ROCK'S OWN TEMPERATURE per cell, C: the geotherm's mean over the depth span of the rock the cell
-// holds, running down from the local ground; a cell with no rock reads the surface's.
+// Each cell's energy at the state compress solved it at: the lattice at the rock's geotherm, the fluid at
+// the surface's.
 void LAFieldCellMass3D::seed_enthalpy(Object *p_field, const PackedFloat32Array &p_t_rock,
 		const Dictionary &p_balance) {
 	Object *p_grid = p_field ? Object::cast_to<Object>(p_field->get("_grid")) : nullptr;

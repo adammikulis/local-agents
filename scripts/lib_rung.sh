@@ -27,19 +27,15 @@ la_rung_value() {
 	return 0
 }
 
-# $1 the report block, $2 a key, $3 a gauge field: that field's number, or a scalar's own.
-la_rung_field() {
+# The gauge's worst reading over the run: its 'max' field.
+la_rung_max() {
 	local raw
 	raw="$(printf '%s\n' "$1" | sed -n "s/^$2  *= *//p" | head -1)"
 	case "$raw" in "" | *ABSENT* | *None*) return 0 ;; esac
-	raw="$(printf '%s' "$raw" | sed -e "s/.*'$3': *//" -e 's/[,}].*//' -e "s/[^0-9eE.+-]//g")"
+	raw="$(printf '%s' "$raw" | sed -e "s/.*'max': *//" -e 's/[,}].*//' -e "s/[^0-9eE.+-]//g")"
 	la_rung_numeric "$raw" && printf '%s' "$raw"
 	return 0
 }
-
-# The gauge's worst reading over the run: its 'max' field. Its least: 'min'.
-la_rung_max() { la_rung_field "$1" "$2" max; }
-la_rung_min() { la_rung_field "$1" "$2" min; }
 
 # $1 the report block, then key names. Exits 2 naming the first key that carries no number.
 la_rung_require() {

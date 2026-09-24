@@ -30,6 +30,7 @@ struct Push {
 struct World {
 	Lattice lat = Lattice::box(kNx, kNy, kNz, kEdgeM, 0.0f, 0.0f, 0.0f);
 	std::vector<float> rho;
+	std::vector<float> lithic;   // the lattice's share of rho
 	std::vector<float> solid;
 	std::vector<float> grav;     // cell*3
 	std::vector<float> pressure; // what stands in the cell before the pass
@@ -42,6 +43,7 @@ World draw(Rng &rng, bool open_top) {
 	World w;
 	const uint32_t n = w.lat.cells();
 	w.rho.assign(n, 0.0f);
+	w.lithic.assign(n, 0.0f);
 	w.solid.assign(n, 1.0f);
 	w.grav.assign(size_t(n) * 3u, 0.0f);
 	w.pressure.assign(n, 0.0f);
@@ -60,6 +62,7 @@ World draw(Rng &rng, bool open_top) {
 	w.up[2] = -gz;
 	for (uint32_t c = 0; c < n; ++c) {
 		w.rho[c] = rng.decades(1.0f, 5.0e3f);
+		w.lithic[c] = w.rho[c] * rng.range(0.0f, 1.0f);
 		const float gm = rng.range(1.0f, 25.0f);
 		w.grav[c * 3u] = gx * gm;
 		w.grav[c * 3u + 1u] = gy * gm;
@@ -77,15 +80,19 @@ World draw(Rng &rng, bool open_top) {
 	return w;
 }
 
-// The weight per unit area of one cell's own matter, Pa: rho g projected onto the step the march takes.
-double load_of(const World &w, uint32_t c) {
+// The weight per unit area of `rho` kg/m^3 in one cell, Pa: rho g projected onto the step the march takes.
+double weight_of(const World &w, uint32_t c, float rho) {
 	const double gx = w.grav[c * 3u];
 	const double gy = w.grav[c * 3u + 1u];
 	const double gz = w.grav[c * 3u + 2u];
 	const double gm = std::sqrt(gx * gx + gy * gy + gz * gz);
 	if (gm <= 0.0) { return 0.0; }
 	const double m = std::fmax(std::fmax(std::fabs(w.up[0]), std::fabs(w.up[1])), std::fabs(w.up[2]));
-	return double(w.rho[c]) * gm * double(kEdgeM) * m;
+	return double(rho) * gm * double(kEdgeM) * m;
+}
+
+double load_of(const World &w, uint32_t c) {
+	return weight_of(w, c, w.rho[c]);
 }
 
 void load(Rig &rig, const World &w) {
@@ -93,12 +100,14 @@ void load(Rig &rig, const World &w) {
 	rig.put(LA_BIND_CELL_EDGE, w.lat.cell_edge);
 	rig.put(LA_BIND_SOLID, w.solid);
 	rig.put(LA_BIND_RHO_BULK, w.rho);
+	rig.put(LA_BIND_LITHIC_KG, w.lithic);
 	rig.put(LA_BIND_G_REST, w.grav);
 	rig.put(LA_BIND_PRESSURE, w.pressure);
 }
 
 // THE COLUMN FROM THE TOP FACE: half this cell's own load plus every load standing over it, ending at
-// the first open cell's own pressure or at the box top.
+// the first open cell's own pressure with what it holds under it -- its lattice whole, its fluid from its
+// mean -- or at the box top.
 bool prop_column_is_the_integral(Case &c) {
 	std::string err;
 	Rig rig(c.dev, "pressure", kWords, err);
@@ -123,7 +132,9 @@ bool prop_column_is_the_integral(Case &c) {
 			int32_t a = w.lat.vert_up[g];
 			for (uint32_t i = 0; i < p.max_steps && a >= 0; ++i) {
 				if (w.solid[uint32_t(a)] == 0.0f) {
-					top = double(w.pressure[uint32_t(a)]);
+					const double under = 0.5 * (load_of(w, uint32_t(a)) + weight_of(w, uint32_t(a), w.lithic[uint32_t(a)]));
+					top = double(w.pressure[uint32_t(a)]) + under;
+					abs_terms += std::fabs(under);
 					break;
 				}
 				const double l = load_of(w, uint32_t(a));

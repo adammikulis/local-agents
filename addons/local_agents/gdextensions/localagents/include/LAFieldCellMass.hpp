@@ -24,8 +24,7 @@ public:
 	static void upload_regolith(RenderingDevice *p_rd, const Dictionary &p_bufs, Object *p_field);
 	static void upload_solid(RenderingDevice *p_rd, const Dictionary &p_bufs, Object *p_field);
 	// The regolith walk: the permeable mask, Athy porosity and grain size of the rock within the
-	// circulation depth of its ground, and the pores opened in its grains. Writes _regolith, _grain,
-	// _porosity and the lithic channels.
+	// circulation depth of its ground. Writes _regolith, _grain, _porosity.
 	static void regolith(Object *p_field);
 	static double gas_moles_at(Object *p_field, int p_c, double p_cell_m3);
 	// [mirror array, molar mass kg/mol] for every channel the field carries as an amount of matter.

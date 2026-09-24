@@ -13,6 +13,7 @@ layout(local_size_x = 64) in;
 
 layout(set = 0, binding = LA_BIND_PRESSURE, std430) restrict buffer Pressure { float pressure[]; };
 layout(set = 0, binding = LA_BIND_RHO_BULK, std430) restrict readonly buffer RhoBulk { float rho_bulk[]; };
+layout(set = 0, binding = LA_BIND_LITHIC_KG, std430) restrict readonly buffer LithicKg { float lithic_kg[]; };  // grains + pore water, kg/m^3
 layout(set = 0, binding = LA_BIND_SOLID, std430) restrict readonly buffer Solid { float solid[]; };
 // Solved gravity, flat cell*3, m/s^2.
 layout(set = 0, binding = LA_BIND_G_REST, std430) restrict readonly buffer Grav { float g_field[]; };
@@ -41,15 +42,19 @@ bool la_up(uint c, out vec3 up, out float gmag) {
 	return true;
 }
 
-// Weight per unit area of the matter in `c`, Pa: dp/dz = rho g over the step's projection on the vertical.
-float la_load(uint c) {
+// Weight per unit area of `rho` kg/m^3 in `c`, Pa: dp/dz = rho g over the step's projection on the vertical.
+float la_weight(uint c, float rho) {
 	vec3 up;
 	float gmag;
 	if (!la_up(c, up, gmag)) {
 		return 0.0;
 	}
 	float m = max(max(abs(up.x), abs(up.y)), abs(up.z));
-	return rho_bulk[c] * gmag * cell_edge[c] * m;
+	return rho * gmag * cell_edge[c] * m;
+}
+
+float la_load(uint c) {
+	return la_weight(c, rho_bulk[c]);
 }
 
 void main() {
@@ -66,9 +71,9 @@ void main() {
 	float top = params.p_top;
 	int a = vert_up[g];
 	for (uint i = 0u; i < params.max_steps && a >= 0; ++i) {
-		// Rock stands under whatever fluid is on it: the first open cell ends the march at its pressure.
+		// The first open cell ends the march: its pressure, and under it its lattice whole and its fluid from its mean.
 		if (solid[uint(a)] == 0.0) {
-			top = pressure[uint(a)];
+			top = pressure[uint(a)] + 0.5 * (la_load(uint(a)) + la_weight(uint(a), lithic_kg[uint(a)]));
 			break;
 		}
 		acc += la_load(uint(a));

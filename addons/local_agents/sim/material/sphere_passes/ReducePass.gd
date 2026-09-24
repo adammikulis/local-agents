@@ -50,7 +50,7 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 		return
 	for row: Dictionary in LAProcessSet.reduce_rows():
 		var src: String = String(row["source"])
-		var aux: String = String(row.get("aux", ""))
+		var aux: String = String(row.get("aux", row.get("less", "")))
 		var aux2: String = String(row.get("aux2", ""))
 		var ref: String = String(row.get("ref", ""))
 		var gate: String = String(row.get("gate", ""))
@@ -164,8 +164,8 @@ func _fold_mode(op: int) -> int:
 #          float gate_lo, gate_hi; uint nbr; } — 44 bytes.
 func _pc(cc: int, row: Dictionary, base: int) -> PackedByteArray:
 	var gate: String = String(row.get("gate", ""))
-	var has_aux: int = 0
-	if String(row.get("aux", "")) != "":
+	var has_aux: int = 3 if String(row.get("less", "")) != "" else 0
+	if has_aux == 0 and String(row.get("aux", "")) != "":
 		has_aux = 2 if String(row.get("aux2", "")) != "" else 1
 	var has_gate: int = 0
 	if gate != "":

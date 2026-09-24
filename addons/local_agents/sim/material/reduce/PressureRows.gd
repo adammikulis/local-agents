@@ -26,9 +26,10 @@ static func rows() -> Array:
 		"mask": Rec.Mask.OPEN}, true)
 	out.append(rest.merged({"key": "pressure_seed_latch", "op": Rec.Op.LATCH}, true))
 	out.append(rest.merged({"key": "pressure_rest_rel", "op": Rec.Op.MAX_REL_DIFF}, true))
-	# THE COLUMN'S RANGE: vacuum to the greatest pressure the rock states. Every cell's fluid stands in it; an
-	# open cell's pressure is its fluid's, a locked cell's its column.
-	out.append(held.merged({"key": "pressure_col_max", "source": "pressure", "op": Rec.Op.MAX, "mask": Rec.Mask.SOLID}, true))
-	out.append(held.merged({"key": "pressure_fluid_max", "source": "p_fluid", "op": Rec.Op.MAX, "mask": Rec.Mask.ALL}, true))
-	out.append(held.merged({"key": "pressure_fluid_min", "source": "p_fluid", "op": Rec.Op.MIN, "mask": Rec.Mask.ALL}, true))
+	# EVERY SEALED CELL AGAINST ITS OWN COLUMN: a locked cell's fluid over the load its own rock carries, the
+	# worst excess in Pa, and a locked cell's fluid under vacuum.
+	var own: Dictionary = held.merged({"source": "p_fluid", "less": "pressure", "mask": Rec.Mask.SOLID}, true)
+	out.append(own.merged({"key": "pressure_fluid_over_col", "op": Rec.Op.COUNT_GT, "threshold": 0.0}, true))
+	out.append(own.merged({"key": "pressure_fluid_over_col_pa", "op": Rec.Op.MAX}, true))
+	out.append(held.merged({"key": "pressure_fluid_under_vacuum", "source": "p_fluid", "op": Rec.Op.COUNT_LT, "threshold": 0.0, "mask": Rec.Mask.SOLID}, true))
 	return out

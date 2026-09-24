@@ -80,7 +80,7 @@ const IN_KERNEL: Dictionary = {
 		"org_h", "org_o", "fert", "metal", "olivine", "pyroxene", "plagioclase", "halite", "apatite", "h2",
 		"co", "so2", "h2s", "ch4", "h2o_pore", "gravity", "grav_phi", "grav_ref", "grav_density",
 		"grav_cellflag", "grav_moments", "grav_partials", "grav_props"],
-	"pressure.glsl": ["vert_up", "cell_edge", "solid", "pressure", "rho_bulk", "g_rest"],
+	"pressure.glsl": ["vert_up", "cell_edge", "solid", "pressure", "rho_bulk", "lithic_kg", "g_rest"],
 	"reactions_sphere3d.glsl": ["vert_up", "vert_down", "cell_edge", "h2o", "silicate", "carbonate",
 		"silica", "o2", "co2", "n2", "biomass", "fungus", "detritus", "fuel", "org_h", "org_o", "fert",
 		"e_j_m3", "regolith", "grain", "temp", "solid", "pressure", "h2o_solid", "h2o_liquid", "h2o_vapour",
