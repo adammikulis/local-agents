@@ -12,7 +12,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FRAMES="${LA_SEALED_FRAMES:-2}"
 KEYS="nonfinite_cells,solid_cells,pressure_fluid_over_col,pressure_fluid_over_col_pa,pressure_fluid_under_vacuum"
 
-# $1 the arm's name, $2 its report block, $3 the run's exit. Exits 2 on a reading never taken.
+# $1 the arm's name, $2 its report block, $3 the run's exit. Sets bad on a cell that is no state, unread
+# on an arm that published none.
 judge() {
 	la_rung_require "$2" nonfinite_cells solid_cells pressure_fluid_over_col pressure_fluid_over_col_pa \
 		pressure_fluid_under_vacuum
@@ -26,7 +27,8 @@ judge() {
 		;;
 	*)
 		echo "check_sealed_state_range: the $1 run published no sealed state to read (exit $3)." >&2
-		exit 2
+		unread=1
+		return
 		;;
 	esac
 	local nf sealed over worst under
@@ -40,7 +42,8 @@ judge() {
 	if ! awk -v s="$sealed" 'BEGIN{exit !(s > 0)}'; then
 		echo "check_sealed_state_range: the $1 run read no locked cell, so no cell was held to" >&2
 		echo "                          its column." >&2
-		exit 2
+		unread=1
+		return
 	fi
 	awk -v n="$nf" 'BEGIN{exit !(n == 0)}' || {
 		echo "check_sealed_state_range: $1: $nf cell(s) hold a temperature at or below absolute zero, or a" >&2
@@ -59,6 +62,7 @@ judge() {
 }
 
 bad=0
+unread=0
 body="$(la_report "$KEYS" --path "$ROOT" --body --rung 2 --frames "$FRAMES")"
 judge body "$body" $?
 slice="$("$ROOT/scripts/sim_run.sh" --report "$KEYS" --path "$ROOT" --slice --rung 2 --frames "$FRAMES" 2>&1)"
@@ -67,4 +71,5 @@ if [ "$bad" -ne 0 ]; then
 	echo "Reproduce with: scripts/sim_run.sh --body|--slice --rung 2 --frames $FRAMES --report $KEYS" >&2
 	exit 1
 fi
+[ "$unread" -eq 0 ] || exit 2
 echo "check_sealed_state_range: OK"

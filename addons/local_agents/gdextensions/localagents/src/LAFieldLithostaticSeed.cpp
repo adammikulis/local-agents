@@ -765,6 +765,9 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 		pf[c] = float(p);
 		pr[c] = float(rock);
 		rw[c] = float(rho[c] > 0.0 ? sums_at(c, p, rock, false).room : 0.0);
+		ERR_FAIL_COND_V_MSG(!std::isfinite(w[c]) || !std::isfinite(pf[c]) || !std::isfinite(pr[c]), Dictionary(),
+				"LAFieldLithostaticSeed: cell " + String::num_int64(c) + " states a pressure past the field's "
+				"float range.");
 	}
 	Dictionary both;
 	both["pressure"] = out;
