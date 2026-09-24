@@ -125,6 +125,9 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
 - [ ] **Five gases have no solid heat capacity.** N2, O2, CO, CH4 and CO2 carry melting lines but no
       `specific_heat_solid`, so any state below their melting line is NaN. Reading:
       `LASubstances.table()["n2"]` has no `specific_heat_solid`.
+- [ ] **Dissolved fixed nitrogen weighs and warms like basalt.** Its row's density and heat capacity move
+      with every change to the rock's. Reading: `fixed_n_entry` reads `ROCK_DENSITY_KG_M3` and
+      `ROCK_SPECIFIC_HEAT_J_KGK`.
 - [ ] **Metastability** — supercooled water, superheated liquid. Real, and arguably beyond this granularity.
 
 ## B. The substrate's state

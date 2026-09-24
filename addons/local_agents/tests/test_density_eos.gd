@@ -1,11 +1,13 @@
 @tool
 extends RefCounted
 
-## density() against the ideal gas law, thermal expansivity, bulk modulus and the reference fallback.
+## density() against the dilute ideal gas, thermal expansivity, the isothermal bulk modulus, and absence.
 
 const PC: GDScript = preload("res://addons/local_agents/sim/material/PhysicalConstants.gd")
 
 const P_ATM: float = 101325.0
+## Pa: dilute enough that the ideal gas law, every gas's p -> 0 limit, holds to one part per million.
+const P_DILUTE: float = 10.0
 
 
 func _fail(msg: String) -> bool:
@@ -16,27 +18,27 @@ func _fail(msg: String) -> bool:
 func run_test(_tree: SceneTree) -> bool:
 	var ok: bool = true
 
-	# A gas obeys p M / R T.
+	# A dilute gas obeys p M / R T.
 	var t_c: float = 15.0
-	var rho_n2: float = LASubstances.density("n2", t_c, P_ATM)
-	var want: float = P_ATM * PC.MOLAR_MASS_N2_KG_MOL \
+	var rho_n2: float = LASubstances.density("n2", t_c, P_DILUTE)
+	var want: float = P_DILUTE * PC.MOLAR_MASS_N2_KG_MOL \
 		/ (PC.GAS_CONSTANT_J_MOL_K * (t_c + PC.KELVIN_OFFSET))
 	if absf(rho_n2 - want) > want * 1.0e-6:
-		ok = _fail("N2 at 1 atm reads %s kg/m3 against the ideal gas law's %s. density() is not solving "
-			% [String.num(rho_n2, 6), String.num(want, 6)] + "p M / R T for a gas.")
+		ok = _fail("N2 at %s Pa reads %s kg/m3 against the ideal gas law's %s. density() is not solving "
+			% [String.num(P_DILUTE, 1), String.num(rho_n2, 12), String.num(want, 12)] + "p M / R T for a gas.")
 
-	# One scale height up the pressure is down by 1/e and so is the density, at fixed temperature.
-	var p_up: float = P_ATM * exp(-1.0)
+	# One scale height up the pressure is down by 1/e and so is a dilute gas's density, at fixed temperature.
+	var p_up: float = P_DILUTE * exp(-1.0)
 	var rho_up: float = LASubstances.density("n2", t_c, p_up)
 	if not (rho_up < rho_n2):
 		ok = _fail("N2 at %s Pa is not thinner than at %s Pa. Air does not fall off with altitude."
-			% [String.num(p_up, 1), String.num(P_ATM, 1)])
+			% [String.num(p_up, 3), String.num(P_DILUTE, 1)])
 	if absf(rho_up - rho_n2 * exp(-1.0)) > rho_n2 * 1.0e-6:
 		ok = _fail("N2 one scale height up reads %s, not the %s the ideal gas law gives."
-			% [String.num(rho_up, 6), String.num(rho_n2 * exp(-1.0), 6)])
+			% [String.num(rho_up, 12), String.num(rho_n2 * exp(-1.0), 12)])
 
 	# Warming a gas at fixed pressure thins it.
-	if not (LASubstances.density("n2", 100.0, P_ATM) < rho_n2):
+	if not (LASubstances.density("n2", 100.0, P_ATM) < LASubstances.density("n2", t_c, P_ATM)):
 		ok = _fail("Warm N2 is not lighter than cold N2 at the same pressure.")
 
 	# Liquid water is denser cold than hot.
@@ -57,7 +59,8 @@ func run_test(_tree: SceneTree) -> bool:
 	if not (rho_deep > rho_shallow):
 		ok = _fail("Rock at the base of the modelled crust is not denser than rock at the surface. "
 			+ "The bulk modulus is not reaching density().")
-	var squeeze: float = (PC.LITHIFICATION_PRESSURE_PA - P_ATM) / PC.ROCK_BULK_MODULUS_PA
+	var k_t: float = float(LASubstances.table()["silicate"]["bulk_modulus_pa"])
+	var squeeze: float = (PC.LITHIFICATION_PRESSURE_PA - P_ATM) / k_t
 	if absf((rho_deep / rho_shallow - 1.0) - squeeze) > squeeze * 0.01:
 		ok = _fail("Rock compresses by %s over that pressure against the %s its bulk modulus gives."
 			% [String.num(rho_deep / rho_shallow - 1.0, 8), String.num(squeeze, 8)])
@@ -70,11 +73,10 @@ func run_test(_tree: SceneTree) -> bool:
 	if not (LASubstances.density("h2o", -5.0, P_ATM) < LASubstances.density("h2o", 1.0, P_ATM)):
 		ok = _fail("Ice is not lighter than the water beside it. Lakes would freeze from the bottom.")
 
-	# A substance with no expansivity or bulk modulus reports its reference value.
+	# A substance with no expansivity or bulk modulus has no density off its reference: NaN, never a value.
 	if LASubstances.has_eos("fixed_n"):
 		ok = _fail("fixed_n claims an equation of state; this test's premise is stale.")
-	var rho_ref: float = float(LASubstances.table()["fixed_n"]["density"])
-	if absf(LASubstances.density("fixed_n", 200.0, 5.0e7) - rho_ref) > 0.0:
-		ok = _fail("fixed_n moved off its reference value without a coefficient to move it.")
+	if not is_nan(LASubstances.density("fixed_n", 200.0, 5.0e7)):
+		ok = _fail("fixed_n reports a density off its reference with no coefficient to carry it there.")
 
 	return ok

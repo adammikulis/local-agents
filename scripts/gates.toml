@@ -562,6 +562,20 @@ kind = "headless"
 marker = "^check_condensed_moduli: OK"
 
 [[gate]]
+name = "check_modulus_paths"
+script = "scripts/check_modulus_paths.sh"
+kind = "text"
+marker = "^check_modulus_paths: OK"
+mutation = [
+	"perl -0pi -e 's/LAPhaseEosFn::isothermal_modulus\\((pc\\(\"ROCK_BULK_MODULUS_S_PA\"\\)),[^;]*;/$1;/s' addons/local_agents/gdextensions/localagents/src/LASubstances.cpp",
+	"perl -pi -e 's/QUARTZ_BULK_MODULUS_T_PA/QUARTZ_BULK_MODULUS_PA/g' addons/local_agents/sim/material/PhysicalConstants.gd addons/local_agents/gdextensions/localagents/src/LASubstances.cpp",
+	"printf 'const MUTANT_K: float = LAPhysical.ROCK_BULK_MODULUS_S_PA\\n' >> scripts/dump_substances.gd",
+	"printf 'not an index' > \"$(git rev-parse --git-path index)\" && { scripts/check_modulus_paths.sh >/dev/null 2>&1; test $? -eq 2; }",
+	"rm scripts/*.gd && { scripts/check_modulus_paths.sh >/dev/null 2>&1; test $? -eq 2; }",
+	"perl -pi -e 's/float\\(LASubstances\\.table\\(\\)\\[\"silicate\"\\]\\[\"bulk_modulus_pa\"\\]\\)/PC.ROCK_BULK_MODULUS_S_PA/' addons/local_agents/tests/test_density_eos.gd",
+]
+
+[[gate]]
 name = "check_melting_lines"
 script = "scripts/check_melting_lines.sh"
 kind = "headless"
