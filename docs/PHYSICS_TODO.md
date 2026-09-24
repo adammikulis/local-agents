@@ -120,11 +120,11 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       structure to be built.
 - [ ] **Glass vs crystalline.** Quenched basalt releases different heat than slow-cooled; `latent_rock` is
       one number.
-- [ ] **A melt heats as its solid, and molten halite has no compression.** `LAMixtureEnthalpy.thermal_row`
-      fills `specific_heat_solid` and `specific_heat_gas` from `specific_heat`. Molten NaCl carries no
-      measured K' (Bockris & Richards 1957 give its 1-bar sound speed only), so any halite melt off one
-      atmosphere is an error: `LASubstances.density("halite", 1500.0, 1.0e9)` reads 0. Apatite carries no
-      melting point or melt. Reading: `LASubstances.eos_of("halite")["liquid"]["k"]` is NaN.
+- [ ] **Apatite never melts.** Its row carries no melting point, latent heat or melt. Reading:
+      `LASubstances.table()["apatite"]` has no `melt_c`.
+- [ ] **Five gases have no solid heat capacity.** N2, O2, CO, CH4 and CO2 carry melting lines but no
+      `specific_heat_solid`, so any state below their melting line is NaN. Reading:
+      `LASubstances.table()["n2"]` has no `specific_heat_solid`.
 - [ ] **Metastability** — supercooled water, superheated liquid. Real, and arguably beyond this granularity.
 
 ## B. The substrate's state
@@ -214,7 +214,7 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
 
 ## F. Prescribed where it should emerge
 
-- [ ] **The geotherm's adiabats use the expansivity at one atmosphere.** `FieldGeothermSeed3D.gd`
+- [ ] **The geotherm's adiabats use the expansivity at one atmosphere.** `LAPlanetTables.cpp` `geotherm_on_profile`
       integrates both adiabats with each substance's STP `expansion_per_k`, so the inner core seeds far above
       the real ~6000 K. The Anderson-Gruneisen relation alpha(P) = alpha0 K0 / K(P) off the same compression
       the EOS carries is the law; cite it.

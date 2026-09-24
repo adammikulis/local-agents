@@ -33,8 +33,7 @@ struct LACondensedEos {
 	double melt_c = 0.0;        // solidus at p_ref
 	double width = 0.0;         // liquidus - solidus, K
 	double p_ref = 0.0;
-	// The melting line T_m(p): 0 the Clapeyron line T = melt_c + a1 (p - p0) with a1 in K/Pa; 1 Simon,
-	// p = p0 + a1 ((T/T0)^c1 - 1); 2 a reduced polynomial, p = p0 (1 + a1 th^c1 + a2 th^c2), th = T/T0 - 1.
+	// The melting line, LAMeltingLine.hpp's kinds and coefficients.
 	int fusion_kind = 0;
 	double fusion_t0_k = 0.0;
 	double fusion_p0 = 0.0;
@@ -42,6 +41,13 @@ struct LACondensedEos {
 	double fusion_c1 = 0.0;
 	double fusion_a2 = 0.0;
 	double fusion_c2 = 0.0;
+};
+
+// A row's standard state, 298.15 K and 1 bar: the phase it stands in there (0 solid, 1 liquid, 2 gas),
+// where every branch of its enthalpy ladder is integrated from.
+struct LAAnchor {
+	int phase = 0;
+	double t_c = 0.0;
 };
 
 // A fluid's Peng-Robinson constants: a(T) = a_c (1 + kappa (1 - sqrt(T/Tc)))^2, b.
@@ -57,10 +63,12 @@ namespace LAPhaseEosFn {
 
 const LACondensedEos &condensed(const String &p_id);
 const LAFluidEos &fluid(const String &p_id);
+const LAAnchor &anchor(const String &p_id);
 bool gas_at(const String &p_id, double p_t_c, double p_p_pa);
 double solidus_c(const LACondensedEos &p_c, double p_p_pa);
 double melt_fraction(const LACondensedEos &p_c, double p_t_c, double p_p_pa);
-// Specific volume of one phase, m^3/kg; 0 where the phase or its state is not measured.
+// Specific volume of one phase, m^3/kg: 0 where the row names no such phase, NaN with a named error where
+// the state asks for a coefficient the table does not measure.
 double phase_volume(const LAPhaseEos &p_e, double p_t_c, double p_p_pa);
 double phase_k_t(const LAPhaseEos &p_e, double p_p_pa);
 // The mixed condensed state, lever-ruled across the melting interval. 0 where a phase present is unmeasured.

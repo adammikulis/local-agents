@@ -97,7 +97,7 @@ RUNGS = [
     ("no liquid below the triple point", "la_sublimes_at",         "sublimes_at",             "ladder"),
     ("the frost point",                  "la_sublimation_c_at",    "sublimation_c_at",        "ladder"),
     ("the sublimation latent heat",      "la_latent_sublimation",  "latent_sublimation_j_kg", "ladder"),
-    ("the melting INTERVAL",             "la_liquidus_c_at",       "liquidus_c_at",           "ladder"),
+    ("the melting INTERVAL",             "la_liquidus_over",       "liquidus_c_at",           "ladder"),
     ("water's saturation curve",         "la_iapws_saturation_t_k", "iapws_saturation_t_k",   "ladder"),
     ("water's sublimation curve",        "la_iapws_sublimation_t_k", "iapws_sublimation_t_k", "ladder"),
     ("the ice Ih melting curve",         "la_iapws_melting_ih_t_k", "iapws_melting_ih_t_k",   "ladder"),
@@ -119,7 +119,7 @@ MIX_RUNGS = [
 
 # One canonical spelling per quantity, so the two languages' syntax does not count as a difference.
 ALIAS = [(r'\bs\.', ''), (r'\bPC\.', ''), (r'\bLA_KELVIN_OFFSET\b', 'KELVIN_OFFSET'),
-         (r'\bmelt\b', 'melt_c'), (r'\bfloat\b', ''), (r'\bvar\b', '')]
+         (r'\bmelt\b', 'melt_c'), (r'\bfloat\b', ''), (r'\bvar\b', ''), (r'\bla_anchor_', 'anchor_')]
 
 
 def body(txt, opener):

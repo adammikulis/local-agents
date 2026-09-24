@@ -29,12 +29,11 @@ public:
 	static Array mirrors(Object *p_field);
 	// The channel names mirrors() returned, in the same order, so a per-mirror total can be named.
 	static PackedStringArray mirror_names(Object *p_field);
+	// C per cell: the geotherm's mean over the cell's span under the surface; a cell with none, p_t_surface_c.
+	static PackedFloat32Array rock_temperature(Object *p_field, Object *p_grid, double p_r_body, double p_t_surface_c,
+			const PackedFloat32Array &p_depth);
 	// THE ENTHALPY SEED, one pass over every cell: each ladder entry off its own curve at the cell's
-	// geotherm temperature and marched pressure, everything else sensible at its capacity. Returns
-	// {"h": J/m^3 per cell, "total_j": joules created}. p_profile is T(r) in kelvin over SAMPLES radii
-	// from the centre to p_r_body; cells outside the body take p_t_surface_c.
-	static PackedFloat32Array rock_temperature(Object *p_field, Object *p_grid, const PackedFloat32Array &p_profile,
-			double p_r_body, double p_t_surface_c, const PackedFloat32Array &p_depth);
+	// geotherm temperature and marched pressure. Returns {"e", "e_lith": J/m^3 per cell, "total_j"}.
 	static Dictionary seed_enthalpy(Object *p_field, Object *p_grid, const PackedFloat32Array &p_t_rock,
 			double p_t_surface_c, const PackedFloat32Array &p_p_pa, const PackedFloat32Array &p_p_rock);
 	// Moles per m^3 summed into kilograms per m^3 for one cell. Times the cell's own volume is its mass.

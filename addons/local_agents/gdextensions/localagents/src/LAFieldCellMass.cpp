@@ -5,6 +5,7 @@
 #include "LAFieldMirrors.hpp"
 #include "LAScriptCall.hpp"
 #include "LASubstances.hpp"
+#include "LAPlanetTables.hpp"
 #include "LAMixtureEnthalpy.hpp"
 #include "LAPhysicalRead.hpp"
 
@@ -264,9 +265,8 @@ double LAFieldCellMass3D::gas_moles_at(Object *p_field, int p_c, double p_cell_m
 
 // THE ROCK'S OWN TEMPERATURE per cell, C: the geotherm's mean over the depth span of the rock the cell
 // holds, running down from the local ground; a cell with no rock reads the surface's.
-PackedFloat32Array LAFieldCellMass3D::rock_temperature(Object *p_field, Object *p_grid,
-		const PackedFloat32Array &p_profile, double p_r_body, double p_t_surface_c,
-		const PackedFloat32Array &p_depth) {
+PackedFloat32Array LAFieldCellMass3D::rock_temperature(Object *p_field, Object *p_grid, double p_r_body,
+		double p_t_surface_c, const PackedFloat32Array &p_depth) {
 	PackedFloat32Array out;
 	if (!p_field || !p_grid) {
 		return out;
@@ -274,28 +274,30 @@ PackedFloat32Array LAFieldCellMass3D::rock_temperature(Object *p_field, Object *
 	const int cc = int(p_field->get("_cell_count"));
 	const PackedFloat32Array edges = p_grid->call("cell_edges");
 	const double kelvin = la_physical("KELVIN_OFFSET");
-	const int samples = p_profile.size();
-	out.resize(cc);
-	float *w = out.ptrw();
+	// The mean over each cell's rock: N_S depths through its span under the surface.
+	const int n_s = 16;
+	PackedFloat64Array z;
+	z.resize(cc * n_s);
+	std::vector<bool> rock(cc, false);
 	for (int c = 0; c < cc; c++) {
 		const double depth = c < p_depth.size() ? double(p_depth[c]) : 0.0;
 		const double e = c < edges.size() ? double(edges[c]) : 0.0;
 		const double d_lo = std::max(depth - 0.5 * e, 0.0);
 		const double d_hi = depth + 0.5 * e;
-		double t_rock = p_t_surface_c;
-		if (samples >= 2 && p_r_body > 0.0 && d_hi > d_lo) {
-			const int n_s = 16;
-			double acc = 0.0;
-			for (int k = 0; k < n_s; k++) {
-				const double d = d_lo + (d_hi - d_lo) * (double(k) + 0.5) / double(n_s);
-				const double x = std::max(p_r_body - d, 0.0) / p_r_body * double(samples - 1);
-				int i = int(std::floor(x));
-				i = std::min(std::max(i, 0), samples - 2);
-				acc += double(p_profile[i]) + (double(p_profile[i + 1]) - double(p_profile[i])) * (x - double(i));
-			}
-			t_rock = acc / double(n_s) - kelvin;
+		rock[c] = d_hi > d_lo;
+		for (int k = 0; k < n_s; k++) {
+			z[c * n_s + k] = d_lo + (d_hi - d_lo) * (double(k) + 0.5) / double(n_s);
 		}
-		w[c] = float(t_rock);
+	}
+	const PackedFloat64Array t_k = LAPlanetComposition::geotherm_at_depths(p_r_body, p_t_surface_c, z);
+	out.resize(cc);
+	float *w = out.ptrw();
+	for (int c = 0; c < cc; c++) {
+		double acc = 0.0;
+		for (int k = 0; k < n_s; k++) {
+			acc += t_k[c * n_s + k];
+		}
+		w[c] = float(rock[c] ? acc / double(n_s) - kelvin : p_t_surface_c);
 	}
 	return out;
 }
@@ -460,7 +462,7 @@ void LAFieldCellMass3D::_bind_methods() {
 	ClassDB::bind_static_method("LAFieldCellMass3D",
 			D_METHOD("gas_moles_at", "field", "cell", "cell_m3"), &LAFieldCellMass3D::gas_moles_at);
 	ClassDB::bind_static_method("LAFieldCellMass3D",
-			D_METHOD("rock_temperature", "field", "grid", "profile", "r_body", "t_surface_c", "depth"),
+			D_METHOD("rock_temperature", "field", "grid", "r_body", "t_surface_c", "depth"),
 			&LAFieldCellMass3D::rock_temperature);
 	ClassDB::bind_static_method("LAFieldCellMass3D",
 			D_METHOD("seed_enthalpy", "field", "grid", "t_rock", "t_surface_c", "p_pa", "p_rock"),

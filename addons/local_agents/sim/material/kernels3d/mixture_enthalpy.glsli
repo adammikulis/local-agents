@@ -96,9 +96,8 @@ int la_mix_breakpoints(float p_pa, float molality_mol_kg, out float pts[LA_MIX_P
 		if (la_mix_mass(i) <= 0.0) { continue; }
 		SubstanceTh s = la_mix_sub(i);
 		bool has = false;
-		float cand[3] = float[3](
-			s.has_melt ? la_melt_c_at(s, p_pa, molality_mol_kg) : 0.0,
-			s.has_melt ? la_liquidus_c_at(s, p_pa, molality_mol_kg) : 0.0,
+		float melt = s.has_melt ? la_melt_c_at(s, p_pa, molality_mol_kg) : 0.0;
+		float cand[3] = float[3](melt, s.has_melt ? la_liquidus_over(s, melt) : 0.0,
 			la_mix_vapour_boundary_c(s, p_pa, has));
 		bool live[3] = bool[3](s.has_melt, s.has_melt, has);
 		for (int k = 0; k < 3; ++k) {
@@ -124,7 +123,7 @@ float la_mix_jump_of(SubstanceTh s, float m_kg, float t_b, float p_pa, float roo
 	if (m_kg <= 0.0) { return 0.0; }
 	float total = 0.0;
 	float solidus = la_melt_c_at(s, p_pa, molality_mol_kg);
-	float liquidus = la_liquidus_c_at(s, p_pa, molality_mol_kg);
+	float liquidus = la_liquidus_over(s, solidus);
 	if (s.has_melt && solidus == t_b && liquidus == t_b) {
 		float f_v = la_mix_vapour_fraction(s, t_b, p_pa, m_kg, room_m3, molality_mol_kg);
 		total += m_kg * (1.0 - f_v) * s.l_fus;
@@ -151,11 +150,14 @@ float la_mix_solve(float h_total_j, float p_pa, float room_m3, float molality_mo
 	float f_b = la_mix_enthalpy_at(b, p_pa, room_m3, molality_mol_kg) - h_total_j;
 	float t = a;
 	float width = b - a;
+	// A ladder that states no enthalpy states no temperature.
+	if (isnan(f_a) || isnan(f_b)) { return uintBitsToFloat(0x7fc00000u); }
 	for (int i = 0; i < 24; ++i) {
 		float denom = f_b - f_a;
 		t = abs(denom) > 0.0 ? a - f_a * (b - a) / denom : 0.5 * (a + b);
 		t = clamp(t, a, b);
 		float f_t = la_mix_enthalpy_at(t, p_pa, room_m3, molality_mol_kg) - h_total_j;
+		if (isnan(f_t)) { return f_t; }
 		if (f_t > 0.0) {
 			b = t;
 			f_b = f_t;
@@ -178,12 +180,11 @@ float la_mix_state(float h_total_j, float p_pa, float room_m3, float molality_mo
 		out bool pinned, out float progress) {
 	pinned = false;
 	progress = 0.0;
+	if (isnan(h_total_j) || isnan(p_pa)) { return uintBitsToFloat(0x7fc00000u); }
 	float pts[LA_MIX_PTS];
 	int count = la_mix_breakpoints(p_pa, molality_mol_kg, pts);
+	// Absolute zero bounds the walk; the ladder is read only where the state stands.
 	float lo = -LA_KELVIN_OFFSET;
-	if (h_total_j <= la_mix_enthalpy_at(lo, p_pa, room_m3, molality_mol_kg)) {
-		return lo;
-	}
 	float hi = lo;
 	bool bracketed = false;
 	for (int i = 0; i < LA_MIX_PTS; ++i) {
@@ -191,6 +192,8 @@ float la_mix_state(float h_total_j, float p_pa, float room_m3, float molality_mo
 		float t_b = pts[i];
 		if (t_b <= lo) { continue; }
 		float h_b = la_mix_enthalpy_at(t_b, p_pa, room_m3, molality_mol_kg);
+		// A breakpoint where some substance states no enthalpy is below the state or the state is none.
+		if (isnan(h_b)) { lo = t_b; continue; }
 		if (h_total_j <= h_b) {
 			hi = t_b;
 			bracketed = true;
@@ -209,7 +212,9 @@ float la_mix_state(float h_total_j, float p_pa, float room_m3, float molality_mo
 		float span = 100.0;
 		for (int i = 0; i < 64; ++i) {
 			hi = lo + span;
-			if (la_mix_enthalpy_at(hi, p_pa, room_m3, molality_mol_kg) >= h_total_j) {
+			float h_hi = la_mix_enthalpy_at(hi, p_pa, room_m3, molality_mol_kg);
+			if (isnan(h_hi)) { return h_hi; }
+			if (h_hi >= h_total_j) {
 				break;
 			}
 			span *= 2.0;

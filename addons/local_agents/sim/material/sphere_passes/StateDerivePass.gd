@@ -9,7 +9,7 @@ const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/st
 const FluxPassScript: GDScript = preload("res://addons/local_agents/sim/material/sphere_passes/FluxPass.gd")
 
 ## props row layout — state_derive.glsl PROP_*.
-const PROP_STRIDE: int = 79
+const PROP_STRIDE: int = 82
 const PROP_M: int = 0
 const PROP_MOL_PER_KG: int = 1
 const PROP_ENTRY: int = 2

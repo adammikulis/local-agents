@@ -31,8 +31,45 @@ public:
 			double p_p_pa);
 	// Elements one formula may carry on the GPU — enthalpy.glsli LA_MAX_EL.
 	static const int MAX_EL = 5;
-	// The ladder of one substance as the kernel's props row carries it, THERMAL_ROW_WORDS floats.
-	static const int THERMAL_ROW_WORDS = 29 + 4 * MAX_EL;
+	// The ladder of one substance as the kernel's props row carries it: state_derive.glsl TH_*, held to
+	// these by scripts/check_derive_props_layout.sh.
+	static constexpr int TH_C_SOL = 0;
+	static constexpr int TH_C_LIQ = 1;
+	static constexpr int TH_C_GAS = 2;
+	static constexpr int TH_LINE_A1 = 3;
+	static constexpr int TH_LINE_P0 = 4;
+	static constexpr int TH_FUSION_T0 = 5;
+	static constexpr int TH_FUSION_T1 = 6;
+	static constexpr int TH_VAPOUR_T = 7;
+	static constexpr int TH_VAPOUR_P = 8;
+	static constexpr int TH_TRIPLE_T = 9;
+	static constexpr int TH_TRIPLE_P = 10;
+	static constexpr int TH_CRIT_T = 11;
+	static constexpr int TH_CRIT_P = 12;
+	static constexpr int TH_L_FUS = 13;
+	static constexpr int TH_L_VAP = 14;
+	static constexpr int TH_L_VAP_T = 15;
+	static constexpr int TH_ATOMISATION = 16;
+	static constexpr int TH_S_GAS = 17;
+	static constexpr int TH_S_ATOMS = 18;
+	static constexpr int TH_NU = 19;
+	static constexpr int TH_HAS_FUSION = 20;
+	static constexpr int TH_HAS_VAPOUR = 21;
+	static constexpr int TH_IAPWS = 22;
+	static constexpr int TH_N_EL = 23;
+	static constexpr int TH_EL_N = 24;
+	static constexpr int TH_EL_CHI = 29;
+	static constexpr int TH_EL_G0 = 34;
+	static constexpr int TH_EL_G1 = 39;
+	static constexpr int TH_LINE_KIND = 44;
+	static constexpr int TH_LINE_T0 = 45;
+	static constexpr int TH_LINE_C1 = 46;
+	static constexpr int TH_LINE_A2 = 47;
+	static constexpr int TH_LINE_C2 = 48;
+	static constexpr int TH_ANCHOR_PHASE = 49;
+	static constexpr int TH_ANCHOR_T = 50;
+	static constexpr int TH_LINE_PREF = 51;
+	static const int THERMAL_ROW_WORDS = 52;
 	static PackedFloat32Array thermal_row(const String &p_id);
 	// J/kg/K of the phase this substance stands in at (t, p) — state_derive.glsl la_phase_c.
 	static double phase_specific_heat(const String &p_id, double p_t_c, double p_p_pa);

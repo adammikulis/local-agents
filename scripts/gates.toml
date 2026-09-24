@@ -527,6 +527,12 @@ kind = "headless"
 marker = "^check_condensed_moduli: OK"
 
 [[gate]]
+name = "check_melting_lines"
+script = "scripts/check_melting_lines.sh"
+kind = "headless"
+marker = "^check_melting_lines: OK"
+
+[[gate]]
 name = "check_reaction_balance"
 script = "scripts/check_reaction_balance.sh"
 kind = "headless"

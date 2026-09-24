@@ -21,9 +21,15 @@ float la_bm_strain_in(float p_pa, float k0, float a, float b4, float lo, float h
 	if (p_pa == 0.0) {
 		return 0.0;
 	}
-	if (!(p_pa >= la_bm_p(lo, k0, a, b4) && p_pa <= la_bm_p(hi, k0, a, b4))) {
+	// Where P rises for every positive strain, the bracket's top is the first doubling that passes p.
+	for (int i = 0; i < 64 && isinf(hi) && p_pa > 0.0; ++i) {
+		float f = exp2(float(i));
+		hi = la_bm_p(f, k0, a, b4) >= p_pa ? f : hi;
+	}
+	if (!(p_pa >= la_bm_p(lo, k0, a, b4) && (isinf(hi) || p_pa <= la_bm_p(hi, k0, a, b4)))) {
 		return LA_NAN;
 	}
+	hi = isinf(hi) ? 0.0 : hi;
 	float f = clamp(p_pa / (3.0 * k0), lo, hi);
 	for (int i = 0; i < 20; ++i) {
 		float r = la_bm_p(f, k0, a, b4) - p_pa;

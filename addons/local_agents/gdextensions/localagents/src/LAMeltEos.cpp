@@ -1,5 +1,6 @@
 #include "LAMeltEos.hpp"
 
+#include "LABirchMurnaghan.hpp"
 #include "LAPhysicalRead.hpp"
 #include "LAPlanetTables.hpp"
 
@@ -85,7 +86,7 @@ constexpr double HALITE_LIQUID_DENSITY_SLOPE_KG_M3K = 0.543;
 constexpr double HALITE_LIQUID_SOUND_T_K = 1253.0;
 constexpr double HALITE_LIQUID_SOUND_M_S = 1586.3;
 constexpr double HALITE_LIQUID_CP_J_MOLK = 67.80;
-// Second-order Birch-Murnaghan (Birch 1947): K' fixed where no pressure derivative is measured, exact.
+// Second-order Birch-Murnaghan K' (Birch 1947), exact.
 constexpr double SECOND_ORDER_BM_DERIV = 4.0;
 
 // cm^3 to m^3, exact.
@@ -138,6 +139,8 @@ const MgFit EN_LIQ = { EN_LIQ_T0_K, EN_LIQ_RHO0_KG_M3, EN_LIQ_GAMMA0, EN_LIQ_Q, 
 // A power series in eps to third order.
 struct T3 {
 	double c[4] = { 0.0, 0.0, 0.0, 0.0 };
+	T3() {}
+	explicit T3(double p_a0) { c[0] = p_a0; }
 };
 
 T3 t3(double a0, double a1 = 0.0, double a2 = 0.0, double a3 = 0.0) {
@@ -189,9 +192,8 @@ double mg_cv(const MgFit &p_f) {
 // gamma rho Cv (T - T_S(V)), T_S = T0 exp((gamma0/q)(1 - x^q)).
 T3 mg_pressure(const MgFit &p_f, double p_x0, double p_t_k) {
 	const T3 f = 0.5 * (t3_pow(p_x0, -2.0 / 3.0) + t3(-1.0));
-	const double a = 1.5 * (p_f.ksp - 4.0);
-	const double b4 = p_f.fourth ? 1.5 * (p_f.ks * p_f.kspp + (p_f.ksp - 4.0) * (p_f.ksp - 3.0) + 35.0 / 9.0) : 0.0;
-	const T3 p_s = (3.0 * p_f.ks) * (f * t3_pow(p_x0, -5.0 / 3.0) * (t3(1.0) + a * f + b4 * (f * f)));
+	const T3 p_s = la_bm::pressure_of<T3>(f, t3_pow(p_x0, -5.0 / 3.0), p_f.ks, p_f.ksp,
+			la_bm::b4(p_f.ks, p_f.ksp, p_f.kspp, p_f.fourth));
 	const T3 xq = t3_pow(p_x0, p_f.q);
 	const T3 t_s = p_f.t0_k * t3_exp((p_f.gamma0 / p_f.q) * (t3(1.0) + (-1.0) * xq));
 	const T3 thermal = (p_f.gamma0 * p_f.rho0 * mg_cv(p_f)) * (xq * t3_pow(p_x0, -1.0) * (t3(p_t_k) + (-1.0) * t_s));
@@ -243,7 +245,9 @@ Dictionary mg_isotherm(const MgFit &p_f, double p_t_c) {
 	const double t_k = p_t_c + kelvin();
 	const double x0 = mg_x0(p_f, t_k);
 	ERR_FAIL_COND_V_MSG(!std::isfinite(x0), Dictionary(), "LAMeltEos: the fit has no one-bar state here.");
-	return isothermal_moduli(mg_volume_series(p_f, x0, t_k));
+	Dictionary out = isothermal_moduli(mg_volume_series(p_f, x0, t_k));
+	out["specific_heat"] = p_f.cp;
+	return out;
 }
 
 Dictionary formula2(const char *p_a, double p_na, const char *p_b, double p_nb, double p_o) {
@@ -302,8 +306,13 @@ Dictionary LAMeltEos::olivine_melt_compression(double p_mg, double p_t_c) {
 	const double v_fa = (1.0 - p_mg) * LAElementAbundances::molar_mass(formula2("Fe", 2.0, "Si", 1.0, 4.0)) * x_fa
 			/ FA_LIQ.rho0;
 	const double phi = v_fo / (v_fo + v_fa);
-	return isothermal_moduli(phi * mg_volume_series(FO_LIQ, x_fo, t_k)
+	Dictionary out = isothermal_moduli(phi * mg_volume_series(FO_LIQ, x_fo, t_k)
 			+ (1.0 - phi) * mg_volume_series(FA_LIQ, x_fa, t_k));
+	// Heat capacities add by mass.
+	const double m_fo = p_mg * LAElementAbundances::molar_mass(formula2("Mg", 2.0, "Si", 1.0, 4.0));
+	const double m_fa = (1.0 - p_mg) * LAElementAbundances::molar_mass(formula2("Fe", 2.0, "Si", 1.0, 4.0));
+	out["specific_heat"] = (m_fo * FO_LIQ.cp + m_fa * FA_LIQ.cp) / (m_fo + m_fa);
+	return out;
 }
 
 Dictionary LAMeltEos::enstatite_melt_compression(double p_t_c) {
@@ -334,6 +343,7 @@ Dictionary LAMeltEos::halite_melt(double p_melt_c) {
 	out["density_melt_ref_t_c"] = t_c;
 	out["expansion_melt_per_k"] = alpha;
 	out["density_melt_linear"] = true;
+	out["specific_heat"] = cp;
 	out["bulk_modulus_melt_pa"] = k_s / (1.0 + alpha * alpha * k_s * HALITE_LIQUID_SOUND_T_K / (rho * cp));
 	// LA_APPROX: unmeasured_pressure_derivative
 	out["bulk_modulus_melt_deriv"] = SECOND_ORDER_BM_DERIV;

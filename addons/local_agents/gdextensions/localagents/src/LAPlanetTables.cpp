@@ -397,6 +397,11 @@ struct RadialProfile {
 	int i_core = 0;
 	// Base of the lithosphere, metres below the surface. INF where the lid never meets the adiabat.
 	double lid_m = NAN;
+	// The lid's conductive geotherm T(z) = t_surface_k + q_surf z / k_m - a_w_m3 z^2 / (2 k_m).
+	double t_surface_k = NAN;
+	double q_surf = NAN;
+	double a_w_m3 = NAN;
+	double k_m = NAN;
 	double dr = 0.0;
 	std::vector<double> p_at;
 	std::vector<double> t_at;
@@ -432,12 +437,12 @@ static double shell_alpha(double p_t_c, double p_p_pa) {
 // with alpha each phase's own at its state, off the one rule the densities use.
 static void geotherm_on_profile(double p_radius_m, double p_t_c, int p_n, int p_i_core, double p_dr,
 		const std::vector<double> &p_m_in, const std::vector<double> &p_p_at, std::vector<double> &r_t_at,
-		double &r_lid_m) {
+		RadialProfile &r_lid) {
 	const Dictionary table = LASubstances::table();
 	const Dictionary rock = table.get("silicate", Dictionary());
 	const Dictionary metal = table.get("metal", Dictionary());
 	const double rho_m = double(rock.get("density", 0.0));
-	const double cp_m = double(rock.get("specific_heat", 0.0));
+	const double cp_m = double(rock.get("specific_heat_solid", NAN));
 	const double cp_c = double(metal.get("specific_heat", 0.0));
 	const double k_m = double(rock.get("conductivity", 0.0));
 	const LACondensedEos &eos_c = LAPhaseEosFn::condensed("metal");
@@ -455,8 +460,12 @@ static void geotherm_on_profile(double p_radius_m, double p_t_c, int p_n, int p_
 	// THE LID'S BASE, metres: T(z) = Ts + q z / k - a z^2 / (2k) reaching the potential temperature.
 	// The shell grid is coarser than the lithosphere, so this is solved, not counted off it.
 	const double disc = q_surf * q_surf - 2.0 * a_w_m3 * k_m * (t_ad - t_surface_k);
-	r_lid_m = (a_w_m3 > 0.0 && disc >= 0.0) ? (q_surf - std::sqrt(disc)) / a_w_m3
+	r_lid.lid_m = (a_w_m3 > 0.0 && disc >= 0.0) ? (q_surf - std::sqrt(disc)) / a_w_m3
 			: std::numeric_limits<double>::infinity();
+	r_lid.t_surface_k = t_surface_k;
+	r_lid.q_surf = q_surf;
+	r_lid.a_w_m3 = a_w_m3;
+	r_lid.k_m = k_m;
 	// THE LID ENDS WHERE ITS CONDUCTIVE GEOTHERM MEETS THE ADIABAT, and below that the adiabat holds:
 	// the conductive parabola is the lithosphere's alone and turns over past it.
 	bool lid = true;
@@ -466,8 +475,8 @@ static void geotherm_on_profile(double p_radius_m, double p_t_c, int p_n, int p_
 		const double t_cond = (k_m > 0.0) ? t_surface_k + q_surf * z / k_m - a_w_m3 * z * z / (2.0 * k_m) : t_surface_k;
 		lid = lid && t_cond < t_ad;
 		r_t_at[i] = lid ? t_cond : t_ad;
-		const double g = g_const * p_m_in[i] / std::max(r * r, 1.0);
-		t_ad *= 1.0 + shell_alpha(t_ad - kelvin, p_p_at[i]) * g * p_dr / std::max(cp_m, 1.0);
+		const double g = g_const * p_m_in[i] / (r * r);
+		t_ad *= 1.0 + shell_alpha(t_ad - kelvin, p_p_at[i]) * g * p_dr / cp_m;
 	}
 	// THE ADIABAT CONTINUES THROUGH THE BOUNDARY, on the core's own expansivity and heat capacity: the
 	// temperature at the top of the core is the one the mantle above it reached.
@@ -475,8 +484,8 @@ static void geotherm_on_profile(double p_radius_m, double p_t_c, int p_n, int p_
 	for (int i = p_i_core - 1; i >= 0; --i) {
 		const double r = (double(i) + 0.5) * p_dr;
 		r_t_at[i] = t_core;
-		const double g = g_const * p_m_in[i] / std::max(r * r, 1.0);
-		t_core *= 1.0 + LAPhaseEosFn::condensed_alpha(eos_c, t_core - kelvin, p_p_at[i]) * g * p_dr / std::max(cp_c, 1.0);
+		const double g = g_const * p_m_in[i] / (r * r);
+		t_core *= 1.0 + LAPhaseEosFn::condensed_alpha(eos_c, t_core - kelvin, p_p_at[i]) * g * p_dr / cp_c;
 	}
 }
 
@@ -572,7 +581,7 @@ static RadialProfile with_geotherm(RadialProfile p_prof, double p_t_c) {
 	const double r_body = double(p_prof.n) * p_prof.dr;
 	std::vector<double> t_k(p_prof.n, p_t_c + kelvin);
 	geotherm_on_profile(r_body, p_t_c, p_prof.n, p_prof.i_core, p_prof.dr, p_prof.m_in, p_prof.p_at, t_k,
-			p_prof.lid_m);
+			p_prof);
 	for (int i = 0; i < p_prof.n; ++i) {
 		p_prof.t_at[i] = t_k[i] - kelvin;
 	}
@@ -611,13 +620,50 @@ static RadialProfile radial_profile(double p_radius_m, double p_t_c) {
 	return last;
 }
 
-PackedFloat32Array LAPlanetComposition::geotherm_k(double p_radius_m, double p_t_c) {
+// T at depth z, kelvin: the lid's conductive geotherm above its base, and below it the shells' own
+// values between their centres, the lid's base the first node. NAN where the profile does not solve.
+static double profile_t_k(const RadialProfile &p_prof, double p_z) {
+	if (p_prof.n <= 0) {
+		return NAN;
+	}
+	if (p_z <= 0.0) {
+		return p_prof.t_surface_k;
+	}
+	const double k = p_prof.k_m;
+	if (p_z < p_prof.lid_m) {
+		return p_prof.t_surface_k + p_prof.q_surf * p_z / k - p_prof.a_w_m3 * p_z * p_z / (2.0 * k);
+	}
+	const double r_body = double(p_prof.n) * p_prof.dr;
+	const double r = std::max(r_body - p_z, 0.0);
+	const double r_lid = r_body - p_prof.lid_m;
+	const double t_lid = p_prof.t_surface_k + p_prof.q_surf * p_prof.lid_m / k
+			- p_prof.a_w_m3 * p_prof.lid_m * p_prof.lid_m / (2.0 * k);
+	const double x = r / p_prof.dr - 0.5;
+	const int i = std::min(std::max(int(std::floor(x)), 0), p_prof.n - 1);
+	const double r_i = (double(i) + 0.5) * p_prof.dr;
+	if (x <= 0.0) {
+		return p_prof.t_at[0];
+	}
+	// The node above: the next shell's centre, or the lid's base where that centre lies in the lid.
+	double r_u = r_i + p_prof.dr;
+	double t_u = i + 1 < p_prof.n ? p_prof.t_at[i + 1] : NAN;
+	if (i + 1 >= p_prof.n || r_u > r_lid) {
+		r_u = r_lid;
+		t_u = t_lid;
+	}
+	if (!(r_u > r_i)) {
+		return t_lid;
+	}
+	return p_prof.t_at[i] + (t_u - p_prof.t_at[i]) * (r - r_i) / (r_u - r_i);
+}
+
+PackedFloat64Array LAPlanetComposition::geotherm_at_depths(double p_radius_m, double p_t_c,
+		const PackedFloat64Array &p_depth_m) {
 	const RadialProfile prof = radial_profile(p_radius_m, p_t_c);
-	PackedFloat32Array out;
-	out.resize(prof.n);
-	const double kelvin = la_physical("KELVIN_OFFSET");
-	for (int i = 0; i < prof.n; i++) {
-		out[i] = float(prof.t_at[i] + kelvin);
+	PackedFloat64Array out;
+	out.resize(p_depth_m.size());
+	for (int i = 0; i < p_depth_m.size(); i++) {
+		out[i] = profile_t_k(prof, p_depth_m[i]);
 	}
 	return out;
 }
@@ -1410,7 +1456,8 @@ void LAPlanetComposition::_bind_methods() {
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("lid_thickness_m", "radius_m", "t_c"), &lid_thickness_m);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("body_field", "grid", "centre", "radius_m", "t_c"), &body_field);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("upload_body_field", "rd", "bufs", "grid", "centre", "radius_m", "t_c"), &upload_body_field);
-	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("geotherm_k", "radius_m", "t_surface_c"), &geotherm_k);
+	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("geotherm_at_depths", "radius_m", "t_surface_c", "depth_m"),
+			&geotherm_at_depths);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("surface_heat_flux_w_m2", "mass_kg", "radius_m"), &surface_heat_flux_w_m2);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("peridotite_melting_interval_c"), &peridotite_melting_interval_c);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("mantle_potential_temp_k"), &mantle_potential_temp_k);

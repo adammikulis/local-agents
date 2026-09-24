@@ -1,6 +1,7 @@
 #include "LAPhaseEos.hpp"
 
 #include "LABirchMurnaghan.hpp"
+#include "LAMeltingLine.hpp"
 #include "LAPhysicalRead.hpp"
 #include "LASubstances.hpp"
 #include "LAWaterCurves.hpp"
@@ -73,11 +74,17 @@ double bm_strain(const LAPhaseEos &p_e, double p_dp) {
 			"off one atmosphere.");
 	double lo = p_e.f_lo;
 	double hi = p_e.f_hi;
-	ERR_FAIL_COND_V_MSG(!std::isfinite(p_dp) || p_dp < bm_pressure(p_e, lo) || p_dp > bm_pressure(p_e, hi), NAN,
+	// Where P rises for every positive strain, the bracket's top is the first doubling that passes p.
+	for (int i = 0; i < 64 && std::isinf(hi) && p_dp > 0.0; ++i) {
+		const double f = std::ldexp(1.0, i);
+		hi = bm_pressure(p_e, f) >= p_dp ? f : hi;
+	}
+	ERR_FAIL_COND_V_MSG(!std::isfinite(p_dp) || p_dp < bm_pressure(p_e, lo) || (!std::isinf(hi) && p_dp > bm_pressure(p_e, hi)), NAN,
 			"LAPhaseEos: " + String::num_scientific(p_dp) + " Pa lies outside the range the Birch-Murnaghan form of a "
 					"phase with K0 " + String::num_scientific(p_e.k) + " Pa, K0' " + String::num_scientific(p_e.kp)
 					+ ", b4 " + String::num_scientific(bm_b4(p_e)) + " can invert, up to "
 					+ String::num_scientific(bm_pressure(p_e, hi)) + " Pa.");
+	hi = std::isinf(hi) ? 0.0 : hi;
 	for (int i = 0; i < 60; ++i) {
 		const double mid = 0.5 * (lo + hi);
 		if (bm_pressure(p_e, mid) < p_dp) {
@@ -176,10 +183,10 @@ LACondensedEos build_condensed(const String &p_id) {
 		const String form = s["melt_line_form"];
 		const Array a = s.get("melt_line_a", Array());
 		const Array cx = s.get("melt_line_c", Array());
-		ERR_FAIL_COND_V_MSG((form != "simon" && form != "reduced_poly") || a.is_empty() || a.size() != cx.size()
-						|| a.size() > 2 || !s.has("melt_line_t0_k") || !s.has("melt_line_p0_pa"),
+		c.fusion_kind = form == "simon" ? 1 : (form == "reduced_poly" ? 2 : (form == "reduced_simon" ? 3 : -1));
+		ERR_FAIL_COND_V_MSG(c.fusion_kind < 0 || a.is_empty() || a.size() != cx.size() || a.size() > 2
+						|| !s.has("melt_line_t0_k") || !s.has("melt_line_p0_pa"),
 				c, "LASubstances(\"" + p_id + "\"): the melting line is not one the rule reads.");
-		c.fusion_kind = form == "simon" ? 1 : 2;
 		c.fusion_t0_k = double(s["melt_line_t0_k"]);
 		c.fusion_p0 = double(s["melt_line_p0_pa"]);
 		c.fusion_a1 = double(a[0]);
@@ -207,6 +214,7 @@ LAFluidEos build_fluid(const String &p_id) {
 	}
 	f.tc_k = double(s["critical_t_c"]) + pc("KELVIN_OFFSET");
 	const double p_c = double(s["critical_p_pa"]);
+	// No acentric factor is no fluid: the state that needs one fails where it is asked for.
 	if (!s.has("acentric_factor")) {
 		return f;
 	}
@@ -219,31 +227,14 @@ LAFluidEos build_fluid(const String &p_id) {
 	return f;
 }
 
-// The melting line at p, C; below the triple pressure the line has not begun, and the solid meets the liquid
-// at the triple point. Kernel twin la_fusion_c in enthalpy.glsli.
+// The melting line at p, C. Kernel twin la_fusion_c in enthalpy.glsli.
 double fusion_c(const LACondensedEos &p_c, double p_p_pa) {
-	if (p_c.fusion_kind == 0) {
-		return p_c.melt_c + (p_p_pa - p_c.fusion_p0) * p_c.fusion_a1;
-	}
-	if (p_p_pa <= p_c.p_ref) {
-		return p_c.melt_c;
-	}
 	const double k = pc("KELVIN_OFFSET");
-	if (p_c.fusion_kind == 1) {
-		return p_c.fusion_t0_k * std::pow((p_p_pa - p_c.fusion_p0) / p_c.fusion_a1 + 1.0, 1.0 / p_c.fusion_c1) - k;
-	}
-	const double y = p_p_pa / p_c.fusion_p0 - 1.0;
-	double th = std::pow(y / p_c.fusion_a1, 1.0 / p_c.fusion_c1);
-	for (int i = 0; i < 60; ++i) {
-		const double f = p_c.fusion_a1 * std::pow(th, p_c.fusion_c1) + p_c.fusion_a2 * std::pow(th, p_c.fusion_c2) - y;
-		const double d = p_c.fusion_a1 * p_c.fusion_c1 * std::pow(th, p_c.fusion_c1 - 1.0)
-				+ p_c.fusion_a2 * p_c.fusion_c2 * std::pow(th, p_c.fusion_c2 - 1.0);
-		if (!(d > 0.0)) {
-			break;
-		}
-		th -= f / d;
-	}
-	return p_c.fusion_t0_k * (1.0 + th) - k;
+	const double t = la_melt_line::temperature_k(p_c.fusion_kind, p_c.melt_c + k, p_c.p_ref, p_c.fusion_t0_k,
+			p_c.fusion_p0, p_c.fusion_a1, p_c.fusion_c1, p_c.fusion_a2, p_c.fusion_c2, p_p_pa);
+	ERR_FAIL_COND_V_MSG(std::isnan(t), NAN, "LAPhaseEos: the melting line did not converge at "
+			+ String::num_scientific(p_p_pa) + " Pa.");
+	return t - k;
 }
 
 Dictionary phase_dict(const LAPhaseEos &p_e) {
@@ -279,6 +270,25 @@ const LAFluidEos &LAPhaseEosFn::fluid(const String &p_id) {
 	static HashMap<String, LAFluidEos> cache;
 	if (!cache.has(p_id)) {
 		cache.insert(p_id, build_fluid(p_id));
+	}
+	return cache[p_id];
+}
+
+const LAAnchor &LAPhaseEosFn::anchor(const String &p_id) {
+	static HashMap<String, LAAnchor> cache;
+	if (!cache.has(p_id)) {
+		LAAnchor a;
+		a.t_c = pc("STANDARD_STATE_T_C");
+		const double p = pc("STANDARD_STATE_P_PA");
+		const double boil = LASubstances::boil_c_at(p_id, p);
+		if (LASubstances::sublimes_at(p_id, p)) {
+			a.phase = a.t_c < LASubstances::sublimation_c_at(p_id, p) ? 0 : 2;
+		} else {
+			const double melt = LASubstances::melt_c_at(p_id, p, 0.0);
+			const bool solid_there = std::isfinite(melt) ? a.t_c <= melt : !std::isfinite(boil);
+			a.phase = solid_there ? 0 : ((!std::isfinite(boil) || a.t_c <= boil) ? 1 : 2);
+		}
+		cache.insert(p_id, a);
 	}
 	return cache[p_id];
 }
@@ -331,17 +341,12 @@ double LAPhaseEosFn::phase_volume(const LAPhaseEos &p_e, double p_t_c, double p_
 		v = 1.0 / water_liquid_density(p_t_c);
 	} else {
 		const double dt = p_t_c - p_e.t_ref_c;
-		ERR_FAIL_COND_V_MSG(dt != 0.0 && !p_e.has_alpha, 0.0, "LAPhaseEos: a phase with no measured expansivity is "
+		ERR_FAIL_COND_V_MSG(dt != 0.0 && !p_e.has_alpha, NAN, "LAPhaseEos: a phase with no measured expansivity is "
 				"asked for its volume off its reference temperature.");
 		const double al = dt != 0.0 ? phase_alpha_p(p_e, p_p_pa) : 0.0;
 		v = p_e.linear_density ? 1.0 / (p_e.rho * (1.0 - al * dt)) : (1.0 + al * dt) / p_e.rho;
 	}
-	const double f = bm_strain(p_e, dp);
-	if (!std::isfinite(f)) {
-		return 0.0;
-	}
-	v *= std::pow(1.0 + 2.0 * f, -1.5);
-	return v > 0.0 ? v : 0.0;
+	return v * std::pow(1.0 + 2.0 * bm_strain(p_e, dp), -1.5);
 }
 
 // K_T = -V dP/dV = (1 + 2f) dP/df / 3 at the pressure's own strain; NaN where unmeasured.
@@ -364,16 +369,14 @@ double LAPhaseEosFn::condensed_volume(const LACondensedEos &p_c, double p_t_c, d
 		return v_s;
 	}
 	const double v_l = phase_volume(p_c.liquid, p_t_c, p_p_pa);
-	if (!(v_l > 0.0) || !(v_s > 0.0)) {
-		return 0.0;
-	}
+	ERR_FAIL_COND_V_MSG(!(v_l > 0.0), NAN, "LAPhaseEos: a melt the table names no liquid for.");
 	return (1.0 - phi) * v_s + phi * v_l;
 }
 
 bool LAPhaseEosFn::representable(const LACondensedEos &p_c, double p_t_c, double p_p_pa) {
 	const double dp = p_p_pa - pc("STANDARD_PRESSURE_PA");
 	auto reaches = [&](const LAPhaseEos &e) {
-		return e.has_k && dp >= bm_pressure(e, e.f_lo) && dp <= bm_pressure(e, e.f_hi);
+		return e.has_k && dp >= bm_pressure(e, e.f_lo) && (std::isinf(e.f_hi) || dp <= bm_pressure(e, e.f_hi));
 	};
 	const double phi = (p_c.solid.rho > 0.0) ? melt_fraction(p_c, p_t_c, p_p_pa) : 1.0;
 	return (phi >= 1.0 || reaches(p_c.solid)) && (phi <= 0.0 || reaches(p_c.liquid));

@@ -162,8 +162,8 @@ const CALCITE_DENSITY_KG_M3: float = 2710.0          # calcite, 2.71 g/cm^3
 ## Volumetric thermal expansivity at 300 K, 1/K (Fei 1995, AGU Reference Shelf 2:29).
 const QUARTZ_VOLUME_EXPANSION_PER_K: float = 3.3e-5
 const CALCITE_VOLUME_EXPANSION_PER_K: float = 1.4e-5
-## Adiabatic bulk modulus of alpha-quartz, Pa (Bass 1995, AGU Reference Shelf 2:45).
-const QUARTZ_BULK_MODULUS_PA: float = 3.78e10
+## Isothermal bulk modulus of alpha-quartz, Pa (Angel et al. 1997, J. Appl. Cryst. 30:461).
+const QUARTZ_BULK_MODULUS_PA: float = 3.712e10
 
 # Formation enthalpy and standard molar entropy at 298.15 K, 1 bar (Robie & Hemingway 1995; CODATA for CO2).
 const FORMATION_ENTHALPY_CASIO3_J_MOL: float = -1634900.0   # wollastonite
@@ -247,6 +247,9 @@ const WATER_CRITICAL_T_C: float = 373.946            # IAPWS-95 critical tempera
 const WATER_CRITICAL_P_PA: float = 2.2064e7          # IAPWS-95 critical pressure, 220.64 bar
 const WATER_ACENTRIC_FACTOR: float = 0.3443  # Pitzer omega on the reference EOS, Wagner & Pruss 2002, J. Phys. Chem. Ref. Data 31:387
 const STANDARD_PRESSURE_PA: float = 101325.0         # one standard atmosphere, the reference boil_c is quoted at
+## The thermochemical standard state every enthalpy ladder is anchored at, 298.15 K and 1 bar (IUPAC, exact).
+const STANDARD_STATE_T_C: float = 25.0
+const STANDARD_STATE_P_PA: float = 1.0e5
 const WATSON_LATENT_EXPONENT: float = 0.38           # Watson correlation exponent for the latent-heat curve
 
 const EV_TO_J_PER_MOL: float = 96485.33              # CODATA Faraday constant, J/(mol*V)
@@ -317,7 +320,7 @@ const N2_TRIPLE_P_PA: float = 12520.0                # triple-point pressure 12.
 const N2_CRITICAL_T_C: float = -146.958              # critical point 126.192 K
 const N2_CRITICAL_P_PA: float = 3.3958e6             # critical pressure 3.3958 MPa
 const N2_ACENTRIC_FACTOR: float = 0.0372  # Pitzer omega on the reference EOS, Span et al. 2000, J. Phys. Chem. Ref. Data 29:1361
-# Melting line p = p0 (1 + a1 (T/T0 - 1)^c1), Span et al. 2000, J. Phys. Chem. Ref. Data 29:1361 (via CoolProp).
+# Melting line p = p0 (1 + a1 ((T/T0)^c1 - 1)), Span et al. 2000, J. Phys. Chem. Ref. Data 29:1361 (via CoolProp).
 const N2_MELT_T0_K: float = 63.151
 const N2_MELT_P0_PA: float = 12523.0
 const N2_MELT_A1: float = 12798.61
@@ -340,7 +343,7 @@ const O2_CRITICAL_T_C: float = -118.569              # critical point 154.581 K
 const O2_CRITICAL_P_PA: float = 5.043e6
 const O2_ACENTRIC_FACTOR: float = 0.0222  # Pitzer omega on the reference EOS, Schmidt & Wagner 1985, Fluid Phase Equilib. 19:175
 # Melting line p = p0 + a1 ((T/T0)^c1 - 1), Younglove 1982, J. Phys. Chem. Ref. Data 11 Suppl. 1 (via CoolProp).
-# The published curve misses the triple-point pressure: that is its accuracy there.
+# Accuracy at the triple point: the published curve's own.
 const O2_MELT_T0_K: float = 1.0
 const O2_MELT_P0_PA: float = -266999247.652
 const O2_MELT_A1: float = 227606.348
@@ -407,7 +410,7 @@ const CO_CRITICAL_T_C: float = -140.29               # critical point 132.86 K
 const CO_CRITICAL_P_PA: float = 3.494e6
 const CO_ACENTRIC_FACTOR: float = 0.0497  # Pitzer omega on the reference EOS, Lemmon & Span 2006, J. Chem. Eng. Data 51:785
 # Melting line p = p0 + a1 ((T/T0)^c1 - 1), Barreiros et al. 1982, J. Chem. Thermodyn. (via CoolProp).
-# The published curve misses the triple-point pressure: that is its accuracy there.
+# Accuracy at the triple point: the published curve's own.
 const CO_MELT_T0_K: float = 1.0
 const CO_MELT_P0_PA: float = -142921439.2
 const CO_MELT_A1: float = 19560.8
