@@ -41,7 +41,7 @@ Run the gates rather than opening scenes by hand — CI runs the same `lint` com
 ```bash
 scripts/agent_harness.sh lint       # every structural gate, off one shared engine capture
 scripts/agent_harness.sh fast       # deterministic + integration suites
-scripts/run_demo.sh <Demo>          # any examples/*.tscn, headless, ~1s each
+scripts/run_demo.sh <Demo>          # a harnessed examples/*.tscn that needs no window, ~1s each
 ```
 
 The planet itself needs a real window, because the GPU field has no compute device headless. Run it

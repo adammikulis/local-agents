@@ -3,7 +3,7 @@
 #   scripts/run_demo.sh --list              # which scenes honour --run-frames, and which do not
 #   scripts/run_demo.sh BoxFieldDemo        # one demo, 40 frames
 #   scripts/run_demo.sh BoxFieldDemo 200    # one demo, 200 frames
-#   scripts/run_demo.sh --all [frames]      # every demo that honours the contract
+#   scripts/run_demo.sh --all [frames]      # every demo that honours the contract and needs no window
 
 # `--run-frames` is LocalAgentDemoHarness's contract (addons/local_agents/runtime/DemoHarness.gd), not an
 # engine flag: a scene with no harness ignores it and never exits, so it is refused.
@@ -17,8 +17,11 @@ GODOT="${GODOT:-godot}"
 EXAMPLES_REL="addons/local_agents/examples"
 EXAMPLES_DIR="$REPO_ROOT/$EXAMPLES_REL"
 DEFAULT_FRAMES="${LA_DEMO_FRAMES:-40}"
-# Ceiling per demo, seconds.
+# Ceiling per demo, seconds, counted once this run holds the machine's GPU lock.
 DEMO_TIMEOUT="${LA_DEMO_TIMEOUT:-60}"
+GPU_HELD=0
+# The lock library is written for errexit off; `|| true` runs it so.
+trap 'if [ "$GPU_HELD" -eq 1 ]; then la_gpu_unlock || true; fi' EXIT
 
 now_ms() {
   perl -MTime::HiRes=time -e 'printf "%d", time * 1000' 2>/dev/null || echo $(( $(date +%s) * 1000 ))
@@ -29,12 +32,12 @@ supports_contract() {
 }
 
 list_demos() {
-  local f name
+  local f name why
   for f in "$EXAMPLES_DIR"/*.tscn; do
     name="$(basename "$f" .tscn)"
     if demo_fragment_parent "$REPO_ROOT" "$EXAMPLES_REL/$name.tscn" >/dev/null; then continue; fi
-    if demo_needs_window "$REPO_ROOT" "$EXAMPLES_REL/$name.tscn"; then
-      printf '  %-24s needs a window — scripts/run_sim_offscreen.sh\n' "$name"
+    if why="$(demo_window_reason "$REPO_ROOT" "$EXAMPLES_REL/$name.tscn")"; then
+      printf '  %-24s needs a window, it %s — scripts/run_sim_offscreen.sh\n' "$name" "$why"
     elif supports_contract "$name"; then
       printf '  %-24s honours --run-frames\n' "$name"
     else
@@ -44,7 +47,8 @@ list_demos() {
   echo ""
   echo "  Scenes with no harness: run them with the engine flag instead, e.g."
   echo "    $GODOT --headless --path . $EXAMPLES_REL/<name>.tscn --quit-after 120"
-  echo "  game/VoxelWorld.tscn and the scenes inheriting it need a real window: use scripts/run_sim_offscreen.sh."
+  echo "  game/VoxelWorld.tscn, the scenes inheriting it and the scenes holding a SPHERE LocalAgentSimWorld"
+  echo "  need a real window: use scripts/run_sim_offscreen.sh."
 }
 
 # Returns the child's exit code; prints the marker line it emitted.
@@ -63,8 +67,9 @@ run_one() {
     return 2
   fi
   [ "$frag" -eq 1 ] || return 2
-  if demo_needs_window "$REPO_ROOT" "$scene"; then
-    echo "run_demo: '$name' inherits game/VoxelWorld.tscn, whose field needs a compute device headless lacks." >&2
+  local why
+  if why="$(demo_window_reason "$REPO_ROOT" "$scene")"; then
+    echo "run_demo: '$name' $why; a planet's field needs a compute device, which headless lacks." >&2
     echo "  scripts/run_sim_offscreen.sh --path . $scene -- --run-frames=$frames" >&2
     return 2
   fi
@@ -75,7 +80,14 @@ run_one() {
     return 2
   fi
 
-  local log start rc elapsed marker
+  local log start rc elapsed marker lock_rc=0
+  # la_godot waits for the lock otherwise, inside the demo's clock.
+  la_gpu_lock || lock_rc=$?
+  case "$lock_rc" in
+    0) GPU_HELD=1 ;;
+    2) ;;
+    *) echo "run_demo: timed out waiting for the GPU lock; '$name' did not run." >&2; return 2 ;;
+  esac
   log="$(mktemp "${TMPDIR:-/tmp}/la_run_demo.XXXXXX")"
   start="$(now_ms)"
   set +e
@@ -100,6 +112,10 @@ run_one() {
   wait "$guard" 2>/dev/null
   set -e
   elapsed=$(( $(now_ms) - start ))
+  if [ "$GPU_HELD" -eq 1 ]; then
+    la_gpu_unlock || true
+    GPU_HELD=0
+  fi
 
   # The harness prints LA_RUN_COMPLETE on every exit it makes; `|| true` keeps a no-match grep from ending
   # the script under set -e.
@@ -138,17 +154,23 @@ case "${1:-}" in
     frames="${2:-$DEFAULT_FRAMES}"
     ran=0
     failed=0
+    skipped=0
     for f in "$EXAMPLES_DIR"/*.tscn; do
       name="$(basename "$f" .tscn)"
       if demo_fragment_parent "$REPO_ROOT" "$EXAMPLES_REL/$name.tscn" >/dev/null; then continue; fi
       supports_contract "$name" || continue
+      if why="$(demo_window_reason "$REPO_ROOT" "$EXAMPLES_REL/$name.tscn")"; then
+        skipped=$((skipped + 1))
+        printf 'RUN_DEMO_SKIPPED={"demo":"%s","why":"needs_window","reason":"%s"}\n' "$name" "$why"
+        continue
+      fi
       ran=$((ran + 1))
       # `|| rc=$?`: run_one turns set -e back on, and the `||` form is exempt from it.
       rc=0
       run_one "$name" "$frames" || rc=$?
       if [ "$rc" -ne 0 ]; then failed=$((failed + 1)); fi
     done
-    printf 'RUN_DEMO_ALL={"ran":%d,"failed":%d,"frames":%d}\n' "$ran" "$failed" "$frames"
+    printf 'RUN_DEMO_ALL={"ran":%d,"failed":%d,"skipped":%d,"frames":%d}\n' "$ran" "$failed" "$skipped" "$frames"
     [ "$failed" -eq 0 ] || exit 1
     exit 0
     ;;

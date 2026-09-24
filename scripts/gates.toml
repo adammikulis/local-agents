@@ -129,7 +129,10 @@ name = "check_demo_catalog"
 script = "scripts/check_demo_catalog.sh"
 kind = "text"
 marker = "^check_demo_catalog: OK"
-mutation = "python3 -c \"p='addons/local_agents/examples/DemoLauncher.tscn'; s=open(p).read(); open(p,'w').write(s.replace('examples/DemoRow.tscn', 'examples/DemoRowGone.tscn'))\""
+mutation = [
+	"python3 -c \"p='addons/local_agents/examples/DemoLauncher.tscn'; s=open(p).read(); open(p,'w').write(s.replace('examples/DemoRow.tscn', 'examples/DemoRowGone.tscn'))\"",
+	"sed -i '' -e 's|/ id=|/id=|' -e 's|RSTART + 5, RLENGTH - 6|RSTART + 4, RLENGTH - 5|' scripts/lib_demo_fragment.sh",
+]
 
 [[gate]]
 name = "check_fakes"
@@ -601,6 +604,10 @@ name = "check_no_silent_fallback"
 script = "scripts/check_no_silent_fallback.sh"
 kind = "text"
 marker = "^check_no_silent_fallback: OK"
+mutation = [
+	"printf 'func _m(legs: Dictionary) -> void:\\n\\tvar f = legs.get(\"rock_fill\", _f._rock_fill)\\n' >> addons/local_agents/sim/material/MaterialFieldConservation3D.gd",
+	"perl -0pi -e 's/ctx\\.get\\(\"sun_dir\", Vector3\\.ZERO\\)/ctx.get(\"sun_dir\", Vector3(0.0, 1.0, 0.0))/' addons/local_agents/sim/material/sphere_passes/ReactionsPass.gd",
+]
 
 [[gate]]
 name = "check_no_invented_fallback"
@@ -619,7 +626,22 @@ name = "check_presentation_in_sim"
 script = "scripts/check_presentation_in_sim.sh"
 kind = "text"
 marker = "^check_presentation_in_sim: OK"
-mutation = "printf 'func _m() -> void:\\n\\tvar m: MeshInstance3D = MeshInstance3D.new()\\n' >> addons/local_agents/sim/material/MaterialField3D.gd"
+mutation = [
+	"printf 'func _m() -> void:\\n\\tvar m: MeshInstance3D = MeshInstance3D.new()\\n' >> addons/local_agents/sim/material/MaterialField3D.gd",
+	"printf 'const MUT_S: Shader = preload(\"res://addons/local_agents/sim/shaders/VoxelSky.gdshader\")\\n' >> addons/local_agents/sim/material/MaterialField3D.gd",
+	"printf '[gd_resource type=\"ShaderMaterial\" format=3]\\n\\n[resource]\\n' > addons/local_agents/sim/mutant_material.tres && printf 'const MUT_M: Material = preload(\"res://addons/local_agents/sim/mutant_material.tres\")\\n' >> addons/local_agents/sim/material/MaterialField3D.gd",
+	"printf '[gd_scene format=3]\\n\\n[node name=\"M\" type=\"Node3D\"]\\n\\n[node name=\"Mesh\" type=\"MeshInstance3D\" parent=\".\"]\\n' > addons/local_agents/sim/mutant_visual.tscn && printf 'const MUT_V: PackedScene = preload(\"res://addons/local_agents/sim/mutant_visual.tscn\")\\n' >> addons/local_agents/sim/material/MaterialField3D.gd",
+	"printf '[gd_scene format=3]\\n\\n[node name=\"M\" type=\"Node3D\"]\\n\\n[node name=\"Mesh\" type=\"MeshInstance3D\" parent=\".\"]\\n' > addons/local_agents/sim/mutant_visual.tscn && printf '[gd_scene format=3]\\n\\n[ext_resource type=\"PackedScene\" uid=\"uid://bmutant\" path=\"res://addons/local_agents/sim/mutant_visual.tscn\" id=\"1_v\"]\\n\\n[node name=\"O\" type=\"Node3D\"]\\n\\n[node name=\"V\" parent=\".\" instance=ExtResource(\"1_v\")]\\n' > addons/local_agents/sim/mutant_outer.tscn && printf 'const MUT_O: PackedScene = preload(\"res://addons/local_agents/sim/mutant_outer.tscn\")\\n' >> addons/local_agents/sim/material/MaterialField3D.gd",
+	"printf 'const MUT_SHADER_PATH: String = \"res://addons/local_agents/sim/shaders/VoxelSky.gdshader\"\\nfunc _mut_s() -> Resource:\\n\\treturn load(MUT_SHADER_PATH)\\n' >> addons/local_agents/sim/material/MaterialField3D.gd",
+	"printf '[gd_resource type=\"ShaderMaterial\" format=3]\\n\\n[resource]\\n' > addons/local_agents/sim/mutant_material.tres && printf 'const MUT_MAT_PATH: String = \"res://addons/local_agents/sim/mutant_material.tres\"\\n' >> addons/local_agents/sim/material/MaterialFieldSeal3D.gd && printf 'func _mut_m() -> Resource:\\n\\treturn load(LAMaterialFieldSeal3D.MUT_MAT_PATH)\\n' >> addons/local_agents/sim/material/MaterialField3D.gd",
+]
+
+[[gate]]
+name = "check_game_deletable"
+script = "scripts/check_game_deletable.sh"
+kind = "text"
+marker = "^check_game_deletable: OK"
+mutation = "perl -pi -e 's/\\bLAAppQuit\\.request\\(/LAAppExit.request(/' addons/local_agents/runtime/SceneShooter.gd"
 
 [[gate]]
 name = "check_duplicate_logic"

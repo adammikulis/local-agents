@@ -114,4 +114,4 @@ func _on_save() -> void:
 
 
 func _on_quit() -> void:
-	LAAppExit.request(self, 0)
+	LAAppQuit.request(self, 0)

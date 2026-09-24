@@ -182,7 +182,6 @@ layout(push_constant, std430) uniform Params {
 	uint act_group;       // the row group whose activity counter and cell list this dispatch walks
 	uint act_group2;      // a second group this row's crossings wake; ACT_NO_GROUP for none
 	float phi_datum;      // J/kg: la_phi's zero against infinity
-	float grav_self;      // share of rho*phi that is the cell's own potential energy: 0.5 self-gravitating, 1 in a body's field
 } params;
 
 // The seconds THIS invocation integrates. A cell's own is dt/2^tlevel.

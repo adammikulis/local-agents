@@ -77,7 +77,7 @@ func _process(_delta: float) -> void:
 	if _stage >= _stages.size():
 		print("ABLATION_SWEEP=", JSON.stringify(_rows))
 		set_process(false)
-		LAAppExit.request(self, 0)
+		LAAppQuit.request(self, 0)
 		return
 	_apply(_stages[_stage])
 	_frames = 0

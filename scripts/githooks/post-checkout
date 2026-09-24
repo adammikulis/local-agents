@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Generated .uid files of resources the new tree deleted.
+exec "$(git rev-parse --show-toplevel)/scripts/prune_orphan_uid.sh"
