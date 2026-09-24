@@ -98,19 +98,6 @@ func generator_options() -> Dictionary:
 	return _gen_opts.duplicate()
 
 
-## Set a uniform on the terrain's triplanar shader material (e.g. the temperature texture that makes
-## hot ground glow, or the heat-debug toggle). No-op before build().
-func set_shader_param(param: String, value) -> void:
-	if _terrain != null and _terrain.material is ShaderMaterial:
-		(_terrain.material as ShaderMaterial).set_shader_parameter(param, value)
-
-
-## Draw the terrain with `mat`, which the view that dresses this world owns.
-func set_terrain_material(mat: ShaderMaterial) -> void:
-	if _terrain != null:
-		_terrain.material = mat
-
-
 ## THE LOD PYRAMID SPANS THE BODY OR ITS FAR SIDE IS NEVER MESHED. The coarsest level reaches
 ## lod_distance * 2^(lod_count-1) metres and the far limb stands 2R away, so the count is read off the
 ## radius rather than typed.

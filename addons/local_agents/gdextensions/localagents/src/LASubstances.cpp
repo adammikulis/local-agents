@@ -4,6 +4,7 @@
 #include "LAPhaseEos.hpp"
 #include "LAPhysicalRead.hpp"
 #include "LAPlanetTables.hpp"
+#include "LASubstanceOptics.hpp"
 #include "LAWaterCurves.hpp"
 
 #include <godot_cpp/core/class_db.hpp>
@@ -589,6 +590,7 @@ Dictionary build_table() {
 	for (int i = 0; i < int(sizeof(GASES) / sizeof(GasRow)); i++) {
 		t[String(GASES[i].id)] = gas_entry(GASES[i]);
 	}
+	la_optics::declare(t);
 	t["organic_c"] = organic_entry("C", WOOD_ENTROPY_C_J_KGK, "MOLAR_MASS_CARBON_KG_MOL", true, true);
 	t["organic_h"] = organic_entry("H", WOOD_ENTROPY_H_J_KGK, "MOLAR_MASS_HYDROGEN_KG_MOL", false, false);
 	t["organic_o"] = organic_entry("O", WOOD_ENTROPY_O_J_KGK, "MOLAR_MASS_OXYGEN_KG_MOL", false, false);

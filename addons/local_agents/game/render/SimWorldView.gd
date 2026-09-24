@@ -33,8 +33,8 @@ func _ready() -> void:
 
 func _dress() -> void:
 	var terrain: Variant = sim_world.terrain()
-	if terrain_material != null and terrain != null and terrain.has_method("set_terrain_material"):
-		terrain.set_terrain_material(terrain_material)
+	if terrain != null and terrain.has_method("terrain_node"):
+		LATerrainLook.dress(terrain.terrain_node(), terrain_material)
 
 
 # The Sun shines the way the star's light travels, star to body.

@@ -164,7 +164,7 @@ kind = "gpu"
 marker = "^check_life_demo: OK"
 mutation = [
 	"perl -0pi -e 's/LAFakes\\.draw\\(\"plant_carbon\", want_mass\\)/0.0/' addons/local_agents/sim/actors/Plant.gd",
-	"perl -0pi -e 's/(func step\\(delta: float\\) -> void:\\n)/$1\\tvar mutant_t0: int = Time.get_ticks_usec()\\n\\twhile Time.get_ticks_usec() - mutant_t0 < 50000:\\n\\t\\tpass\\n/' addons/local_agents/game/RenderLayer.gd",
+	"perl -0pi -e 's/(func step\\(_delta: float\\) -> void:\\n)/$1\\tvar mutant_t0: int = Time.get_ticks_usec()\\n\\twhile Time.get_ticks_usec() - mutant_t0 < 50000:\\n\\t\\tpass\\n/' addons/local_agents/game/RenderLayer.gd",
 ]
 needs = ["import"]
 
@@ -513,10 +513,10 @@ script = "scripts/check_generated_constants.sh"
 kind = "text"
 marker = "^Generated-constants gate passed"
 mutation = [
-	"perl -pi -e 's/^const RIPPLE_MAX: int = 16/const RIPPLE_MAX: int = 17/' addons/local_agents/game/render/MaterialFieldRender3D.gd",
+	"perl -pi -e 's/^const RIPPLE_MAX: int = 16/const RIPPLE_MAX: int = 17/' addons/local_agents/game/render/WaterSurfaceView.gd",
 	"printf 'const int RIPPLE_MAX = 16;\\n' >> addons/local_agents/game/render/FieldArrow.gdshader",
 	"printf '#include \"res://addons/local_agents/game/render/shaders/generated.gdshaderinc\"\\n' >> addons/local_agents/game/render/FieldArrow.gdshader",
-	"perl -pi -e 's#game/render/shaders/generated#sim/shaders/generated#' addons/local_agents/game/render/shaders/WaterParticles.gdshader",
+	"perl -pi -e 's#game/render/shaders/generated#sim/shaders/generated#' addons/local_agents/game/render/shaders/VoxelWater.gdshader",
 ]
 
 [[gate]]
@@ -714,7 +714,7 @@ name = "check_sparse_edit"
 script = "scripts/check_sparse_edit.sh"
 kind = "gpu"
 marker = "^check_sparse_edit: OK"
-needs = "import"
+needs = ["import"]
 mutation = "python3 -c \"p='addons/local_agents/sim/material/kernels3d/sparse_edit.glsl'; s=open(p).read(); open(p,'w').write(s.replace('int s = inj_idx[e * 3u];', 'int s = inj_idx[e * 3u] + 1;'))\""
 
 [[gate]]
@@ -735,9 +735,30 @@ mutation = "perl -0pi -e 's/not LAAblate\\.step_switches\\(_f\\._gpu\\._step_ind
 name = "check_test_mass"
 script = "scripts/check_test_mass.sh"
 kind = "gpu"
-needs = "import"
+needs = ["import"]
 marker = "^check_test_mass: OK"
 mutation = "perl -0pi -e 's/GRAVITATIONAL_CONSTANT: float = [0-9.e-]+/GRAVITATIONAL_CONSTANT: float = 0.0/' addons/local_agents/sim/material/PhysicalConstants.gd"
+
+[[gate]]
+name = "check_mutate_scratch_build"
+script = "scripts/check_mutate_scratch_build.sh"
+kind = "text"
+marker = "^check_mutate_scratch_build: OK"
+mutation = "perl -0pi -e 's/shutil\\.copytree\\(os\\.path\\.join\\(ROOT, BIN_REL\\)[^\\n]*/pass/' scripts/gate_runner.py"
+
+[[gate]]
+name = "check_sky_air"
+script = "scripts/check_sky_air.sh"
+kind = "gpu"
+needs = ["import"]
+marker = "^check_sky_air: OK"
+mutation = [
+	"perl -0pi -e 's/var scale_h: float = LAPhysical\\.GAS_CONSTANT_J_MOL_K[^\\n]+/var scale_h: float = 8000.0/' addons/local_agents/game/render/SkyView.gd",
+	"perl -0pi -e 's/var g: float = LABallistics\\.g_at\\(at\\)\\.length\\(\\)/var g: float = 9.80665/' addons/local_agents/game/render/SkyView.gd",
+	"perl -0pi -e 's/var per_m3: float = /var per_m3: float = 1.25 * /' addons/local_agents/game/render/SkyView.gd",
+	"perl -0pi -e 's/ \\* exp\\(above_ground \\/ scale_h\\)//' addons/local_agents/game/render/SkyView.gd",
+	"perl -0pi -e 's/\\{ 1\\.1364, 25\\.3e-12 \\* 1\\.0e8 \\}/{ 1.0 }/' addons/local_agents/gdextensions/localagents/src/LASubstanceOptics.cpp",
+]
 
 [[gate]]
 name = "check_finite_channels"
@@ -839,7 +860,7 @@ mutation = "python3 -c \"p='scripts/sim_run.sh'; s=open(p).read(); open(p,'w').w
 name = "check_box_outline"
 script = "scripts/check_box_outline.sh"
 kind = "gpu"
-needs = "import"
+needs = ["import"]
 marker = "^check_box_outline: OK"
 mutation = "perl -0pi -e 's/1\\.0 - smoothstep\\(0\\.0, 1\\.0, clampf\\(t, 0\\.0, 1\\.0\\)\\)/1.0/' addons/local_agents/game/render/FieldBoxOutline.gd"
 
@@ -848,7 +869,45 @@ name = "check_shot_look"
 script = "scripts/check_shot_look.sh"
 kind = "gpu"
 marker = "^check_shot_look: OK"
-mutation = "python3 -c \"p='addons/local_agents/game/render/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); s=s.replace('ALBEDO = col;','ALBEDO = vec3(0.0);'); open(p,'w').write(s.replace('EMISSION = incandescence(temp) * 3.8;','EMISSION = vec3(0.35);'))\""
+mutation = "python3 -c \"p='addons/local_agents/game/render/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); s=s.replace('ALBEDO = col;','ALBEDO = vec3(0.0);'); open(p,'w').write(s.replace('EMISSION = max(glow, vec3(0.0));','EMISSION = vec3(0.35);'))\""
+
+[[gate]]
+name = "check_block_seams"
+script = "scripts/check_block_seams.sh"
+kind = "gpu"
+needs = ["import"]
+marker = "^check_block_seams: OK"
+mutation = [
+	'''python3 -c "p='addons/local_agents/game/render/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); o='specular_schlick_ggx, skip_vertex_transform;'; assert o in s, o; open(p,'w').write(s.replace(o, 'specular_schlick_ggx;'))"''',
+	'''python3 -c "p='addons/local_agents/game/render/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); o='VERTEX = mat3(VIEW_MATRIX) * (to_world * rel);'; assert o in s, o; open(p,'w').write(s.replace(o, 'VERTEX = (MODELVIEW_MATRIX * vec4(v, 1.0)).xyz;'))"''',
+]
+
+[[gate]]
+name = "check_terrain_glow"
+script = "scripts/check_terrain_glow.sh"
+kind = "gpu"
+needs = ["import"]
+marker = "^check_terrain_glow: OK"
+mutation = [
+	'''python3 -c "p='addons/local_agents/game/render/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); o='EMISSION = max(glow, vec3(0.0));'; assert o in s, o; s=s.replace('void fragment() {', 'vec3 incandescence(float t) {\n\tif (t < 450.0) {\n\t\treturn vec3(0.0);\n\t}\n\tfloat g = smoothstep(450.0, 1300.0, t);\n\tvec3 c = mix(vec3(0.75, 0.06, 0.0), vec3(1.0, 0.5, 0.08), smoothstep(450.0, 850.0, t));\n\tc = mix(c, vec3(1.0, 0.96, 0.82), smoothstep(850.0, 1300.0, t));\n\treturn c * g;\n}\n\nvoid fragment() {'); open(p,'w').write(s.replace(o, 'EMISSION = incandescence(temp_c) * 3.8;'))"''',
+	'''python3 -c "p='addons/local_agents/game/render/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); o='EMISSION = max(glow, vec3(0.0));'; assert o in s, o; open(p,'w').write(s.replace(o, 'EMISSION = max(glow, vec3(0.0)) * 2.0;'))"''',
+	'''python3 -c "p='addons/local_agents/game/render/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); o='glow = (1.0 - col) * planck_srgb('; assert o in s, o; open(p,'w').write(s.replace(o, 'glow = planck_srgb('))"''',
+	'''python3 -c "p='addons/local_agents/game/world/HeatFieldTexture.gd'; s=open(p).read(); o='return Color(t_k, (r_m / d_m) * (r_m / d_m), 0.0)'; assert o in s, o; open(p,'w').write(s.replace(o, 'return Color(t_k, r_m / d_m, 0.0)'))"''',
+	'''python3 -c "p='addons/local_agents/game/world/HeatFieldTexture.gd'; s=open(p).read(); o='var t_k: float = pow(l_w / (4.0 * PI * r_m * r_m * LAPhysical.STEFAN_BOLTZMANN), 0.25)'; assert o in s, o; open(p,'w').write(s.replace(o, 'var t_k: float = 5772.0'))"''',
+]
+
+[[gate]]
+name = "check_terrain_field"
+script = "scripts/check_terrain_field.sh"
+kind = "gpu"
+needs = ["import"]
+marker = "^check_terrain_field: OK"
+mutation = [
+	'''python3 -c "p='addons/local_agents/game/world/HeatFieldTexture.gd'; s=open(p).read(); o='mirrors.cells() != _cells:'; assert o in s, o; open(p,'w').write(s.replace(o, 'mirrors.cells() != _field._grid.nx * _field._grid.ny * _field._grid.nz:'))"''',
+	'''python3 -c "p='addons/local_agents/game/render/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); o='v_box_pos = (u_block_local_transform[3].xyz - field_box_min) + v;'; assert o in s, o; open(p,'w').write(s.replace(o, 'v_box_pos = (MODEL_MATRIX * vec4(v, 1.0)).xyz - field_box_min;'))"''',
+	'''python3 -c "p='addons/local_agents/game/world/HeatFieldTexture.gd'; s=open(p).read(); o='\"field_box_min\": terrain.terrain_node().to_local(pivot) + (grid.origin - pivot),'; assert o in s, o; open(p,'w').write(s.replace(o, '\"field_box_min\": grid.origin,'))"''',
+	'''python3 -c "p='addons/local_agents/game/render/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); o='(spread3(f.z) << 2)'; assert o in s, o; open(p,'w').write(s.replace(o, '(spread3(f.z) << 1)'))"''',
+]
 
 [[gate]]
 name = "check_impact_books"

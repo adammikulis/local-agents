@@ -4,8 +4,7 @@ extends Node
 
 var _settings: LAGameSettings = null
 
-# The views the effects level reaches, re-pushed on a live settings change.
-var _water: Node = null
+# The view the effects level reaches, re-pushed on a live settings change.
 var _ejecta: LAEjectaView = null
 
 
@@ -53,7 +52,7 @@ func settings() -> LAGameSettings:
 	return _settings
 
 
-## Particle-density scale (0..1) from the effects level — Low runs far fewer atmosphere particles.
+## Particle-density scale (0..1) from the effects level — Low draws far fewer embers.
 func particle_scale() -> float:
 	match settings().effects_level:
 		LAGameSettings.EffectsLevel.LOW:
@@ -96,9 +95,8 @@ func publish_globals() -> void:
 	Engine.set_meta("la_llm_cadence", llm_cadence())
 
 
-## Wire the views the effects level reaches, once they exist.
-func bind(water: Node, ejecta: LAEjectaView) -> void:
-	_water = water
+## Wire the view the effects level reaches, once it exists.
+func bind(ejecta: LAEjectaView) -> void:
 	_ejecta = ejecta
 	_push_effects()
 	var gm: Node = get_node_or_null("/root/GameMode")
@@ -120,10 +118,7 @@ func _on_settings_applied(new_settings: LAGameSettings) -> void:
 	_push_effects()
 
 
-## The effects level onto the particle views: the atmosphere's density, and how many of its embers the
-## ejecta view draws out of its MultiMesh.
+## The effects level onto the ejecta view: how many of its embers it draws out of its MultiMesh.
 func _push_effects() -> void:
-	if _water != null and is_instance_valid(_water) and _water.has_method("set_density_scale"):
-		_water.set_density_scale(particle_scale())
 	if _ejecta != null and is_instance_valid(_ejecta):
 		_ejecta.max_drawn = int(round(float(_ejecta.multimesh.instance_count) * particle_scale()))

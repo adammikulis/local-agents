@@ -74,22 +74,23 @@ matter; the ground and the water surface are detectors on it (an isosurface a co
 into mesh buffers per block, which is also the collider); the generator is sampled into the field once
 at seed; a body of water is where the inventory settled under the solved gravity, one liquid in one
 channel. `rg -n "sea_radius|OceanPlane|_open_sea|sea_level_m|resample_terrain" addons/local_agents`
-finds the sea as a declared shell radius and the field sampling the generator after the seal.
+finds the sea as a declared shell radius and the field sampling the generator after the seal. A coast slice
+(`LA_SLICE_BOX=0,site=coast,0,3,24,3,5120,10`, `--rung=2 --ui --shots=1000:-35:0`) draws its sea only over
+the box's finest cells.
+Reading: `LAWaterSurfaceMesh.build` skips every cell whose `level_of` is not `max_level`.
 
-## 8. THE LEVEL BOUNDARY DRAWS AS A LINE ACROSS THE GROUND
+## 8. THE GROUND NEAR THE EYE IS TERRACED, AND THE LEVEL BOUNDARY SHADES AS A CREASE
 
-`scripts/shoot_demo.sh addons/local_agents/examples/SliceRung1Demo.tscn <dir>` carries thin dark lines
-running to the horizon in every pose under a kilometre, straight in world space and jointed at right
-angles. Read the PNGs.
-Reading: `get_transvoxel_position` in `VoxelTerrainTriplanar.gdshader` moves a transition vertex onto
-the coarse surface and leaves its `NORMAL` at the fine one's.
+`LA_SHOTS="30:-3:0" scripts/shoot_demo.sh addons/local_agents/examples/SliceRung1Demo.tscn <dir>` shows
+the near ground banded along its contours and a crease along the level boundary to the horizon.
+Reading: `LASpherePlanetGenerator.build` leaves the position inputs of `NODE_SDF_SPHERE` unwired, so
+`length(p) - radius` is taken at each voxel's absolute position.
 
 ## 9. THE DEMO SITE HOLDS NO WATER A VIEWER CAN STAND BESIDE
 
 `LA_SHOTS="30:-3:0" scripts/shoot_demo.sh addons/local_agents/examples/SliceRung1Demo.tscn <dir>` shows
-the nearest free water surface a kilometre off and reads as an opaque dark plate with a straight edge;
-`scripts/sim_run.sh --slice --rung 1 --frames 4 --report water_liquid_total,wet_cells` counts what stands
-in the box.
+no free water surface; `scripts/sim_run.sh --slice --rung 1 --frames 4 --report water_liquid_total,wet_cells`
+counts what stands in the box.
 Reading: `coast_site` in `LAPlanetTables.cpp` bisects onto the waterline and then scores the site by
 `land_m + depth_m`, which is largest where the relief is steepest rather than where the box's own
 footprint is half wet.
@@ -176,6 +177,14 @@ Maintainer's decision, standing: per-cell moles of elements are the state and sp
 ## 19. THE GPU LINT RUNS HERE ONLY
 
 `.github/workflows/gpu-lint.yml` targets a self-hosted macOS runner labelled `gpu`; none is registered.
+
+## 20. THE STAR IS SEEDED WITH TODAY'S RADIUS BESIDE THE EPOCH'S LUMINOSITY
+
+`rg -n 'star\["(radius_m|luminosity_w)"\]' addons/local_agents/gdextensions/localagents/src/LABodySystem.cpp`
+reads the present nominal radius for a star `star_age_at_epoch_gyr()` old, where the standard solar model
+gives 0.869 of it at zero age and 0.882 at 0.2 Gyr (Bahcall, Pinsonneault & Basu 2001, ApJ 555:990,
+Table 1); the sky's disc and the ground's sunlit unit are drawn from that radius.
+Reading: `LABodySeeds::rows` sets the star's `radius_m` to `SOLAR_RADIUS_M`.
 
 ## How to run
 
