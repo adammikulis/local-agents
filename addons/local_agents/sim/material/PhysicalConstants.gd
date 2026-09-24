@@ -18,7 +18,7 @@ const IAPWS_SAT_RHO_B5: float = -45.5170352   # IAPWS SR1-86 (1992)
 const IAPWS_SAT_RHO_B6: float = -6.74694450e5   # IAPWS SR1-86 (1992)
 ## Isothermal compressibility of liquid water at 25 °C, 1/Pa (Kell 1975), and its reciprocal.
 const WATER_ISOTHERMAL_COMPRESSIBILITY_PER_PA: float = 4.525e-10
-const WATER_BULK_MODULUS_PA: float = 1.0 / WATER_ISOTHERMAL_COMPRESSIBILITY_PER_PA
+const WATER_BULK_MODULUS_T_PA: float = 1.0 / WATER_ISOTHERMAL_COMPRESSIBILITY_PER_PA
 
 ## Specific gas constant of water vapour, J/kg/K = R / molar mass.
 const VAPOUR_GAS_CONST_J_KGK: float = 461.52
@@ -59,15 +59,18 @@ const BOLIDE_FLUX_EXPONENT: float = 0.90
 const BOLIDE_FIT_KT: PackedFloat64Array = [1.0e-5, 1.0e8]
 ## One kiloton of TNT, J: 1 g of TNT is 1000 thermochemical calories of 4.184 J.
 const KILOTON_TNT_J: float = 4.184e12
-## Volumetric thermal expansivity of rock, 1/K. Skinner 1966, GSA Memoir 97, puts rocks at 15-33e-6 /°C;
-## basalt carries no quartz (3.3e-5, Fei 1995) and sits at the low end of that span.
-const ROCK_VOLUME_EXPANSION_PER_K: float = 1.5e-5
-## Isothermal bulk modulus of the basalt mineral matrix, Pa. Adam & Otheim 2013, JGR Solid Earth 118, give
-## Voigt-Reuss-Hill mineral moduli of 80.1 and 84.1 GPa on two basalt samples.
-const ROCK_BULK_MODULUS_PA: float = 8.0e10
+
+## Volumetric expansivity of gabbro and basalt, 20-100 °C, 1/K (Skinner 1966, in Robertson 1988, USGS OFR 88-441).
+const ROCK_VOLUME_EXPANSION_PER_K: float = 1.6e-5
+## Adiabatic bulk modulus of the basalt mineral matrix, Pa: the Voigt-Reuss-Hill average of acoustic mineral
+## moduli (Mavko et al. 2003) over Snake River Plain basalt B1 (Otheim 2012, Boise State MS thesis, Table 2.6;
+## Adam & Otheim 2013, JGR Solid Earth 118:840).
+const ROCK_BULK_MODULUS_S_PA: float = 8.01e10
+## Basalt BCR-1 specific heat at 298.15 K, J/kg/K (Robertson & Hemingway 1995, USGS OFR 95-622, Table 2).
+const ROCK_SPECIFIC_HEAT_J_KGK: float = 738.3
 ## Uniaxial tensile strength of intact basalt, Pa (Schultz 1995, Rock Mech. Rock Eng. 28:1, 14.5±3.3 MPa).
 const BASALT_TENSILE_STRENGTH_PA: float = 1.45e7
-const ROCK_SPECIFIC_HEAT_J_KGK: float = 840.0
+
 const VOL_HEAT_CAP_AIR_J_M3K: float = AIR_DENSITY_KG_M3 * AIR_SPECIFIC_HEAT_J_KGK
 const VOL_HEAT_CAP_WATER_J_M3K: float = WATER_DENSITY_KG_M3 * WATER_SPECIFIC_HEAT_J_KGK
 
@@ -169,7 +172,7 @@ const CALCITE_DENSITY_KG_M3: float = 2710.0          # calcite, 2.71 g/cm^3
 const QUARTZ_VOLUME_EXPANSION_PER_K: float = 3.3e-5
 const CALCITE_VOLUME_EXPANSION_PER_K: float = 1.4e-5
 ## Isothermal bulk modulus of alpha-quartz, Pa (Angel et al. 1997, J. Appl. Cryst. 30:461).
-const QUARTZ_BULK_MODULUS_PA: float = 3.712e10
+const QUARTZ_BULK_MODULUS_T_PA: float = 3.712e10
 
 # Formation enthalpy and standard molar entropy at 298.15 K, 1 bar (Robie & Hemingway 1995; CODATA for CO2).
 const FORMATION_ENTHALPY_CASIO3_J_MOL: float = -1634900.0   # wollastonite
@@ -184,7 +187,7 @@ const ICE_DENSITY_KG_M3: float = 916.7
 ## Volumetric thermal expansivity of ice Ih near 265 K, 1/K (Röttger et al. 1994, Acta Cryst B50:644).
 const ICE_VOLUME_EXPANSION_PER_K: float = 1.6e-4
 ## Isothermal bulk modulus of ice Ih at 273 K, Pa (Neumeier 2018, J. Phys. Chem. Ref. Data 47:033101).
-const ICE_BULK_MODULUS_PA: float = 8.4e9
+const ICE_BULK_MODULUS_T_PA: float = 8.4e9
 
 const ROCK_POROSITY_NEAR_SURFACE: float = 0.05
 
@@ -395,8 +398,8 @@ const CO2_LIQUID_SPECIFIC_HEAT_J_KGK: float = 1962.0 # saturated liquid at 220 K
 const DRY_ICE_DENSITY_KG_M3: float = 1562.0          # solid CO2 at 194.7 K (CRC 97th ed.)
 const CO2_LIQUID_DENSITY_KG_M3: float = 1178.46      # saturated liquid at the triple point
 const CO2_LIQUID_EXPANSION_PER_K: float = 3.09e-3    # 0.6 MPa, between the 216.7 K and 217 K isotherms (NIST WebBook)
-const CO2_LIQUID_BULK_MODULUS_PA: float = 5.61e8     # K_T on the 216.7 K isotherm, 0.6-0.8 MPa (NIST WebBook)
-const CO2_LIQUID_BULK_MODULUS_DERIV: float = 10.0    # dK_T/dP on the 216.7 K and 217 K isotherms (NIST WebBook)
+const CO2_LIQUID_BULK_MODULUS_T_PA: float = 5.61e8   # K_T on the 216.7 K isotherm, 0.6-0.8 MPa (NIST WebBook)
+const CO2_LIQUID_BULK_MODULUS_T_DERIV: float = 10.0  # dK_T/dP on the 216.7 K and 217 K isotherms (NIST WebBook)
 
 # Dihydrogen, NIST Chemistry WebBook (CAS 1333-74-0); liquid cp from Leachman et al. 2009,
 # J. Phys. Chem. Ref. Data 38:721.

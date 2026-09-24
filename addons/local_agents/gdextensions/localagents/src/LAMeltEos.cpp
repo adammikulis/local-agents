@@ -1,6 +1,7 @@
 #include "LAMeltEos.hpp"
 
 #include "LABirchMurnaghan.hpp"
+#include "LAPhaseEos.hpp"
 #include "LAPhysicalRead.hpp"
 #include "LAPlanetTables.hpp"
 
@@ -327,8 +328,7 @@ Dictionary LAMeltEos::anorthite_melt_compression(double p_t_c) {
 	return mg_isotherm(AN_LIQ, p_t_c);
 }
 
-// The liquid at the temperature its sound speed was measured: Janz's density there, K_S = rho c^2, and
-// K_T = K_S / (1 + alpha gamma T) with gamma = alpha K_S / (rho c_p).
+// The liquid at the temperature its sound speed was measured: Janz's density there and K_S = rho c^2.
 Dictionary LAMeltEos::halite_melt(double p_melt_c) {
 	const double t_c = HALITE_LIQUID_SOUND_T_K - kelvin();
 	const double rho = HALITE_LIQUID_DENSITY_KG_M3 - HALITE_LIQUID_DENSITY_SLOPE_KG_M3K * (t_c - p_melt_c);
@@ -344,7 +344,7 @@ Dictionary LAMeltEos::halite_melt(double p_melt_c) {
 	out["expansion_melt_per_k"] = alpha;
 	out["density_melt_linear"] = true;
 	out["specific_heat"] = cp;
-	out["bulk_modulus_melt_pa"] = k_s / (1.0 + alpha * alpha * k_s * HALITE_LIQUID_SOUND_T_K / (rho * cp));
+	out["bulk_modulus_melt_pa"] = LAPhaseEosFn::isothermal_modulus(k_s, alpha, rho, cp, t_c);
 	// LA_APPROX: unmeasured_pressure_derivative
 	out["bulk_modulus_melt_deriv"] = SECOND_ORDER_BM_DERIV;
 	return out;

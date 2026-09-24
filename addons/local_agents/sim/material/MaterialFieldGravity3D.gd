@@ -17,12 +17,13 @@ func setup(field) -> void:
 	_f = field
 
 
-## Every SOLVE_EVERY steps the potential is re-solved from the mass that moved, warm-started. With the
-## switch off nothing is solved, and the pass zeroes what it published; the first step back re-solves.
+## Every SOLVE_EVERY steps the potential is re-solved from the mass that moved, warm-started; a slice's is
+## the declared body's, which no step moves. With the switch off nothing is solved, and the pass zeroes
+## what it published; the first step back re-solves.
 func solve_step(step_index: int) -> void:
 	_bind()
 	var on: bool = _pass != null and LAProcessSet.is_active("pass", PASS_FILE)
-	if on and (_switched_off or step_index % _pass.SOLVE_EVERY == 0):
+	if on and (_switched_off or (_f._slice == null and step_index % _pass.SOLVE_EVERY == 0)):
 		solve()
 	_switched_off = not on
 

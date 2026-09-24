@@ -22,8 +22,6 @@ var _waiting_on: PackedStringArray = PackedStringArray()
 var _origin: String = "unsealed"
 ## What the world was handed at the seal, filled by `note_seed()`.
 var _manifest: Dictionary = {}
-var _latched: bool = false
-var _baseline_step: int = -1
 ## What was created while seeding, and what tried to be created after the seal.
 var _created: Dictionary = {}
 var _refused: Dictionary = {}
@@ -56,7 +54,7 @@ func seal_step() -> int:
 
 ## Called once per field step, right after the readback.
 func poll(legs: Dictionary) -> bool:
-	if _latched:
+	if _phase == Phase.SEALED:
 		return false
 	if _f == null or not _f._ready_sim:
 		return false
@@ -72,23 +70,11 @@ func poll(legs: Dictionary) -> bool:
 		if _f._gpu != null and _f._gpu.has_method("request_probe"):
 			_f._gpu.request_probe(missing)
 		return false
-	if _phase != Phase.SEALED:
-		_phase = Phase.SEALED
-		_seal_step = SampleScript.field_step(_f)
-		if _origin == "unsealed":
-			_origin = "seeded"
-	_latch_baselines()
+	_phase = Phase.SEALED
+	_seal_step = SampleScript.field_step(_f)
+	if _origin == "unsealed":
+		_origin = "seeded"
 	return true
-
-
-## One instrument pass on the sealing step, so every ledger's `*_first` is the state at the seal.
-func _latch_baselines() -> void:
-	_latched = true
-	_baseline_step = SampleScript.field_step(_f)
-	var rep = _f._report_mod
-	if rep != null:
-		rep._heavy_frame = -1_000_000
-		rep._heavy_block()
 
 
 ## A bake carried the seal in. The world was handed this matter once, by the run that baked it, so its
@@ -132,8 +118,6 @@ func report() -> Dictionary:
 		"world_sealed": _phase == Phase.SEALED,
 		"world_seal_step": _seal_step,
 		"world_seal_origin": _origin,
-		# Field step every `*_first` baseline was taken on. -1 means no ledger has a baseline.
-		"world_baseline_step": _baseline_step,
 		# Channels the seal is still waiting for. Empty once latched.
 		"world_seal_waiting": _waiting_on,
 		# What the planet was handed at the seal; every entry is a mechanism the substrate does not have.

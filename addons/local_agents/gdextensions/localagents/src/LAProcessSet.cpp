@@ -35,14 +35,15 @@ const char *const NONE_[] = { nullptr };
 const char *const STATE_GATES[] = { "check_rung_state.sh", "check_derive_fixed_point.sh",
 	"check_condensed_moduli.sh", "check_bench_phase_change.sh",
 	nullptr };
-const char *const STATE_PASSES[] = { "InjectPass.gd", "StateDerivePass.gd", nullptr };
+const char *const STATE_PASSES[] = { "InjectPass.gd", "StateDerivePass.gd", "ReducePass.gd", nullptr };
+// The conservation books: matter and its energy are there from the bottom rung, and so is their audit.
+const char *const STATE_REDUCE[] = { "@amounts", "energy_stock", "energy_stock_lith", "energy_stock_open",
+	"energy_stock_open_lith", "energy_kinetic", "energy_potential", nullptr };
 
 const char *const GRAVITY_GATES[] = { "check_gravity_solve.sh", "check_hydrosphere_mass.sh",
 	"check_live_toggles.sh", nullptr };
-const char *const GRAVITY_PASSES[] = { "GravityPass.gd", "ReducePass.gd", nullptr };
-const char *const GRAVITY_REDUCE[] = { "@amounts", "energy_stock", "energy_stock_lith", "energy_stock_open",
-	"energy_stock_open_lith", "energy_kinetic",
-	"energy_potential", "energy_pv_solid", "energy_pv_fluid",
+const char *const GRAVITY_PASSES[] = { "GravityPass.gd", nullptr };
+const char *const GRAVITY_REDUCE[] = { "energy_pv_solid", "energy_pv_fluid",
 	"solid_cells", "carbonate_cells",
 	"snow_cells", "ice_cells", "crust_latch", "crust_moved", "nonfinite_cells", "nonfinite_*",
 	"derive_unconverged_cells",
@@ -54,7 +55,6 @@ const char *const GRAVITY_REDUCE[] = { "@amounts", "energy_stock", "energy_stock
 	"melt_total", "magma_cells", "lava_*", "enclosed_void*",
 	"o2_open_*", "co2_open_*", "precip_cells", "cloud_cells", "fog_cells",
 	"fert_peak", "fungus_peak", "fungus_cells", "detritus_peak", "detritus_cells",
-	"all_org_h", "open_org_h", "all_org_o", "open_org_o",
 	"solid_detritus", "solid_fuel", "solid_org_h", "solid_org_o",
 	"organic_hc_min", "organic_oc_min", "organic_coalified", nullptr };
 
@@ -122,7 +122,7 @@ struct RungRow {
 };
 
 const RungRow LADDER[] = {
-	{ LAProcessSet::STATE, "state", STATE_GATES, STATE_PASSES, NONE_, NONE_, NONE_, NONE_ },
+	{ LAProcessSet::STATE, "state", STATE_GATES, STATE_PASSES, NONE_, NONE_, STATE_REDUCE, NONE_ },
 	{ LAProcessSet::GRAVITY, "gravity", GRAVITY_GATES, GRAVITY_PASSES, NONE_, NONE_, GRAVITY_REDUCE, NONE_ },
 	{ LAProcessSet::HYDROSTATIC, "hydrostatic", HYDRO_GATES, HYDRO_PASSES, NONE_, NONE_, HYDRO_REDUCE, NONE_ },
 	{ LAProcessSet::ACOUSTIC, "acoustic", ACOUSTIC_GATES, ACOUSTIC_PASSES, ACOUSTIC_TRANSPORT, NONE_,

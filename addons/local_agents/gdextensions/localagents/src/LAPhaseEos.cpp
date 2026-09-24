@@ -374,6 +374,10 @@ double LAPhaseEosFn::phase_k_t(const LAPhaseEos &p_e, double p_p_pa) {
 	return p_e.k * std::pow(1.0 + 2.0 * f, 2.5) * la_bm::slope(f, p_e.kp, bm_b4(p_e));
 }
 
+double LAPhaseEosFn::isothermal_modulus(double p_k_s, double p_alpha, double p_rho, double p_cp, double p_t_c) {
+	return p_k_s / (1.0 + p_alpha * p_alpha * p_k_s * (p_t_c + pc("KELVIN_OFFSET")) / (p_rho * p_cp));
+}
+
 double LAPhaseEosFn::condensed_volume(const LACondensedEos &p_c, double p_t_c, double p_p_pa) {
 	if (!p_c.valid) {
 		return 0.0;

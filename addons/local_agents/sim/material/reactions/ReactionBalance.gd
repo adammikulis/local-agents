@@ -35,23 +35,23 @@ static func composition() -> Dictionary:
 	return out
 
 
-## The stored channels the inventory sums, mapped to the slot whose composition they carry.
-static func inventory_channels() -> Dictionary: return LAChannels.inventory_channels()
-
-
 static func lithosphere_channels() -> PackedStringArray: return LAChannels.lithosphere_channels()
 
 
 static var _elements_of: Dictionary = {}
 
 
-## Elements a unit of `channel` contains, read-only. Empty for a channel that carries no matter.
+## Elements a unit of `channel` contains, off its own substance's formula whether or not a reaction
+## slot names it, read-only. Empty for a channel that carries no matter.
 static func channel_elements(channel: String) -> Dictionary:
 	if _elements_of.is_empty():
-		var comp: Dictionary = composition()
-		var inv: Dictionary = inventory_channels()
-		for ch in inv:
-			var parts: Dictionary = comp.get(int(inv[ch]), {})
+		var tbl: Dictionary = LASubstances.table()
+		var rows: Dictionary = LAChannels.rows()
+		for ch in rows:
+			var sub: String = String(rows[ch].get("substance", ""))
+			if sub == "":
+				continue
+			var parts: Dictionary = Dictionary(tbl.get(sub, {}).get("formula", {})).duplicate()
 			parts.make_read_only()
 			_elements_of[String(ch)] = parts
 	var empty: Dictionary = {}
@@ -63,7 +63,7 @@ static func channel_elements(channel: String) -> Dictionary:
 ## channels that hold carbon, not every channel.
 static func channels_with(element: String) -> PackedStringArray:
 	var out: PackedStringArray = PackedStringArray()
-	for ch in inventory_channels():
+	for ch in LAChannels.rows():
 		if channel_elements(ch).has(element):
 			out.append(String(ch))
 	return out
@@ -72,7 +72,7 @@ static func channels_with(element: String) -> PackedStringArray:
 ## Every element any stored channel carries.
 static func all_elements() -> PackedStringArray:
 	var out: PackedStringArray = PackedStringArray()
-	for ch in inventory_channels():
+	for ch in LAChannels.rows():
 		for el in channel_elements(ch):
 			if not out.has(String(el)):
 				out.append(String(el))
