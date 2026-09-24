@@ -36,8 +36,9 @@ constexpr double IRON_SOLID_EXPANSION_PER_K = 3.54e-5;    // alpha-Fe at 25 C, C
 constexpr double IRON_SOLID_BULK_MODULUS_S_PA = 1.662e11; // adiabatic, 25 C, Guinan & Beshers 1968, JPCS 29:541
 constexpr double IRON_SOLID_DENSITY_25C_KG_M3 = 7874.0;   // alpha-Fe, CRC 97th ed.
 constexpr double IRON_SOLID_BULK_MODULUS_T_DERIV = 5.16;  // bcc Fe, Holland & Powell 2011, JMG 29:333 (ds62 iron)
-constexpr double IRON_LIQUID_BULK_MODULUS_S_PA = 1.097e11; // adiabatic, liquid Fe at 1 bar, Anderson & Ahrens 1994, JGR 99:4273
-constexpr double IRON_LIQUID_BULK_MODULUS_S_DERIV = 4.66; // K'_S0, Anderson & Ahrens 1994, JGR 99:4273
+// Liquid Fe's isothermal K0 and K0' at 1811 K, Vinet fit, Dorogokupets et al. 2017, Sci. Rep. 7:41863, Table 1.
+constexpr double IRON_LIQUID_BULK_MODULUS_T_PA = 8.37e10;
+constexpr double IRON_LIQUID_BULK_MODULUS_T_DERIV = 5.97;
 constexpr double IRON_LIQUID_SPECIFIC_HEAT_J_KGK = 824.0; // Desai 1986, J. Phys. Chem. Ref. Data 15:967
 constexpr double IRON_SOLID_SPECIFIC_HEAT_J_KGK = 449.0;  // alpha-Fe at 25 C, CRC 97th ed.
 constexpr double IRON_VAPOUR_CP_J_MOLK = 25.7;             // Fe(g) at 298.15 K, CRC 97th ed. 5-4
@@ -85,7 +86,7 @@ constexpr double APATITE_BULK_MODULUS_T_PA = 9.70e10;
 constexpr double APATITE_BULK_MODULUS_T_DERIV = 3.3;
 // Mean volume expansivity of F-OH apatites, 22-928 C (Hovis et al. 2014, Am. Mineral. 99:2171).
 constexpr double APATITE_EXPANSION_PER_K = 4.10e-5;
-constexpr double ORGANIC_BULK_MODULUS_S_PA = 5.0e9; // kerogen, top of 3.5-5.0 GPa by ultrasonics, Yan & Han 2013, SEG 2778
+constexpr double ORGANIC_BULK_MODULUS_S_PA = 4.25e9; // kerogen, midpoint of 3.5-5.0 GPa by ultrasonics, Yan & Han 2013, SEG 2778
 // A polymeric solid: the Tait form V = V0[1 - C ln(1 + p/B)] with the universal C = 0.0894 for
 // polymer PVT (Zoller & Walsh 1995) gives dK/dp = 1/C - 1.
 constexpr double ORGANIC_BULK_MODULUS_T_DERIV = 10.19;
@@ -433,6 +434,7 @@ double wood_expansion_per_k() {
 
 // K_T of the organic rows, Pa: the kerogen K_S on the dry wood their alpha, rho and c_p are.
 double organic_modulus_t() {
+	// LA_APPROX: kerogen_modulus_midpoint
 	return LAPhaseEosFn::isothermal_modulus(ORGANIC_BULK_MODULUS_S_PA, wood_expansion_per_k(),
 			pc("DRY_WOOD_DENSITY_KG_M3"), pc("DRY_WOOD_SPECIFIC_HEAT_J_KGK"), pc("LAB_REFERENCE_TEMP_C"));
 }
@@ -490,6 +492,7 @@ Dictionary silicate_entry() {
 	d["molar_mass"] = pc("MOLAR_MASS_CASIO3_KG_MOL");
 	d["formation_enthalpy_j_mol"] = pc("FORMATION_ENTHALPY_CASIO3_J_MOL");
 	d["entropy_j_molk"] = pc("ENTROPY_CASIO3_J_MOL_K");
+	// LA_APPROX: basalt_isotherm_on_casio3
 	d["density"] = pc("ROCK_DENSITY_KG_M3");
 	d["density_ref_t_c"] = pc("LAB_REFERENCE_TEMP_C");
 	d["expansion_per_k"] = pc("ROCK_VOLUME_EXPANSION_PER_K");
@@ -623,10 +626,8 @@ void add_planet_minerals() {
 	metal_extra["bulk_modulus_solid_pa"] = LAPhaseEosFn::isothermal_modulus(IRON_SOLID_BULK_MODULUS_S_PA, IRON_SOLID_EXPANSION_PER_K,
 			IRON_SOLID_DENSITY_25C_KG_M3, IRON_SOLID_SPECIFIC_HEAT_J_KGK, pc("LAB_REFERENCE_TEMP_C"));
 	metal_extra["bulk_modulus_solid_deriv"] = IRON_SOLID_BULK_MODULUS_T_DERIV;
-	metal_extra["bulk_modulus_pa"] = LAPhaseEosFn::isothermal_modulus(IRON_LIQUID_BULK_MODULUS_S_PA, IRON_LIQUID_EXPANSION_PER_K,
-			IRON_LIQUID_DENSITY_KG_M3, IRON_LIQUID_SPECIFIC_HEAT_J_KGK, IRON_MELT_C);
-	// LA_APPROX: unmeasured_pressure_derivative
-	metal_extra["bulk_modulus_deriv"] = IRON_LIQUID_BULK_MODULUS_S_DERIV;
+	metal_extra["bulk_modulus_pa"] = IRON_LIQUID_BULK_MODULUS_T_PA;
+	metal_extra["bulk_modulus_deriv"] = IRON_LIQUID_BULK_MODULUS_T_DERIV;
 	metal_extra["specific_heat_solid"] = IRON_SOLID_SPECIFIC_HEAT_J_KGK;
 	metal_extra["specific_heat"] = IRON_LIQUID_SPECIFIC_HEAT_J_KGK;
 	metal_extra["melt_c"] = IRON_MELT_C;
@@ -1030,8 +1031,8 @@ Dictionary LASubstances::eos_of(const String &p_id) {
 	return LAPhaseEosFn::describe(p_id);
 }
 
-// True when this row carries an equation of state. A row without one has that dependence UNMEASURED
-// here, not zero, and reports its reference value unchanged.
+// True when the row carries an expansivity or a bulk modulus for a phase. density() off the reference
+// state along a coefficient the row lacks is NaN.
 bool LASubstances::has_eos(const String &p_id) {
 	const Dictionary s = row_of(p_id);
 	return s.has("expansion_per_k") || s.has("bulk_modulus_pa")

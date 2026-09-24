@@ -76,8 +76,8 @@ double melt_fraction(const LACondensedEos &p_c, double p_t_c, double p_p_pa);
 // the state asks for a coefficient the table does not measure.
 double phase_volume(const LAPhaseEos &p_e, double p_t_c, double p_p_pa);
 double phase_k_t(const LAPhaseEos &p_e, double p_p_pa);
-// K_T, Pa, of a phase whose adiabatic K_S was measured at `p_t_c`, on its own alpha (1/K), rho and c_p:
-// K_S = K_T (1 + alpha gamma T), gamma = alpha K_S / (rho c_p). The one road from K_S to a table's K_T.
+// K_T, Pa, from an adiabatic K_S (Pa) at p_t_c (C) on alpha (1/K), rho (kg/m^3) and c_p (J/kg/K):
+// K_T = K_S / (1 + alpha gamma T), gamma = alpha K_S / (rho c_p).
 double isothermal_modulus(double p_k_s, double p_alpha, double p_rho, double p_cp, double p_t_c);
 // The mixed condensed state, lever-ruled across the melting interval. 0 where a phase present is unmeasured.
 double condensed_volume(const LACondensedEos &p_c, double p_t_c, double p_p_pa);

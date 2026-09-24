@@ -59,16 +59,18 @@ const BOLIDE_FLUX_EXPONENT: float = 0.90
 const BOLIDE_FIT_KT: PackedFloat64Array = [1.0e-5, 1.0e8]
 ## One kiloton of TNT, J: 1 g of TNT is 1000 thermochemical calories of 4.184 J.
 const KILOTON_TNT_J: float = 4.184e12
-## Volumetric thermal expansivity of rock, 1/K. Skinner 1966, GSA Memoir 97, puts rocks at 15-33e-6 /°C;
-## basalt carries no quartz (3.3e-5, Fei 1995) and sits at the low end of that span.
-const ROCK_VOLUME_EXPANSION_PER_K: float = 1.5e-5
+
+## Volumetric expansivity of gabbro and basalt, 20-100 °C, 1/K (Skinner 1966, in Robertson 1988, USGS OFR 88-441).
+const ROCK_VOLUME_EXPANSION_PER_K: float = 1.6e-5
 ## Adiabatic bulk modulus of the basalt mineral matrix, Pa: the Voigt-Reuss-Hill average of acoustic mineral
 ## moduli (Mavko et al. 2003) over Snake River Plain basalt B1 (Otheim 2012, Boise State MS thesis, Table 2.6;
 ## Adam & Otheim 2013, JGR Solid Earth 118:840).
 const ROCK_BULK_MODULUS_S_PA: float = 8.01e10
+## Basalt BCR-1 specific heat at 298.15 K, J/kg/K (Robertson & Hemingway 1995, USGS OFR 95-622, Table 2).
+const ROCK_SPECIFIC_HEAT_J_KGK: float = 738.3
 ## Uniaxial tensile strength of intact basalt, Pa (Schultz 1995, Rock Mech. Rock Eng. 28:1, 14.5±3.3 MPa).
 const BASALT_TENSILE_STRENGTH_PA: float = 1.45e7
-const ROCK_SPECIFIC_HEAT_J_KGK: float = 840.0
+
 const VOL_HEAT_CAP_AIR_J_M3K: float = AIR_DENSITY_KG_M3 * AIR_SPECIFIC_HEAT_J_KGK
 const VOL_HEAT_CAP_WATER_J_M3K: float = WATER_DENSITY_KG_M3 * WATER_SPECIFIC_HEAT_J_KGK
 
