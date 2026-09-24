@@ -23,18 +23,19 @@ public:
 	// porosity, each only when the walk produced it.
 	static void upload_regolith(RenderingDevice *p_rd, const Dictionary &p_bufs, Object *p_field);
 	static void upload_solid(RenderingDevice *p_rd, const Dictionary &p_bufs, Object *p_field);
-	// The regolith walk: the permeable mask, Athy porosity and grain size of the `p_shells` solid shells
-	// under the ground surface, climbing the solved up-table. Writes _regolith, _grain, _porosity.
+	// The regolith walk: the permeable mask, Athy porosity and grain size of the rock within the
+	// circulation depth of its ground, and the pores opened in its grains. Writes _regolith, _grain,
+	// _porosity and the lithic channels.
 	static void regolith(Object *p_field);
 	static double gas_moles_at(Object *p_field, int p_c, double p_cell_m3);
 	// [mirror array, molar mass kg/mol] for every channel the field carries as an amount of matter.
 	static Array mirrors(Object *p_field);
 	// The channel names mirrors() returned, in the same order, so a per-mirror total can be named.
 	static PackedStringArray mirror_names(Object *p_field);
-	// THE ENTHALPY SEED, one pass over every cell: each ladder entry off its own curve at the cell's
-	// geotherm temperature (p_t_rock, C) and marched pressure. Returns {"e", "e_lith": J/m^3 per cell, "total_j"}.
-	static Dictionary seed_enthalpy(Object *p_field, Object *p_grid, const PackedFloat32Array &p_t_rock,
-			double p_t_surface_c, const PackedFloat32Array &p_p_pa, const PackedFloat32Array &p_p_rock);
+	// THE ENTHALPY SEED, one pass over every cell: each ladder entry off its own curve at the cell's geotherm
+	// temperature (p_t_rock, C) and the pressures and gas room LAFieldLithostaticSeed.compress solved
+	// (p_balance: "fluid", "rock", "room"). Writes e_j_m3 and e_lith_j_m3; every joule is declared to the seal.
+	static void seed_enthalpy(Object *p_field, const PackedFloat32Array &p_t_rock, const Dictionary &p_balance);
 	// [channel name, molar mass kg/mol] for every mol_m3 channel the field's mirrors hold, in mirrors() order.
 	static Array mass_channels(Object *p_field);
 	// Moles per m^3 summed into kilograms per m^3 for one cell. Times the cell's own volume is its mass.

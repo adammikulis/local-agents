@@ -3,7 +3,7 @@
 #include "LAFieldMirrors.hpp"
 
 #include "LABodySystem.hpp"
-#include "LAFieldCellMass.hpp"
+#include "LAMixtureEnthalpy.hpp"
 #include "LAPhaseEos.hpp"
 #include "LAPhysicalRead.hpp"
 #include "LAProcessSet.hpp"
@@ -24,7 +24,6 @@
 #include <cmath>
 #include <functional>
 #include <limits>
-#include <numeric>
 #include <thread>
 #include <vector>
 
@@ -34,9 +33,22 @@ namespace {
 
 const char *CHANNELS_GD = "res://addons/local_agents/sim/material/Channels.gd";
 const char *GEOMETRY_GD = "res://addons/local_agents/sim/material/FieldGeometry3D.gd";
+const char *MATTER_GD = "res://addons/local_agents/sim/material/MatterChannels.gd";
 
-// The hydrostatic seed's Gauss-Seidel: over-relaxation factor, sweeps per frozen reconstruction,
-// re-takes of it, and the move below which a sweep has settled.
+// Halvings that take any double interval to one ulp: a solve below settles within this many or states no
+// answer.
+constexpr int HALVINGS = std::numeric_limits<double>::max_exponent + std::numeric_limits<double>::digits;
+
+// One cell's matter as la_eos_p reads it: condensed volume B, the fluid's compressibility C, the gas's
+// n R T and Peng-Robinson sums, and the room the gas stands in.
+struct FluidSums {
+	double b = 0.0;      // m^3
+	double c = 0.0;      // m^3/Pa
+	double a_rt = 0.0;   // J
+	double s_a = 0.0;    // sum n sqrt(a(T))
+	double s_b = 0.0;    // sum n b, m^3
+	double room = 0.0;   // m^3
+};
 
 Vector3 field_centre(Object *p_field) {
 	Array args;
@@ -99,27 +111,6 @@ std::vector<Mirror> channel_mirrors(Object *p_field, const String &p_key, const 
 		out.push_back({ name, String(row.get("substance", "")), arr });
 	}
 	return out;
-}
-
-// Outward unit normal of face slot d. Slot order -X,+X,-Y,+Y,-Z,+Z, as LAVoxelGrid lays it out.
-Vector3 slot_normal(int p_d) {
-	Vector3 n;
-	n[p_d >> 1] = (p_d & 1) ? 1.0 : -1.0;
-	return n;
-}
-
-// The slot whose step points most nearly along `p_dir`.
-int slot_toward(const Vector3 &p_dir) {
-	int best = 0;
-	double best_dot = -1.0e30;
-	for (int d = 0; d < 6; d++) {
-		const double dp = p_dir.dot(slot_normal(d));
-		if (dp > best_dot) {
-			best_dot = dp;
-			best = d;
-		}
-	}
-	return best;
 }
 
 // A CUBE READ ALONG THE LOCAL VERTICAL. s runs from the cube's lowest point to its highest, so the share
@@ -386,7 +377,6 @@ PackedFloat32Array LAFieldLithostaticSeed::vertical(Object *p_field,
 
 Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32Array &p_gravity,
 		const PackedFloat32Array &p_t_rock) {
-	PackedFloat32Array out;
 	if (!p_field) {
 		return Dictionary();
 	}
@@ -396,231 +386,353 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 	if (!grid || cc <= 0 || solid.size() != cc) {
 		return Dictionary();
 	}
-	if (p_gravity.size() != cc * 3) {
-		UtilityFunctions::push_error(String("LAFieldLithostaticSeed.compress: the solved gravity is ")
-				+ String::num_int64(p_gravity.size()) + " long against " + String::num_int64(cc)
-				+ " cells, so the balance has no direction to march along.");
-		return Dictionary();
-	}
-	const Vector3 centre = field_centre(p_field);
-	// RESOLUTION FOLLOWS POSITION: a cell's edge and volume are its own.
 	const PackedFloat32Array edges = grid->call("cell_edges");
-	std::vector<double> dr(cc, 0.0), vol(cc, 0.0);
-	for (int c = 0; c < cc && c < edges.size(); c++) {
-		dr[c] = double(edges[c]);
-		vol[c] = dr[c] * dr[c] * dr[c];
+	ERR_FAIL_COND_V_MSG(p_gravity.size() != cc * 3 || p_t_rock.size() != cc || edges.size() != cc, Dictionary(),
+			"LAFieldLithostaticSeed.compress: the solved gravity, the rock temperature or the cell edges do not "
+			"cover the " + String::num_int64(cc) + " cells, so no cell has a state to be sized at.");
+	const double t_c = LABodySeeds::surface_temp_c();
+	const double t_k = t_c + la_physical("KELVIN_OFFSET");
+	const double r_gas = la_physical("GAS_CONSTANT_J_MOL_K");
+	const double p_std = la_physical("STANDARD_PRESSURE_PA");
+	// The float32 state's resolution, and mixture_pressure's own: it bisects its root to four of them.
+	const double eps = double(std::numeric_limits<float>::epsilon());
+	const double eps_eos = 4.0 * eps;
+
+	// RESOLUTION FOLLOWS POSITION: a cell's edge, volume and gravity are its own. g_step is
+	// kernels3d/pressure.glsl's la_load per kg/m^3: |g| over the step's projection on the local vertical.
+	std::vector<double> edge(cc, 0.0), vol(cc, 0.0), g_mag(cc, 0.0), g_step(cc, 0.0);
+	bool pulled = false;
+	for (int c = 0; c < cc; c++) {
+		edge[c] = double(edges[c]);
+		vol[c] = edge[c] * edge[c] * edge[c];
+		const Vector3 gv(p_gravity[c * 3], p_gravity[c * 3 + 1], p_gravity[c * 3 + 2]);
+		g_mag[c] = double(gv.length());
+		if (g_mag[c] > 0.0) {
+			const Vector3 up = -gv / float(g_mag[c]);
+			g_step[c] = g_mag[c] * edge[c] * double(MAX(MAX(std::abs(up.x), std::abs(up.y)), std::abs(up.z)));
+			pulled = true;
+		}
 	}
-	// A face list the march cannot walk costs it its COLUMN, not the pressure each cell states.
-	const PackedInt32Array nbr = grid->get("neighbours");
-	const PackedInt32Array slot_off = grid->get("slot_off");
-	const bool walkable = !nbr.is_empty() && slot_off.size() >= cc * 7 && edges.size() >= cc;
+	// THE ONE VERTICAL RELATION, GravityPass's, which pressure.glsl walks. Where the gravity rung solved one,
+	// a locked cell stands under the fluid over its rock; the hydrostatic rung adds the rock's own weight.
+	Object *gravity = Object::cast_to<Object>(p_field->get("_gravity"));
+	const PackedInt32Array up_of = gravity ? PackedInt32Array(gravity->call("up_table")) : PackedInt32Array();
+	ERR_FAIL_COND_V_MSG(pulled && up_of.size() != cc, Dictionary(), "LAFieldLithostaticSeed.compress: gravity "
+			"is solved and the vertical relation is not, so no column can stand over the rock.");
+	const bool column = up_of.size() == cc;
+	const int walk_max = 3 * int(grid->call("max_span"));
+
+	// Every matter channel, with what the substance table says about the substance it carries. The lattice
+	// is the rock's; a solute rides in its solvent; the rest is the fluid's, where a substance with a heat
+	// buffer of its own raises its vapour over itself, as the derive books it.
+	enum Kind { GAS, LATTICE, SOLUTE, CONDENSED };
+	struct Chan {
+		Kind kind = CONDENSED;
+		double mm = 0.0;
+		bool vapour = false;
+		const LACondensedEos *eos = nullptr;
+		double sqrt_a = 0.0;
+		double pr_b = 0.0;
+		String sub;
+	};
 	const Dictionary table = LASubstances::table();
 	const Dictionary rows = la_call_gd(CHANNELS_GD, "rows", Array());
-	const double t_c = LABodySeeds::surface_temp_c();
-	const double p_std = la_physical("STANDARD_PRESSURE_PA");
-	const double rt = la_physical("GAS_CONSTANT_J_MOL_K") * (t_c + la_physical("KELVIN_OFFSET"));
-
-	// Every matter channel, with what the substance table says about the substance it carries.
+	const Dictionary carriers = la_gd_const(MATTER_GD, "CARRIERS");
 	std::vector<Mirror> mats = channel_mirrors(p_field, "unit", "mol_m3");
 	const size_t nm = mats.size();
-	std::vector<double> mm(nm, 0.0), psat(nm, 0.0), sqrt_a(nm, 0.0), pr_b(nm, 0.0);
-	std::vector<const LACondensedEos *> eos(nm, nullptr);
-	std::vector<bool> is_gas(nm, false), is_lithic(nm, false), is_dissolved(nm, false);
-	const double t_k = t_c + la_physical("KELVIN_OFFSET");
+	std::vector<Chan> ch(nm);
+	std::vector<float *> amt(nm, nullptr);
+	std::vector<int> fluid_idx;
 	for (size_t i = 0; i < nm; i++) {
 		const Dictionary row = rows.get(mats[i].name, Dictionary());
-		const Dictionary sub = table.get(mats[i].substance, Dictionary());
-		mm[i] = double(sub.get("molar_mass", 0.0));
-		is_gas[i] = String(row.get("phase", "")) == "gas";
-		is_lithic[i] = bool(row.get("lithic", false)) || bool(row.get("lattice", false));
-		is_dissolved[i] = String(row.get("phase", "")) == "dissolved";
-		const LAFluidEos &fl = LAPhaseEosFn::fluid(mats[i].substance);
-		sqrt_a[i] = fl.valid ? std::sqrt(LAPhaseEosFn::pr_a(fl, t_k)) : 0.0;
-		pr_b[i] = fl.valid ? fl.b : 0.0;
-		if (is_gas[i]) {
-			ERR_FAIL_COND_V_MSG(!fl.valid, Dictionary(), "LAFieldLithostaticSeed: gas \"" + mats[i].substance
-					+ "\" has no fluid equation of state.");
-			continue;
+		Chan &k = ch[i];
+		k.sub = mats[i].substance;
+		k.mm = double(Dictionary(table.get(k.sub, Dictionary())).get("molar_mass", 0.0));
+		const String phase = row.get("phase", "");
+		k.kind = phase == "gas" ? GAS
+				: (bool(row.get("lithic", false)) || bool(row.get("lattice", false))) ? LATTICE
+				: phase == "dissolved" ? SOLUTE : CONDENSED;
+		const LAFluidEos &fl = LAPhaseEosFn::fluid(k.sub);
+		k.sqrt_a = fl.valid ? std::sqrt(LAPhaseEosFn::pr_a(fl, t_k)) : 0.0;
+		k.pr_b = fl.valid ? fl.b : 0.0;
+		ERR_FAIL_COND_V_MSG(k.kind == GAS && !fl.valid, Dictionary(), "LAFieldLithostaticSeed: gas \"" + k.sub
+				+ "\" has no fluid equation of state.");
+		if (k.kind == LATTICE || k.kind == CONDENSED) {
+			k.eos = &LAPhaseEosFn::condensed(k.sub);
 		}
-		psat[i] = LASubstances::saturation_p_at(mats[i].substance, t_c);
-		eos[i] = &LAPhaseEosFn::condensed(mats[i].substance);
-	}
-
-	// la_eos_p's own coefficients per cell at the amounts the composition laid down, and the mass those
-	// amounts weigh. A gas is the A term and the Peng-Robinson sums; a condensed phase is B at one
-	// atmosphere, and a condensed phase the fluid carries is C, as the derive books them.
-	const LACondensedEos &eos_water = LAPhaseEosFn::condensed("h2o");
-	std::vector<double> a_rt(cc, 0.0), s_a(cc, 0.0), s_b(cc, 0.0), b_vol(cc, 0.0), c_comp(cc, 0.0), rho(cc, 0.0),
-			rho_lith(cc, 0.0);
-	for (size_t i = 0; i < nm; i++) {
-		const float *r = mats[i].arr.ptr();
-		for (int c = 0; c < cc; c++) {
-			const double n = r[c] > 0.0f ? double(r[c]) : 0.0;
-			if (n <= 0.0) {
-				continue;
-			}
-			rho[c] += n * mm[i];
-			rho_lith[c] += is_lithic[i] ? n * mm[i] : 0.0;
-			if (is_gas[i]) {
-				a_rt[c] += n * vol[c] * rt;
-				s_a[c] += n * vol[c] * sqrt_a[i];
-				s_b[c] += n * vol[c] * pr_b[i];
-				continue;
-			}
-			// A dissolved solute rides in its solvent and fills no volume of its own.
-			if (is_dissolved[i]) {
-				continue;
-			}
-			const double kg = n * vol[c] * mm[i];
-			// Pore water is the lattice's, at the rock's temperature through the one rule, as the derive books it.
-			const double kg_pore = mats[i].name == "h2o_pore" ? kg : 0.0;
-			// A lithic phase stands at its cell's rock temperature, the derive's lattice volume.
-			const double t_here = (is_lithic[i] && c < p_t_rock.size()) ? double(p_t_rock[c]) : t_c;
-			const double v = LAPhaseEosFn::condensed_volume(*eos[i], t_here, p_std);
-			ERR_FAIL_COND_V_MSG(kg > kg_pore && !(v > 0.0), Dictionary(), "LAFieldLithostaticSeed: \""
-					+ mats[i].substance + "\" has no measured volume at the seed's state.");
-			const double v_pore = kg_pore > 0.0 ? LAPhaseEosFn::condensed_volume(eos_water, t_here, p_std) : 0.0;
-			ERR_FAIL_COND_V_MSG(kg_pore > 0.0 && !(v_pore > 0.0), Dictionary(),
-					"LAFieldLithostaticSeed: pore water has no measured volume at the seed's state.");
-			b_vol[c] += (kg - kg_pore) * v + kg_pore * v_pore;
-			// LOOSE GRAINS PRESS NOTHING: the fluid alone is compressed.
-			c_comp[c] += is_lithic[i] ? 0.0 : (kg - kg_pore) * LAPhaseEosFn::condensed_compressibility(*eos[i], t_here, p_std);
-		}
-	}
-	// A condensed phase raises its vapour over itself, at its saturation pressure over the room the
-	// condensed matter leaves: the same fixed-volume split the derive makes. Water in the rock's pores
-	// is the lattice's and raises none into the fluid.
-	for (size_t i = 0; i < nm; i++) {
-		if (is_gas[i] || !(psat[i] > 0.0) || mats[i].name == "h2o_pore") {
-			continue;
-		}
-		const float *r = mats[i].arr.ptr();
-		for (int c = 0; c < cc; c++) {
-			const double n = r[c] > 0.0f ? double(r[c]) : 0.0;
-			const double room = vol[c] - b_vol[c];
-			if (n <= 0.0 || !(room > 0.0)) {
-				continue;
-			}
-			const double n_vap = MIN(psat[i] * room / rt, n * vol[c]);
-			a_rt[c] += n_vap * rt;
-			s_a[c] += n_vap * sqrt_a[i];
-			s_b[c] += n_vap * pr_b[i];
+		k.vapour = k.kind == CONDENSED && carriers.has(k.sub);
+		amt[i] = mats[i].arr.ptrw();
+		if (k.kind != LATTICE) {
+			fluid_idx.push_back(int(i));
 		}
 	}
 
-	// kernels3d/pressure.glsl's la_load: the weight per unit area of one cell's matter, Pa, over the
-	// step's projection on the local vertical.
-	auto column_load = [&](int c) -> double {
-		const Vector3 gv(p_gravity[c * 3], p_gravity[c * 3 + 1], p_gravity[c * 3 + 2]);
-		const double gm = double(gv.length());
-		if (!(gm > 0.0)) {
-			return 0.0;
+	// kg/m^3 of all matter and of the lattice: gravity pulls on all of it, and the lattice carries its own.
+	std::vector<double> rho(cc, 0.0), rho_lith(cc, 0.0);
+	auto weigh = [&](int c) {
+		rho[c] = 0.0;
+		rho_lith[c] = 0.0;
+		for (size_t i = 0; i < nm; i++) {
+			const double n = double(amt[i][c]);
+			if (n > 0.0) {
+				rho[c] += n * ch[i].mm;
+				rho_lith[c] += ch[i].kind == LATTICE ? n * ch[i].mm : 0.0;
+			}
 		}
-		const Vector3 up = -gv / gm;
-		const double m = MAX(MAX(std::abs(up.x), std::abs(up.y)), std::abs(up.z));
-		return rho[c] * gm * dr[c] * m;
+	};
+	// A cell holds fluid where it holds gas or a condensed phase that is not the lattice's.
+	auto holds_fluid = [&](int c) {
+		for (int i : fluid_idx) {
+			if (ch[i].kind != SOLUTE && amt[i][c] > 0.0f) {
+				return true;
+			}
+		}
+		return false;
 	};
 
-	// A cell stands at the pressure its own amounts state, off the same equation of state the derive uses.
-	std::vector<double> p_at(cc, 0.0);
-	PackedFloat32Array p_fluid;
-	p_fluid.resize(cc);
-	float *pf = p_fluid.ptrw();
-	for (int c = 0; c < cc; c++) {
-		// A LOCKED CELL WITH NO FREE FLUID states no fluid pressure: its rock carries the column the march
-		// below writes, and its volume at one atmosphere is not the one it stands at.
-		const bool fluid = a_rt[c] > 0.0 || c_comp[c] > 0.0;
-		if (rho[c] > 0.0 && (fluid || solid[c] == 0)) {
-			p_at[c] = LAPhaseEosFn::mixture_pressure(vol[c], a_rt[c], s_a[c], s_b[c], b_vol[c], c_comp[c], p_std);
-			ERR_FAIL_COND_V_MSG(std::isnan(p_at[c]), Dictionary(), "LAFieldLithostaticSeed: an open cell overfilled "
-					"by incompressible matter, or a gas packed past its co-volume, states no pressure.");
-		} else if (rho[c] > 0.0) {
-			ERR_FAIL_COND_V_MSG(!walkable, Dictionary(), "LAFieldLithostaticSeed: a locked cell with no fluid has no "
-					"column to take its pressure from.");
+	// WHAT ONE CELL'S MATTER STATES AT PRESSURE p, as state_derive.glsl's (T, p) solve reads it at the seed's
+	// temperatures: the lattice at the rock's own (T, p), every other condensed phase at the fluid's, their
+	// vapours at saturation in the room they leave, the gas in that room. `keep` scales the fluid's matter;
+	// b is NaN where a phase present has no measured volume at its state.
+	std::vector<double> m_f(nm, 0.0), v_f(nm, 0.0), k_f(nm, 0.0);
+	auto sums_at = [&](int c, double p, double p_rock, double keep) -> FluidSums {
+		FluidSums s;
+		const double v = vol[c];
+		double v_lat = 0.0;
+		for (size_t i = 0; i < nm; i++) {
+			const double n = double(amt[i][c]);
+			if (!(n > 0.0) || ch[i].kind == SOLUTE) {
+				continue;
+			}
+			if (ch[i].kind == GAS) {
+				const double mol = n * v * keep;
+				s.a_rt += mol * r_gas * t_k;
+				s.s_a += mol * ch[i].sqrt_a;
+				s.s_b += mol * ch[i].pr_b;
+				continue;
+			}
+			const bool lat = ch[i].kind == LATTICE;
+			const double spec = LAPhaseEosFn::condensed_volume(*ch[i].eos, lat ? double(p_t_rock[c]) : t_c,
+					lat ? p_rock : p);
+			if (!(spec > 0.0)) {
+				s.b = NAN;
+				return s;
+			}
+			if (lat) {
+				v_lat += n * v * ch[i].mm * spec;
+				continue;
+			}
+			m_f[i] = n * v * ch[i].mm * keep;
+			v_f[i] = spec;
+			k_f[i] = LAPhaseEosFn::condensed_compressibility(*ch[i].eos, t_c, p);
 		}
-		pf[c] = float(p_at[c]);
-	}
-
-	// Height along the local vertical and the slot pointing up it: rock's column marches these.
-	const PackedVector3Array la_cw = grid->get("centres");
-	std::vector<double> h(cc, 0.0);
-	std::vector<int> up_slot(cc, -1);
-	for (int c = 0; c < cc; c++) {
-		const Vector3 g(p_gravity[c * 3], p_gravity[c * 3 + 1], p_gravity[c * 3 + 2]);
-		const double gm = double(g.length());
-		if (!(gm > 0.0)) {
-			continue;
-		}
-		const Vector3 up = -g / gm;
-		h[c] = double((la_cw[c] - centre).dot(up));
-		up_slot[c] = slot_toward(up);
-	}
-	std::vector<int> order(cc);
-	std::iota(order.begin(), order.end(), 0);
-	std::sort(order.begin(), order.end(), [&h](int a, int b) { return h[a] > h[b]; });
-
-	// AN OPEN CELL STANDS AT THE PRESSURE ITS OWN MATTER STATES, which `p_at` already holds off the same
-	// equation of state the derive uses. Its balance is the composition's to satisfy: the atmosphere is
-	// laid along the barometric profile and the hydrosphere into its basins, so the pressures those
-	// amounts state are the balanced ones and nothing here writes over them.
-	// ROCK IS A COLUMN, and kernels3d/pressure.glsl owns it: the weight standing over the cell, ending at
-	// the pressure of the first fluid above. Descending height, so a cell is reached after the one over it.
-	for (int c : order) {
-		if (!walkable || solid[c] == 0) {
-			continue;
-		}
-		// The cell ABOVE: where the slot meets four finer cells, the one the plumb line runs into.
-		// Any other of the four stands over different ground.
-		const int d = up_slot[c];
-		int u = -1;
-		double off = 0.0;
-		if (d >= 0) {
-			const Vector3 g(p_gravity[c * 3], p_gravity[c * 3 + 1], p_gravity[c * 3 + 2]);
-			const double gm = double(g.length());
-			const Vector3 up = gm > 0.0 ? Vector3(-g / gm) : Vector3(0, 1, 0);
-			const Vector3 here = la_cw[c];
-			for (int f2 = slot_off[c * 7 + d]; f2 < slot_off[c * 7 + d + 1]; f2++) {
-				const int n = nbr[f2];
-				if (n < 0 || n >= cc) {
+		// The vapours' room is what their own condensed volume leaves, so the two settle together.
+		double room = v - v_lat;
+		double b_free = 0.0, c_free = 0.0, n_vap = 0.0, sa_vap = 0.0, sb_vap = 0.0;
+		bool settled = false;
+		for (int it = 0; it < HALVINGS && !settled; it++) {
+			b_free = c_free = n_vap = sa_vap = sb_vap = 0.0;
+			for (int i : fluid_idx) {
+				if (ch[i].kind != CONDENSED || !(amt[i][c] > 0.0f)) {
 					continue;
 				}
-				const Vector3 r = la_cw[n] - here;
-				const double lat = double((r - up * float(r.dot(up))).length());
-				if (u < 0 || lat < off) {
-					u = n;
-					off = lat;
+				const double fv = (ch[i].vapour && room > 0.0)
+						? LAMixtureEnthalpy::vapour_fraction(ch[i].sub, t_c, p, m_f[i], room) : 0.0;
+				b_free += m_f[i] * (1.0 - fv) * v_f[i];
+				c_free += m_f[i] * (1.0 - fv) * k_f[i];
+				const double nv = m_f[i] * fv / ch[i].mm;
+				n_vap += nv;
+				sa_vap += nv * ch[i].sqrt_a;
+				sb_vap += nv * ch[i].pr_b;
+			}
+			const double next = v - v_lat - b_free;
+			settled = next == room || std::abs(next - room) <= eps * std::abs(room);
+			room = next;
+		}
+		s.b = settled ? v_lat + b_free : NAN;
+		s.c = c_free;
+		s.a_rt += n_vap * r_gas * t_k;
+		s.s_a += sa_vap;
+		s.s_b += sb_vap;
+		s.room = room;
+		return s;
+	};
+	auto p_eos = [&](int c, double p, double p_rock, double keep) -> double {
+		const FluidSums s = sums_at(c, p, p_rock, keep);
+		return std::isnan(s.b) ? NAN
+							   : LAPhaseEosFn::mixture_pressure(vol[c], s.a_rt, s.s_a, s.s_b, s.b, s.c, p);
+	};
+	// The lattice's pressure, state_derive.glsl's p_rock: the column in a locked cell, and in an open one
+	// the fluid's plus half its own rock's weight.
+	std::vector<double> p_open(cc, 0.0), p_col(cc, 0.0);
+	auto rock_at = [&](int c, double p) {
+		return solid[c] != 0 ? p_col[c] : p + 0.5 * rho_lith[c] * g_mag[c] * edge[c];
+	};
+	// THE PRESSURE A CELL'S MATTER STATES: the root of p_eos(p) = p, which falls as p rises. Full steps --
+	// Newton on the condensed volume -- until the root is bracketed, then halving wherever a step leaves the
+	// bracket or fails to halve it. Under `cap` where a column confines the fluid.
+	auto solve = [&](int c, double cap) -> double {
+		double lo = 0.0, hi = cap;
+		bool has_lo = false, has_hi = std::isfinite(cap);
+		double p = has_hi ? std::min(p_std, cap) : p_std;
+		double width = INFINITY;
+		for (int it = 0; it < 2 * HALVINGS; it++) {
+			const double pe = p_eos(c, p, rock_at(c, p), 1.0);
+			if (!std::isfinite(pe)) {
+				return NAN;
+			}
+			const double f = pe - p;
+			if (f == 0.0 || std::abs(f) <= eps * p) {
+				return p;
+			}
+			if (f > 0.0) {
+				lo = p;
+				has_lo = true;
+			} else {
+				hi = p;
+				has_hi = true;
+			}
+			double step = pe;
+			if (has_lo && has_hi) {
+				if (hi - lo <= eps * hi) {
+					return 0.5 * (lo + hi);
 				}
+				if (!(step > lo && step < hi) || hi - lo > 0.5 * width) {
+					step = 0.5 * (lo + hi);
+				}
+				width = hi - lo;
+			} else if (has_hi && !(step < hi)) {
+				step = 0.5 * (lo + hi);
+			}
+			p = step;
+		}
+		return NAN;
+	};
+
+	for (int c = 0; c < cc; c++) {
+		weigh(c);
+	}
+	std::vector<int> top_of(cc, -1);
+	std::vector<char> stale(cc, 1);
+	// THE COLUMN, walked as kernels3d/pressure.glsl walks it: half this cell's own load, the whole load of
+	// every locked cell up the one vertical relation, and the pressure of the first open cell over them.
+	auto walk = [&](int c) {
+		double acc = 0.5 * rho[c] * g_step[c];
+		double top = 0.0;
+		int a = up_of[c];
+		top_of[c] = -1;
+		for (int k = 0; k < walk_max && a >= 0; k++) {
+			if (solid[a] == 0) {
+				top = p_open[a];
+				top_of[c] = a;
+				break;
+			}
+			acc += rho[a] * g_step[a];
+			a = up_of[a];
+		}
+		p_col[c] = top + acc;
+	};
+	// FLUID ABOVE THE PRESSURE ITS ROCK STANDS AT IS NOT HELD THERE: a fluid past its confining pressure
+	// opens the rock, and compaction drives it up the column to the first open cell. The share kept is the
+	// most the room holds at the column's pressure. A move lowers the columns under it, so the rounds run
+	// until one moves nothing.
+	bool any_moved = false;
+	for (int round = 0;; round++) {
+		ERR_FAIL_COND_V_MSG(round > walk_max, Dictionary(), "LAFieldLithostaticSeed.compress: the fluid the "
+				"rock expels did not settle within one column's length of rounds.");
+		for (int c = 0; c < cc; c++) {
+			if (solid[c] != 0 || !stale[c]) {
+				continue;
+			}
+			stale[c] = 0;
+			p_open[c] = rho[c] > 0.0 ? solve(c, INFINITY) : 0.0;
+			ERR_FAIL_COND_V_MSG(std::isnan(p_open[c]), Dictionary(), "LAFieldLithostaticSeed: open cell "
+					+ String::num_int64(c) + " overfilled by incompressible matter, or a gas packed past its "
+					"co-volume, states no pressure.");
+		}
+		if (!column) {
+			break;
+		}
+		for (int c = 0; c < cc; c++) {
+			if (solid[c] != 0) {
+				walk(c);
 			}
 		}
-		double top = 0.0;
-		if (u >= 0 && u < cc) {
-			top = solid[u] != 0 ? p_at[u] + 0.5 * column_load(u) : p_at[u];
+		bool moved = false;
+		for (int c = 0; c < cc; c++) {
+			if (solid[c] == 0 || !holds_fluid(c) || p_eos(c, p_col[c], p_col[c], 1.0) <= p_col[c] * (1.0 + eps_eos)) {
+				continue;
+			}
+			double lo = 0.0, hi = 1.0;
+			while (hi - lo > eps) {
+				const double mid = 0.5 * (lo + hi);
+				if (p_eos(c, p_col[c], p_col[c], mid) <= p_col[c]) {
+					lo = mid;
+				} else {
+					hi = mid;
+				}
+			}
+			const int u = top_of[c];
+			ERR_FAIL_COND_V_MSG(u < 0, Dictionary(), "LAFieldLithostaticSeed: locked cell " + String::num_int64(c)
+					+ " holds fluid its rock cannot confine, and no open cell stands over its column to take it.");
+			for (int i : fluid_idx) {
+				const float n = amt[i][c];
+				if (!(n > 0.0f)) {
+					continue;
+				}
+				// Rounded down, so what stays is never more than the room holds.
+				float kept = float(double(n) * lo);
+				kept = double(kept) > double(n) * lo ? std::nextafter(kept, 0.0f) : kept;
+				amt[i][u] += float(double(n - kept) * vol[c] / vol[u]);
+				amt[i][c] = kept;
+			}
+			weigh(c);
+			weigh(u);
+			stale[u] = 1;
+			moved = true;
 		}
-		p_at[c] = top + 0.5 * column_load(c);
+		any_moved = any_moved || moved;
+		if (!moved) {
+			break;
+		}
 	}
-	// THE MATTER IS THE COMPOSITION'S: the radial profile it was laid down from is the hydrostatic
-	// solution of the same EOS, so the march states the pressure and moves no mass.
-	// The pressure the balance states, so the first state derive is taken at it rather than at zero,
-	// and beside it the FLUID's own: what a cell's free matter states, which a locked cell's band and
-	// air stand at whatever column its rock carries.
+	if (any_moved) {
+		for (int i : fluid_idx) {
+			LAFieldMirrors::store(p_field, mats[i].name, mats[i].arr);
+		}
+	}
+
+	// What each cell states: an open cell's pressure is its own matter's; a locked cell's is the column its
+	// rock carries, and its fluid stands in the room the rock leaves at that pressure. `room` is the gas's.
+	PackedFloat32Array out, p_fluid, p_rock, room;
 	out.resize(cc);
-	float *w = out.ptrw();
-	for (int c = 0; c < cc; c++) {
-		w[c] = float(p_at[c]);
-	}
-	// The lattice's pressure: the marched column in a locked cell; in an open cell the fluid's plus half
-	// its own rock's weight, the mean over the rock it holds.
-	PackedFloat32Array p_rock;
+	p_fluid.resize(cc);
 	p_rock.resize(cc);
+	room.resize(cc);
+	float *w = out.ptrw();
+	float *pf = p_fluid.ptrw();
 	float *pr = p_rock.ptrw();
+	float *rw = room.ptrw();
 	for (int c = 0; c < cc; c++) {
-		const Vector3 gv(p_gravity[c * 3], p_gravity[c * 3 + 1], p_gravity[c * 3 + 2]);
-		pr[c] = float(solid[c] != 0 ? p_at[c] : p_at[c] + 0.5 * rho_lith[c] * double(gv.length()) * dr[c]);
+		const bool open = solid[c] == 0;
+		const bool fluid = holds_fluid(c);
+		double p = open ? p_open[c] : 0.0;
+		if (!open && fluid) {
+			p = solve(c, column ? p_col[c] : INFINITY);
+			ERR_FAIL_COND_V_MSG(std::isnan(p), Dictionary(), "LAFieldLithostaticSeed: locked cell "
+					+ String::num_int64(c) + "'s fluid states no pressure in the room its rock leaves.");
+		}
+		const double rock = rock_at(c, p);
+		w[c] = float(open ? p : p_col[c]);
+		pf[c] = float(p);
+		pr[c] = float(rock);
+		rw[c] = float((open || fluid) && rho[c] > 0.0 ? sums_at(c, p, rock, 1.0).room : 0.0);
 	}
 	Dictionary both;
 	both["pressure"] = out;
 	both["fluid"] = p_fluid;
 	both["rock"] = p_rock;
+	both["room"] = room;
 	return both;
 }
 
@@ -873,6 +985,23 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c,
 			UtilityFunctions::push_error("LAFieldLithostaticSeed.shape_atmosphere: no Gauss-Legendre count "
 					"holds a cell's barometric integral to float precision under its error bound.");
 			return;
+		}
+	}
+	// THE PORES OVER THE WATER TABLE HOLD THE CELL'S OWN AIR: a cell is one gas, standing in the room its
+	// grains, pore water and sea leave, the pores the water does not fill included.
+	const PackedFloat32Array porosity = LAFieldMirrors::of(p_field, "porosity");
+	const PackedFloat32Array pore_w = LAFieldMirrors::of(p_field, "h2o_pore");
+	const double full_w = LASubstances::full_mol_m3("h2o");
+	if (porosity.size() != cc || pore_w.size() != cc || rock.size() != cc || water.size() != cc) {
+		UtilityFunctions::push_error("LAFieldLithostaticSeed.shape_atmosphere: no porosity, pore water or cut "
+				"fractions per cell, so the air has no pores to stand in.");
+		return;
+	}
+	for (int c = 0; c < cc; c++) {
+		const double room = 1.0 - double(rock[c]) - double(water[c]);
+		const double vadose = double(rock[c]) * double(porosity[c]) - double(pore_w[c]) / full_w;
+		if (shape[c] > 0.0 && vadose > 0.0) {
+			shape[c] *= (room + vadose) / room;
 		}
 	}
 	for (size_t i = 0; i < gases.size(); i++) {

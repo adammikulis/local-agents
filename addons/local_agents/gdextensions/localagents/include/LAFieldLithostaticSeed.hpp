@@ -14,10 +14,10 @@ class LAFieldLithostaticSeed : public RefCounted {
 	GDCLASS(LAFieldLithostaticSeed, RefCounted);
 
 public:
-	// THE SEEDED WORLD PUT INTO THE BALANCE THE STEPPER HOLDS. Marches flux.glsl's own face-pressure
-	// relation cell by cell along the solved gravity: an open cell's amounts are scaled until its equation
-	// of state states the marched pressure, a solid cell's lithic phases are squeezed by the substance
-	// table at the pressure standing over them. Returns the pressure it marched, per cell.
+	// THE SEEDED WORLD PUT INTO THE BALANCE THE STEPPER HOLDS: each cell's pressure off state_derive.glsl's
+	// equation of state at the seed's temperatures, every phase at its own (T, p), and the column
+	// pressure.glsl walks over the rock. Fluid its rock cannot confine is moved up the column. Returns the
+	// pressure, the fluid's, the lattice's and the gas's room, per cell.
 	static Dictionary compress(Object *p_field, const PackedFloat32Array &p_gravity, const PackedFloat32Array &p_t_rock);
 	// THE VERTICAL A COLUMN STANDS ALONG. Only the hydrostatic rung stands one; below it there is no
 	// vertical at all, and none is zero.

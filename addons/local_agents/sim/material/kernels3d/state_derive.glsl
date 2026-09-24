@@ -1299,13 +1299,14 @@ void main() {
 		}
 	}
 	if (params.restate == 0u) {
-		// The derived state, which breaks before the momentum does; a temperature at or below absolute
-		// zero is no state.
-		float dv[5] = float[5](pressure[g], k_cond[g], rho, p_fluid[g], t_c);
-		for (int i = 0; i < 5; ++i) {
+		// The derived state, which breaks before the momentum does; a temperature of either reservoir at or
+		// below absolute zero is no state.
+		float dv[6] = float[6](pressure[g], k_cond[g], rho, p_fluid[g], t_c, t_l);
+		for (int i = 0; i < 6; ++i) {
 			nf += (isnan(dv[i]) || isinf(dv[i])) ? 1.0 : 0.0;
 		}
 		nf += (t_c + LA_KELVIN_OFFSET <= 0.0) ? 1.0 : 0.0;
+		nf += (t_l + LA_KELVIN_OFFSET <= 0.0) ? 1.0 : 0.0;
 		nonfinite[g] = nf;
 		unconverged[g] = converged ? 0.0 : 1.0;
 	}

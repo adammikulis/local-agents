@@ -913,6 +913,17 @@ marker = "^check_atmosphere_mass: OK"
 mutation = "python3 -c \"p='scripts/check_atmosphere_mass.sh'; s=open(p).read(); open(p,'w').write(s.replace('k = m * mm;', 'k = 4 * m * mm;'))\""
 
 [[gate]]
+name = "check_sealed_state_range"
+script = "scripts/check_sealed_state_range.sh"
+kind = "gpu"
+needs = ["import", "capture", "body"]
+marker = "^check_sealed_state_range: OK"
+mutation = [
+	"python3 -c \"p='addons/local_agents/sim/material/reduce/PressureRows.gd'; s=open(p).read(); open(p,'w').write(s.replace('Rec.Mask.SOLID}', 'Rec.Mask.AIR}'))\"",
+	"perl -0pi -e 's/<= p_col\\[c\\] \\* \\(1\\.0 \\+ eps_eos\\)/<= 1.0e3 * p_col[c]/; s/mid\\) <= p_col\\[c\\]\\)/mid) <= 1.0e3 * p_col[c])/; s/solve\\(c, column \\? p_col\\[c\\]/solve(c, column ? 1.0e3 * p_col[c]/' addons/local_agents/gdextensions/localagents/src/LAFieldLithostaticSeed.cpp && addons/local_agents/gdextensions/localagents/scripts/build_extension.sh",
+]
+
+[[gate]]
 name = "check_gate_registered"
 script = "scripts/check_gate_registered.sh"
 kind = "text"

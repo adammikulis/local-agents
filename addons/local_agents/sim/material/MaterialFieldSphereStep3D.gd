@@ -102,7 +102,7 @@ func seed_tick() -> bool:
 	if LAProcessSet.has_record("pass", GRAVITY_PASS):
 		LAFieldLithostaticSeed.shape_atmosphere(_f, LABodySeeds.surface_temp_c(), g_solved, _f._gravity.phi_abs())
 	var balance: Dictionary = LAFieldLithostaticSeed.compress(_f, g_solved, _f._t_rock)
-	LAFieldEnthalpySeed.seed(_f, _f._t_rock, balance.get("fluid", PackedFloat32Array()), balance.get("rock", PackedFloat32Array()))
+	LAFieldCellMass3D.seed_enthalpy(_f, _f._t_rock, balance)
 	# WEIGH THE BODY once the march has compressed the rock it stands on.
 	_f._body_measure.measure(_f, LABodySeeds.spin_axis_of(_f._body_key))
 	if _f._gpu != null:                                # hand the device what those walks produced

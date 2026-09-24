@@ -26,4 +26,9 @@ static func rows() -> Array:
 		"mask": Rec.Mask.OPEN}, true)
 	out.append(rest.merged({"key": "pressure_seed_latch", "op": Rec.Op.LATCH}, true))
 	out.append(rest.merged({"key": "pressure_rest_rel", "op": Rec.Op.MAX_REL_DIFF}, true))
+	# THE COLUMN'S RANGE: vacuum to the greatest pressure the rock states. Every cell's fluid stands in it; an
+	# open cell's pressure is its fluid's, a locked cell's its column.
+	out.append(held.merged({"key": "pressure_col_max", "source": "pressure", "op": Rec.Op.MAX, "mask": Rec.Mask.SOLID}, true))
+	out.append(held.merged({"key": "pressure_fluid_max", "source": "p_fluid", "op": Rec.Op.MAX, "mask": Rec.Mask.ALL}, true))
+	out.append(held.merged({"key": "pressure_fluid_min", "source": "p_fluid", "op": Rec.Op.MIN, "mask": Rec.Mask.ALL}, true))
 	return out
