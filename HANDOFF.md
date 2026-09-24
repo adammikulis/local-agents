@@ -63,7 +63,8 @@ one-sided because the deficit is not the seed's: `scripts/sim_run.sh --body --ru
 nitrogen_all,body_seed_atmosphere_n2_kg`. The same gate cannot read a slab, because a box's footprint on
 the sphere is not a rectangle: `scripts/sim_run.sh --slice --rung 2 --frames 2 --report nitrogen_all`
 reads a box whose long axis is the world axis nearest the local vertical, not the vertical itself.
-Reading: `solid_of` in `LAPlanetTables.cpp` calls a cell solid at half rock.
+Reading: `solid_of` in `LAPlanetTables.cpp` calls a cell solid at half rock, and `shape_atmosphere` lays
+air over the ground only where `solid[c] == 0`.
 
 ## 7. THE CRUST HAS TWO REPRESENTATIONS, AND THE SEA IS A SPHERE AT ONE RADIUS
 

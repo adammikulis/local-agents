@@ -868,9 +868,9 @@ Dictionary LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_te
 	auto open_room = [&](int c) { return 1.0 - double(rock[c]) - double(water[c]); };
 	auto dry_pores = [&](int c) { return double(porosity[c]) * std::max(double(rock[c]) - double(sat[c]), 0.0); };
 	// AIR IS WHAT THE OUTSIDE REACHES, which is CONNECTIVITY and not a direction: flooded through the
-	// faces of every cell with room for it, from every open cell the box edge touches. A void the flood
-	// never reaches is sealed under rock -- a cavity, not a column, and the barometric law has nothing to
-	// say about it.
+	// faces of every cell with room for it, from every open cell the box edge touches, and laid in an open
+	// cell's room and in the dry pores of any. A void the flood never reaches is sealed under rock -- a
+	// cavity, not a column, and the barometric law has nothing to say about it.
 	std::vector<char> sky(cc, 0);
 	std::vector<int> front;
 	for (int c = 0; c < cc; c++) {
@@ -1041,7 +1041,7 @@ Dictionary LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_te
 			return cell_air_share(col, level(p_share), double(p_phi[c]), phi_0, gmag, r_c, rt_over_m);
 		};
 		const double over_ground = above(taken);
-		double out = room > 0.0 ? over_ground : 0.0;
+		double out = room > 0.0 && solid[c] == 0 ? over_ground : 0.0;
 		// THE DRY PORES HOLD THE SAME AIR, in the rock between the table and the ground at its porosity; in
 		// rock with no free surface it stands at the rock's own temperature, the density that same pressure
 		// has there.
