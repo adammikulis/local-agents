@@ -74,6 +74,8 @@ into mesh buffers per block, which is also the collider); the generator is sampl
 at seed; a body of water is where the inventory settled under the solved gravity, one liquid in one
 channel. `rg -n "sea_radius|OceanPlane|_open_sea|sea_level_m|resample_terrain" addons/local_agents`
 finds the sea as a declared shell radius and the field sampling the generator after the seal.
+Reading: `build_planet` in `VoxelTerrainService.gd` solves `sea_level_m` against the ocean's volume at
+`WATER_DENSITY_KG_M3`.
 
 ## 8. THE LEVEL BOUNDARY DRAWS AS A LINE ACROSS THE GROUND
 
