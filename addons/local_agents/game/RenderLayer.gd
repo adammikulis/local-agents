@@ -13,6 +13,9 @@ var declared_vectors: String = LAFieldVectors.SOURCE_UNSET
 @export_group("Terrain")
 ## The planet's surface material.
 @export var terrain_material: ShaderMaterial
+@export_group("Actors")
+## The view each sim actor is drawn with, keyed by the actor's class_name.
+@export var actor_views: Dictionary[StringName, PackedScene] = {}
 
 # The node TREE is declared in RenderLayer.tscn; this script only wires it.
 @onready var _camera: Camera3D = $CameraRig
@@ -25,7 +28,7 @@ var declared_vectors: String = LAFieldVectors.SOURCE_UNSET
 @onready var _test_masses: LATestMassView = $TestMassView
 @onready var _outline: LAFieldBoxOutline = $FieldBoxOutline
 @onready var _ejecta: LAEjectaView = $EjectaView
-@onready var _splash: LASplashView = $SplashView
+@onready var _events: LAPhenomenaMarkers = $PhenomenaMarkers
 @onready var _moon: LAMoonView = $MoonView
 
 
@@ -135,16 +138,16 @@ func _build_world_visuals() -> void:
 
 	# The simulated box where it meets the world: ground edges on the relief, corner pillars fading up.
 	_outline.setup(material, terrain, _camera, body)
-	# The field's ejecta in flight, its splashes, and the moon.
+	# The field's ejecta in flight, what the world was seen to do, and the moon.
 	_ejecta.setup(material)
-	material.splashed.connect(_splash.play)
+	_events.setup(material, _sim.actors_root())
 	_moon.setup(_sim.moon())
+	_draw_actors(_sim.actors_root())
 
 	for pair in [["terrain", terrain.terrain_node()], ["camera", _camera], ["sky", _sky_ctrl], ["vegetation", _veg_renderer],
 			["water_particles", _water], ["water_surface", _water_surface],
 			["vectors", _vectors], ["heat_texture", _heat_tex], ["test_masses", _test_masses],
-			["box_outline", _outline], ["ejecta_view", _ejecta], ["splash_view", _splash],
-			["moon_view", _moon]]:
+			["box_outline", _outline], ["ejecta_view", _ejecta], ["moon_view", _moon]]:
 		LAAblate.adopt(pair[0], pair[1])
 	# The effects level onto the particle views.
 	_sim.settings_applier().bind(_water, _ejecta)
@@ -153,6 +156,20 @@ func _build_world_visuals() -> void:
 		_sim.meteor_impacts().set_presentation(_camera)
 	if _sim.spawn_controller() != null and _sim.spawn_controller().has_method("set_presentation"):
 		_sim.spawn_controller().set_presentation(_camera, null)
+
+
+## Every actor `actors` holds or receives is drawn with the view its class is registered to.
+func _draw_actors(actors: Node3D) -> void:
+	actors.child_entered_tree.connect(_draw_actor)
+	for actor in actors.get_children():
+		_draw_actor(actor)
+
+
+func _draw_actor(actor: Node) -> void:
+	var s: Script = actor.get_script() as Script
+	var view: PackedScene = actor_views.get(s.get_global_name()) if s != null else null
+	if view != null:
+		actor.add_child(view.instantiate())
 
 
 func step(delta: float) -> void:

@@ -512,6 +512,12 @@ name = "check_generated_constants"
 script = "scripts/check_generated_constants.sh"
 kind = "text"
 marker = "^Generated-constants gate passed"
+mutation = [
+	"perl -pi -e 's/^const RIPPLE_MAX: int = 16/const RIPPLE_MAX: int = 17/' addons/local_agents/game/render/MaterialFieldRender3D.gd",
+	"printf 'const int RIPPLE_MAX = 16;\\n' >> addons/local_agents/game/render/FieldArrow.gdshader",
+	"printf '#include \"res://addons/local_agents/game/render/shaders/generated.gdshaderinc\"\\n' >> addons/local_agents/game/render/FieldArrow.gdshader",
+	"perl -pi -e 's#game/render/shaders/generated#sim/shaders/generated#' addons/local_agents/game/render/shaders/WaterParticles.gdshader",
+]
 
 [[gate]]
 name = "check_seed_phase"
@@ -654,12 +660,14 @@ kind = "text"
 marker = "^check_presentation_in_sim: OK"
 mutation = [
 	"printf 'func _m() -> void:\\n\\tvar m: MeshInstance3D = MeshInstance3D.new()\\n' >> addons/local_agents/sim/material/MaterialField3D.gd",
-	"printf 'const MUT_S: Shader = preload(\"res://addons/local_agents/sim/shaders/VoxelSky.gdshader\")\\n' >> addons/local_agents/sim/material/MaterialField3D.gd",
+	"printf 'const MUT_S: Shader = preload(\"res://addons/local_agents/game/render/shaders/VoxelSky.gdshader\")\\n' >> addons/local_agents/sim/material/MaterialField3D.gd",
 	"printf '[gd_resource type=\"ShaderMaterial\" format=3]\\n\\n[resource]\\n' > addons/local_agents/sim/mutant_material.tres && printf 'const MUT_M: Material = preload(\"res://addons/local_agents/sim/mutant_material.tres\")\\n' >> addons/local_agents/sim/material/MaterialField3D.gd",
 	"printf '[gd_scene format=3]\\n\\n[node name=\"M\" type=\"Node3D\"]\\n\\n[node name=\"Mesh\" type=\"MeshInstance3D\" parent=\".\"]\\n' > addons/local_agents/sim/mutant_visual.tscn && printf 'const MUT_V: PackedScene = preload(\"res://addons/local_agents/sim/mutant_visual.tscn\")\\n' >> addons/local_agents/sim/material/MaterialField3D.gd",
 	"printf '[gd_scene format=3]\\n\\n[node name=\"M\" type=\"Node3D\"]\\n\\n[node name=\"Mesh\" type=\"MeshInstance3D\" parent=\".\"]\\n' > addons/local_agents/sim/mutant_visual.tscn && printf '[gd_scene format=3]\\n\\n[ext_resource type=\"PackedScene\" uid=\"uid://bmutant\" path=\"res://addons/local_agents/sim/mutant_visual.tscn\" id=\"1_v\"]\\n\\n[node name=\"O\" type=\"Node3D\"]\\n\\n[node name=\"V\" parent=\".\" instance=ExtResource(\"1_v\")]\\n' > addons/local_agents/sim/mutant_outer.tscn && printf 'const MUT_O: PackedScene = preload(\"res://addons/local_agents/sim/mutant_outer.tscn\")\\n' >> addons/local_agents/sim/material/MaterialField3D.gd",
-	"printf 'const MUT_SHADER_PATH: String = \"res://addons/local_agents/sim/shaders/VoxelSky.gdshader\"\\nfunc _mut_s() -> Resource:\\n\\treturn load(MUT_SHADER_PATH)\\n' >> addons/local_agents/sim/material/MaterialField3D.gd",
+	"printf 'const MUT_SHADER_PATH: String = \"res://addons/local_agents/game/render/shaders/VoxelSky.gdshader\"\\nfunc _mut_s() -> Resource:\\n\\treturn load(MUT_SHADER_PATH)\\n' >> addons/local_agents/sim/material/MaterialField3D.gd",
 	"printf '[gd_resource type=\"ShaderMaterial\" format=3]\\n\\n[resource]\\n' > addons/local_agents/sim/mutant_material.tres && printf 'const MUT_MAT_PATH: String = \"res://addons/local_agents/sim/mutant_material.tres\"\\n' >> addons/local_agents/sim/material/MaterialFieldSeal3D.gd && printf 'func _mut_m() -> Resource:\\n\\treturn load(LAMaterialFieldSeal3D.MUT_MAT_PATH)\\n' >> addons/local_agents/sim/material/MaterialField3D.gd",
+	"printf 'shader_type spatial;\\n' > addons/local_agents/sim/material/mutant.gdshader",
+	"printf '[gd_resource type=\"StandardMaterial3D\" format=3]\\n\\n[resource]\\n' > addons/local_agents/sim/mutant_standard.tres",
 ]
 
 [[gate]]
@@ -840,7 +848,7 @@ name = "check_shot_look"
 script = "scripts/check_shot_look.sh"
 kind = "gpu"
 marker = "^check_shot_look: OK"
-mutation = "python3 -c \"p='addons/local_agents/sim/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); s=s.replace('ALBEDO = col;','ALBEDO = vec3(0.0);'); open(p,'w').write(s.replace('EMISSION = incandescence(temp) * 3.8;','EMISSION = vec3(0.35);'))\""
+mutation = "python3 -c \"p='addons/local_agents/game/render/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); s=s.replace('ALBEDO = col;','ALBEDO = vec3(0.0);'); open(p,'w').write(s.replace('EMISSION = incandescence(temp) * 3.8;','EMISSION = vec3(0.35);'))\""
 
 [[gate]]
 name = "check_impact_books"
@@ -939,3 +947,24 @@ script = "scripts/check_hud_palette.sh"
 kind = "text"
 marker = "^check_hud_palette: OK"
 mutation = "printf 'theme_override_colors/font_color = Color(0.62, 0.66, 0.72, 1)\\n' >> addons/local_agents/game/ui/GameHud.tscn"
+
+[[gate]]
+name = "check_event_views"
+script = "scripts/check_event_views.sh"
+kind = "headless"
+needs = ["import"]
+marker = "^check_event_views: OK"
+mutation = [
+	"python3 -c \"p='addons/local_agents/game/render/events/CycloneView.tscn'; s=open(p).read(); open(p,'w').write(s.replace('ablation_name = \\\"cyclone_view\\\"\\n',''))\"",
+	"python3 -c \"p='addons/local_agents/game/render/events/PhenomenaMarkers.gd'; s=open(p).read(); open(p,'w').write(s.replace('if rec == null or not rec.offered() or not _adopt','if rec == null or not _adopt'))\"",
+	"python3 -c \"p='addons/local_agents/game/render/events/EventViewRecord.gd'; s=open(p).read(); open(p,'w').write(s.replace('\\t\\t\\treturn false\\n','\\t\\t\\tpass\\n'))\"",
+	"python3 -c \"p='addons/local_agents/game/render/events/PhenomenaMarkers.gd'; s=open(p).read(); open(p,'w').write(s.replace('if box == null or not box.can_process() or','if box == null or'))\"",
+	"python3 -c \"p='addons/local_agents/game/render/events/PhenomenaMarkers.gd'; s=open(p).read(); open(p,'w').write(s.replace(' or box.get_child_count() >= max_drawn_per_kind',''))\"",
+	"python3 -c \"p='addons/local_agents/game/RenderLayer.gd'; s=open(p).read(); open(p,'w').write(s.replace('\\tfor actor in actors.get_children():\\n\\t\\t_draw_actor(actor)\\n',''))\"",
+	"python3 -c \"p='addons/local_agents/game/RenderLayer.gd'; s=open(p).read(); open(p,'w').write(s.replace('\\tactors.child_entered_tree.connect(_draw_actor)\\n',''))\"",
+	"python3 -c \"p='addons/local_agents/game/render/events/CycloneView.tscn'; s=open(p).read(); open(p,'w').write(s.replace('gravity = Vector3(0, -0.001, 0)','gravity = Vector3(0, 0, 0)'))\"",
+	"python3 -c \"p='addons/local_agents/game/render/events/CycloneView.tscn'; s=open(p).read(); open(p,'w').write(s.replace('local_coords = true','local_coords = false'))\"",
+	"python3 -c \"p='addons/local_agents/game/render/events/EventView.gd'; s=open(p).read(); open(p,'w').write(s.replace('Transform3D(Basis(side, up, side.cross(up)), point)','Transform3D(Basis.IDENTITY, point)'))\"",
+	"python3 -c \"p='addons/local_agents/game/render/events/CycloneView.tscn'; s=open(p).read(); open(p,'w').write(s.replace('visibility_aabb = AABB(-6, -2, -6, 12, 4, 12)','visibility_aabb = AABB(-1, -0.1, -1, 2, 0.2, 2)'))\"",
+	"python3 -c \"p='addons/local_agents/game/render/events/PhenomenaMarkers.gd'; s=open(p).read(); open(p,'w').write(s.replace('_field._grid.cell_edge(c)','_field._grid.cell_size'))\"",
+]

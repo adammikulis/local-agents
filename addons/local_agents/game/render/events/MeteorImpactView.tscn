@@ -1,0 +1,16 @@
+[gd_scene format=3]
+
+[ext_resource type="PackedScene" path="res://addons/local_agents/game/render/events/EventView.tscn" id="1_eventview"]
+[ext_resource type="Script" path="res://addons/local_agents/game/render/events/MeteorImpactView.gd" id="2_meteorimpactview"]
+
+[node name="MeteorImpactView" instance=ExtResource("1_eventview")]
+script = ExtResource("2_meteorimpactview")
+ablation_name = "meteor_impact_view"
+lifetime_s = 0.6
+
+[node name="Light" parent="." index="0"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 4, 0)
+visible = true
+light_color = Color(1, 0.9, 0.75, 1)
+light_energy = 40.0
+omni_range = 150.0
