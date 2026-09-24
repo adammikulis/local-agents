@@ -91,17 +91,6 @@ func land_ejecta(src_cell: int, world_pos: Vector3, mass: float) -> void:
 	_uncement(PackedInt32Array([dst]))
 
 
-## Loose mineral arriving at a point. What lands is grains, so the cell's consolidated share goes with it.
-func deposit_sediment(world_pos: Vector3, amount: float) -> void:
-	if amount <= 0.0 or not _device_ready():
-		return
-	var c: int = _f.world_to_cell(world_pos)
-	if c < 0 or c >= _f._cell_count:
-		return
-	queue.add("silicate", PackedInt32Array([c]), PackedFloat32Array([amount]))
-	_uncement(PackedInt32Array([c]))
-
-
 ## Drain the consolidated share of these cells to zero. `cement` is a fraction, not matter, so this moves
 ## nothing and mints nothing — it records that the rock fabric is gone.
 func _uncement(cells: PackedInt32Array) -> void:

@@ -16,6 +16,7 @@ var _step: int = 0
 var _tick: int = 0
 var _holds: int = 0
 var _steps_per_tick: int = 1
+var _halt_step: int = -1
 
 
 static func active() -> LASimLoop:
@@ -63,6 +64,11 @@ func steps_per_tick() -> int:
 	return _steps_per_tick
 
 
+## Run no step past `step`: the world stands at that simulated time. Negative runs on.
+func halt_at(step: int) -> void:
+	_halt_step = step
+
+
 ## Restore the step count from a save. Simulated seconds are the serialised form.
 func restore_elapsed_s(seconds: float) -> void:
 	_step = int(maxf(0.0, seconds) / step_seconds())
@@ -74,6 +80,7 @@ func _physics_process(_delta: float) -> void:
 		seeding.emit(_tick)
 		return
 	for _i in _steps_per_tick:
+		if _halt_step >= 0 and _step >= _halt_step: return
 		_step += 1
 		# Published BEFORE the step runs: a module sampling mid-step reads the time of the step it is in.
 		LASimReport.gauge("sim_steps", float(_step))
