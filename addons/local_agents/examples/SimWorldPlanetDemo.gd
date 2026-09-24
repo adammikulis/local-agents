@@ -17,7 +17,7 @@ func demo_report() -> Dictionary:
 	return {
 		"world_type": kind,
 		"frames": _harness_frames,
-		"creatures": get_tree().get_nodes_in_group("creature").size(),
-		"plants": get_tree().get_nodes_in_group("plant").size(),
+		"creatures": get_tree().get_node_count_in_group("creature"),
+		"plants": get_tree().get_node_count_in_group("plant"),
 		"spawned": _sim.has_spawned(),
 	}

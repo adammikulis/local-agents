@@ -100,6 +100,7 @@ func setup(_terrain, _config: Dictionary = {}) -> void:
 	collision_mask = 0
 	add_to_group(GROUP_SELECTABLE)
 	add_to_group(GROUP_TREE)
+	LAGroupIndex.shared().joined(self)
 
 	# The shared GPU-instanced renderer draws every tree of this species in one batch; without it this
 	# tree carries its own model.
@@ -112,7 +113,6 @@ func setup(_terrain, _config: Dictionary = {}) -> void:
 	_build_collision()
 
 	_apply_resting_tilt()
-	_snap_to_surface()
 	_apply_growth()
 	_sync_render()   # push the initial sapling pose into the instanced batch
 
@@ -166,17 +166,6 @@ func _apply_resting_tilt() -> void:
 	var fwd: Vector3 = right.cross(up).normalized()
 	_upright_basis = Basis(right, up, fwd).rotated(right, _tilt)
 	transform.basis = _upright_basis
-
-
-func _snap_to_surface() -> void:
-	if terrain == null:
-		return
-	# Snap onto the solid surface along our radial ray.
-	var center: Vector3 = terrain.planet_center()
-	var dir: Vector3 = (global_position - center).normalized()
-	var surf: Vector3 = terrain.surface_point(dir)
-	if not is_nan(surf.x):
-		global_position = surf
 
 
 const TREE_SETTLE_STRIDE: int = 30   # a mature tree advances age ~every 30 frames (catch-up dt) — Big-O by relevance

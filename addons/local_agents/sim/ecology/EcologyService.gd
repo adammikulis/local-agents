@@ -253,8 +253,8 @@ func _can_grow_here(placed: Vector3, woody: bool = false) -> bool:
 	if _material == null or not _material.has_method("temp_at"):
 		return false
 	var air: Vector3 = _air_point(placed)
-	if _material.temp_at(air) - (TREELINE_ISOTHERM_C if woody else GDD_BASE_C) <= 0.0:
-		return false
+	if not (_material.temp_at(air) - (TREELINE_ISOTHERM_C if woody else GDD_BASE_C) > 0.0):
+		return false   # below the isotherm, or no matter there to have a temperature
 	if _material.has_method("snow_depth_at") and _material.snow_depth_at(air) > 0.0:
 		return false   # lying snow: a seed never reaches the soil
 	return true
@@ -290,8 +290,8 @@ func _place_on_surface(world_pos):
 	return _spawner._place_on_surface(world_pos)
 
 
-func _tangent_offset_point(anchor: Vector3, u: float, v: float) -> Vector3:
-	return _spawner._tangent_offset_point(anchor, u, v)
+func _tangent_offset_raw(anchor: Vector3, u: float, v: float) -> Vector3:
+	return _spawner._tangent_offset_raw(anchor, u, v)
 
 
 func _surface_radius(dir: Vector3) -> float:
@@ -486,7 +486,7 @@ func debug_seed_family() -> Node:
 		var pb: Node3D = adults[1] as Node3D
 		var kids: Array = []
 		for i in range(2):
-			var placed = _place_on_surface(_tangent_offset_point(pa.global_position, LASimRng.for_domain("life").randf_range(-2.0, 2.0), LASimRng.for_domain("life").randf_range(-2.0, 2.0)))
+			var placed = _place_on_surface(_tangent_offset_raw(pa.global_position, LASimRng.for_domain("life").randf_range(-2.0, 2.0), LASimRng.for_domain("life").randf_range(-2.0, 2.0)))
 			if placed == null:
 				continue
 			var child = _instance_actor(kind, placed, _breeding._breed_genome(pa, pb))

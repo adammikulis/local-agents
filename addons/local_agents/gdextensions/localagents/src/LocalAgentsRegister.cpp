@@ -19,6 +19,7 @@
 #include "LAFieldDriver.hpp"
 #include "LAFieldLedger.hpp"
 #include "LAFieldMirrors.hpp"
+#include "LAThreadClock.hpp"
 #include "LAFieldSnapshot.hpp"
 #include "LAFieldStateCache.hpp"
 #include "LAFieldHydrosphereSeed.hpp"
@@ -53,7 +54,7 @@ void initialize_local_agents(ModuleInitializationLevel p_level) {
                 break;
             }
         }
-        la_prohibit_activation();
+        la_agent_process_policy();
         if (!saves_settings && OS::get_singleton()->get_environment("LA_OFFSCREEN") != String()) {
             ProjectSettings *ps = ProjectSettings::get_singleton();
             // Initial value too: a save writes only what differs from it, so this cannot reach the tree
@@ -88,6 +89,7 @@ void initialize_local_agents(ModuleInitializationLevel p_level) {
     ClassDB::register_class<LAFieldDriver>();
     ClassDB::register_class<LAFieldLedger>();
     ClassDB::register_class<LAFieldMirrors>();
+    ClassDB::register_class<LAThreadClock>();
     ClassDB::register_class<LAFieldSnapshot>();
     ClassDB::register_class<LAFieldStateCache>();
     ClassDB::register_class<LABodyMeasure>();

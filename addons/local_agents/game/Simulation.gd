@@ -146,7 +146,8 @@ func _build_field() -> void:
 	LASimReport.register(func() -> Dictionary: return {"process_live": LAProcessSet.live_mask()})
 	LASimReport.register(func() -> Dictionary: return _body_block())
 	LASimReport.register(func() -> Dictionary: return LASimReportSources.population(self), true)
-	LASimReport.register(func() -> Dictionary: return LASimReportSources.cognition(self), true)
+	LASimReport.register(func() -> Dictionary: return LASimReportSources.lineage(self), true)
+	LASimReport.register(func() -> Dictionary: return LASimReportSources.cognition(self))
 	LASimReport.register(func() -> Dictionary: return LASimReportSources.disease(self))
 	# The STAR's light, never the sky cycle's: direction from its basis, intensity from `insolation`.
 	_material.set_sun(_star.light())

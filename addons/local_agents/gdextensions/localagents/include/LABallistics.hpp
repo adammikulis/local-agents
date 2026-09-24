@@ -39,11 +39,12 @@ public:
 	static Vector3 acceleration_at(const Vector3 &p_at, int p_exclude);
 
 	// The field's own state, republished when it re-solves: the grid, the drained gravity mirror
-	// (flat cell*3, m/s^2), the solid mask (1 = rock), LAFieldCellMass3D.mirrors() for the medium's
-	// mass density, and the frame the grid is laid in (body -> world, about p_pivot).
+	// (flat cell*3, m/s^2), the solid mask (1 = rock), the field's LAFieldMirrors with
+	// LAFieldCellMass3D.mass_channels() for the medium's mass density, read at the cell asked, and the
+	// frame the grid is laid in (body -> world, about p_pivot).
 	static void set_field(Object *p_grid, const PackedFloat32Array &p_gravity,
-			const PackedByteArray &p_solid, const Array &p_mass_mirrors, const Basis &p_frame,
-			const Vector3 &p_pivot);
+			const PackedByteArray &p_solid, Object *p_mass_mirrors, const Array &p_mass_channels,
+			const Basis &p_frame, const Vector3 &p_pivot);
 	static void clear_field();
 	static bool has_field();
 
