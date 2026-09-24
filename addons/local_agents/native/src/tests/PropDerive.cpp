@@ -23,7 +23,7 @@ constexpr uint32_t kDraws = 4;
 
 // state_derive.glsl's per-channel substance table: PROP_STRIDE words per channel, then the detection
 // thresholds. scripts/check_kernel_properties.sh holds these to the kernel's own declarations.
-constexpr uint32_t kPropStride = 82;
+constexpr uint32_t kPropStride = 79;
 constexpr uint32_t kPropM = 0;
 constexpr uint32_t kPropMolPerKg = 1;
 constexpr uint32_t kPropEntry = 2;
@@ -32,13 +32,9 @@ constexpr uint32_t kPropFull = 4;
 constexpr uint32_t kPropLithic = 5;
 constexpr uint32_t kPropRadGroup = 6;
 constexpr uint32_t kPropCondensed = 7;
-constexpr uint32_t kPropPrA = 8;
-constexpr uint32_t kPropPrB = 9;
-constexpr uint32_t kPropPrKappa = 10;
-constexpr uint32_t kPropPrTc = 11;
 // The solid's and the melt's equation-of-state blocks.
-constexpr uint32_t kPropSolid = 12;
-constexpr uint32_t kPropLiquid = 21;
+constexpr uint32_t kPropSolid = 8;
+constexpr uint32_t kPropLiquid = 17;
 constexpr uint32_t kPhFull = 0;
 constexpr uint32_t kPhAlpha = 1;
 constexpr uint32_t kPhBulk = 2;
@@ -49,7 +45,7 @@ constexpr uint32_t kPhLinear = 6;
 constexpr uint32_t kPhFLo = 7;
 constexpr uint32_t kPhFHi = 8;
 // The channel's own phase ladder, from PROP_LADDER: every condensed channel melts where its row says.
-constexpr uint32_t kPropLadder = 30;
+constexpr uint32_t kPropLadder = 26;
 constexpr uint32_t kThCSol = 0;
 constexpr uint32_t kThCLiq = 1;
 constexpr uint32_t kThCGas = 2;
@@ -70,6 +66,9 @@ constexpr uint32_t kThLineC2 = 48;
 constexpr uint32_t kThAnchorPhase = 49;
 constexpr uint32_t kThAnchorT = 50;
 constexpr uint32_t kThLinePref = 51;
+constexpr uint32_t kThCritT = 11;
+constexpr uint32_t kThCritP = 12;
+constexpr uint32_t kThPrKappa = 52;
 constexpr uint32_t kDetSlots = 5;
 
 // What check_derive_fixed_point.sh declares a second pass may move: float32 on the pressure, and the
@@ -196,17 +195,17 @@ std::vector<float> draw_props(Rng &rng) {
 			p[b + blk + kPhFLo] = float(f_lo);
 			p[b + blk + kPhFHi] = float(f_hi);
 		}
-		// A gas is a Peng-Robinson fluid over the span the table's gases cover, hydrogen to water.
-		if (!condensed) {
-			p[b + kPropPrTc] = rng.range(33.0f, 650.0f);
-			p[b + kPropPrA] = rng.decades(0.02f, 0.6f);
-			p[b + kPropPrB] = rng.range(1.5e-5f, 4.0e-5f);
-			p[b + kPropPrKappa] = rng.range(0.03f, 0.9f);
-		}
 		// A LADDER PER CHANNEL. A condensed phase melts: a solidus, a liquidus at or above it, and the
 		// fusion enthalpy it costs to cross. Neither solid nor melt is compressed here, so the melting
 		// curve has no Clapeyron slope and the plateau stands at one temperature.
 		const uint32_t t = b + kPropLadder;
+		// A gas is a Peng-Robinson fluid over the span the table's gases cover, hydrogen to water: its
+		// critical point and its kappa.
+		if (!condensed) {
+			p[t + kThCritT] = rng.range(33.0f, 650.0f) - 273.15f;
+			p[t + kThCritP] = rng.decades(1.2e6f, 2.3e7f);
+			p[t + kThPrKappa] = rng.range(0.03f, 0.9f);
+		}
 		p[t + kThCSol] = rng.range(400.0f, 4200.0f);
 		p[t + kThCLiq] = rng.range(400.0f, 4200.0f);
 		p[t + kThCGas] = rng.range(400.0f, 4200.0f);
@@ -480,9 +479,11 @@ bool prop_derive_melting_costs_its_latent_heat(Case &c) {
 	for (uint32_t d = 0; d < kDraws; ++d) {
 		World w = load(rig, rng);
 		const uint32_t n = w.lat.cells();
-		// A melting POINT, not an interval: an interval spreads the latent heat over its own width.
+		// A melting POINT, not an interval: an interval spreads the latent heat over its own width. Channel 0
+		// is the water the kernel reads through water's own curves, and channel 1 the silicate melt's
+		// entry, so neither is a drawn ladder.
 		uint32_t ci = kChannelSlots;
-		for (uint32_t i = 0; i < kChannelSlots && ci >= kChannelSlots; ++i) {
+		for (uint32_t i = 2; i < kChannelSlots && ci >= kChannelSlots; ++i) {
 			const uint32_t t = i * kPropStride + kPropLadder;
 			if (w.props[t + kThHasFusion] > 0.0f && w.props[t + kThFusionT1] == w.props[t + kThFusionT0]) {
 				ci = i;

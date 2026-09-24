@@ -69,7 +69,8 @@ public:
 	static constexpr int TH_ANCHOR_PHASE = 49;
 	static constexpr int TH_ANCHOR_T = 50;
 	static constexpr int TH_LINE_PREF = 51;
-	static const int THERMAL_ROW_WORDS = 52;
+	static constexpr int TH_PR_KAPPA = 52;
+	static const int THERMAL_ROW_WORDS = 53;
 	static PackedFloat32Array thermal_row(const String &p_id);
 	// J/kg/K of the phase this substance stands in at (t, p) — state_derive.glsl la_phase_c.
 	static double phase_specific_heat(const String &p_id, double p_t_c, double p_p_pa);

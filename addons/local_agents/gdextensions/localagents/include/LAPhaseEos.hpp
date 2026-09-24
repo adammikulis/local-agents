@@ -63,6 +63,11 @@ namespace LAPhaseEosFn {
 
 const LACondensedEos &condensed(const String &p_id);
 const LAFluidEos &fluid(const String &p_id);
+// Newton steps on the Peng-Robinson cubic; kernel twin LA_PR_Z_STEPS.
+constexpr int PR_Z_STEPS = 20;
+// The pure vapour's Z = pv/RT at (T, p), the cubic's largest root; NaN when invalid or unconverged.
+// Kernel twin la_pr_vapour_z.
+double vapour_z(const LAFluidEos &p_f, double p_t_k, double p_p_pa);
 const LAAnchor &anchor(const String &p_id);
 bool gas_at(const String &p_id, double p_t_c, double p_p_pa);
 double solidus_c(const LACondensedEos &p_c, double p_p_pa);

@@ -45,6 +45,7 @@ constexpr double IRON_LIQUID_BULK_MODULUS_S_PA = 1.097e11; // adiabatic, liquid 
 constexpr double IRON_LIQUID_BULK_MODULUS_DERIV = 4.66;   // K'_S0, Anderson & Ahrens 1994, JGR 99:4273
 constexpr double IRON_LIQUID_SPECIFIC_HEAT_J_KGK = 824.0; // Desai 1986, J. Phys. Chem. Ref. Data 15:967
 constexpr double IRON_SOLID_SPECIFIC_HEAT_J_KGK = 449.0;  // alpha-Fe at 25 C, CRC 97th ed.
+constexpr double IRON_VAPOUR_CP_J_MOLK = 25.7;             // Fe(g) at 298.15 K, CRC 97th ed. 5-4
 constexpr double IRON_LATENT_FUSION_J_KG = 2.473e5;       // Desai 1986, dHfus 13.81 kJ/mol
 constexpr double IRON_BOIL_C = 2861.0;                    // CRC 97th ed.
 constexpr double IRON_LATENT_VAPORISATION_J_KG = 6.09e6;  // CRC, dHvap 340 kJ/mol
@@ -639,6 +640,7 @@ void add_planet_minerals() {
 	metal_extra["critical_t_c"] = IRON_CRITICAL_T_C;
 	metal_extra["critical_p_pa"] = IRON_CRITICAL_P_PA;
 	metal_extra["traces"] = LAElementAbundances::core_traces();
+	metal_extra["specific_heat_gas"] = IRON_VAPOUR_CP_J_MOLK / LAElementAbundances::molar_mass(f_metal);
 	// LA_APPROX: pure_iron_core_alloy
 	t["metal"] = entry(f_metal, IRON_LIQUID_DENSITY_KG_M3, IRON_LIQUID_SPECIFIC_HEAT_J_KGK,
 			IRON_CONDUCTIVITY_W_MK, metal_extra);

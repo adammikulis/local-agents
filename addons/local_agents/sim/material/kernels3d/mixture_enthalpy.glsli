@@ -34,8 +34,9 @@ float la_mix_vapour_share(SubstanceTh s, float t_c, float m_kg, float room_m3, f
 	if (m_kg <= 0.0 || !s.has_boil) { return 0.0; }
 	if (t_c >= s.crit_t_c) { return 1.0; }
 	if (room_m3 <= 0.0 || s.molar_mass <= 0.0 || p_v <= 0.0) { return 0.0; }
-	float t_k = max(t_c + LA_KELVIN_OFFSET, 1.0);
-	return min(p_v * room_m3 / (LA_R_J_MOL_K * t_k) * s.molar_mass / m_kg, 1.0);
+	float t_k = t_c + LA_KELVIN_OFFSET;
+	float z = la_pr_vapour_z(s, t_k, p_v);
+	return min(p_v * room_m3 / (z * LA_R_J_MOL_K * t_k) * s.molar_mass / m_kg, 1.0);
 }
 
 float la_mix_vapour_fraction(SubstanceTh s, float t_c, float p_pa, float m_kg, float room_m3,
@@ -150,28 +151,27 @@ float la_mix_solve(float h_total_j, float p_pa, float room_m3, float molality_mo
 	float f_b = la_mix_enthalpy_at(b, p_pa, room_m3, molality_mol_kg) - h_total_j;
 	float t = a;
 	float width = b - a;
-	// A ladder that states no enthalpy states no temperature.
-	if (isnan(f_a) || isnan(f_b)) { return uintBitsToFloat(0x7fc00000u); }
+	// A NaN end is the unmeasured region below: halve up out of it; no root between measured ends is NaN.
+	if (isnan(f_b)) { return f_b; }
 	for (int i = 0; i < 24; ++i) {
 		float denom = f_b - f_a;
-		t = abs(denom) > 0.0 ? a - f_a * (b - a) / denom : 0.5 * (a + b);
+		t = (!isnan(denom) && abs(denom) > 0.0) ? a - f_a * (b - a) / denom : 0.5 * (a + b);
 		t = clamp(t, a, b);
 		float f_t = la_mix_enthalpy_at(t, p_pa, room_m3, molality_mol_kg) - h_total_j;
-		if (isnan(f_t)) { return f_t; }
-		if (f_t > 0.0) {
-			b = t;
-			f_b = f_t;
-			f_a *= 0.5;
-		} else {
+		if (isnan(f_t) || f_t <= 0.0) {
 			a = t;
 			f_a = f_t;
 			f_b *= 0.5;
+		} else {
+			b = t;
+			f_b = f_t;
+			f_a *= 0.5;
 		}
 		// The bracket stopped shrinking: every further evaluation returns the same temperature.
 		if (b - a >= width) { break; }
 		width = b - a;
 	}
-	return t;
+	return isnan(f_a) ? f_a : t;
 }
 
 // THE CELL'S TEMPERATURE from its total enthalpy. `pinned` reports that the enthalpy landed inside a jump,
@@ -192,7 +192,6 @@ float la_mix_state(float h_total_j, float p_pa, float room_m3, float molality_mo
 		float t_b = pts[i];
 		if (t_b <= lo) { continue; }
 		float h_b = la_mix_enthalpy_at(t_b, p_pa, room_m3, molality_mol_kg);
-		// A breakpoint where some substance states no enthalpy is below the state or the state is none.
 		if (isnan(h_b)) { lo = t_b; continue; }
 		if (h_total_j <= h_b) {
 			hi = t_b;

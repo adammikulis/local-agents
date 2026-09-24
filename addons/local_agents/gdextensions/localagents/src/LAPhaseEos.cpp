@@ -26,14 +26,6 @@ using std::abs;
 using std::max;
 using std::sqrt;
 
-// Peng & Robinson 1976, Ind. Eng. Chem. Fundam. 15:59: a_c = OMEGA_A R^2 Tc^2 / pc, b = OMEGA_B R Tc / pc,
-// kappa = K0 + K1 omega - K2 omega^2.
-constexpr double PR_OMEGA_A = 0.45724;
-constexpr double PR_OMEGA_B = 0.07780;
-constexpr double PR_KAPPA_0 = 0.37464;
-constexpr double PR_KAPPA_1 = 1.54226;
-constexpr double PR_KAPPA_2 = 0.26992;
-
 double pc(const char *p_name) {
 	return la_physical(p_name);
 }
@@ -214,15 +206,17 @@ LAFluidEos build_fluid(const String &p_id) {
 	}
 	f.tc_k = double(s["critical_t_c"]) + pc("KELVIN_OFFSET");
 	const double p_c = double(s["critical_p_pa"]);
-	// No acentric factor is no fluid: the state that needs one fails where it is asked for.
-	if (!s.has("acentric_factor")) {
+	// Pitzer 1955's definition where the reference equation gives none: omega = -1 - log10(p_sat / pc) at
+	// T = 0.7 Tc, on the row's own vapour curve. A row with no vapour curve there is no fluid.
+	const double p_07 = LASubstances::saturation_p_at(p_id, 0.7 * f.tc_k - pc("KELVIN_OFFSET"));
+	if (!s.has("acentric_factor") && !(p_07 > 0.0)) {
 		return f;
 	}
-	const double omega = double(s["acentric_factor"]);
+	const double omega = s.has("acentric_factor") ? double(s["acentric_factor"]) : -1.0 - std::log10(p_07 / p_c);
 	const double r = pc("GAS_CONSTANT_J_MOL_K");
-	f.a_c = PR_OMEGA_A * r * r * f.tc_k * f.tc_k / p_c;
-	f.b = PR_OMEGA_B * r * f.tc_k / p_c;
-	f.kappa = PR_KAPPA_0 + PR_KAPPA_1 * omega - PR_KAPPA_2 * omega * omega;
+	f.a_c = pc("PR_OMEGA_A") * r * r * f.tc_k * f.tc_k / p_c;
+	f.b = pc("PR_OMEGA_B") * r * f.tc_k / p_c;
+	f.kappa = pc("PR_KAPPA_0") + pc("PR_KAPPA_1") * omega - pc("PR_KAPPA_2") * omega * omega;
 	f.valid = true;
 	return f;
 }
@@ -264,6 +258,30 @@ const LACondensedEos &LAPhaseEosFn::condensed(const String &p_id) {
 		cache.insert(p_id, build_condensed(p_id));
 	}
 	return cache[p_id];
+}
+
+double LAPhaseEosFn::vapour_z(const LAFluidEos &p_f, double p_t_k, double p_p_pa) {
+	if (!p_f.valid) {
+		return LA_NAN;
+	}
+	const double u = 1.0 + p_f.kappa * (1.0 - sqrt(p_t_k / p_f.tc_k));
+	const double rt = pc("GAS_CONSTANT_J_MOL_K") * p_t_k;
+	const double a = p_f.a_c * u * u * p_p_pa / (rt * rt);
+	const double b = p_f.b * p_p_pa / rt;
+	const double c2 = -(1.0 - b);
+	const double c1 = a - 3.0 * b * b - 2.0 * b;
+	const double c0 = -(a * b - b * b - b * b * b);
+	double z = 1.0;
+	for (int i = 0; i < PR_Z_STEPS; ++i) {
+		const double f = ((z + c2) * z + c1) * z + c0;
+		const double d = (3.0 * z + 2.0 * c2) * z + c1;
+		const double step = f / d;
+		z -= step;
+		if (abs(step) <= 4.0 * std::numeric_limits<double>::epsilon() * z) {
+			return z;
+		}
+	}
+	return LA_NAN;
 }
 
 const LAFluidEos &LAPhaseEosFn::fluid(const String &p_id) {

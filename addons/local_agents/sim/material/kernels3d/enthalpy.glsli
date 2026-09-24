@@ -66,6 +66,7 @@ struct SubstanceTh {
 	int anchor_phase;
 	float anchor_t_c;
 	float fusion_p_ref;      // Pa below which the melting line has not begun
+	float pr_kappa;          // Peng-Robinson kappa; NaN where the table gives no acentric factor
 };
 
 // LASubstances.table()["h2o"], thermal half. Values are gate-bound to LAPhysical / LASubstances.
@@ -113,8 +114,47 @@ SubstanceTh la_h2o() {
 		0, 0.0, 0.0, 0.0, 0.0,
 		1,
 		25.0,               // LAPhysical.STANDARD_STATE_T_C
-		611.657             // LAPhysical.WATER_TRIPLE_P_PA
+		611.657,            // LAPhysical.WATER_TRIPLE_P_PA
+		PR_KAPPA_0 + PR_KAPPA_1 * 0.3443    // LAPhysical.WATER_ACENTRIC_FACTOR
+			- PR_KAPPA_2 * 0.3443           // LAPhysical.WATER_ACENTRIC_FACTOR
+			* 0.3443                        // LAPhysical.WATER_ACENTRIC_FACTOR
 	);
+}
+
+// LA_APPROX: peng_robinson_fluid
+// Peng-Robinson a_c and b off the critical point, kelvin and pascals. Native twin build_fluid.
+float la_pr_a_c(float tc_k, float pc_pa) {
+	return PR_OMEGA_A * LA_R_J_MOL_K * LA_R_J_MOL_K * tc_k * tc_k / pc_pa;
+}
+
+float la_pr_b(float tc_k, float pc_pa) {
+	return PR_OMEGA_B * LA_R_J_MOL_K * tc_k / pc_pa;
+}
+
+// The pure vapour's compressibility factor Z = pv/RT at (T, p): the largest root of the Peng-Robinson
+// cubic, Newton from the ideal gas. NaN where it does not converge or the row has no acentric factor.
+// Native twin LAPhaseEosFn::vapour_z.
+const int LA_PR_Z_STEPS = 20;      // LAPhaseEosFn::PR_Z_STEPS
+float la_pr_vapour_z(SubstanceTh s, float t_k, float p_pa) {
+	float tc = s.crit_t_c + LA_KELVIN_OFFSET;
+	float u = 1.0 + s.pr_kappa * (1.0 - sqrt(t_k / tc));
+	float rt = LA_R_J_MOL_K * t_k;
+	float a = la_pr_a_c(tc, s.crit_p_pa) * u * u * p_pa / (rt * rt);
+	float b = la_pr_b(tc, s.crit_p_pa) * p_pa / rt;
+	float c2 = -(1.0 - b);
+	float c1 = a - 3.0 * b * b - 2.0 * b;
+	float c0 = -(a * b - b * b - b * b * b);
+	float z = 1.0;
+	for (int i = 0; i < LA_PR_Z_STEPS; ++i) {
+		float f = ((z + c2) * z + c1) * z + c0;
+		float d = (3.0 * z + 2.0 * c2) * z + c1;
+		float step = f / d;
+		z -= step;
+		if (abs(step) <= exp2(-21.0) * z) {   // four float32 epsilons
+			return z;
+		}
+	}
+	return uintBitsToFloat(0x7FC00000u);
 }
 
 // Watson: the vaporisation enthalpy falls to zero at the critical point.

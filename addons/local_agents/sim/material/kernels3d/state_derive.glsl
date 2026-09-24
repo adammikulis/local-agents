@@ -6,6 +6,7 @@
 layout(local_size_x = 64) in;
 
 // enthalpy.glsli FIRST: Godot does not expand a nested #include inside a .glsli.
+#include "physical.glsli"
 #include "enthalpy.glsli"
 #include "matter_channels.glsli"
 #define LA_MIX_SLOTS LA_CHANNEL_SLOTS
@@ -170,7 +171,7 @@ const float SOLID_IN = 0.6;    // LAPhysical.SEDIMENT_LOAD_BEARING_SOLID_FRAC
 const float SOLID_OUT = 0.555; // LAPhysical.SEDIMENT_RIGIDITY_SOLID_FRAC
 
 // One row of `props` per channel, built from LASubstances by StateDerivePass. A channel amount is mol/m^3.
-const int PROP_STRIDE = 82;        // StateDerivePass.PROP_STRIDE
+const int PROP_STRIDE = 79;        // StateDerivePass.PROP_STRIDE
 // The (T, p) solve's budget: under-relaxed, so a pair on a latent plateau converges onto it.
 const int LA_STATE_STEPS = 64;
 const float LA_STATE_TOL = 1.0e-6;
@@ -182,14 +183,9 @@ const int PROP_FULL = 4;           // mol/m^3 at which a cell is full — amount
 const int PROP_LITHIC = 5;         // 1 = a rock or metal phase; the solid flag reads their summed volume
 const int PROP_RAD_GROUP = 6;
 const int PROP_CONDENSED = 7;      // fills volume of its own and resists being squeezed
-// The fluid's Peng-Robinson constants, LASubstances.eos_of().fluid: a(T) = a_c (1 + kappa (1 - sqrt(T/Tc)))^2.
-const int PROP_PR_A = 8;           // Pa m^6/mol^2
-const int PROP_PR_B = 9;           // m^3/mol
-const int PROP_PR_KAPPA = 10;
-const int PROP_PR_TC = 11;         // K
 // THE SOLID AND THE MELT, each a block of PH_* words off LASubstances.eos_of(): one rule for both phases.
-const int PROP_SOLID = 12;
-const int PROP_LIQUID = 21;
+const int PROP_SOLID = 8;
+const int PROP_LIQUID = 17;
 const int PH_FULL = 0;             // mol/m^3 of the phase at its reference; 0 = the table names none
 const int PH_ALPHA = 1;            // 1/K at one atmosphere; NaN = unmeasured
 const int PH_BULK = 2;             // Pa, isothermal; NaN = unmeasured
@@ -201,7 +197,7 @@ const int PH_F_LO = 7;             // the strain bracket where P(f) rises
 const int PH_F_HI = 8;
 // EVERY CHANNEL'S OWN PHASE LADDER, laid out by LAMixtureEnthalpy::thermal_row so no boundary of the
 // substance table is spelled here a second time. LA_APPROX: constant_specific_heat_per_phase
-const int PROP_LADDER = 30;        // LAMixtureEnthalpy::THERMAL_ROW_WORDS floats, from here
+const int PROP_LADDER = 26;        // LAMixtureEnthalpy::THERMAL_ROW_WORDS floats, from here
 const int TH_C_SOL = 0;            // J/kg/K of the solid phase
 const int TH_C_LIQ = 1;
 const int TH_C_GAS = 2;
@@ -238,6 +234,7 @@ const int TH_LINE_C2 = 48;
 const int TH_ANCHOR_PHASE = 49;    // 0 solid, 1 liquid, 2 gas at the standard state
 const int TH_ANCHOR_T = 50;        // C
 const int TH_LINE_PREF = 51;       // Pa below which the melting line has not begun
+const int TH_PR_KAPPA = 52;        // Peng-Robinson kappa; NaN where the table gives no acentric factor
 
 float rad_w_kg(int group) {
 	if (group == 1) { return params.rad_w_kg_1; }
@@ -281,7 +278,8 @@ SubstanceTh la_sub_of(int i) {
 		el_n, el_chi, el_g0, el_g1,
 		int(props[b + TH_LINE_KIND]), props[b + TH_LINE_T0], props[b + TH_LINE_C1],
 		props[b + TH_LINE_A2], props[b + TH_LINE_C2],
-		int(props[b + TH_ANCHOR_PHASE]), props[b + TH_ANCHOR_T], props[b + TH_LINE_PREF]);
+		int(props[b + TH_ANCHOR_PHASE]), props[b + TH_ANCHOR_T], props[b + TH_LINE_PREF],
+		props[b + TH_PR_KAPPA]);
 }
 
 // THE CELL ON THE BENCH: the channels it holds, and what each weighs in the reservoir being solved.
@@ -477,20 +475,20 @@ float la_water_v_m3_kg(int wc, SubstanceTh w, float t, float p_pa, bool pinned, 
 // One species' share of the Peng-Robinson mixture sums at T, `n` moles of channel i's fluid: s_a =
 // sum n sqrt(a(T)) with its first two T-derivatives, and s_b = sum n b.
 void la_pr_add(int i, float n, float t_k, inout vec4 s) {
-	int base = i * PROP_STRIDE;
-	float tc = props[base + PROP_PR_TC];
 	if (n <= 0.0) {
 		return;
 	}
-	float kap = props[base + PROP_PR_KAPPA];
-	float ra = sqrt(props[base + PROP_PR_A]);
+	int b = i * PROP_STRIDE + PROP_LADDER;
+	float tc = props[b + TH_CRIT_T] + LA_KELVIN_OFFSET;
+	float kap = props[b + TH_PR_KAPPA];
+	float ra = sqrt(la_pr_a_c(tc, props[b + TH_CRIT_P]));
 	float rt = sqrt(t_k / tc);
 	float u = 1.0 + kap * (1.0 - rt);
 	float sg = u < 0.0 ? -1.0 : 1.0;
 	s.x += n * ra * abs(u);
 	s.y += n * ra * sg * (-0.5 * kap / sqrt(t_k * tc));
 	s.z += n * ra * sg * (0.25 * kap / (t_k * sqrt(t_k * tc)));
-	s.w += n * props[base + PROP_PR_B];
+	s.w += n * la_pr_b(tc, props[b + TH_CRIT_P]);
 }
 
 // The cell's gas at T: every gas channel's own moles and its vapours'.
@@ -1143,7 +1141,7 @@ void main() {
 		if (k >= mix_n) { break; }
 		SubstanceTh s = la_sub_of(mix_ch[k]);
 		h_lat += la_channel_h(s, mix_ml[k], t_l, p_pa, 0.0, pinned_l, progress_l);
-		cap_l += mix_ml[k] * la_phase_c(s, t_l, p_rock);
+		cap_l += mix_ml[k] > 0.0 ? mix_ml[k] * la_phase_c(s, t_l, p_rock) : 0.0;
 	}
 	cap_lith[g] = cap_l * inv_vol;
 	if (total_l <= 0.0) {
@@ -1175,7 +1173,7 @@ void main() {
 				h_f[e] += la_channel_h(s, mf, t_c, p_pa, room_gas, pinned, progress);
 			}
 			h_l[e] += la_channel_h(s, mix_ml[k], t_l, p_rock, 0.0, pinned_l, progress_l);
-			cap_sen += e == E_SENSIBLE ? mf * la_phase_c(s, t_c, p_pa) : 0.0;
+			cap_sen += (e == E_SENSIBLE && mf > 0.0) ? mf * la_phase_c(s, t_c, p_pa) : 0.0;
 		}
 		h_h2o[g] = (m_e[E_H2O] > 0.0 ? h_f[E_H2O] : h_l[E_H2O]) * inv_vol;
 		h_h2o_vap[g] = h_vap * inv_vol;
@@ -1199,7 +1197,11 @@ void main() {
 	// Peng-Robinson mixture in the room it stands in, vapours included. Ideal, they are R_s and cp/cv.
 	float n_all = n_gas_mol + f_vapour * mol_h2o_f + f_vap_sil * mol_sil;
 	float m_all = m_gas + f_vapour * m_h2o + f_vap_sil * m_sil_f;
-	float cp_ig = cp_gas + f_vapour * m_h2o * w_sub.c_gas + f_vap_sil * m_sil_f * r_sub.c_gas;
+	// A vapour that is not there adds no capacity, whether or not its row states one.
+	float m_vap_w = f_vapour * m_h2o;
+	float m_vap_r = f_vap_sil * m_sil_f;
+	float cp_ig = cp_gas + (m_vap_w > 0.0 ? m_vap_w * w_sub.c_gas : 0.0)
+		+ (m_vap_r > 0.0 ? m_vap_r * r_sub.c_gas : 0.0);
 	float tk_g = t_c + LA_KELVIN_OFFSET;
 	float r_s = 0.0;
 	float gam = 0.0;

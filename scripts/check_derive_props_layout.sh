@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # StateDerivePass.gd packs the props rows state_derive.glsl reads, and LAMixtureEnthalpy::thermal_row the
-# ladder inside them: every PROP_*, PH_* and TH_* offset, and the melting line's step count, is one number
+# ladder inside them: every PROP_*, PH_* and TH_* offset, and the melting line's and the Peng-Robinson
+# vapour root's step counts, is one number
 # declared on each side and equal.
 # EXIT 0 the layouts agree * 1 they differ * 2 could not run.
 set -uo pipefail
@@ -11,11 +12,12 @@ GD="${LA_PROPS_GD:-$ROOT/addons/local_agents/sim/material/sphere_passes/StateDer
 GLSL="${LA_PROPS_GLSL:-$ROOT/addons/local_agents/sim/material/kernels3d/state_derive.glsl}"
 HPP="${LA_PROPS_HPP:-$ROOT/addons/local_agents/gdextensions/localagents/include/LAMixtureEnthalpy.hpp}"
 LINE_HPP="$ROOT/addons/local_agents/gdextensions/localagents/include/LAMeltingLine.hpp"
-LINE_GLSL="$ROOT/addons/local_agents/sim/material/kernels3d/enthalpy.glsli"
-for f in "$GD" "$GLSL" "$HPP" "$LINE_HPP" "$LINE_GLSL"; do
+LINE_GLSL="${LA_PROPS_ENTHALPY:-$ROOT/addons/local_agents/sim/material/kernels3d/enthalpy.glsli}"
+EOS_HPP="$ROOT/addons/local_agents/gdextensions/localagents/include/LAPhaseEos.hpp"
+for f in "$GD" "$GLSL" "$HPP" "$LINE_HPP" "$LINE_GLSL" "$EOS_HPP"; do
 	[ -f "$f" ] || { echo "check_derive_props_layout: MISSING $f" >&2; exit 2; }
 done
-python3 - "$GD" "$GLSL" "$HPP" "$LINE_HPP" "$LINE_GLSL" <<'PY'
+python3 - "$GD" "$GLSL" "$HPP" "$LINE_HPP" "$LINE_GLSL" "$EOS_HPP" <<'PY'
 import re, sys
 glsl = open(sys.argv[2]).read()
 gd = dict(re.findall(r'^const ((?:PROP|PH)_[A-Z0-9_]+): int = (\d+)', open(sys.argv[1]).read(), re.M))
@@ -25,7 +27,9 @@ gl_th = dict(re.findall(r'^const int (TH_[A-Z0-9_]+) = (\d+);', glsl, re.M))
 words = re.search(r'static const int THERMAL_ROW_WORDS = (\d+);', open(sys.argv[3]).read())
 steps_cpp = re.search(r'constexpr int STEPS = (\d+);', open(sys.argv[4]).read())
 steps_gl = re.search(r'const int LA_FUSION_STEPS = (\d+);', open(sys.argv[5]).read())
-if not gd or not gl or not cpp_th or not gl_th or not words or not steps_cpp or not steps_gl:
+z_cpp = re.search(r'constexpr int PR_Z_STEPS = (\d+);', open(sys.argv[6]).read())
+z_gl = re.search(r'const int LA_PR_Z_STEPS = (\d+);', open(sys.argv[5]).read())
+if not gd or not gl or not cpp_th or not gl_th or not words or not steps_cpp or not steps_gl or not z_cpp or not z_gl:
     print("check_derive_props_layout: no offsets read on one side, so nothing was compared.", file=sys.stderr)
     sys.exit(2)
 bad = []
@@ -39,6 +43,8 @@ if int(gl.get("PROP_STRIDE", -1)) != int(gl.get("PROP_LADDER", -1)) + int(words.
     bad.append("  PROP_STRIDE is not PROP_LADDER + THERMAL_ROW_WORDS")
 if steps_cpp.group(1) != steps_gl.group(1):
     bad.append("  melting-line steps: LAMeltingLine.hpp %s  enthalpy.glsli %s" % (steps_cpp.group(1), steps_gl.group(1)))
+if z_cpp.group(1) != z_gl.group(1):
+    bad.append("  vapour-root steps: LAPhaseEos.hpp %s  enthalpy.glsli %s" % (z_cpp.group(1), z_gl.group(1)))
 if bad:
     print("check_derive_props_layout: the packer and the kernel disagree on the props layout:", file=sys.stderr)
     print("\n".join(bad), file=sys.stderr)

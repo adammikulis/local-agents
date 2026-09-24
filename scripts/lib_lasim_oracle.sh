@@ -277,7 +277,8 @@ func _seed(cc: int) -> void:
 		pres.append(p)
 		h2o.append(f * full_h2o)
 		sil.append((1.0 - f) * full_sil)
-		n2.append(40.0 * (1.0 - f))
+		# Gas stands only where a fluid leaves it room: a cell full of rock holds none.
+		n2.append(40.0 * (1.0 - f) if f > 0.0 else 0.0)
 		var kg_w: float = f * full_h2o * LAPhysical.MOLAR_MASS_WATER_KG_MOL
 		var kg_r: float = sil[c] * m_sil
 		e.append(kg_w * LASubstances.enthalpy_at("h2o", 15.0, p)

@@ -42,13 +42,12 @@ for pair in "PROP_STRIDE:kPropStride" "PROP_M:kPropM" \
 		"PROP_MOL_PER_KG:kPropMolPerKg" "PROP_ENTRY:kPropEntry" "PROP_LAMBDA:kPropLambda" \
 		"PROP_FULL:kPropFull" "PROP_LITHIC:kPropLithic" "PROP_RAD_GROUP:kPropRadGroup" \
 		"PROP_CONDENSED:kPropCondensed" "PROP_SOLID:kPropSolid" "PROP_LIQUID:kPropLiquid" \
-		"PROP_PR_A:kPropPrA" "PROP_PR_B:kPropPrB" "PROP_PR_KAPPA:kPropPrKappa" "PROP_PR_TC:kPropPrTc" \
 		"PH_FULL:kPhFull" "PH_ALPHA:kPhAlpha" "PH_BULK:kPhBulk" "PH_KP:kPhKp" "PH_B4:kPhB4" "PH_TREF:kPhTref" \
 		"PH_LINEAR:kPhLinear" "PH_F_LO:kPhFLo" "PH_F_HI:kPhFHi" \
 		"PROP_LADDER:kPropLadder" "TH_C_SOL:kThCSol" "TH_C_LIQ:kThCLiq" "TH_C_GAS:kThCGas" \
 		"TH_LINE_A1:kThLineA1" "TH_LINE_P0:kThLineP0" "TH_FUSION_T0:kThFusionT0" \
 		"TH_FUSION_T1:kThFusionT1" "TH_L_FUS:kThLFus" "TH_NU:kThNu" "TH_HAS_FUSION:kThHasFusion" \
-		"TH_N_EL:kThNEl" "TH_EL_N:kThElN"; do
+		"TH_N_EL:kThNEl" "TH_EL_N:kThElN" "TH_CRIT_T:kThCritT" "TH_CRIT_P:kThCritP" "TH_PR_KAPPA:kThPrKappa"; do
 	g="${pair%%:*}"
 	c="${pair##*:}"
 	gv="$(sed -n "s/^const int ${g} = \([0-9]*\);.*/\1/p" "$DERIVE" | head -1)"

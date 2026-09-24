@@ -9,7 +9,7 @@ const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/st
 const FluxPassScript: GDScript = preload("res://addons/local_agents/sim/material/sphere_passes/FluxPass.gd")
 
 ## props row layout — state_derive.glsl PROP_*.
-const PROP_STRIDE: int = 82
+const PROP_STRIDE: int = 79
 const PROP_M: int = 0
 const PROP_MOL_PER_KG: int = 1
 const PROP_ENTRY: int = 2
@@ -22,14 +22,9 @@ const PROP_RAD_GROUP: int = 6
 ## 1 where the channel is a CONDENSED phase: it fills volume of its own and resists being squeezed. A
 ## dissolved solute rides in its solvent and does neither.
 const PROP_CONDENSED: int = 7
-## The fluid's Peng-Robinson constants, LASubstances.eos_of(id).fluid.
-const PROP_PR_A: int = 8
-const PROP_PR_B: int = 9
-const PROP_PR_KAPPA: int = 10
-const PROP_PR_TC: int = 11
 ## The solid's and the melt's equations of state, LASubstances.eos_of(id), a PH_* block each.
-const PROP_SOLID: int = 12
-const PROP_LIQUID: int = 21
+const PROP_SOLID: int = 8
+const PROP_LIQUID: int = 17
 const PH_FULL: int = 0
 const PH_ALPHA: int = 1
 const PH_BULK: int = 2
@@ -41,7 +36,7 @@ const PH_F_LO: int = 7
 const PH_F_HI: int = 8
 ## The channel substance's own phase ladder, laid out by LAMixtureEnthalpy::thermal_row — every condensed
 ## channel melts and boils where its table row says. state_derive.glsl PROP_LADDER, TH_*.
-const PROP_LADDER: int = 30
+const PROP_LADDER: int = 26
 
 ## Push-constant slots for distinct radiogenic trace mixes, re-evaluated at the run's epoch per step.
 const RAD_GROUPS: int = 4
@@ -197,11 +192,6 @@ func _props() -> PackedFloat32Array:
 		if mol_per_kg > 0.0 and fluid.is_empty():
 			push_error("StateDerivePass: LASubstances gives gas \"%s\" no fluid equation of state." % id)
 			return PackedFloat32Array()
-		if not fluid.is_empty():
-			out[base + PROP_PR_A] = float(fluid["a_c"])
-			out[base + PROP_PR_B] = float(fluid["b"])
-			out[base + PROP_PR_KAPPA] = float(fluid["kappa"])
-			out[base + PROP_PR_TC] = float(fluid["tc_k"])
 		var solid: Dictionary = eos["solid"]
 		var melt: Dictionary = eos["liquid"]
 		var melts: bool = is_finite(LASubstances.melt_c_at(id, LAPhysical.STANDARD_PRESSURE_PA))

@@ -6,6 +6,7 @@
 // Every entry point of the two enthalpy headers at once: state_derive.glsl and reactions_sphere3d.glsl
 // each adopt a part, so a syntax error in a path neither takes still fails the build. Compiled, never
 // dispatched; test_enthalpy_roundtrip.gd reads its SPIR-V.
+#include "physical.glsli"
 #include "enthalpy.glsli"
 #define LA_MIX_SLOTS 2
 #include "mixture_enthalpy.glsli"

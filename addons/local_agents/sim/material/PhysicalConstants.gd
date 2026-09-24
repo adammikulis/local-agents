@@ -245,6 +245,13 @@ const WATER_TRIPLE_T_C: float = 0.01                 # IAPWS, 273.16 K exactly b
 const WATER_TRIPLE_P_PA: float = 611.657              # IAPWS triple-point pressure
 const WATER_CRITICAL_T_C: float = 373.946            # IAPWS-95 critical temperature, 647.096 K
 const WATER_CRITICAL_P_PA: float = 2.2064e7          # IAPWS-95 critical pressure, 220.64 bar
+# Peng & Robinson 1976, Ind. Eng. Chem. Fundam. 15:59: a_c = PR_OMEGA_A R^2 Tc^2 / pc, b = PR_OMEGA_B R Tc / pc,
+# kappa = PR_KAPPA_0 + PR_KAPPA_1 omega - PR_KAPPA_2 omega^2.
+const PR_OMEGA_A: float = 0.45724
+const PR_OMEGA_B: float = 0.07780
+const PR_KAPPA_0: float = 0.37464
+const PR_KAPPA_1: float = 1.54226
+const PR_KAPPA_2: float = 0.26992
 const WATER_ACENTRIC_FACTOR: float = 0.3443  # Pitzer omega on the reference EOS, Wagner & Pruss 2002, J. Phys. Chem. Ref. Data 31:387
 const STANDARD_PRESSURE_PA: float = 101325.0         # one standard atmosphere, the reference boil_c is quoted at
 ## The thermochemical standard state every enthalpy ladder is anchored at, 298.15 K and 1 bar (IUPAC, exact).

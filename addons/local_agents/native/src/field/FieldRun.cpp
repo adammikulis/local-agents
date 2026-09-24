@@ -258,8 +258,13 @@ int field_run(la::Device &dev, const RunArgs &args) {
 		for (size_t r = 0; r < plan.rows.size(); ++r) {
 			if (row_present[r] == 0) { continue; }
 			char buf[512];
-			std::snprintf(buf, sizeof(buf), "%s\"%s\":%.17g", first ? "" : ",", plan.rows[r].key.c_str(),
-					row_value[r]);
+			// JSON has no non-finite number: a row that folded to one is null.
+			if (std::isfinite(row_value[r])) {
+				std::snprintf(buf, sizeof(buf), "%s\"%s\":%.17g", first ? "" : ",", plan.rows[r].key.c_str(),
+						row_value[r]);
+			} else {
+				std::snprintf(buf, sizeof(buf), "%s\"%s\":null", first ? "" : ",", plan.rows[r].key.c_str());
+			}
 			out += buf;
 			first = false;
 		}

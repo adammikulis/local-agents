@@ -138,7 +138,7 @@ def differ(a, b):
 		if k not in a or k not in b:
 			out.append("row %s: only %s has it" % (k, "the oracle" if k in a else "the native run"))
 			continue
-		x, y = float(a[k]), float(b[k])
+		x, y = (float("nan") if v is None else float(v) for v in (a[k], b[k]))
 		if x == y or (math.isnan(x) and math.isnan(y)):
 			continue
 		out.append("row %s: %.17g against %.17g" % (k, x, y))

@@ -78,8 +78,10 @@ double LAMixtureEnthalpy::vapour_share(const String &p_id, double p_t_c, double 
 	if (p_room_m3 <= 0.0 || mm <= 0.0 || p_p_v <= 0.0) {
 		return 0.0;
 	}
-	const double t_k = std::max(p_t_c + la_physical("KELVIN_OFFSET"), 1.0);
-	return std::min(p_p_v * p_room_m3 / (la_physical("GAS_CONSTANT_J_MOL_K") * t_k) * mm / p_m_kg, 1.0);
+	// The room holds saturated vapour at the density the gas's own equation of state gives it there.
+	const double t_k = p_t_c + la_physical("KELVIN_OFFSET");
+	const double z = LAPhaseEosFn::vapour_z(LAPhaseEosFn::fluid(p_id), t_k, p_p_v);
+	return std::min(p_p_v * p_room_m3 / (z * la_physical("GAS_CONSTANT_J_MOL_K") * t_k) * mm / p_m_kg, 1.0);
 }
 
 double LAMixtureEnthalpy::vapour_fraction(const String &p_id, double p_t_c, double p_p_pa, double p_m_kg,
@@ -248,33 +250,32 @@ double LAMixtureEnthalpy::_solve(const Dictionary &p_masses, double p_room_m3, d
 	double f_b = enthalpy_at(p_masses, p_room_m3, b, p_p_pa) - p_h_total_j;
 	double t = a;
 	double width = b - a;
-	// A ladder that states no enthalpy states no temperature.
-	if (std::isnan(f_a) || std::isnan(f_b)) {
-		return std::numeric_limits<double>::quiet_NaN();
+	// Where a condensate's unmeasured phase is present the ladder states nothing: that region lies below
+	// the measured one, so a NaN end is a lower end and the bracket halves up out of it. A root not
+	// bracketed by two measured ends is no state.
+	if (std::isnan(f_b)) {
+		return f_b;
 	}
 	for (int i = 0; i < kSolveIterations; i++) {
 		const double denom = f_b - f_a;
-		t = std::abs(denom) > 0.0 ? a - f_a * (b - a) / denom : 0.5 * (a + b);
+		t = (!std::isnan(denom) && std::abs(denom) > 0.0) ? a - f_a * (b - a) / denom : 0.5 * (a + b);
 		t = std::min(std::max(t, a), b);
 		const double f_t = enthalpy_at(p_masses, p_room_m3, t, p_p_pa) - p_h_total_j;
-		if (std::isnan(f_t)) {
-			return f_t;
-		}
-		if (f_t > 0.0) {
-			b = t;
-			f_b = f_t;
-			f_a *= 0.5;
-		} else {
+		if (std::isnan(f_t) || f_t <= 0.0) {
 			a = t;
 			f_a = f_t;
 			f_b *= 0.5;
+		} else {
+			b = t;
+			f_b = f_t;
+			f_a *= 0.5;
 		}
 		if (b - a >= width) {
 			break;
 		}
 		width = b - a;
 	}
-	return t;
+	return std::isnan(f_a) ? f_a : t;
 }
 
 // DECISION, not a law: two substances sharing a boundary split the residual by latent capacity. Nothing
@@ -385,6 +386,8 @@ PackedFloat32Array LAMixtureEnthalpy::thermal_row(const String &p_id) {
 	const LAAnchor &anc = LAPhaseEosFn::anchor(p_id);
 	w[TH_ANCHOR_PHASE] = float(anc.phase);
 	w[TH_ANCHOR_T] = float(anc.t_c);
+	const LAFluidEos &fl = LAPhaseEosFn::fluid(p_id);
+	w[TH_PR_KAPPA] = fl.valid ? float(fl.kappa) : NAN;
 	// The gas tail's own atoms: the free-atom entropies the law of mass action needs, and the elements
 	// the Saha equation walks. A substance whose free atoms the table does not measure never dissociates.
 	const Dictionary entropy = LASubstances::element_entropy_j_molk();

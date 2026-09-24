@@ -21,11 +21,12 @@ fi
 
 GEN="$ROOT/scripts/gen_shared_constants.py"
 GLSLI="$ROOT/addons/local_agents/sim/material/kernels3d/generated.glsli"
+PHYS="$ROOT/addons/local_agents/sim/material/kernels3d/physical.glsli"
 INC="$ROOT/addons/local_agents/sim/shaders/generated.gdshaderinc"
 KERNELS="$ROOT/addons/local_agents/sim/material/kernels3d"
 SHADERS="$ROOT/addons/local_agents/sim/shaders"
 
-for f in "$GEN" "$GLSLI" "$INC"; do
+for f in "$GEN" "$GLSLI" "$PHYS" "$INC"; do
   [ -f "$f" ] || { echo "check_generated_constants: MISSING ${f#"$ROOT"/}" >&2; exit 2; }
 done
 
@@ -39,16 +40,16 @@ rc=$?
 
 # 2. NO CONSUMER RE-DECLARES A GENERATED NAME. A second declaration is what this gate exists to stop, and
 # a local copy shadowing the include is how the two drift apart again.
-python3 - "$GLSLI" "$INC" "$KERNELS" "$SHADERS" <<'PY'
+python3 - "$GLSLI" "$INC" "$KERNELS" "$SHADERS" "$PHYS" <<'PY'
 import glob, os, re, sys
-glsli, inc, kernels, shaders = sys.argv[1:5]
+glsli, inc, kernels, shaders, phys = sys.argv[1:6]
 
 
 def names(path):
     text = open(path, encoding="utf-8").read()
     out = set(re.findall(r"^#define\s+([A-Za-z_]\w*)", text, re.M))
     out |= set(re.findall(r"^const\s+\w+\s+([A-Za-z_]\w*)", text, re.M))
-    return out - {"LA_GENERATED_GLSLI"}
+    return out - {"LA_GENERATED_GLSLI", "LA_PHYSICAL_GLSLI"}
 
 
 def scan(path, owned):
@@ -67,13 +68,15 @@ for path in sorted(glob.glob(os.path.join(shaders, "*.gdshader"))):
               % os.path.basename(path), file=sys.stderr)
         bad = 1
 
-for src, tree, ext in ((glsli, kernels, "*.glsl"), (inc, shaders, "*.gdshader")):
+for src, tree, ext in ((glsli, kernels, "*.glsl"), (phys, kernels, "*.gl*"), (inc, shaders, "*.gdshader")):
     owned = names(src)
     if not owned:
         print("check_generated_constants: %s declares nothing — refusing to pass on an empty comparison."
               % os.path.basename(src), file=sys.stderr)
         sys.exit(2)
     for path in sorted(glob.glob(os.path.join(tree, ext))):
+        if os.path.samefile(path, src):
+            continue
         clash = scan(path, owned)
         if clash:
             print("SECOND DECLARATION %s: %s" % (os.path.basename(path), ", ".join(clash)), file=sys.stderr)
@@ -92,6 +95,11 @@ for f in "$KERNELS/reactions_sphere3d.glsl" "$KERNELS/flux.glsl"; do
   [ -f "$f" ] || { echo "check_generated_constants: MISSING ${f#"$ROOT"/} — drop it from this list." >&2; exit 2; }
   grep -q '#include "generated.glsli"' "$f" || {
     echo "MISSING INCLUDE ${f#"$ROOT"/} does not include generated.glsli" >&2; fail=1; }
+done
+for f in "$KERNELS/state_derive.glsl" "$KERNELS/reactions_sphere3d.glsl" "$KERNELS/enthalpy_selftest.glsl"; do
+  [ -f "$f" ] || { echo "check_generated_constants: MISSING ${f#"$ROOT"/} — drop it from this list." >&2; exit 2; }
+  grep -q '#include "physical.glsli"' "$f" || {
+    echo "MISSING INCLUDE ${f#"$ROOT"/} does not include physical.glsli" >&2; fail=1; }
 done
 for f in "$SHADERS/VoxelWater.gdshader" "$SHADERS/VoxelTerrainTriplanar.gdshader" \
          "$SHADERS/WaterParticles.gdshader"; do
