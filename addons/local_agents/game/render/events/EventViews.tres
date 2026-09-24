@@ -1,0 +1,54 @@
+[gd_resource type="Resource" script_class="LAEventViewRegistry" format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/game/render/events/EventViewRegistry.gd" id="1_registry"]
+[ext_resource type="Script" path="res://addons/local_agents/game/render/events/EventViewRecord.gd" id="2_record"]
+[ext_resource type="PackedScene" path="res://addons/local_agents/game/render/events/EruptionView.tscn" id="3_eruption"]
+[ext_resource type="PackedScene" path="res://addons/local_agents/game/render/events/CycloneView.tscn" id="4_cyclone"]
+[ext_resource type="PackedScene" path="res://addons/local_agents/game/render/events/SplashView.tscn" id="5_splash"]
+[ext_resource type="PackedScene" path="res://addons/local_agents/game/render/events/LightningView.tscn" id="6_lightning"]
+[ext_resource type="PackedScene" path="res://addons/local_agents/game/render/events/MeteorImpactView.tscn" id="7_impact"]
+
+[sub_resource type="Resource" id="Resource_eruptions"]
+script = ExtResource("2_record")
+scene = ExtResource("3_eruption")
+needs = PackedStringArray("flux")
+
+[sub_resource type="Resource" id="Resource_cyclones"]
+script = ExtResource("2_record")
+scene = ExtResource("4_cyclone")
+needs = PackedStringArray("mom_flux")
+
+[sub_resource type="Resource" id="Resource_splashes"]
+script = ExtResource("2_record")
+scene = ExtResource("5_splash")
+needs = PackedStringArray("gravity")
+source = 1
+signal_name = &"splashed"
+args = PackedStringArray("pos", "joules")
+
+[sub_resource type="Resource" id="Resource_strikes"]
+script = ExtResource("2_record")
+scene = ExtResource("6_lightning")
+needs = PackedStringArray("charge_separate", "charge_ohmic")
+source = 1
+signal_name = &"struck"
+args = PackedStringArray("pos")
+
+[sub_resource type="Resource" id="Resource_impacts"]
+script = ExtResource("2_record")
+scene = ExtResource("7_impact")
+offered_by = &"has_impacts"
+source = 2
+signal_name = &"impacted"
+arrival_class = &"LAMeteor"
+args = PackedStringArray("pos", "into_water")
+
+[resource]
+script = ExtResource("1_registry")
+views = Dictionary[StringName, ExtResource("2_record")]({
+&"cyclones": SubResource("Resource_cyclones"),
+&"eruptions": SubResource("Resource_eruptions"),
+&"impacts": SubResource("Resource_impacts"),
+&"splashes": SubResource("Resource_splashes"),
+&"strikes": SubResource("Resource_strikes")
+})

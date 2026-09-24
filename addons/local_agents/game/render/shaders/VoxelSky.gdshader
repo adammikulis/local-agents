@@ -2,13 +2,12 @@
 //
 // Radiance is in the renderer's own unit, where 1.0 is a white Lambertian surface fully lit by the sun
 // (radiance E/PI). Every phase function below therefore carries a factor PI over its 4-PI-normalised
-// form, and there is no exposure or brightness dial anywhere in this file.
+// form; the starfield's scale is the one presentation dial.
 shader_type sky;
 
-// Vertical optical depth of the standard atmosphere at 680 / 550 / 440 nm. Rayleigh is the molecular
-// column (Bodhaine 1999); Mie is the aerosol column of clear continental air, taken neutral in
-// wavelength.
-uniform vec3 rayleigh_tau = vec3(0.0411, 0.0973, 0.2429);
+// Vertical optical depth at 680 / 550 / 440 nm. Rayleigh is the molecular column, set by the sky cycle;
+// Mie is the aerosol column of clear continental air, taken neutral in wavelength.
+uniform vec3 rayleigh_tau;
 uniform vec3 mie_tau = vec3(0.021, 0.021, 0.021);
 uniform float mie_g = 0.76;            // Mie asymmetry (forward-scatter glow tightness)
 
@@ -17,8 +16,7 @@ uniform float mie_g = 0.76;            // Mie asymmetry (forward-scatter glow ti
 uniform vec3 planet_up = vec3(0.0, 1.0, 0.0);
 uniform float eye_radius_m = 0.0;      // |eye - body centre|
 uniform float sea_radius_m = 0.0;      // the sea shell the atmosphere stands on
-// Scale height of the Rayleigh atmosphere, m (U.S. Standard Atmosphere).
-const float AIR_SCALE_HEIGHT_M = 8000.0;
+uniform float air_scale_height_m;      // scale height of the Rayleigh atmosphere, m; set by the sky cycle
 
 // Sun: direction toward the sun, its tint, and cos of its angular radius seen from the eye.
 uniform vec3 sun_dir = vec3(0.4, 0.7, 0.4);
@@ -28,13 +26,12 @@ uniform float sun_cos_radius = 0.9999893;
 // disc subtends, so L = E / omega and omega = 2*PI*(1 - cos_radius).
 uniform float sun_irradiance = 1.0;
 
-// Moon: direction toward it, cos of its angular radius, and the direction from IT to the sun, which is
-// what shades the disc into a crescent.
+// Moon: direction toward it, cos of its angular radius, the direction from IT to the sun, which is what
+// shades the disc into a crescent, and its rock's albedo.
 uniform vec3 moon_dir = vec3(-0.4, 0.7, -0.4);
 uniform vec3 moon_sun_dir = vec3(0.0, 0.0, 1.0);
 uniform float moon_cos_radius = 0.99999;
-// Geometric albedo of the lunar surface: the disc is sunlight reflected off dark basaltic regolith.
-const float MOON_ALBEDO = 0.12;
+uniform float moon_albedo;
 
 // The starfield's discs are about a degree across where a real star is a point, so its brightness is a
 // declared presentation scale. Stars are ADDED to the sky, so daylight washes them out on its own.
@@ -56,7 +53,7 @@ float ray_air_density(float cos_up) {
 		float perp = eye_radius_m * sqrt(max(0.0, 1.0 - cos_up * cos_up));
 		h = perp - sea_radius_m;
 	}
-	return exp(-max(h, 0.0) / AIR_SCALE_HEIGHT_M);
+	return exp(-max(h, 0.0) / air_scale_height_m);
 }
 
 // Single-scatter radiance looking along `dir` with the sun toward `sun_n`. The slab is homogeneous at
@@ -138,7 +135,7 @@ void sky() {
 			float un = dot(rel, mu) / rr;
 			float vn = dot(rel, mv) / rr;
 			vec3 nrm = un * mu + vn * mv - tomoon * sqrt(max(0.0, 1.0 - un * un - vn * vn));
-			col += sun_color * sun_irradiance * MOON_ALBEDO
+			col += sun_color * sun_irradiance * moon_albedo
 				* max(dot(nrm, normalize(moon_sun_dir)), 0.0) * disc;
 		}
 	}

@@ -5,16 +5,11 @@ extends RefCounted
 ## the threshold comparison and the strike; nothing here re-derives any of it.
 
 var _f = null
-var _visual: Callable = Callable()
 var _bolts: int = 0                                      # flashes since the run began
 
 
 func setup(field) -> void:
 	_f = field
-
-
-func set_visual(cb: Callable) -> void:
-	_visual = cb
 
 
 ## Run once per step after the readback. Reads only; it must never write the field or wake a channel.
@@ -23,10 +18,10 @@ func post_step() -> void:
 	if struck <= 0:
 		return
 	_bolts += struck
-	if not _visual.is_valid():
+	if _f.struck.get_connections().is_empty():
 		return
 	for c in _f._gpu.list_indices("strike"):
-		_visual.call(_f.cell_world_pos_linear(int(c)))
+		_f.struck.emit(_f.cell_world_pos_linear(int(c)))
 
 
 func bolts_fired() -> int:

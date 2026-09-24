@@ -1,14 +1,13 @@
 class_name LAMaterialFieldRender3D
 extends MeshInstance3D
 
+## The free surface of the field's liquid water, meshed near the camera and drawn with VoxelWater.gdshader.
 
 const RENDER_MIN: float = 0.08 * LAMaterialField3D.MAX_MASS   # min water in a cell for its top face to render
-const WaterShader: Shader = preload("res://addons/local_agents/sim/shaders/VoxelWater.gdshader")
+const WaterShader: Shader = preload("res://addons/local_agents/game/render/shaders/VoxelWater.gdshader")
 const MeshBuilderScript: GDScript = preload("res://addons/local_agents/game/render/WaterSurfaceMesh.gd")
 
-const CAP_ANGLE: float = 0.8               # rebuild within this half-angle of the camera radial — a small NEAR patch
-                                           # (nearly flat, so the flat Y-up shader stays correct; far sea = the sphere)
-const MAX_MASS: float = LAMaterialField3D.MAX_MASS  # a full cell of water — for the sub-cell height fraction
+const CAP_ANGLE: float = 0.8               # half-angle about the camera radial the patch is built over, rad
 const REBUILD_PERIOD: float = 0.22         # ~4.5 Hz geometry rebuild (stale a couple frames is imperceptible)
 const RECENTER_DOT: float = 0.999          # rebuild early if the camera radial rotates past this (recentre the cap)
 const RIPPLE_MAX: int = 16                 # ring-buffer length; the shader's copy is generated
@@ -36,14 +35,8 @@ func setup(field, camera: Node3D, center: Vector3, transparent: bool) -> void:
 	_mesh = ArrayMesh.new()
 	mesh = _mesh
 	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	# Fresh-water look: clear teal, thin sheet (ignore scene thickness so a shallow lake isn't opaque-white),
-	# use the per-vertex CA flow. Salt/sea uniforms come later when the ocean unifies into this surface (A2).
 	_mat = ShaderMaterial.new()
 	_mat.shader = WaterShader
-	# Nothing is dissolved in this world's water, so every surface draws as the fresh water it is.
-	_mat.set_shader_parameter("salinity_from_vertex", 1.0)
-	_mat.set_shader_parameter("flow_scale", 1.0)
-	_mat.set_shader_parameter("depth_influence", 0.7)        # deep sea + reasonably solid lakes; shoreline foam on
 	_mat.set_shader_parameter("base_alpha", 0.80 if transparent else 1.0)
 	_mat.set_shader_parameter("ripple_speed", RIPPLE_SPEED)
 	_mat.set_shader_parameter("ripple_decay", RIPPLE_DECAY)
@@ -77,17 +70,16 @@ func _process(delta: float) -> void:
 		return
 	var cam_pos: Vector3 = _camera.global_position
 	var radial: Vector3 = (cam_pos - _center).normalized()
-	# Anchor the local patch frame so +Y == the camera radial (the flat shader's world-up assumption holds
-	# locally over the near cap). Update it every frame so the surface tracks a moving camera without a rebuild.
+	# The patch frame: right-handed, +Y along the camera radial; the shader's swell, rings and normals live in it.
 	var ref: Vector3 = Vector3.FORWARD
 	if absf(radial.dot(ref)) > 0.99:
 		ref = Vector3.RIGHT
 	var x_axis: Vector3 = ref.cross(radial).normalized()
-	var z_axis: Vector3 = radial.cross(x_axis).normalized()
+	var z_axis: Vector3 = x_axis.cross(radial).normalized()
 	global_transform = Transform3D(Basis(x_axis, radial, z_axis), _center)
 
 	_age_ripples(delta)
-	_push_frame_uniforms(radial)
+	_push_frame_uniforms()
 
 	# Rebuild geometry on a throttle, or early when the camera has orbited enough to move the cap.
 	_accum += delta
@@ -101,7 +93,8 @@ func _process(delta: float) -> void:
 
 func _rebuild(radial: Vector3) -> void:
 	var inv_xform: Transform3D = global_transform.affine_inverse()
-	var out: Dictionary = _builder.build(_f, inv_xform, radial, cos(CAP_ANGLE), RENDER_MIN, MAX_MASS)
+	var out: Dictionary = _builder.build(_f, inv_xform, radial, cos(CAP_ANGLE), RENDER_MIN,
+		LAMaterialField3D.MAX_MASS)
 	if _mesh.get_surface_count() > 0:
 		_mesh.clear_surfaces()
 	if int(out["count"]) == 0 or (out["indices"] as PackedInt32Array).size() == 0:
@@ -128,27 +121,28 @@ func _age_ripples(delta: float) -> void:
 	_ripples = kept
 
 
-func _push_frame_uniforms(radial: Vector3) -> void:
+func _push_frame_uniforms() -> void:
 	if _mat == null:
 		return
-	# THE WIND WHERE THE EYE STANDS, not a mean over the body, projected into the patch's own frame, which
-	# is what the flat Y-up water shader reads. The wave dial saturates at the reference the arrow glyphs'
-	# ramp does, so one reading drives both pictures.
+	# THE WIND WHERE THE EYE STANDS, not a mean over the body, in the patch frame. The wave dial saturates at
+	# the reference the arrow glyphs' ramp does, so one reading drives both pictures.
 	var eye: Vector3 = _camera.global_position
 	var w3: Vector3 = _f.wind3_at(eye.x, eye.y, eye.z)
-	var local: Vector3 = global_transform.basis.inverse() * w3
+	var to_patch: Transform3D = global_transform.affine_inverse()
+	var local: Vector3 = to_patch.basis * w3
 	var flat: Vector2 = Vector2(local.x, local.z)
 	var wdir: Vector2 = flat.normalized() if flat.length() > 1.0e-4 else Vector2(1.0, 0.0)
 	_mat.set_shader_parameter("wind_dir", wdir)
 	_mat.set_shader_parameter("wind_strength",
 		clampf(2.0 * w3.length() / LAFieldVectors.WIND_REF_M_S, 0.0, 2.0))
-	# Impact ripples: pad to RIPPLE_MAX with (centre.x, centre.z, age, cavity_m) in WORLD xz (what the shader reads).
+	# Impact ripples, padded to RIPPLE_MAX: (centre x, centre z in the patch frame, age s, cavity radius m).
 	var packed: Array = []
 	packed.resize(RIPPLE_MAX)
 	for i in RIPPLE_MAX:
 		if i < _ripples.size():
 			var rp: Dictionary = _ripples[i]
-			packed[i] = Vector4(rp.pos.x, rp.pos.z, rp.age, rp.cavity_m)
+			var at: Vector3 = to_patch * (rp.pos as Vector3)
+			packed[i] = Vector4(at.x, at.z, rp.age, rp.cavity_m)
 		else:
 			packed[i] = Vector4.ZERO
 	_mat.set_shader_parameter("ripples", packed)

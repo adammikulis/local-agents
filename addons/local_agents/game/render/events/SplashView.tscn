@@ -1,6 +1,7 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene format=3]
 
-[ext_resource type="Script" path="res://addons/local_agents/game/render/SplashView.gd" id="1_splashview"]
+[ext_resource type="PackedScene" path="res://addons/local_agents/game/render/events/EventView.tscn" id="1_eventview"]
+[ext_resource type="Script" path="res://addons/local_agents/game/render/events/SplashView.gd" id="2_splashview"]
 
 [sub_resource type="ParticleProcessMaterial" id="ParticleProcessMaterial_burst"]
 resource_local_to_scene = true
@@ -22,13 +23,14 @@ height = 0.24
 radial_segments = 6
 rings = 3
 
-[node name="SplashView" type="GPUParticles3D"]
-cast_shadow = 0
-emitting = false
+[node name="SplashView" instance=ExtResource("1_eventview")]
+script = ExtResource("2_splashview")
+ablation_name = "splash_view"
+
+[node name="Particles" parent="." index="1"]
 amount = 16
 one_shot = true
 explosiveness = 1.0
 visibility_aabb = AABB(-30, -10, -30, 60, 50, 60)
 process_material = SubResource("ParticleProcessMaterial_burst")
 draw_pass_1 = SubResource("SphereMesh_droplet")
-script = ExtResource("1_splashview")

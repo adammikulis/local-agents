@@ -5,6 +5,8 @@ extends Node3D
 
 ## Something struck the water at `world_pos`, delivering `joules` of kinetic energy to it; the views draw it.
 signal splashed(world_pos: Vector3, joules: float)
+## A discharge met the ground at `world_pos`.
+signal struck(world_pos: Vector3)
 
 const FieldCacheScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldCache3D.gd")
 const GravityScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldGravity3D.gd")
@@ -60,7 +62,6 @@ var _organic = null                                      # LAMaterialFieldOrgani
 # per-actor dissolution agents fill: charge→bolt (Thunderstorm), ejecta (bombs/debris).
 var _charge_mod = null                                   # LAMaterialCharge3D — charge readback + breakdown→bolt
 var _ejecta = null                                       # LAMaterialEjecta3D — momentum/ejecta parcels (child)
-var _pending_lightning_cb: Callable = Callable()         # lightning visual callback (registered pre-activate)
 const ChargeScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialCharge3D.gd")
 const EjectaScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialEjecta3D.gd")
 var _atmos = null                                     # LAMaterialFieldAtmos3D
@@ -279,8 +280,6 @@ func activate() -> void:
 	# Substrate-foundation primitives (thin delegates; the field only forwards to them).
 	_charge_mod = ChargeScript.new()
 	_charge_mod.setup(self)
-	if _pending_lightning_cb.is_valid():
-		_charge_mod.set_visual(_pending_lightning_cb)
 	_ejecta = EjectaScript.new()
 	_ejecta.setup(self)
 	add_child(_ejecta)                            # books its parcels' launches and landings
@@ -549,10 +548,6 @@ func fungus_at(x: float, y: float, z: float) -> float:
 	return _channels.fungus_at(x, y, z)
 func decomposer_stats() -> Dictionary:
 	return _channels.decomposer_stats()
-func set_lightning_visual(cb: Callable) -> void:
-	_pending_lightning_cb = cb
-	if _charge_mod != null:
-		_charge_mod.set_visual(cb)
 ## Peak space-charge density in the open air, C/m^3, off the row that folded it.
 func charge_peak() -> float:
 	var v: float = _queries.row_f("charge_peak")

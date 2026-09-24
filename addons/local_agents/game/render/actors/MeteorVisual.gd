@@ -2,14 +2,7 @@
 class_name LAMeteorVisual
 extends Node3D
 
-## A falling rock drawn and heard: its body at the rock's own size, the embers it sheds, the collider it is
-## picked by, and the sound where it strikes.
-
-@export_group("Sound")
-## Played where the rock strikes.
-@export var impact_sfx: String = "meteor_impact"
-## Played where the rock strikes standing water, each once.
-@export var water_sfx: PackedStringArray = PackedStringArray(["sizzle", "steam"])
+## A falling rock drawn: its body at the rock's own size, the embers it sheds, and the collider it is picked by.
 
 @onready var _body: MeshInstance3D = $Body
 @onready var _trail: GPUParticles3D = $Trail
@@ -38,16 +31,13 @@ func _on_launched(radius_m: float) -> void:
 	_trail.emitting = true
 
 
-## The rock is freed at impact; the view stays where it struck until its last ember is out.
-func _on_impacted(point: Vector3, into_water: bool) -> void:
+## The rock is freed at impact and its strike is LAMeteorImpactView's; this view stays where it struck
+## until its last ember is out.
+func _on_impacted(_point: Vector3, _into_water: bool) -> void:
 	_body.visible = false
 	_trail.emitting = false
 	_picker.queue_free()
 	var tree: SceneTree = get_tree()
-	LAAudioDirector.emit(tree, impact_sfx, point)
-	if into_water:
-		for key: String in water_sfx:
-			LAAudioDirector.emit(tree, key, point)
 	reparent(get_parent().get_parent())
 	tree.create_timer(_trail.lifetime).timeout.connect(queue_free)
 
@@ -56,6 +46,4 @@ func _get_configuration_warnings() -> PackedStringArray:
 	var out: PackedStringArray = PackedStringArray()
 	if not get_parent() is LAMeteor:
 		out.append("Draws the LAMeteor it is a child of: instance it in sim/actors/Meteor.tscn.")
-	if impact_sfx.is_empty():
-		out.append("Impact Sfx is empty: the rock strikes in silence.")
 	return out
