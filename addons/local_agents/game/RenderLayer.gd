@@ -126,14 +126,11 @@ func _build_world_visuals() -> void:
 	# The ground's look, before any uniform below is written to it.
 	if terrain_material == null:
 		push_error("LARenderLayer: Terrain Material is unset, so the planet draws with godot_voxel's default material.")
-	terrain.set_terrain_material(terrain_material)
-	# The ground's reflectance, from the one place this world declares it.
-	terrain.set_shader_param("albedo_bare_ground", LAPhysical.ALBEDO_BARE_GROUND)
-	terrain.set_shader_param("albedo_snow_ice", LAPhysical.ALBEDO_SNOW_ICE)
+	LATerrainLook.dress(terrain.terrain_node(), terrain_material)
 	# The test masses: a marker where each probe stands and the line it fell down.
 	_test_masses.setup(_sim.test_masses(), _camera)
 
-	# Hot ground glows — the live per-cell temperature as a 3D texture over the field box.
+	# The field's temperature, water and ice per leaf, and the star, for the ground to read and glow by.
 	_heat_tex.setup(material, terrain)
 
 	# The simulated box where it meets the world: ground edges on the relief, corner pillars fading up.

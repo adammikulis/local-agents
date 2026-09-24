@@ -147,8 +147,8 @@ func _on_debug_view(view: String, on: bool) -> void:
 	match view:
 		"temp":
 			_temp_debug_visible = on
-			if _terrain != null and _terrain.has_method("set_shader_param"):
-				_terrain.set_shader_param("heat_debug", 1.0 if on else 0.0)
+			if _terrain != null and _terrain.has_method("terrain_node"):
+				LATerrainLook.set_params(_terrain.terrain_node(), {"heat_debug": 1.0 if on else 0.0})
 		"wind":
 			if _vectors != null:
 				_vectors.set_source(LAFieldVectors.SOURCE_WIND if on else LAFieldVectors.SOURCE_OFF)
@@ -252,7 +252,7 @@ func toggle_scent_view() -> void:
 ## T key: toggle the terrain temperature heatmap debug view.
 func toggle_temp_view() -> void:
 	_temp_debug_visible = not _temp_debug_visible
-	if _terrain != null and _terrain.has_method("set_shader_param"):
-		_terrain.set_shader_param("heat_debug", 1.0 if _temp_debug_visible else 0.0)
+	if _terrain != null and _terrain.has_method("terrain_node"):
+		LATerrainLook.set_params(_terrain.terrain_node(), {"heat_debug": 1.0 if _temp_debug_visible else 0.0})
 	if _hud != null:
 		_hud.set_status("Temperature view: %s" % ("ON" if _temp_debug_visible else "off"))

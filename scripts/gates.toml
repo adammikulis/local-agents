@@ -834,7 +834,7 @@ name = "check_shot_look"
 script = "scripts/check_shot_look.sh"
 kind = "gpu"
 marker = "^check_shot_look: OK"
-mutation = "python3 -c \"p='addons/local_agents/game/render/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); s=s.replace('ALBEDO = col;','ALBEDO = vec3(0.0);'); open(p,'w').write(s.replace('EMISSION = incandescence(temp) * 3.8;','EMISSION = vec3(0.35);'))\""
+mutation = "python3 -c \"p='addons/local_agents/game/render/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); s=s.replace('ALBEDO = col;','ALBEDO = vec3(0.0);'); open(p,'w').write(s.replace('EMISSION = max(glow, vec3(0.0));','EMISSION = vec3(0.35);'))\""
 
 [[gate]]
 name = "check_impact_books"

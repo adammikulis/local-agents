@@ -66,13 +66,14 @@ at seed; a body of water is where the inventory settled under the solved gravity
 channel. `rg -n "sea_radius|OceanPlane|_open_sea|sea_level_m|resample_terrain" addons/local_agents`
 finds the sea as a declared shell radius and the field sampling the generator after the seal.
 
-## 7. THE LEVEL BOUNDARY DRAWS AS A LINE ACROSS THE GROUND
+## 7. THE GROUND NEAR THE EYE IS TERRACED, AND THE LEVEL BOUNDARY SHADES AS A CREASE
 
-`scripts/shoot_demo.sh addons/local_agents/examples/SliceRung1Demo.tscn <dir>` carries thin dark lines
-running to the horizon in every pose under a kilometre, straight in world space and jointed at right
-angles. Read the PNGs.
-Reading: `get_transvoxel_position` in `VoxelTerrainTriplanar.gdshader` moves a transition vertex onto
-the coarse surface and leaves its `NORMAL` at the fine one's.
+`LA_SHOTS="30:-3:0" scripts/shoot_demo.sh addons/local_agents/examples/SliceRung1Demo.tscn <dir>` shows
+the near ground banded along its contours and a crease along the level boundary to the horizon. The
+terrain's generator, run through `generate_block` into a `DEPTH_32_BIT` buffer on adjacent voxels at the
+site, returns runs of equal SDF values broken by steps where the ground rises smoothly.
+Reading: `LASpherePlanetGenerator.build` leaves the position inputs of `NODE_SDF_SPHERE` unwired, so
+`length(p) - radius` is taken at each voxel's absolute position.
 
 ## 8. THE DEMO SITE HOLDS NO WATER A VIEWER CAN STAND BESIDE
 
