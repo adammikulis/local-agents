@@ -15,8 +15,8 @@ static func noise_floor(cell_count: int) -> float:
 
 
 ## Gated quantity -> the PUBLISHED DIMENSIONLESS key it is asserted on; the ledger owns every ratio.
-## `rel` is drift NET of what crossed the edge over the baseline PLUS what crossed, both zero on a shut
-## wall; `+ turnover` is a residual of the EXCHANGE, denominated in what crossed rather than what is held.
+## Every `rel` is a residual over the absolute book: drift net of what was booked, as a fraction of what
+## is held. `reads` is the stock reads it differences, whose round-off adds in quadrature; 1 when absent.
 const GATED: Dictionary = {
 	"element_C_total": {"rel": "element_C_total_rel_drift"},
 	"element_O_total": {"rel": "element_O_total_rel_drift"},
@@ -32,9 +32,8 @@ const GATED: Dictionary = {
 	"lith_Ca_total": {"rel": "lith_Ca_rel_drift"},
 	"lith_Ni_total": {"rel": "lith_Ni_rel_drift"},
 	"lith_F_total": {"rel": "lith_F_rel_drift"},
-	"energy_held": {"rel": "energy_residual_rel", "turnover": "energy_turnover_j", "stock": "energy_held"},
-	"charge_stock": {"rel": "charge_rel_drift", "turnover": "charge_gross", "stock": "charge_gross",
-		"needs": "charge_separate"},
+	"energy_held": {"rel": "energy_residual_stock_rel", "reads": 2},
+	"charge_stock": {"rel": "charge_rel_drift", "reads": 2, "needs": "charge_separate"},
 }
 
 var _f = null
@@ -44,16 +43,24 @@ var _violations: PackedStringArray = PackedStringArray()
 var _audited: bool = false
 ## CONSERVATION_UNMEASURED printed once, the first sample past the horizon that could not answer.
 var _unmeasured_announced: bool = false
+## The last audit's published block.
+var _block: Dictionary = {}
 
 
 func setup(field) -> void:
 	_f = field
 
 
-## Check every gated quantity against its sealed baseline. Prints CONSERVATION_VIOLATION on a breach and
-## CONSERVATION_UNMEASURED when one past the horizon could not produce a number.
+## The last audit. A world whose books never folded is audited on nothing, so every row reads unmeasured.
+func block() -> Dictionary:
+	return _block if not _block.is_empty() else check({})
+
+
+## Check every gated quantity against its sealed baseline, once per folded drain. Prints
+## CONSERVATION_VIOLATION on a breach and CONSERVATION_UNMEASURED when one past the horizon had no number.
 func check(d: Dictionary) -> Dictionary:
 	var out: Dictionary = {}
+	_block = out
 	if _f == null or _f._seal == null or not _f._seal.sealed():
 		out["conservation"] = "seeding"
 		return out
@@ -69,10 +76,8 @@ func check(d: Dictionary) -> Dictionary:
 		if spec.has("needs") and not LAProcessSet.has_record("transport", String(spec["needs"])):
 			continue
 		var rel = d.get(String(spec["rel"]))
-		var allowed: float = _allowed_rel(d, spec, floor_rel)
-		# A tolerance at or past 1.0 cannot tell a wholly unaccounted window from round-off, so the row reads
-		# UNMEASURED. A gate that cannot fail must never report a pass.
-		if not (rel is float or rel is int) or not is_finite(allowed) or allowed >= 1.0:
+		var allowed: float = floor_rel * sqrt(float(spec.get("reads", 1)))
+		if not (rel is float or rel is int):
 			rows[key] = "unmeasured"
 			unmeasured.append(key)
 			continue
@@ -115,21 +120,6 @@ func check(d: Dictionary) -> Dictionary:
 	out["conservation_starved"] = elapsed >= REFERENCE_STEPS and not unmeasured.is_empty()
 	out["conservation_failed"] = bool(out["conservation_violated"]) or bool(out["conservation_starved"])
 	return out
-
-
-## The fraction below which a row cannot tell a breach from float32 round-off. A closed total's floor IS its
-## sum's relative round-off; a residual's is that round-off re-expressed in units of the boundary exchange,
-## two stock reads differenced in quadrature. INF when the row carries no denominator to answer on.
-func _allowed_rel(d: Dictionary, spec: Dictionary, floor_rel: float) -> float:
-	if not spec.has("turnover"):
-		return floor_rel
-	var turnover = d.get(String(spec["turnover"]))
-	var stock = d.get(String(spec["stock"]))
-	if not (turnover is float or turnover is int) or not (stock is float or stock is int):
-		return INF
-	if float(turnover) <= 0.0:
-		return INF
-	return sqrt(2.0) * floor_rel * absf(float(stock)) / float(turnover)
 
 
 ## Steps elapsed since the books closed.

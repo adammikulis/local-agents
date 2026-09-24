@@ -386,6 +386,7 @@ name = "check_process_set"
 script = "scripts/check_process_set.sh"
 kind = "headless"
 marker = "^check_process_set: OK"
+mutation = "perl -0pi -e 's/(\\t\\t\\{\"key\": \"solid_detritus\")/\\t\\t{\"key\": \"all_org_h\", \"source\": \"org_h\", \"op\": Rec.Op.SUM, \"mask\": Rec.Mask.ALL, \"weight\": true},\\n$1/' addons/local_agents/sim/material/reduce/LifeRows.gd"
 
 [[gate]]
 name = "check_fly_nav"
@@ -707,7 +708,20 @@ name = "check_live_toggles"
 script = "scripts/check_live_toggles.sh"
 kind = "gpu"
 marker = "^check_live_toggles: OK"
-mutation = "perl -0pi -e 's/not LAAblate\\.step_switches\\(_f\\._gpu\\._step_index\\)/true/' addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd"
+mutation = "perl -0pi -e 's/LAAblate\\.step_switches\\(sim_step\\)/false/' addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd"
+
+[[gate]]
+name = "check_audit_at_rest"
+script = "scripts/check_audit_at_rest.sh"
+kind = "gpu"
+marker = "^check_audit_at_rest: OK"
+mutation = [
+	"python3 -c \"p='addons/local_agents/sim/material/kernels3d/state_derive.glsl'; s=open(p).read(); open(p,'w').write(s.replace('e_j_m3[g] += ke;', 'e_j_m3[g] += ke + 1.0e6;', 1))\"",
+	"perl -0pi -e 's/\\t_f\\._gpu\\._step_index = sim_step\\n//' addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd",
+	"perl -0pi -e 's/sim_step % REST_AUDIT_EVERY != 0/true/' addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd",
+	"perl -0pi -e 's/\"energy_residual_stock_rel\"/\"energy_residual_stock_rel_absent\"/' addons/local_agents/sim/material/MaterialFieldConservation3D.gd",
+]
+needs = ["import"]
 
 [[gate]]
 name = "check_test_mass"

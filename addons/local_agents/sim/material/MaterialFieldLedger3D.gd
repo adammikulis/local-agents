@@ -39,7 +39,7 @@ func total(key: String) -> float:
 	return _n.total(key)
 
 
-## erupt_source injects mantle lava with no debit in the field, so the device's injection tally books it.
+## The silicate injection created, as the device's own tally reads it.
 func _minted() -> float:
 	if _f._gpu == null or not _f._gpu.has_method("inject_created"):
 		return 0.0
