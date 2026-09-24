@@ -58,7 +58,6 @@ and 1 nC/m^3/s is the top of the lab-constrained range.
 | `addons/local_agents/sim/material/PhysicalConstants.gd` | `NIC_CHARGE_RATE_C_M3_S` | 1.0e-9 | bulk stand-in for a collision process whose microphysics this grid cannot resolve; the top of the lab-constrained 0.1-1 nC/m^3/s range | hydrometeor size distributions in the substrate, at which point the rate is computed rather than chosen |
 | `addons/local_agents/sim/material/PhysicalConstants.gd` | `CONVECTIVE_UPDRAFT_M_S` | 10.0 | the updraft at which the charging rate is taken to saturate; observed mature-cell updrafts span 5-25 m/s and one had to be picked | same as above: with real collision kinetics the updraft enters through fall speed, not through a reference value |
 | `addons/local_agents/sim/material/PhysicalConstants.gd` | `CHARGING_LWC_KG_M3` | 1.0e-3 | the cloud liquid water content at which the riming rate is taken to saturate; lab rates climb over 0.1-2 g/m^3 | same as above |
-| `addons/local_agents/sim/material/PhysicalConstants.gd` | `SILICATE_HEAT_PRODUCTION_W_KG` | derived: `BSE_*_KG_PER_KG` x `HEAT_PRODUCTION_*_W_KG` | the U/Th/K abundances are the cited bulk silicate Earth average (McDonough & Sun 1995) and the per-element rates are Rybach 1988, so the number is measured; the MODELLING CHOICE is applying one bulk average to every rock cell when continental crust is enriched ~50x over depleted mantle, and taking the PRESENT-DAY rate on a body with no age | a second rock substance in `Substances.gd` carrying its own U/Th/K, and a planet age driving the four decay constants |
 
 ## Which substances get a measured phase curve
 
@@ -165,6 +164,7 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/actors/ThrownRock.gd` | `HIT_RADIUS` | 1.3 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/ThrownRock.gd` | `MAX_LIFETIME` | 4.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/ThrownRock.gd` | `ARC_HEIGHT` | 1.5 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
+| `addons/local_agents/sim/actors/ThrownRock.gd` | `STONE_SIDE` | 0.35 | the thrown stone's edge, which sets its mass and the view's mesh | the stone becomes rock the thrower picked up from the field, and its mass is what it took |
 | `addons/local_agents/sim/TrackSystem.gd` | `STEP_DISTANCE` | 1.2 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/TrackSystem.gd` | `FADE_SECONDS` | 5.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/TrackSystem.gd` | `SURFACE_OFFSET` | 0.25 | inherited, unreviewed | Stage 2 substrate rewrite |

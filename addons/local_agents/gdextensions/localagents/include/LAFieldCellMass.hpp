@@ -32,8 +32,7 @@ public:
 	// The channel names mirrors() returned, in the same order, so a per-mirror total can be named.
 	static PackedStringArray mirror_names(Object *p_field);
 	// THE ENTHALPY SEED, one pass over every cell: each ladder entry off its own curve at the cell's
-	// geotherm temperature and marched pressure, everything else sensible at its capacity. Returns
-	// {"h": J/m^3 per cell, "total_j": joules created}. p_t_rock is each cell's geotherm temperature, C.
+	// geotherm temperature (p_t_rock, C) and marched pressure. Returns {"e", "e_lith": J/m^3 per cell, "total_j"}.
 	static Dictionary seed_enthalpy(Object *p_field, Object *p_grid, const PackedFloat32Array &p_t_rock,
 			double p_t_surface_c, const PackedFloat32Array &p_p_pa, const PackedFloat32Array &p_p_rock);
 	// [channel name, molar mass kg/mol] for every mol_m3 channel the field's mirrors hold, in mirrors() order.

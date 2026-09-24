@@ -91,7 +91,7 @@ func _wire_loop() -> void:
 	_subscribe("events", _events)
 	_subscribe("timeline", _timeline)
 	for pair in [["orbits", _orbits], ["impacts", _impacts], ["markers", _markers], ["spawn", _spawn],
-			["save", _save], ["llm", _llm_service], ["star", _star], ["moon", _moon]]:
+			["save", _save], ["llm", _llm_service]]:
 		LAAblate.adopt(pair[0], pair[1])
 
 
@@ -149,8 +149,8 @@ func _build_field() -> void:
 	LASimReport.register(func() -> Dictionary: return LASimReportSources.lineage(self), true)
 	LASimReport.register(func() -> Dictionary: return LASimReportSources.cognition(self))
 	LASimReport.register(func() -> Dictionary: return LASimReportSources.disease(self))
-	# The STAR's light, never the sky cycle's: direction from its basis, intensity from `insolation`.
-	_material.set_sun(_star.light())
+	# The star itself, never the sky cycle's light: its flux is read off its position and luminosity.
+	_material.set_star(_star)
 	_material.set_body(_body)
 	# The body IS the field's matter: its mass, inertia and spin are read back off it, never typed.
 	_body.set_field(_material)

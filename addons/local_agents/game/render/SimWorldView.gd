@@ -2,7 +2,7 @@
 class_name LASimWorldView
 extends Node3D
 
-## A LocalAgentSimWorld's look: the Sun under this node, aimed along the light of the world's star, and
+## A LocalAgentSimWorld's look: the Sun under this node, aimed from the world's star to its body, and
 ## the material its terrain draws with.
 
 @export_group("Wiring")
@@ -35,10 +35,6 @@ func _dress() -> void:
 	var terrain: Variant = sim_world.terrain()
 	if terrain_material != null and terrain != null and terrain.has_method("set_terrain_material"):
 		terrain.set_terrain_material(terrain_material)
-	# The Sun draws the light; the star's own stays hidden so the two do not double up.
-	var star: LAStar = sim_world.star
-	if star != null and star.light() != null:
-		star.light().visible = false
 
 
 # The Sun shines the way the star's light travels, star to body.

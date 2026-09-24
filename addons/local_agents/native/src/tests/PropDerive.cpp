@@ -4,6 +4,10 @@
 #include "Rig.hpp"
 #include "Rng.hpp"
 
+#include "LABirchMurnaghan.hpp"
+#include "LAMeltingLine.hpp"
+
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -19,26 +23,34 @@ constexpr uint32_t kDraws = 4;
 
 // state_derive.glsl's per-channel substance table: PROP_STRIDE words per channel, then the detection
 // thresholds. scripts/check_kernel_properties.sh holds these to the kernel's own declarations.
-constexpr uint32_t kPropStride = 56;
+constexpr uint32_t kPropStride = 79;
 constexpr uint32_t kPropM = 0;
 constexpr uint32_t kPropMolPerKg = 1;
 constexpr uint32_t kPropEntry = 2;
 constexpr uint32_t kPropLambda = 3;
 constexpr uint32_t kPropFull = 4;
-constexpr uint32_t kPropAlpha = 5;
-constexpr uint32_t kPropBulk = 6;
-constexpr uint32_t kPropTref = 7;
-constexpr uint32_t kPropLithic = 8;
-constexpr uint32_t kPropRadGroup = 9;
-constexpr uint32_t kPropCondensed = 10;
-constexpr uint32_t kPropKprime = 11;
+constexpr uint32_t kPropLithic = 5;
+constexpr uint32_t kPropRadGroup = 6;
+constexpr uint32_t kPropCondensed = 7;
+// The solid's and the melt's equation-of-state blocks.
+constexpr uint32_t kPropSolid = 8;
+constexpr uint32_t kPropLiquid = 17;
+constexpr uint32_t kPhFull = 0;
+constexpr uint32_t kPhAlpha = 1;
+constexpr uint32_t kPhBulk = 2;
+constexpr uint32_t kPhKp = 3;
+constexpr uint32_t kPhB4 = 4;
+constexpr uint32_t kPhTref = 5;
+constexpr uint32_t kPhLinear = 6;
+constexpr uint32_t kPhFLo = 7;
+constexpr uint32_t kPhFHi = 8;
 // The channel's own phase ladder, from PROP_LADDER: every condensed channel melts where its row says.
-constexpr uint32_t kPropLadder = 12;
+constexpr uint32_t kPropLadder = 26;
 constexpr uint32_t kThCSol = 0;
 constexpr uint32_t kThCLiq = 1;
 constexpr uint32_t kThCGas = 2;
-constexpr uint32_t kThRhoSol = 3;
-constexpr uint32_t kThRhoLiq = 4;
+constexpr uint32_t kThLineA1 = 3;
+constexpr uint32_t kThLineP0 = 4;
 constexpr uint32_t kThFusionT0 = 5;
 constexpr uint32_t kThFusionT1 = 6;
 constexpr uint32_t kThLFus = 13;
@@ -46,6 +58,17 @@ constexpr uint32_t kThNu = 19;
 constexpr uint32_t kThHasFusion = 20;
 constexpr uint32_t kThNEl = 23;
 constexpr uint32_t kThElN = 24;
+constexpr uint32_t kThLineKind = 44;
+constexpr uint32_t kThLineT0 = 45;
+constexpr uint32_t kThLineC1 = 46;
+constexpr uint32_t kThLineA2 = 47;
+constexpr uint32_t kThLineC2 = 48;
+constexpr uint32_t kThAnchorPhase = 49;
+constexpr uint32_t kThAnchorT = 50;
+constexpr uint32_t kThLinePref = 51;
+constexpr uint32_t kThCritT = 11;
+constexpr uint32_t kThCritP = 12;
+constexpr uint32_t kThPrKappa = 52;
 constexpr uint32_t kDetSlots = 5;
 
 // What check_derive_fixed_point.sh declares a second pass may move: float32 on the pressure, and the
@@ -104,6 +127,29 @@ struct World {
 	float sea_radius = 0.0f;
 };
 
+// A melting line of `kind` rising from the row's melting point at one atmosphere, over the span the table's
+// lines cover: flat Clapeyron, Simon, and both reduced forms.
+void draw_line(Rng &rng, std::vector<float> &p, uint32_t t, uint32_t kind) {
+	const float p_ref = 101325.0f;
+	p[t + kThLineKind] = float(kind);
+	p[t + kThLinePref] = p_ref;
+	p[t + kThLineP0] = p_ref;
+	p[t + kThLineT0] = p[t + kThFusionT0] + 273.15f;
+	p[t + kThLineA1] = 0.0f;
+	p[t + kThLineC1] = 1.0f;
+	p[t + kThLineA2] = 0.0f;
+	p[t + kThLineC2] = 1.0f;
+	if (kind == 1) {
+		p[t + kThLineA1] = rng.decades(1.0e8f, 1.0e10f);
+		p[t + kThLineC1] = rng.range(1.5f, 2.5f);
+	} else if (kind >= 2) {
+		p[t + kThLineA1] = rng.decades(1.0e3f, 1.0e5f);
+		p[t + kThLineC1] = rng.range(1.0f, 2.0f);
+		p[t + kThLineA2] = rng.chance(0.5f) ? rng.decades(1.0e2f, 1.0e4f) : 0.0f;
+		p[t + kThLineC2] = 2.0f;
+	}
+}
+
 // A substance table shaped like a real one — a molar mass, a heat capacity, a mixture entry, a fullness
 // — with every row's numbers drawn rather than quoted: the properties below hold for any of them.
 std::vector<float> draw_props(Rng &rng) {
@@ -121,23 +167,51 @@ std::vector<float> draw_props(Rng &rng) {
 		p[b + kPropEntry] = i == 0 ? 0.0f : (i == 1 ? 1.0f : 2.0f);
 		p[b + kPropLambda] = rng.decades(0.02f, 5.0f);
 		p[b + kPropFull] = rho / m;
-		p[b + kPropAlpha] = rng.decades(1.0e-5f, 3.0e-4f);
-		p[b + kPropBulk] = rng.chance(0.3f) ? 0.0f : rng.decades(1.0e9f, 2.0e11f);
-		p[b + kPropTref] = rng.range(0.0f, 25.0f);
+		const float alpha = rng.decades(1.0e-5f, 3.0e-4f);
+		const float bulk = rng.decades(1.0e9f, 2.0e11f);
+		const float tref = rng.range(0.0f, 25.0f);
+		// A density linear in T only where it stays positive over the drawn temperatures.
+		const bool linear = alpha < 1.0e-4f && rng.chance(0.5f);
 		p[b + kPropLithic] = (condensed && rng.chance(0.5f)) ? 1.0f : 0.0f;
 		p[b + kPropRadGroup] = float(rng.below(5));
 		p[b + kPropCondensed] = condensed ? 1.0f : 0.0f;
 		// The span the measured rows cover, halite to orthoenstatite.
-		p[b + kPropKprime] = rng.range(3.3f, 8.7f);
+		const float kp = rng.range(3.3f, 8.7f);
+		// Fourth order half the time, K'' within the span the measured melts cover, -K'/K0 to +K'/K0.
+		const double b4 = rng.chance(0.5f)
+				? la_bm::b4(bulk, kp, double(rng.range(-1.0f, 1.0f)) * kp / bulk, true) : 0.0;
+		double f_lo = 0.0;
+		double f_hi = 0.0;
+		la_bm::bracket(kp, b4, f_lo, f_hi);
+		// Solid and melt alike, so neither the melting curve nor the volume jumps across it.
+		for (uint32_t blk : { kPropSolid, kPropLiquid }) {
+			p[b + blk + kPhFull] = condensed ? rho / m : 0.0f;
+			p[b + blk + kPhAlpha] = alpha;
+			p[b + blk + kPhBulk] = bulk;
+			p[b + blk + kPhKp] = kp;
+			p[b + blk + kPhB4] = float(b4);
+			p[b + blk + kPhTref] = tref;
+			p[b + blk + kPhLinear] = linear ? 1.0f : 0.0f;
+			p[b + blk + kPhFLo] = float(f_lo);
+			p[b + blk + kPhFHi] = float(f_hi);
+		}
 		// A LADDER PER CHANNEL. A condensed phase melts: a solidus, a liquidus at or above it, and the
 		// fusion enthalpy it costs to cross. Neither solid nor melt is compressed here, so the melting
 		// curve has no Clapeyron slope and the plateau stands at one temperature.
 		const uint32_t t = b + kPropLadder;
+		// A gas is a Peng-Robinson fluid over the span the table's gases cover, hydrogen to water: its
+		// critical point and its kappa.
+		if (!condensed) {
+			p[t + kThCritT] = rng.range(33.0f, 650.0f) - 273.15f;
+			p[t + kThCritP] = rng.decades(1.2e6f, 2.3e7f);
+			p[t + kThPrKappa] = rng.range(0.03f, 0.9f);
+		}
 		p[t + kThCSol] = rng.range(400.0f, 4200.0f);
 		p[t + kThCLiq] = rng.range(400.0f, 4200.0f);
 		p[t + kThCGas] = rng.range(400.0f, 4200.0f);
-		p[t + kThRhoSol] = rho;
-		p[t + kThRhoLiq] = rho;
+		// Every ladder integrates from its standard state, here the solid at a drawn temperature.
+		p[t + kThAnchorPhase] = 0.0f;
+		p[t + kThAnchorT] = rng.range(0.0f, 50.0f);
 		p[t + kThNu] = 1.0f;
 		p[t + kThNEl] = 1.0f;
 		p[t + kThElN] = 1.0f;
@@ -146,6 +220,7 @@ std::vector<float> draw_props(Rng &rng) {
 			p[t + kThFusionT1] = p[t + kThFusionT0] + (rng.chance(0.5f) ? 0.0f : rng.range(1.0f, 300.0f));
 			p[t + kThLFus] = rng.decades(1.0e4f, 5.0e5f);
 			p[t + kThHasFusion] = 1.0f;
+			draw_line(rng, p, t, rng.below(4));
 		}
 	}
 	for (uint32_t k = 0; k < kDetSlots; ++k) {
@@ -202,7 +277,8 @@ World load(Rig &rig, Rng &rng) {
 			mc += amount[i][g] * w.props[i * kPropStride + kPropM] * vol
 					* w.props[i * kPropStride + kPropLadder + kThCSol];
 		}
-		w.energy[g] = mc * (rng.range(-100.0f, 3000.0f) + 273.15f) / vol;
+		// The sensible heat above the standard state the ladders are integrated from.
+		w.energy[g] = mc * rng.range(-120.0f, 3000.0f) / vol;
 	}
 	rig.put(LA_BIND_E_J_M3, w.energy);
 	w.pressure = put(LA_BIND_PRESSURE, 1.0e2f, 1.0e9f);
@@ -403,9 +479,11 @@ bool prop_derive_melting_costs_its_latent_heat(Case &c) {
 	for (uint32_t d = 0; d < kDraws; ++d) {
 		World w = load(rig, rng);
 		const uint32_t n = w.lat.cells();
-		// A melting POINT, not an interval: an interval spreads the latent heat over its own width.
+		// A melting POINT, not an interval: an interval spreads the latent heat over its own width. Channel 0
+		// is the water the kernel reads through water's own curves, and channel 1 the silicate melt's
+		// entry, so neither is a drawn ladder.
 		uint32_t ci = kChannelSlots;
-		for (uint32_t i = 0; i < kChannelSlots && ci >= kChannelSlots; ++i) {
+		for (uint32_t i = 2; i < kChannelSlots && ci >= kChannelSlots; ++i) {
 			const uint32_t t = i * kPropStride + kPropLadder;
 			if (w.props[t + kThHasFusion] > 0.0f && w.props[t + kThFusionT1] == w.props[t + kThFusionT0]) {
 				ci = i;
@@ -415,15 +493,14 @@ bool prop_derive_melting_costs_its_latent_heat(Case &c) {
 			continue;
 		}
 		const uint32_t base = ci * kPropStride;
-		// Half a cell of it and nothing else: one boundary in the world, and the phase it is in fills no
-		// more than the room it has, so the pressure the cell settles at is nothing pushing back.
-		w.props[base + kPropBulk] = 0.0f;
+		// Half a cell of it and nothing else: one boundary in the world, and the phase it is in stands in
+		// vacuum, so the pressure the cell settles at is nothing pushing back.
 		rig.put(LA_BIND_DERIVE_PROPS, w.props);
 		const double molar = double(w.props[base + kPropM]);
 		const double c_sol = double(w.props[base + kPropLadder + kThCSol]);
 		const double c_liq = double(w.props[base + kPropLadder + kThCLiq]);
 		const double l_fus = double(w.props[base + kPropLadder + kThLFus]);
-		// rho_sol == rho_liq, so the melting curve has no Clapeyron slope and the plateau stands here.
+		// The drawn Clapeyron slope is zero, so the plateau stands here at any pressure.
 		const double t0 = double(w.props[base + kPropLadder + kThFusionT0]);
 		const double amt = 0.5 * double(w.props[base + kPropFull]);
 		std::vector<float> a(n, float(amt));
@@ -435,8 +512,12 @@ bool prop_derive_melting_costs_its_latent_heat(Case &c) {
 		rig.fill(LA_BIND_P_FLUID, 0.0f);
 		const double m_kg = amt * molar * vol;
 		// The sweep: forty kelvin of sensible heat below the plateau to forty above it.
-		const double h_lo = m_kg * c_sol * (t0 + 273.15 - 40.0);
-		const double h_hi = m_kg * (c_sol * (t0 + 273.15) + l_fus + c_liq * 40.0);
+		const double t_ref = double(w.props[base + kPropLadder + kThAnchorT]);
+		w.props[base + kPropLadder + kThLineKind] = 0.0f;
+		w.props[base + kPropLadder + kThLineA1] = 0.0f;
+		rig.put(LA_BIND_DERIVE_PROPS, w.props);
+		const double h_lo = m_kg * c_sol * (t0 - t_ref - 40.0);
+		const double h_hi = m_kg * (c_sol * (t0 - t_ref) + l_fus + c_liq * 40.0);
 		std::vector<float> e(n, 0.0f);
 		for (uint32_t g = 0; g < n; ++g) {
 			e[g] = float((h_lo + (h_hi - h_lo) * double(g) / double(n - 1)) / vol);
@@ -488,9 +569,91 @@ bool prop_derive_melting_costs_its_latent_heat(Case &c) {
 	return c.examined > 0;
 }
 
+// A MELTING LINE IS THE ONE LAMeltingLine.hpp DECLARES. One lithic channel locked as a lattice at a drawn
+// pressure on its drawn line, energy two kelvin below and two above the header's melting point: the melt
+// share the kernel publishes is none below and all above.
+bool prop_derive_melts_on_its_line(Case &c) {
+	std::string err;
+	Rig rig(c.dev, "state_derive", kWords, err);
+	if (!rig.ok()) {
+		c.why = err;
+		return false;
+	}
+	Rng rng(c.seed);
+	rng.stream(97);
+	const double vol = double(kEdgeM) * double(kEdgeM) * double(kEdgeM);
+	for (uint32_t d = 0; d < kDraws; ++d) {
+		World w = load(rig, rng);
+		const uint32_t n = w.lat.cells();
+		uint32_t ci = kChannelSlots;
+		for (uint32_t i = 2; i < kChannelSlots && ci >= kChannelSlots; ++i) {
+			const uint32_t t = i * kPropStride + kPropLadder;
+			if (w.props[t + kThHasFusion] > 0.0f && w.props[t + kThFusionT1] == w.props[t + kThFusionT0]) {
+				ci = i;
+			}
+		}
+		if (ci >= kChannelSlots) {
+			continue;
+		}
+		const uint32_t base = ci * kPropStride;
+		const uint32_t t = base + kPropLadder;
+		draw_line(rng, w.props, t, 1u + rng.below(3));
+		w.props[base + kPropLithic] = 1.0f;
+		rig.put(LA_BIND_DERIVE_PROPS, w.props);
+		const double p_pa = double(rng.decades(1.0e7f, 2.0e9f));
+		const std::vector<float> &q = w.props;
+		const double t_m = la_melt_line::temperature_k(int(q[t + kThLineKind]), double(q[t + kThFusionT0]) + 273.15,
+				double(q[t + kThLinePref]), double(q[t + kThLineT0]), double(q[t + kThLineP0]), double(q[t + kThLineA1]),
+				double(q[t + kThLineC1]), double(q[t + kThLineA2]), double(q[t + kThLineC2]), p_pa) - 273.15;
+		if (!std::isfinite(t_m)) {
+			c.why = "the header's melting line did not converge on a drawn line";
+			return false;
+		}
+		const double t_ref = double(q[t + kThAnchorT]);
+		const double c_sol = double(q[t + kThCSol]);
+		const double c_liq = double(q[t + kThCLiq]);
+		const double l_fus = double(q[t + kThLFus]);
+		const double amt = double(q[base + kPropFull]);
+		const double m_kg = amt * double(q[base + kPropM]) * vol;
+		std::vector<float> a(n, float(amt));
+		std::vector<float> zero(n, 0.0f);
+		for (uint32_t i = 0; i < kChannelSlots; ++i) {
+			rig.put(kChannelBinding[i], i == ci ? a : zero);
+		}
+		std::vector<float> e(n, 0.0f);
+		for (uint32_t g = 0; g < n; ++g) {
+			const bool above = (g & 1u) != 0u;
+			const double h = above ? c_sol * (t_m - t_ref) + l_fus + c_liq * 2.0 : c_sol * (t_m - 2.0 - t_ref);
+			e[g] = float(m_kg * h / vol);
+		}
+		rig.put(LA_BIND_E_LITH_J_M3, e);
+		rig.fill(LA_BIND_E_J_M3, 0.0f);
+		rig.fill(LA_BIND_SOLID, 1.0f);
+		rig.fill(LA_BIND_CEMENT, 1.0f);
+		rig.fill(LA_BIND_PRESSURE, float(p_pa));
+		rig.fill(LA_BIND_P_FLUID, float(p_pa));
+		const Push p = push_for(w);
+		rig.run(&p, sizeof(p), n);
+		const std::vector<float> melt = rig.get(LA_BIND_SILICATE_MELT, n);
+		for (uint32_t g = 0; g < n; ++g) {
+			const float want = (g & 1u) != 0u ? 1.0f : 0.0f;
+			c.examined += 1;
+			if (shifted(melt[g], c.mutate) != want) {
+				char buf[192];
+				std::snprintf(buf, sizeof(buf), "kind %d at %.4g Pa melts %.3g at %s its line's %.3f C",
+						int(q[t + kThLineKind]), p_pa, double(melt[g]), want > 0.0f ? "2 K above" : "2 K below", t_m);
+				c.why = buf;
+				return false;
+			}
+		}
+	}
+	return c.examined > 0;
+}
+
 } // namespace
 
 void add_derive_properties(std::vector<Property> &out) {
+	out.push_back({ "state_derive.glsl", "derive_melts_on_its_line", prop_derive_melts_on_its_line });
 	out.push_back({ "state_derive.glsl", "derive_melting_costs_its_latent_heat",
 			prop_derive_melting_costs_its_latent_heat });
 	out.push_back({ "state_derive.glsl", "derive_is_a_fixed_point", prop_derive_is_a_fixed_point });

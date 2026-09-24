@@ -5,6 +5,8 @@ extends Node3D
 const HIT_RADIUS: float = 1.3
 const MAX_LIFETIME: float = 4.0
 const ARC_HEIGHT: float = 1.5
+## The stone's edge, m: what it weighs and what the view draws.
+const STONE_SIDE: float = 0.35
 
 ## The stone reached its target at `at`.
 signal struck(at: Vector3)
@@ -90,6 +92,6 @@ func _strike() -> void:
 
 # Splash accent if the rock came down in water.
 func _maybe_splash(at: Vector3) -> void:
-	if _water != null and _water.has_method("is_water_at") and _water.is_water_at(at):
-		if _water.has_method("splash"):
-			_water.splash(at, 1.0)
+	if _water != null and _water.has_method("splash"):
+		var kg: float = STONE_SIDE * STONE_SIDE * STONE_SIDE * LASubstances.solid_density("silicate")
+		_water.splash(at, 0.5 * kg * _speed * _speed)
