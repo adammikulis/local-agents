@@ -2,11 +2,13 @@
 class_name LAWaterSurfaceView
 extends MeshInstance3D
 
-## The free surface of the field's liquid water, meshed near the eye: water's own reflectance, its absorption
-## over the path to what lies under it, and the rings an impact sends across it on the simulation's clock.
+## The free surface of the field's liquid water, meshed near the eye in the body's frame: its reflectance, the
+## sunlight its column scatters and carries to what lies under it, and the rings an impact sends across it.
 
 ## Length of the ring buffer; the shader's copy is generated from this line.
 const RIPPLE_MAX: int = 16
+## The substance whose free surface this draws.
+const LIQUID: String = "h2o"
 
 @export_group("Mesh")
 ## Half-angle about the eye's vertical the surface is meshed over, rad.
@@ -24,8 +26,10 @@ static var _crest_shape: float = _peak_crest_shape()
 
 var _f: LAMaterialField3D = null
 var _camera: Node3D = null
-var _center: Vector3 = Vector3.ZERO
+var _sun: DirectionalLight3D = null
 var _builder: LAWaterSurfaceMesh = null
+## The field-frame point the mesh is laid about: the eye's, when it was last built.
+var _anchor: Vector3 = Vector3.ZERO
 ## Each ring: its centre in the field's frame, the simulated second it was dug, its cavity radius and the
 ## gravity it runs in.
 var _rings: Array[Dictionary] = []
@@ -33,33 +37,41 @@ var _accum: float = 0.0
 var _last_radial: Vector3 = Vector3.ZERO
 
 
-## Mesh the water `field` holds around `camera` over a body centred at `center`, drawing what lies under the
-## water through it when `transparent`.
-func setup(field: LAMaterialField3D, camera: Node3D, center: Vector3, transparent: bool) -> void:
+## Mesh the water `field` holds around `camera`, lit by `sun`, drawing what lies under the water through it
+## when `transparent`.
+func setup(field: LAMaterialField3D, camera: Node3D, sun: DirectionalLight3D, transparent: bool) -> void:
 	_f = field
 	_camera = camera
-	_center = center
+	_sun = sun
 	_builder = LAWaterSurfaceMesh.new()
 	_accum = rebuild_period_s
-	var absorption: Vector3 = absorption_per_channel()
-	if transparent and not absorption.is_finite():
-		push_error("LAWaterSurfaceView: no measured absorption at a channel's wavelength, so no water is drawn through.")
+	var row: Dictionary = LASubstances.table()[LIQUID]
+	var absorption: Vector3 = liquid_per_channel(row, "absorption_liquid_per_m")
+	var scattering: Vector3 = liquid_per_channel(row, "scattering_liquid_per_m")
+	var known: bool = absorption.is_finite() and scattering.is_finite()
+	if not known:
+		push_error("LAWaterSurfaceView: the %s row states no absorption or scattering at a channel's wavelength, so no light is drawn through the water." % LIQUID)
+	var depol: float = float(row["scattering_liquid_depolarization"])
 	var mat: ShaderMaterial = material_override as ShaderMaterial
-	mat.set_shader_parameter("refractive_index", LAPhysical.WATER_REFRACTIVE_INDEX)
-	mat.set_shader_parameter("absorption_per_m", absorption if absorption.is_finite() else Vector3.ZERO)
-	mat.set_shader_parameter("transmit_bed", transparent and absorption.is_finite())
-	mat.set_shader_parameter("mesh_edge_m", field._grid.cell_size * pow(0.5, float(field._grid.max_level)))
+	mat.set_shader_parameter("refractive_index", float(row["refractive_index_liquid"]))
+	mat.set_shader_parameter("column_known", known)
+	if known:
+		mat.set_shader_parameter("absorption_per_m", absorption)
+		mat.set_shader_parameter("scattering_per_m", scattering)
+	mat.set_shader_parameter("scattering_cos2_weight", (1.0 - depol) / (1.0 + depol))
+	mat.set_shader_parameter("transmit_bed", transparent)
 	field.splashed.connect(_on_splashed)
 
 
-## Pure water's absorption coefficient at each channel's wavelength, 1/m; NAN in a channel no measurement
-## covers.
-static func absorption_per_channel() -> Vector3:
+## The liquid's coefficient `key`, 1/m, at each channel's wavelength; NAN in a channel no measurement covers.
+static func liquid_per_channel(row: Dictionary, key: String) -> Vector3:
+	var nm: Array = row["optics_liquid_nm"]
+	var value: Array = row[key]
 	var out: Vector3 = Vector3(NAN, NAN, NAN)
 	for ch in 3:
-		var i: int = LAPhysical.WATER_ABSORPTION_NM.find(LASkyView.CHANNEL_WAVELENGTHS_NM[ch])
+		var i: int = nm.find(LASkyView.CHANNEL_WAVELENGTHS_NM[ch])
 		if i >= 0:
-			out[ch] = LAPhysical.WATER_ABSORPTION_PER_M[i]
+			out[ch] = float(value[i])
 	return out
 
 
@@ -99,24 +111,25 @@ static func _peak_crest_shape() -> float:
 func _process(delta: float) -> void:
 	if Engine.is_editor_hint() or _f == null or _f._grid == null or _camera == null or not is_instance_valid(_camera):
 		return
-	var radial: Vector3 = (_camera.global_position - _center).normalized()
-	# The patch frame: right-handed, +Y along the eye's vertical; the rings and the normals live in it.
-	var ref: Vector3 = Vector3.FORWARD if absf(radial.dot(Vector3.FORWARD)) <= 0.99 else Vector3.RIGHT
-	var x_axis: Vector3 = ref.cross(radial).normalized()
-	var z_axis: Vector3 = x_axis.cross(radial).normalized()
-	global_transform = Transform3D(Basis(x_axis, radial, z_axis), _center)
-	_push_rings()
+	# The mesh is laid in the field's frame, which is the body's: it turns with the ground under it.
+	var body: Node3D = _f._body as Node3D
+	var basis: Basis = body.global_transform.basis.orthonormalized() if body != null else Basis.IDENTITY
+	var pivot: Vector3 = _f.centre()
+	var radial: Vector3 = (_camera.global_position - pivot).normalized()
 	_accum += delta
-	if _accum < rebuild_period_s and _last_radial.dot(radial) >= recentre_cos:
-		return
-	_accum = 0.0
-	_last_radial = radial
-	_rebuild(radial)
+	if _accum >= rebuild_period_s or _last_radial.dot(radial) < recentre_cos:
+		_accum = 0.0
+		_last_radial = radial
+		_anchor = _f.point_to_field(_camera.global_position)
+		_rebuild(_f.dir_to_field(radial))
+	global_transform = Transform3D(basis, pivot + basis * (_anchor - pivot))
+	_push_sun()
+	_push_rings()
 
 
-func _rebuild(radial: Vector3) -> void:
-	var out: Dictionary = _builder.build(_f, global_transform.affine_inverse(), radial, cos(cap_angle_rad),
-		LAMaterialField3D.MIN_MASS, LAMaterialField3D.MAX_MASS)
+func _rebuild(cam_dir: Vector3) -> void:
+	var out: Dictionary = _builder.build(_f, _anchor, cam_dir, cos(cap_angle_rad), LAMaterialField3D.MIN_MASS,
+		LAMaterialField3D.MAX_MASS)
 	var surface: ArrayMesh = mesh as ArrayMesh
 	surface.clear_surfaces()
 	if int(out["count"]) == 0 or (out["indices"] as PackedInt32Array).is_empty():
@@ -125,11 +138,20 @@ func _rebuild(radial: Vector3) -> void:
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = out["verts"]
 	arrays[Mesh.ARRAY_NORMAL] = out["normals"]
+	arrays[Mesh.ARRAY_TEX_UV] = out["uvs"]
 	arrays[Mesh.ARRAY_INDEX] = out["indices"]
 	surface.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 
 
-## The rings still over the display's floor, in the patch frame, each carrying g t^2 for its age on the
+## The star's direction and the share of its beam that reaches the ground, as the sky's light carries them.
+func _push_sun() -> void:
+	var mat: ShaderMaterial = material_override as ShaderMaterial
+	var beam: Color = _sun.light_color.srgb_to_linear() * _sun.light_energy
+	mat.set_shader_parameter("sun_dir_world", _sun.global_transform.basis.z.normalized())
+	mat.set_shader_parameter("sun_beam", Vector3(beam.r, beam.g, beam.b))
+
+
+## The rings still over the display's floor, in the mesh's frame, each carrying g t^2 for its age on the
 ## simulation's clock.
 func _push_rings() -> void:
 	var loop: LASimLoop = LASimLoop.active()
@@ -139,18 +161,21 @@ func _push_rings() -> void:
 		if _crest_m(ring, now_s) >= ring_floor_m:
 			kept.push_back(ring)
 	_rings = kept
-	var to_patch: Transform3D = global_transform.affine_inverse()
-	var packed: Array = []
-	packed.resize(RIPPLE_MAX)
+	var at: Array = []
+	var gt2: PackedFloat32Array = PackedFloat32Array()
+	at.resize(RIPPLE_MAX)
+	gt2.resize(RIPPLE_MAX)
 	for i in RIPPLE_MAX:
-		packed[i] = Vector4.ZERO
+		at[i] = Vector4.ZERO
 		if i < _rings.size():
 			var ring: Dictionary = _rings[i]
-			var at: Vector3 = to_patch * _f.field_to_point(ring["at"])
 			var t: float = now_s - float(ring["born_s"])
-			packed[i] = Vector4(at.x, at.z, float(ring["g"]) * t * t, float(ring["cavity_m"]))
+			var local: Vector3 = (ring["at"] as Vector3) - _anchor
+			at[i] = Vector4(local.x, local.y, local.z, float(ring["cavity_m"]))
+			gt2[i] = float(ring["g"]) * t * t
 	var mat: ShaderMaterial = material_override as ShaderMaterial
-	mat.set_shader_parameter("ripples", packed)
+	mat.set_shader_parameter("ripples", at)
+	mat.set_shader_parameter("ripple_gt2", gt2)
 	mat.set_shader_parameter("ripple_count", _rings.size())
 
 

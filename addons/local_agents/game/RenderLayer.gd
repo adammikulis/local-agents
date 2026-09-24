@@ -113,7 +113,7 @@ func _build_world_visuals() -> void:
 
 	# THE FREE SURFACE OF EVERY BODY OF WATER THIS WORLD HOLDS, meshed from the field's own water column:
 	# a stream, a lake and an ocean are the same liquid standing at whatever level it stands at.
-	_water_surface.setup(material, _camera, body.center(), bool(_render_opts["ocean_transparent"]))
+	_water_surface.setup(material, _camera, _sky.sun(), bool(_render_opts["ocean_transparent"]))
 
 	# The ground's look, before any uniform below is written to it.
 	if terrain_material == null:

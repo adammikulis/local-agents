@@ -19,8 +19,14 @@ var _body: LAPlanetBody = null
 var _star: Node3D = null
 var _moon: LAMoon = null
 var _camera: Node3D = null
-## Rayleigh cross-section of one molecule of the seeded air, m^2, per channel.
-var _sigma: Vector3 = Vector3.ZERO
+## Rayleigh cross-section of one molecule, m^2, per channel, and molar mass, kg/mol, of each substance whose
+## row states its refractivity.
+var _sigma: Dictionary = {}
+var _molar: Dictionary = {}
+## Each channel that holds gas: its substance, and the derived share of it that is gas, "" when it all is.
+var _gas_channels: Array[Dictionary] = []
+## The gases already named as scattering by no stated law.
+var _unscattered: Dictionary = {}
 var _ground_dir: Vector3 = Vector3.ZERO
 var _ground_r: float = NAN
 ## A photographed run publishes the air the sky was drawn through, each time it changes.
@@ -45,10 +51,13 @@ func setup(field: LAMaterialField3D, body: LAPlanetBody, star: Node3D, moon: LAM
 	env.glow_enabled = bool(render_opts["glow"])
 	env.fog_enabled = bool(render_opts["fog"])
 	_sun.shadow_enabled = bool(render_opts["sun_shadows"])
-	_sigma = seeded_air_cross_section_m2()
-	if not _sigma.is_finite():
-		push_error("LASkyView: a seeded gas carries no Rayleigh data, so the air scatters nothing here.")
-		_sigma = Vector3.ZERO
+	var table: Dictionary = LASubstances.table()
+	for id in table:
+		var row: Dictionary = table[id]
+		if row.has("refractivity_ref_p_pa"):
+			_sigma[id] = rayleigh_cross_sections_m2(row, CHANNEL_WAVELENGTHS_NM)
+			_molar[id] = float(row["molar_mass"])
+	_gas_channels = gas_channels()
 	for arg in OS.get_cmdline_user_args():
 		_publish = _publish or String(arg).begins_with(SHOOT_FLAG)
 
@@ -118,14 +127,26 @@ func _process(_delta: float) -> void:
 		_publish_air(air)
 
 
+## What the sky was drawn through, read again off the cell: its pressure, temperature, solved gravity, height
+## over the ground and gases, beside the coefficient and scale height the sky took from them.
 func _publish_air(air: Dictionary) -> void:
-	var beta: Vector3 = air.get("beta_ground", Vector3.ZERO)
-	var line: String = JSON.stringify({"air": not air.is_empty(),
-		"beta_ground_per_m": [beta.x, beta.y, beta.z] if not air.is_empty() else [],
-		"scale_height_m": air.get("scale_height", null)})
-	if line != _published:
-		_published = line
-		print("SKY_AIR=", line)
+	var line: Dictionary = {"air": not air.is_empty()}
+	if not air.is_empty():
+		var c: int = int(air["cell"])
+		var at: Vector3 = _field.field_to_point(_field._grid.cell_world_pos(c))
+		var beta: Vector3 = air["beta_ground"]
+		line["cell"] = c
+		line["p_pa"] = _field._mirrors.at("pressure", c)
+		line["t_c"] = _field._mirrors.at("temp", c)
+		line["g_m_s2"] = LABallistics.g_at(at).length()
+		line["height_m"] = (at - _body.center()).length() - _ground_r
+		line["gas_mol_m3"] = _gas_at(c)
+		line["beta_ground_per_m"] = [beta.x, beta.y, beta.z]
+		line["scale_height_m"] = air["scale_height"]
+	var text: String = JSON.stringify(line)
+	if text != _published:
+		_published = text
+		print("SKY_AIR=", text)
 
 
 ## The solved surface of the body under the eye, read again once the eye has crossed `ground_resolve_rad`.
@@ -139,52 +160,71 @@ func _ground_radius(from_centre: Vector3) -> float:
 	return _ground_r
 
 
-## The air over the ground under the eye, read at `_air_cell` and carried down the isothermal column the seed
-## lays: its Rayleigh coefficient at that ground per channel, 1/m, and its scale height, m. Empty with no air.
+## The air over the ground under the eye, read at `_air_cell` and carried down an isothermal column of its
+## own composition: its Rayleigh coefficient at that ground per channel, 1/m, its scale height R T / (M g), m,
+## and the cell. Empty with no air, or with a gas whose row states no refractivity.
 func _air_over_ground(eye: Vector3, up: Vector3, r_ground: float) -> Dictionary:
 	if _field == null or not is_finite(r_ground):
 		return {}
 	var c: int = _air_cell(eye, up)
 	if c < 0:
 		return {}
+	var gas: Dictionary = _gas_at(c)
+	var total: float = 0.0
+	for id in gas:
+		total += float(gas[id])
 	var at: Vector3 = _field.field_to_point(_field._grid.cell_world_pos(c))
 	var p_pa: float = _field._mirrors.at("pressure", c)
-	var t_c: float = _field._mirrors.at("temp", c)
+	var t_k: float = _field._mirrors.at("temp", c) + LAPhysical.KELVIN_OFFSET
 	var g: float = LABallistics.g_at(at).length()
-	if not (p_pa > 0.0 and g > 0.0 and is_finite(t_c)):
+	if not (total > 0.0 and p_pa > 0.0 and t_k > 0.0 and g > 0.0):
 		return {}
-	var scale_h: float = LAFieldLithostaticSeed.seeded_air_rt_over_m(t_c) / g
-	var per_m3: float = p_pa / (LAPhysical.BOLTZMANN_J_K * (t_c + LAPhysical.KELVIN_OFFSET))
+	var sigma: Vector3 = Vector3.ZERO
+	var molar: float = 0.0
+	for id in gas:
+		if not _sigma.has(id):
+			if not _unscattered.has(id):
+				_unscattered[id] = true
+				push_error("LASkyView: the air holds %s, whose row states no refractivity, so the sky is not drawn." % id)
+			return {}
+		var x: float = float(gas[id]) / total
+		sigma += (_sigma[id] as Vector3) * x
+		molar += float(_molar[id]) * x
+	var scale_h: float = LAPhysical.GAS_CONSTANT_J_MOL_K * t_k / (molar * g)
+	var per_m3: float = p_pa / (LAPhysical.BOLTZMANN_J_K * t_k)
 	var above_ground: float = (at - _body.center()).length() - r_ground
-	return {"beta_ground": _sigma * per_m3 * exp(above_ground / scale_h), "scale_height": scale_h}
+	return {"beta_ground": sigma * per_m3 * exp(above_ground / scale_h), "scale_height": scale_h, "cell": c}
 
 
 ## The cell of the field that holds the eye's air: the eye's own, or from above the box the first one under
-## it; an eye in rock or water steps up out of it, one in an empty cell steps down toward the ground. -1
-## where the column reaches no air.
+## it. From a cell of rock or water the column is walked up to the first that holds gas, from an empty one
+## down to it; -1 where the walk leaves the matter it started in before it meets any.
 func _air_cell(eye: Vector3, up: Vector3) -> int:
 	var c: int = _field.world_to_cell(eye)
 	if c < 0:
 		c = _field.world_to_cell(_box_entry_below(eye, up))
-	var down: bool = c >= 0 and not _rock_or_water(c)
+	var upward: bool = c >= 0 and _field._mirrors.at("rho_bulk", c) > 0.0
 	for _k in _field._grid.max_span():
 		if c < 0:
 			return -1
-		if _rock_or_water(c):
-			if down:
-				return -1
-			c = LAFieldGeometry.above(_field, c)
-		elif _field._mirrors.at("pressure", c) > 0.0:
+		if not _gas_at(c).is_empty():
 			return c
-		elif down:
-			c = LAFieldGeometry.below(_field, c)
-		else:
+		if (_field._mirrors.at("rho_bulk", c) > 0.0) != upward:
 			return -1
+		c = LAFieldGeometry.above(_field, c) if upward else LAFieldGeometry.below(_field, c)
 	return -1
 
 
-func _rock_or_water(c: int) -> bool:
-	return _field._solid[c] != 0 or _field._queries.liquid_at(c) >= LAMaterialField3D.MIN_MASS
+## The gas cell `c` holds, mol per m^3 of cell, by substance.
+func _gas_at(c: int) -> Dictionary:
+	var out: Dictionary = {}
+	for ch in _gas_channels:
+		var amount: float = _field._mirrors.at(ch["channel"], c)
+		if String(ch["share"]) != "":
+			amount *= _field._mirrors.at(ch["share"], c)
+		if amount > 0.0:
+			out[ch["substance"]] = float(out.get(ch["substance"], 0.0)) + amount
+	return out
 
 
 ## Where the line from the eye down to the body centre enters the field's box; the eye itself when it never
@@ -240,49 +280,52 @@ static func erfcx(y: float) -> float:
 		+ t * (0.27886807 + t * (-1.13520398 + t * (1.48851587 + t * (-0.82215223 + t * 0.17087277)))))))))
 
 
-## Rayleigh cross-section of one molecule of the seeded air, m^2, per channel: each gas's own, weighted by
-## its mole fraction. NAN in every channel when one of the gases carries no optical data.
-static func seeded_air_cross_section_m2() -> Vector3:
-	var x: Dictionary = LAFieldLithostaticSeed.seeded_air_mole_fractions()
-	var out: Vector3 = Vector3.ZERO
-	for gas: String in x:
-		for ch in 3:
-			out[ch] += float(x[gas]) * rayleigh_cross_section_m2(gas, CHANNEL_WAVELENGTHS_NM[ch] * 1.0e-9)
+## Every channel that holds an amount of gas: a gas channel whole, and a channel whose phase is derived by the
+## share of it its `_vapour` buffer says is gas.
+static func gas_channels() -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	var rows: Dictionary = LAChannels.rows()
+	var derived: PackedStringArray = LAChannels.derived_buffers()
+	for name in rows:
+		var row: Dictionary = rows[name]
+		if String(row["unit"]) != "mol_m3":
+			continue
+		if String(row["phase"]) == "gas":
+			out.push_back({"channel": String(name), "substance": String(row["substance"]), "share": ""})
+		elif String(row["phase"]) == "" and derived.has(String(name) + "_vapour"):
+			out.push_back({"channel": String(name), "substance": String(row["substance"]),
+				"share": String(name) + "_vapour"})
 	return out
 
 
-## Rayleigh cross-section of one molecule of `gas` at wavelength `lambda_m`, m^2: the Lorentz-Lorenz form
-## over the gas's measured refractive index and King factor, or its own measured law. NAN for a gas with no
-## optical data.
-static func rayleigh_cross_section_m2(gas: String, lambda_m: float) -> float:
-	var um2: float = pow(lambda_m * 1.0e6, 2.0)
-	var stp_per_m3: float = LAPhysical.STANDARD_PRESSURE_PA / (LAPhysical.BOLTZMANN_J_K * LAPhysical.KELVIN_OFFSET)
-	match gas:
-		"n2":
-			var n2m1: float = 0.0
-			for i in LAPhysical.N2_SELLMEIER_B.size():
-				n2m1 += LAPhysical.N2_SELLMEIER_B[i] * um2 / (um2 - LAPhysical.N2_SELLMEIER_C_UM2[i])
-			var ref_per_m3: float = LAPhysical.N2_REFRACTIVITY_REF_P_PA / (LAPhysical.BOLTZMANN_J_K * LAPhysical.KELVIN_OFFSET)
-			return _lorentz_lorenz(n2m1, ref_per_m3, lambda_m) \
-				* (LAPhysical.N2_KING_FACTOR + LAPhysical.N2_KING_FACTOR_UM2 / um2)
-		"co2":
-			var nm1: float = 0.0
-			for i in LAPhysical.CO2_REFRACTIVITY_B.size():
-				nm1 += LAPhysical.CO2_REFRACTIVITY_B[i] / (LAPhysical.CO2_REFRACTIVITY_C_PER_UM2[i] - 1.0 / um2)
-			var wavenumber_per_cm: float = 1.0e-2 / lambda_m
-			return _lorentz_lorenz(nm1 * (2.0 + nm1), stp_per_m3, lambda_m) \
-				* (LAPhysical.CO2_KING_FACTOR + LAPhysical.CO2_KING_FACTOR_CM2 * wavenumber_per_cm * wavenumber_per_cm)
-		"h2":
-			var angstrom: float = lambda_m * 1.0e10
-			var d: Array[float] = LAPhysical.H2_RAYLEIGH_D_CM2
-			return 1.0e-4 * (d[0] / pow(angstrom, 4.0) + d[1] / pow(angstrom, 6.0) + d[2] / pow(angstrom, 8.0))
-	return NAN
+## Rayleigh cross-section of one molecule of the substance `row` describes, m^2, at each of `nm`.
+static func rayleigh_cross_sections_m2(row: Dictionary, nm: Vector3) -> Vector3:
+	return Vector3(rayleigh_cross_section_m2(row, nm.x * 1.0e-9), rayleigh_cross_section_m2(row, nm.y * 1.0e-9),
+		rayleigh_cross_section_m2(row, nm.z * 1.0e-9))
 
 
-## 24 pi^3 / (lambda^4 N^2) ((n^2 - 1) / (n^2 + 2))^2 for n^2 - 1 taken at number density N, m^2.
-static func _lorentz_lorenz(n2m1: float, per_m3: float, lambda_m: float) -> float:
+## 24 pi^3 / (lambda^4 N^2) ((n^2 - 1) / (n^2 + 2))^2 F_K, m^2: the row's refractivity at its reference number
+## density N and its King factor F_K, both read at `lambda_m`.
+static func rayleigh_cross_section_m2(row: Dictionary, lambda_m: float) -> float:
+	var s2: float = pow(1.0e-6 / lambda_m, 2.0)
+	var b: Array = row["refractivity_b"]
+	var c: Array = row["refractivity_c"]
+	var d: Array = row["refractivity_d_um2"]
+	var poly: Array = row["refractivity_poly"]
+	var king_poly: Array = row["king_factor"]
+	var y: float = 0.0
+	for i in b.size():
+		y += float(b[i]) / (float(c[i]) - float(d[i]) * s2)
+	for j in poly.size():
+		y += float(poly[j]) * pow(s2, float(j))
+	var n2m1: float = y if bool(row["refractivity_squared"]) else y * (2.0 + y)
+	var king: float = 0.0
+	for j in king_poly.size():
+		king += float(king_poly[j]) * pow(s2, float(j))
+	var per_m3: float = float(row["refractivity_ref_p_pa"]) \
+		/ (LAPhysical.BOLTZMANN_J_K * (float(row["refractivity_ref_t_c"]) + LAPhysical.KELVIN_OFFSET))
 	var ll: float = n2m1 / (n2m1 + 3.0)
-	return 24.0 * pow(PI, 3.0) / (pow(lambda_m, 4.0) * per_m3 * per_m3) * ll * ll
+	return 24.0 * pow(PI, 3.0) / (pow(lambda_m, 4.0) * per_m3 * per_m3) * ll * ll * king
 
 
 func _get_configuration_warnings() -> PackedStringArray:
