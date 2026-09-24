@@ -2,13 +2,11 @@
 class_name LAPhenomenaMarkers
 extends Node3D
 
-## Draws what the world was seen to do: the registered view of each observed kind, where it happened.
-
-## Kinds the sim announces by signal; every other record names a list LAFieldPhenomena publishes.
-const ANNOUNCED: Array[StringName] = [&"splashes", &"strikes", &"impacts"]
+## Draws what the world was seen to do: the registered view of each observed kind this world holds, where
+## it happened.
 
 @export_group("Views")
-## One record per observed kind: the scene that draws it.
+## One record per observed kind: the scene that draws it, what it needs and what feeds it.
 @export var registry: LAEventViewRegistry = null
 ## Views of one kind standing at once. A renderer budget: every view carries a light.
 @export var max_drawn_per_kind: int = 24
@@ -19,41 +17,65 @@ const ANNOUNCED: Array[StringName] = [&"splashes", &"strikes", &"impacts"]
 var _field: LAMaterialField3D = null
 var _detector: LAFieldPhenomena = null
 var _kinds: Dictionary = {}                # kind -> the node its views stand under, switched by LAAblate
+var _polled: Array[StringName] = []        # adopted kinds read off the detector
 var _sites: Dictionary = {}                # "kind:cell" -> the view standing on that observed site
 var _cd: float = 0.0
 
 
-## Read `field`'s detector, its splashes and its strikes, and where each rock `actors` receives strikes.
+## Adopt every registered kind this world's processes can produce, and wire each to what feeds it: the
+## field's signals, the arrivals `actors` holds or receives, or the detector reading `field`.
 func setup(field: LAMaterialField3D, actors: Node3D) -> void:
 	if registry == null:
 		push_error("PhenomenaMarkers: no registry, so no observed kind has a view to be drawn with.")
 		return
 	_field = field
-	_detector = LAFieldPhenomena.new()
-	_detector.setup(field)
+	var arrivals: bool = false
 	for kind: StringName in registry.views:
-		_adopt(kind)
-	field.splashed.connect(func(pos: Vector3, joules: float) -> void:
-		show_kind(&"splashes", {"pos": pos, "joules": joules}))
-	field.set_lightning_visual(func(pos: Vector3) -> void: show_kind(&"strikes", {"pos": pos}))
-	actors.child_entered_tree.connect(_watch_arrival)
+		var rec: LAEventViewRecord = registry.views[kind]
+		if rec == null or not rec.offered() or not _adopt(kind, rec.scene):
+			continue
+		match rec.source:
+			LAEventViewRecord.Source.OBSERVED:
+				_polled.append(kind)
+			LAEventViewRecord.Source.FIELD:
+				field.connect(rec.signal_name, _fed.bind(kind))
+			LAEventViewRecord.Source.ARRIVAL:
+				arrivals = true
+	if not _polled.is_empty():
+		_detector = LAFieldPhenomena.new()
+		_detector.setup(field)
+	if arrivals:
+		actors.child_entered_tree.connect(_watch_arrival)
+		for actor: Node in actors.get_children():
+			_watch_arrival(actor)
 
 
-## One kind's views stand under one node, switched by the ablation name its scene declares.
-func _adopt(kind: StringName) -> void:
-	var scene: PackedScene = registry.views[kind]
+## One kind's views stand under one node, switched by the ablation name its scene declares. False where
+## the scene is no LAEventView naming one.
+func _adopt(kind: StringName, scene: PackedScene) -> bool:
 	var probe: Node = scene.instantiate() if scene != null else null
 	var switch: String = (probe as LAEventView).ablation_name if probe is LAEventView else ""
 	if probe != null:
 		probe.free()
 	if switch.is_empty():
 		push_error("PhenomenaMarkers: '%s' is drawn by no LAEventView naming its ablation switch." % kind)
-		return
+		return false
 	var box: Node3D = Node3D.new()
 	box.name = switch
 	add_child(box)
 	_kinds[kind] = box
 	LAAblate.adopt(switch, box)
+	return true
+
+
+## A signal's arguments, then the kind it was bound to: the observation its record names them as.
+func _fed(...args: Array) -> void:
+	var kind: StringName = args.pop_back()
+	var keys: PackedStringArray = (registry.views[kind] as LAEventViewRecord).args
+	var observation: Dictionary = {}
+	for i in mini(keys.size(), args.size()):
+		observation[keys[i]] = args[i]
+	show_kind(kind, observation)
 
 
 ## Draw one event of `kind` from `observation`. Null where no view is registered for it, its switch is
@@ -62,17 +84,20 @@ func show_kind(kind: StringName, observation: Dictionary) -> LAEventView:
 	var box: Node3D = _kinds.get(kind) as Node3D
 	if box == null or not box.can_process() or box.get_child_count() >= max_drawn_per_kind:
 		return null
-	var view: LAEventView = registry.views[kind].instantiate() as LAEventView
+	var view: LAEventView = (registry.views[kind] as LAEventViewRecord).scene.instantiate() as LAEventView
 	box.add_child(view)
 	view.show_event(observation)
 	return view
 
 
-## A rock arriving from space is drawn where it strikes.
+## An actor of an adopted arrival kind's class is drawn by that kind whenever its signal fires.
 func _watch_arrival(actor: Node) -> void:
-	if actor is LAMeteor:
-		(actor as LAMeteor).impacted.connect(func(point: Vector3, into_water: bool) -> void:
-			show_kind(&"impacts", {"pos": point, "into_water": into_water}))
+	var s: Script = actor.get_script() as Script
+	var cls: StringName = s.get_global_name() if s != null else &""
+	for kind: StringName in _kinds:
+		var rec: LAEventViewRecord = registry.views[kind]
+		if rec.source == LAEventViewRecord.Source.ARRIVAL and rec.arrival_class == cls:
+			actor.connect(rec.signal_name, _fed.bind(kind))
 
 
 func _physics_process(delta: float) -> void:
@@ -83,8 +108,8 @@ func _physics_process(delta: float) -> void:
 		return
 	_cd = refresh_s
 	var watched: Array[StringName] = []
-	for kind: StringName in _kinds:
-		if not ANNOUNCED.has(kind) and (_kinds[kind] as Node3D).can_process():
+	for kind: StringName in _polled:
+		if (_kinds[kind] as Node3D).can_process():
 			watched.append(kind)
 	var obs: Dictionary = _detector.observe() if not watched.is_empty() else {}
 	var seen: Dictionary = {}
@@ -131,6 +156,11 @@ func _get_configuration_warnings() -> PackedStringArray:
 		out.append("No Registry: nothing says which scene draws which observed kind.")
 		return out
 	for kind: StringName in registry.views:
-		if registry.views[kind] == null:
+		var rec: LAEventViewRecord = registry.views[kind]
+		if rec == null or rec.scene == null:
 			out.append("The record for '%s' holds no scene, so that kind is never drawn." % kind)
+		elif rec.source != LAEventViewRecord.Source.OBSERVED and rec.signal_name == &"":
+			out.append("The record for '%s' is fed by a signal it does not name." % kind)
+		elif rec.source == LAEventViewRecord.Source.ARRIVAL and rec.arrival_class == &"":
+			out.append("The record for '%s' names no class of actor its signal arrives on." % kind)
 	return out
