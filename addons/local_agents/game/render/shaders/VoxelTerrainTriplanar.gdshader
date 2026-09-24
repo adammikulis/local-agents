@@ -6,6 +6,7 @@ render_mode cull_back, diffuse_burley, specular_schlick_ggx, skip_vertex_transfo
 uniform float albedo_bare_ground;
 uniform float albedo_snow_ice;
 uniform float heat_debug = 0.0;      // 0 = the ground as it is, 1 = painted by temperature
+uniform float block_view = 0.0;      // 1 = each voxel block its own flat colour, unlit
 
 // THE FIELD AT THE FRAGMENT'S OWN PLACE IN THE BODY, one texel per leaf of the graded grid, the leaf found
 // the way LAGridGeometry.cell_at finds it: a cave floor and the ridge above it read their own cells.
@@ -29,6 +30,17 @@ uniform sampler2D star_tex : hint_default_black, filter_nearest;
 // The eye's response per band (LAHeatFieldTexture.observer_table): linear-sRGB weight times 2 h c^2 over
 // lambda^5 times the band, W m^-2 sr^-1 (rgb), and h c / k over lambda, K (a).
 uniform sampler2D planck_observer : hint_default_black, filter_nearest;
+
+// A block's flat colour: one of twelve hues hashed from its origin, washed toward white.
+vec3 block_colour(ivec3 origin) {
+	uint h = (uint(origin.x) * 0x8da6b343u) ^ (uint(origin.y) * 0xd8163841u) ^ (uint(origin.z) * 0xcb1ab31fu);
+	h = (h ^ (h >> 16u)) * 0x7feb352du;
+	h = (h ^ (h >> 15u)) * 0x846ca68bu;
+	h ^= h >> 16u;
+	float hue = float(h % 12u) / 12.0;
+	vec3 rgb = clamp(abs(mod(hue * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+	return mix(vec3(1.0), rgb, 0.6);
+}
 
 // Cold(blue) -> mild(green) -> hot(red) ramp for the debug heatmap, mapped over -20..1200 °C.
 vec3 heat_ramp(float t) {
@@ -228,4 +240,10 @@ void fragment() {
 	}
 	// The display emits no negative primary: a colour outside its gamut loses that part.
 	EMISSION = max(glow, vec3(0.0));
+	if (block_view > 0.5) {
+		ALBEDO = vec3(0.0);
+		SPECULAR = 0.0;
+		ROUGHNESS = 1.0;
+		EMISSION = block_colour(ivec3(round(u_block_local_transform[3].xyz)));
+	}
 }

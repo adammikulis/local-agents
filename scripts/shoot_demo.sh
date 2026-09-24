@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# PHOTOGRAPH A DEMO SCENE FROM EVERY DISTANCE IT IS MEANT TO BE LOOKED AT, in ONE launch, printing the
-# PNG paths. A pose is `alt_m:pitch_deg:yaw_deg` at the scene's framed site: metres over the ground,
-# degrees from the horizon (negative down), degrees of bearing; `;` separates poses.
-#   scripts/shoot_demo.sh <scene.tscn> [outdir] [--hour=H] [--shots=SPEC]   Env: LA_SHOTS,
-#   LA_SHOOT_FRAMES, LA_SHOOT_SIZE, LA_SHOOT_TIMEOUT. EXIT 0 all posed · 1 run failed · 2 cannot run.
+# PHOTOGRAPH A DEMO SCENE FROM EVERY DISTANCE IT IS MEANT TO BE LOOKED AT, in ONE launch, printing the PNG
+# paths. A pose is `alt_m:pitch_deg:yaw_deg` over the scene's framed site; `;` separates poses. --without
+# shoots each pose again with each LAAblate module off; --print-shots prints the protocol and exits.
+#   scripts/shoot_demo.sh <scene.tscn> [outdir] [--hour=H] [--shots=SPEC] [--without=M,...] [--print-shots]
+#   [-- run args]  Env: LA_SHOTS, LA_SHOOT_FRAMES, LA_SHOOT_SIZE, LA_SHOOT_TIMEOUT. EXIT 0 · 1 failed · 2 unrunnable
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh"
@@ -16,18 +16,22 @@ shift
 OUT=""
 HOUR=12
 SHOTS="${LA_SHOTS:-}"
+WITHOUT=""
+PRINT=0
+RUN_ARGS=()
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--hour=*) HOUR="${1#--hour=}" ;;
 		--shots=*) SHOTS="${1#--shots=}" ;;
+		--without=*) WITHOUT="${1#--without=}" ;;
+		--print-shots) PRINT=1 ;;
+		--) shift; RUN_ARGS=("$@"); break ;;
 		--*) echo "shoot_demo: unknown argument '$1'" >&2; exit 2 ;;
 		*) OUT="$1" ;;
 	esac
 	shift
 done
 [ -f "$ROOT/$SCENE" ] || { echo "shoot_demo: no scene at $ROOT/$SCENE" >&2; exit 2; }
-OUT="${OUT:-$(mktemp -d "${TMPDIR:-/tmp}/la_shots.XXXXXX")}"
-mkdir -p "$OUT" || exit 2
 
 # THE BOX SAYS HOW FAR OUT THE FAR POSES STAND: half its vertical span is its top, and a picture from
 # above the box is a picture of the whole world this run contains.
@@ -46,17 +50,23 @@ TOP="$(printf '%s' "$SPEC" | awk -F, 'NF >= 7 { printf "%d", $5 * $7 / 2 }')"
 if [ -z "$SHOTS" ]; then
 	SHOTS="30:-3:0;30:-3:180;200:-15:0;2000:-35:0;2000:-35:180;10000:-60:0;$TOP:-89:0;$TOP:0:0"
 fi
+[ "$PRINT" -eq 0 ] || { printf '%s\n' "$SHOTS"; exit 0; }
 POSES="$(printf '%s' "$SHOTS" | tr ';' '\n' | grep -c .)"
+FRAMES_PER_POSE=$((1 + $(printf '%s' "$WITHOUT" | tr ',' '\n' | grep -c .)))
+[ -z "$WITHOUT" ] || RUN_ARGS+=("--shot-without=$WITHOUT")
+OUT="${OUT:-$(mktemp -d "${TMPDIR:-/tmp}/la_shots.XXXXXX")}"
+mkdir -p "$OUT" || exit 2
 
 LOG="$(mktemp "${TMPDIR:-/tmp}/la_shots_log.XXXXXX")"
 trap 'rm -f "$LOG"' EXIT
 LA_RUN_TIMEOUT="${LA_SHOOT_TIMEOUT:-110}" "$ROOT/scripts/run_sim_offscreen.sh" --path "$ROOT" "$SCENE" \
 	-- --sandbox "--shoot=$OUT/shot.png" "--shots=$SHOTS" "--local-hour=$HOUR" \
-	"--shoot-frames=${LA_SHOOT_FRAMES:-150}" "--shoot-size=${LA_SHOOT_SIZE:-1280x800}" > "$LOG" 2>&1
+	"--shoot-frames=${LA_SHOOT_FRAMES:-150}" "--shoot-size=${LA_SHOOT_SIZE:-1280x800}" \
+	${RUN_ARGS[@]+"${RUN_ARGS[@]}"} > "$LOG" 2>&1
 rc=$?
 
-if grep -qE '^SHOT_SPEC_INVALID=|^SHOT_POSE_UNSUPPORTED=' "$LOG"; then
-	grep -E '^SHOT_SPEC_INVALID=|^SHOT_POSE_UNSUPPORTED=' "$LOG" >&2
+if grep -qE '^SHOT_SPEC_INVALID=|^SHOT_POSE_UNSUPPORTED=|^SHOT_WITHOUT_UNKNOWN=' "$LOG"; then
+	grep -E '^SHOT_SPEC_INVALID=|^SHOT_POSE_UNSUPPORTED=|^SHOT_WITHOUT_UNKNOWN=' "$LOG" >&2
 	exit 2
 fi
 # A PICTURE TAKEN THROUGH A RENDERER THAT REFUSED A SHADER IS NOT EVIDENCE.
@@ -69,8 +79,8 @@ fi
 # What each picture was: the run's own line, carrying the pose it was asked for and where the eye stood.
 grep '^SHOT_SAVED=' "$LOG" >&2
 saved="$(grep -c '^SHOT_SAVED=' "$LOG")"
-if [ "$rc" -ne 0 ] || [ "$saved" -ne "$POSES" ]; then
-	echo "shoot_demo: asked for $POSES pose(s), the run published $saved and exited $rc." >&2
+if [ "$rc" -ne 0 ] || [ "$saved" -ne $((POSES * FRAMES_PER_POSE)) ]; then
+	echo "shoot_demo: asked for $POSES pose(s) x $FRAMES_PER_POSE, the run published $saved and exited $rc." >&2
 	tail -20 "$LOG" >&2
 	exit 1
 fi
