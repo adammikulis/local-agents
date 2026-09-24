@@ -1,7 +1,7 @@
 # Using Local Agents in your project
 
 This document covers assembling the addon into something that works: what is in
-`addons/local_agents/`, what you can delete, the nodes you drop into a scene, the project settings
+`addons/local_agents/`, the nodes you drop into a scene, the project settings
 that point the addon at a model, and the two duck-typed contracts the creature behaviour talks
 through.
 
@@ -10,9 +10,7 @@ DEMOS.md lists the example scenes.
 
 ## What is in the addon
 
-The addon is one plugin, and the game is deletable. Copy `addons/local_agents/` into your project,
-delete `game/`, and the agent, creature and simulation nodes keep working. The two references into
-`game/` from outside it are both soft, and "What deleting costs you" below names them.
+The addon is one plugin.
 
 The compiled GDExtension in `gdextensions/localagents/` is a hard dependency. Build it before you run
 anything: `sim/` and the agent nodes name its classes as typed identifiers. INSTALL.md covers the build.
@@ -41,52 +39,11 @@ local-LLM streamer. `LocalAgentSimWorld` in SPHERE mode needs the optional zylan
 from https://github.com/Zylann/godot_voxel, FLAT mode needs nothing beyond this addon.
 `sim/EMERGENCE.md` explains the rule the simulation is built on.
 
-`game/`, `assets/` and `voices/` are the optional Anima game. `audio/` is not: `creatures/creature/
-CreatureThink.gd:158` and four actors under `sim/actors/` call `LAAudioDirector.emit()` to make a
-chomp, an impact or a weather sound. A creature making a noise is a stimulus broadcast like scent, so
-`audio/` is part of the library and deleting it is a parse error.
-
 ## Installing into your own project
 
 1. Copy `addons/local_agents/` into your project's `addons/` directory.
-2. Optionally delete `game/`, `assets/` and `voices/`. Read "What deleting costs you" below before you
-   delete `sim/`.
-3. Click Project > Project Settings > Plugins and enable Local Agents.
-4. Add a node and fill in the inspector.
-
-### What deleting costs you
-
-Two files outside `game/` name a path inside it, and neither is a hard link. `examples/demos/
-voxel_planet_game.tres` is the catalogue entry for the flagship scene: its `scene_path` is an
-`@export_file` String rather than a `PackedScene`, so the resource still loads and its launcher row
-reports "Its scene is missing" instead of breaking the menu. `creatures/Creature.gd` names the game's
-combustion visual through `LAOptionalScript.resolve`, which returns null when the file is gone, so a
-creature still dies burned without it.
-
-Deleting `sim/` costs more than you might expect. Two example scenes name a `sim/` script on an
-`ext_resource` line:
-
-- `examples/BoxFieldDemo.tscn:3` needs `sim/material/FieldBox.gd`.
-- `examples/SimWorldPlanetDemo.tscn:4` needs `sim/SimWorld.gd`.
-
-Both break quietly rather than loudly. Godot still loads a `.tscn` whose `ext_resource` script is
-missing: it logs `Parse Error: [ext_resource] referenced non-existent resource` and hands back a
-`PackedScene` with that one node stripped down to its bare type. Every sibling survives. `BoxFieldDemo`
-still opens with its camera, its light and a working `DemoHarness`, whose script lives in `runtime/`
-rather than `sim/`, and only its `FieldBox` child loses its script. `SimWorldPlanetDemo` opens with
-`%SimWorld` reduced to a plain `Node3D`, so the cast at `examples/SimWorldPlanetDemo.gd:21` yields
-null. Neither reports anything at load. The failure surfaces later as a null-instance property access
-inside `demo_report()`, which only a `--run-frames` run reaches.
-
-The launcher does not warn you either. `LADemoLauncher.gate_reason()` at
-`examples/DemoLauncher.gd:90` only calls `ResourceLoader.exists(entry.scene_path)`, and that returns
-true for a `.tscn` whose script is gone, so both rows stay clickable. Delete those two scenes and
-their catalogue entries along with `sim/`, or keep `sim/`.
-
-The creature stack itself survives. `creatures/Creature.gd:369` and
-`creatures/creature/CreatureThink.gd:16` are the only other references into `sim/`, and both are plain
-String constants resolved through a guarded `ResourceLoader.exists()` at runtime. Without `sim/` a
-creature simply cannot throw a rock and shows no flame prop when it burns.
+2. Click Project > Project Settings > Plugins and enable Local Agents.
+3. Add a node and fill in the inspector.
 
 Enabling the plugin registers the `AgentManager` autoload for you, so you do not add it by hand.
 `plugin.gd` writes it in `_enter_tree()`, and on disable it removes the entry only if the plugin was
@@ -105,9 +62,6 @@ Seven are the scripts already attached to a demo scene: `examples/TutorialDemo.g
 `examples/AgentActionsDemo.gd`, `examples/SimWorldPlanetDemo.gd`, `examples/CoreCreatureSmoke.gd`,
 `examples/AgentConversationDemo.gd`, `examples/ThinkingCreatureDemo.gd` and `examples/ChatExample.gd`.
 The other two are game-only: `game/world/VoxelViewControls.gd` and `game/GameMode.gd`.
-
-`project.godot` in this repo also registers `GameMode` and `AppExit`. Both live under `game/` and are
-game-only. Do not register them in a project that deletes `game/`.
 
 ## Project settings
 

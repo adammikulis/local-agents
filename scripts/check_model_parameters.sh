@@ -200,6 +200,7 @@ fi
 # THE SLACK HALF OF THE RATCHET. It was a NOTE, which is not a ratchet: the registry sat below its own
 # ceiling and nothing ever asked anybody to write the smaller number.
 . "$REPO_ROOT/scripts/lib_ceiling.sh" 2>/dev/null || true
+echo "MODEL_PARAMETERS={\"declared\":$rows,\"ceiling\":$cap}"
 ceiling_slack "MODEL_PARAMETERS.md's MAX_DECLARED" "$rows" "$cap" 0 "$REPO_ROOT" || exit 1
 
 if [[ $rc -ne 0 ]]; then
