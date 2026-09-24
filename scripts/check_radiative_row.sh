@@ -154,16 +154,14 @@ func _run(grid, solid_v: PackedFloat32Array, temp_c: PackedFloat32Array) -> Arra
 	_upload(bufs["solid"], solid_v)
 	_upload(bufs["temp"], temp_c)
 
-	p.setup(_rd, bufs, cc)
+	p.setup(_rd, LAFieldDriver.on(_rd), bufs, cc)
 	var groups: int = int(ceil(float(cc) / 64.0))
 	# No sun: solar_incident returns zero, so what comes back is the longwave half alone.
 	var ctx: Dictionary = {"cell_size": CELL, "g_m_s2": 9.81, "sun_dir": Vector3.ZERO,
 		"step_index": 0.0, "dt_s": LAMaterialFieldSphereStep3D.real_seconds_per_step()}
-	var cl: int = _rd.compute_list_begin()
-	p.dispatch(_rd, cl, ctx, cc, groups)
-	_rd.compute_list_end()
-	_rd.submit()
-	_rd.sync()
+	p._driver.open()
+	p.dispatch(_rd, ctx, cc, groups)
+	p._driver.close()
 	var absorbed: PackedFloat32Array = _rd.buffer_get_data(bufs["rad_absorbed"]).to_float32_array()
 	var emitted: PackedFloat32Array = _rd.buffer_get_data(bufs["rad_emitted"]).to_float32_array()
 	p.dispose(_rd)

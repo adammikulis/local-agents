@@ -24,7 +24,11 @@ layout(push_constant, std430) uniform Params {
 	uint cell_count;
 	float p_top;      // pressure above the outermost cell: vacuum unless something stands there
 	uint max_steps;   // walk bound: a staircase takes at most one step per cell on each axis
+	uint chunk_stride;  // chunk.glsli
+	uint chunk_phase;
 } params;
+
+#include "chunk.glsli"
 
 vec3 g_at(uint c) {
 	return vec3(g_field[c * 3u], g_field[c * 3u + 1u], g_field[c * 3u + 2u]);
@@ -58,7 +62,7 @@ float la_load(uint c) {
 }
 
 void main() {
-	uint g = gl_GlobalInvocationID.x;
+	uint g = la_cell();
 	if (g >= params.cell_count) {
 		return;
 	}

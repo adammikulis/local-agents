@@ -178,7 +178,10 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
 - [ ] **Direction is derived for dissolution and coal dehydration; the rest lack standard-state data.**
       Decarboxylation and combustion produce FERT, and `fixed_n` has no formation enthalpy or entropy until
       the fixed-N compound is decided; the five bio records run on cellulose, which has neither datum.
-      Add the data (cited) and pass each record through `LAReactionThermo.reversible`.
+      Add the data (cited) and pass each record through `LAReactionThermo.reversible`. A world holding
+      `fert` fails its error census: `LA_RUNG=5 scripts/check_active_rows.sh` prints `LASubstances gives
+      "fixed_n" no specific heat`.
+      Reading: `channel_specific_heat` in `MatterChannels.gd` asks a dissolved row for `specific_heat`.
 - [ ] **Decay has no temperature dependence and production has an optimum.** Decomposition and respiration
       are `RM_BILINEAR` in their two reactants, so litter rots at the same rate at −40 °C and +40 °C, wet or
       bone dry, while photosynthesis carries `RM_OPTIMUM_BAND`. Michaelis–Menten and a Q₁₀ (or the

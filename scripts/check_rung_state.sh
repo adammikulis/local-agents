@@ -150,15 +150,13 @@ func _init() -> void:
 	p_cells.fill(p_ref)
 	_upload(bufs["pressure"], p_cells)
 
-	p.setup(_rd, bufs, cc)
+	p.setup(_rd, LAFieldDriver.on(_rd), bufs, cc)
 	var groups: int = int(ceil(float(cc) / 64.0))
 	var ctx: Dictionary = {"cell_size": CELL, "centre": Vector3.ZERO, "spin": Vector3.ZERO,
 		"spin_rate_rad_s": 0.0, "sea_radius": 0.0, "step_index": 0.0, "dt_s": 1.0}
-	var cl: int = _rd.compute_list_begin()
-	p.dispatch(_rd, cl, ctx, cc, groups)
-	_rd.compute_list_end()
-	_rd.submit()
-	_rd.sync()
+	p._driver.open()
+	p.dispatch(_rd, ctx, cc, groups)
+	p._driver.close()
 	var temp: PackedFloat32Array = _rd.buffer_get_data(bufs["temp"]).to_float32_array()
 	var ice: PackedFloat32Array = _rd.buffer_get_data(bufs["h2o_solid"]).to_float32_array()
 	var p_out: PackedFloat32Array = _rd.buffer_get_data(bufs["pressure"]).to_float32_array()

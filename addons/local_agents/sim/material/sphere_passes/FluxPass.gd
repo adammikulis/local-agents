@@ -14,9 +14,9 @@ const ActiveScript: GDScript = preload("res://addons/local_agents/sim/material/s
 ## reflected-shortwave march, the face solve, the momentum close, the temporal levels and the list.
 enum { PASS_FLUX, PASS_APPLY, PASS_GRAIN, PASS_LIST_RESET, PASS_LIST_APPEND, PASS_LIST_ARGS,
 	PASS_SW, PASS_FACE, PASS_MOMENTUM,
-	PASS_LEVEL_SEED, PASS_LEVEL_RELAX, PASS_LEVEL_RESET, PASS_LEVEL_SCAN,
+	PASS_LEVEL_SEED, PASS_LEVEL_RESET, PASS_LEVEL_SCAN,
 	PASS_LEVEL_SORT, PASS_LEVEL_PEAK,
-	PASS_ACT_AGE, PASS_ACT_WAKE, PASS_ACT_MARK, PASS_ACT_WAKE_RESET, PASS_ACT_SEED }
+	PASS_ACT_AGE, PASS_ACT_WAKE, PASS_ACT_MARK, PASS_ACT_WAKE_RESET, PASS_ACT_SEED, PASS_MOMENTUM_APPLY }
 
 ## flux.glsl's ACT_NO_GROUP: this record's crossings wake no second group.
 const NO_GROUP: int = 0xffffffff
@@ -35,10 +35,6 @@ const MOMENTUM_BOOKS: PackedStringArray = ["mom_x", "mom_y", "mom_z"]
 
 var _pipe: RID = RID()
 var _level_rid: RID = RID()
-
-## One submit holds ONE substep: the device's fence wait is finite, and a planet-size frame in one
-## submit outran it. A substep over the whole grid is the largest thing a submit may hold.
-const FLUSH_EVERY: int = 0
 
 ## Byte offsets of the level, substep index and substep count in the Params block below: the three the
 ## driver rewrites per substep.
@@ -173,7 +169,7 @@ func _plan() -> Dictionary:
 		"row_radiate": radiate, "groups": _row_groups, "args": _args_rid,
 		"wake_args": _wake_args_rid, "grain_set": _grain_set, "list_sets": _list_sets,
 		"queue_bin": ActiveScript.QUEUE_BIN, "slots": LevelsScript.SLOTS,
-		"group_count": group_count(), "flush_every": FLUSH_EVERY,
+		"group_count": group_count(),
 		"level_off": PC_LEVEL, "k_off": PC_K, "n_off": PC_N}
 
 
@@ -182,7 +178,7 @@ var _xuv_w_m2: float = 0.0
 var _phi_datum: float = 0.0             # J/kg, la_phi's zero against infinity
 
 
-func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:
+func dispatch(_rd: RenderingDevice, ctx: Dictionary, cc: int, groups: int) -> void:
 	if not _dispatchable():
 		return
 	var dt_s: float = _ctx_num(ctx, "dt_s")
@@ -192,7 +188,7 @@ func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: i
 	_phi_datum = float(ctx.get("phi_datum", 0.0))
 	# The equation of state, restated after every substep. StateDerivePass owns the kernel, the
 	# bindings and the block; this pass owns when the substep asks for it.
-	_driver.run_transport(cl, _peaks, _pc_rows(cc, dt_s, sun),
+	_driver.run_transport(_peaks, _pc_rows(cc, dt_s, sun),
 		_pc_grain(cc, dt_s, sun), _pc_lists(cc, dt_s, sun),
 		_seed_workgroups(), groups, ctx.get("restate", {}))
 
@@ -209,8 +205,8 @@ func _seed_workgroups() -> int:
 
 ## THE LEVEL FIELD, once per group over the cells it holds. The counting sort that turns it into a
 ## dispatch list is the active-cell rebuild, which the driver runs every substep.
-func build_levels(cl: int, g: int, cc: int, dt_s: float, sun: Vector3, levels: int) -> void:
-	_driver.build_levels(cl, g, _pc_rows(cc, dt_s, sun), levels)
+func build_levels(g: int, cc: int, dt_s: float, sun: Vector3, levels: int) -> void:
+	_driver.build_levels(g, _pc_rows(cc, dt_s, sun), levels)
 
 
 ## Every cell changed at once, from outside any kernel: the one seam a CPU writer has into the mask.
@@ -228,31 +224,26 @@ func pre_step(rd: RenderingDevice, ctx: Dictionary, cc: int, _groups: int) -> vo
 	rd.buffer_clear(_peak_rid, 0, _row_groups.size() * 4)
 	var usets: Array = []
 	var pcs: Array = []
-	var wgs: PackedInt32Array = PackedInt32Array()
 	var args: Array = []
 	var offs: PackedInt32Array = PackedInt32Array()
-	var seed: int = _seed_workgroups()
-	if seed > 0:
-		usets.append(_grain_set)
-		pcs.append(_pc(GRAIN_ROW, cc, PASS_ACT_SEED, dt_s, Vector3.ZERO, 0, 0, 1,
-			group_count()))
-		wgs.append(seed)
-		args.append(RID())
-		offs.append(0)
+	var keys: PackedStringArray = PackedStringArray()
 	for g in _row_groups.size():
 		for gi in _row_groups[g]:
 			if not LAProcessSet.is_active("transport", String(_rows[gi].get("label", ""))):
 				continue
 			usets.append(_sets[gi])
 			pcs.append(_pc(_rows[gi], cc, PASS_LEVEL_PEAK, dt_s, Vector3.ZERO, g, 0, 1, g))
-			wgs.append(0)
 			args.append(_args_rid)
 			offs.append(ActiveScript.args_offset(g, 0))
-	var cl: int = rd.compute_list_begin()
-	_driver.run(cl, _pipe, usets, pcs, wgs, args, offs, true)
-	rd.compute_list_end()
-	rd.submit()
-	rd.sync()
+			keys.append("%s/level_peak/%d" % [_label(), gi])
+	var seed: int = _seed_workgroups()
+	_driver.open()
+	if seed > 0:
+		_driver.run(_pipe, [_grain_set], [_pc(GRAIN_ROW, cc, PASS_ACT_SEED, dt_s, Vector3.ZERO, 0, 0, 1,
+			group_count())], PackedInt32Array([seed]), [], PackedInt32Array(), true,
+			PackedStringArray([_label() + "/act_seed"]))
+	_driver.run(_pipe, usets, pcs, PackedInt32Array(), args, offs, true, keys)
+	_driver.close()
 	_peaks = rd.buffer_get_data(_peak_rid, 0, _row_groups.size() * 4).to_int32_array()
 	# A CELL ASKING FOR A STEP SHORTER THAN LIGHT TAKES TO CROSS IT IS NOT ASKING FOR RESOLUTION.
 	# Its state is broken, no subdivision integrates it, and its group does not move this step.
@@ -311,7 +302,8 @@ func _active_cells(rd: RenderingDevice) -> float:
 ## Pass-owned scratch: the first FACE_SCRATCH ride a face, the rest are per cell.
 const SCRATCH: PackedStringArray = ["flux_face_u", "flux_fp_star", "flux_face_uw", "flux_fpw_star",
 	"flux_send", "flux_x_amt", "flux_x_h", "flux_x_q",
-	"flux_lw_emis", "flux_sw_absorbed", "flux_sw_keep", "flux_sw_src", "flux_nu_t", "flux_w_top"]
+	"flux_lw_emis", "flux_sw_absorbed", "flux_sw_keep", "flux_sw_src", "flux_nu_t", "flux_w_top",
+	"flux_dm_x", "flux_dm_y", "flux_dm_z"]
 const FACE_SCRATCH: int = 8
 
 
@@ -409,7 +401,6 @@ func _pc_rows(cc: int, dt_s: float, sun: Vector3) -> Array:
 		var head: Dictionary = _rows[group[0]]
 		var ht: Array = out[group[0]]
 		ht[LAFieldDriver.SLOT_LEVEL_RESET] = _pc(head, cc, PASS_LEVEL_RESET, dt_s, sun, 0, 0, 1, g)
-		ht[LAFieldDriver.SLOT_LEVEL_RELAX] = _pc(head, cc, PASS_LEVEL_RELAX, dt_s, sun, 0, 0, 1, g)
 		ht[LAFieldDriver.SLOT_ACT_AGE] = _pc(head, cc, PASS_ACT_AGE, dt_s, sun, 0, 0, 1, g)
 		ht[LAFieldDriver.SLOT_ACT_WAKE] = _pc(head, cc, PASS_ACT_WAKE, dt_s, sun, 0, 0, 1, g)
 		ht[LAFieldDriver.SLOT_ACT_MARK] = _pc(head, cc, PASS_ACT_MARK, dt_s, sun, 0, 0, 1, g)
@@ -431,6 +422,8 @@ func _pc_rows(cc: int, dt_s: float, sun: Vector3) -> Array:
 		var last: int = group[group.size() - 1]
 		if _vel_row(_rows[last]):
 			out[last][LAFieldDriver.SLOT_MOMENTUM] = _pc(_rows[last], cc, PASS_MOMENTUM,
+				dt_s, sun, 0, 0, 1, g)
+			out[last][LAFieldDriver.SLOT_MOMENTUM_APPLY] = _pc(_rows[last], cc, PASS_MOMENTUM_APPLY,
 				dt_s, sun, 0, 0, 1, g)
 	return out
 

@@ -224,6 +224,8 @@ func step(sim_step: int) -> void:
 	else:
 		_f._gpu.step()
 	LASimReport.gauge("field_dispatch_ms", float(Time.get_ticks_usec() - t_step) / 1000.0)
+	if _f._gpu._driver.aborted() != "":
+		return
 	var t_post: int = Time.get_ticks_usec()
 	# Seal on the field clock, never the report clock. The seal takes only its own legs.
 	if _f._seal != null and _f._gpu.has_method("take_probe"):

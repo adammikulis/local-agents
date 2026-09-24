@@ -189,13 +189,14 @@ func _run() -> void:
 
 	_seed(cc)
 
+	var driver: LAFieldDriver = LAFieldDriver.on(_rd)
 	for p in [derive, reduce]:
 		p.grid_dims = Vector3i(NX, NY, NZ)
 		p.grid_cell_size = CELL
 		p.grid_origin = Vector3.ZERO
 		p.face_count = grid.neighbours.size()
 		p.ghost_count = 0
-		p.setup(_rd, _bufs, cc)
+		p.setup(_rd, driver, _bufs, cc)
 
 	var seeded: PackedStringArray = LAChannels.channels()
 	seeded.append_array(PackedStringArray(["pressure", "p_fluid"]))
@@ -210,12 +211,10 @@ func _run() -> void:
 		var ctx: Dictionary = {"cell_size": CELL, "centre": Vector3.ZERO, "spin": Vector3.ZERO,
 			"spin_rate_rad_s": 0.0, "sea_radius": 0.0, "gravity_self": 0.0, "step_index": float(s),
 			"dt_s": 1.0, "seeding": false}
-		var cl: int = _rd.compute_list_begin()
-		derive.dispatch(_rd, cl, ctx, cc, groups)
-		reduce.dispatch(_rd, cl, ctx, cc, groups)
-		_rd.compute_list_end()
-		_rd.submit()
-		_rd.sync()
+		driver.open()
+		derive.dispatch(_rd, ctx, cc, groups)
+		reduce.dispatch(_rd, ctx, cc, groups)
+		driver.close()
 		steps.append(_dispatched(derive, reduce, ctx, cc, groups, s))
 
 	var rows: Dictionary = reduce._drain(_rd)
@@ -290,9 +289,9 @@ func _seed(cc: int) -> void:
 	_upload(_bufs["pressure"], pres)
 
 
-## The dispatches the two passes just issued: the derive's block out of the restate it published and the
-## detect block it derives from that, then the reduce row blocks the pass encodes, taking which latch rows
-## ran this step off the pass's own record of when it latched.
+## The dispatches the two passes just issued, each as one whole dispatch with the driver's chunk words: the
+## derive's block out of the restate it published and the detect block it derives from that, then the
+## reduce row blocks the pass encodes, taking which latch rows ran this step off the pass's own record.
 func _dispatched(derive: RefCounted, reduce: RefCounted, ctx: Dictionary, cc: int, groups: int,
 		step: int) -> Array:
 	var out: Array = []
@@ -304,8 +303,10 @@ func _dispatched(derive: RefCounted, reduce: RefCounted, ctx: Dictionary, cc: in
 		return out
 	var detect: PackedByteArray = pc.duplicate()
 	detect.encode_u32(derive.PC_DETECT, 1)
-	out.append({"kernel": "state_derive", "uset": derive._set, "groups": groups, "push": pc})
-	out.append({"kernel": "state_derive", "uset": derive._set, "groups": groups, "push": detect})
+	out.append({"kernel": "state_derive", "uset": derive._set, "groups": groups,
+		"push": LAFieldDriver.dispatched_block(pc, 1, 0)})
+	out.append({"kernel": "state_derive", "uset": derive._set, "groups": groups,
+		"push": LAFieldDriver.dispatched_block(detect, 1, 0)})
 	var rows: Array = reduce._rows
 	var latched: Dictionary = reduce._latch_step
 	for r in rows.size():
@@ -314,7 +315,7 @@ func _dispatched(derive: RefCounted, reduce: RefCounted, ctx: Dictionary, cc: in
 				and int(latched.get(String(row.get("ref", "")), -1)) != step:
 			continue
 		out.append({"kernel": "reduce", "uset": (reduce._sets as Array)[r], "groups": reduce._groups,
-			"push": reduce._pc(cc, row, r * reduce._groups)})
+			"push": LAFieldDriver.dispatched_block(reduce._pc(cc, row, r * reduce._groups), 1, 0)})
 	return out
 
 

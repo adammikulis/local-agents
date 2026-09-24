@@ -193,7 +193,11 @@ layout(push_constant, std430) uniform Params {
 	float sun_y;    // same value flux.glsl's RADIATE row takes, so light and heat are ONE quantity
 	float sun_z;
 	uint pad2;
+	uint chunk_stride;  // chunk.glsli
+	uint chunk_phase;
 } params;
+
+#include "chunk.glsli"
 
 // The zenith cosine — GEOMETRY, which is what the LIGHT slot is declared to be. Same terminator the
 // solar kernel draws; the flux itself is the radiative row's business.
@@ -433,7 +437,7 @@ float prod_coeff_at(Reaction rc, int k, float ch, float co) {
 #define LA_REACT_SLOTS (H2O_LIQUID + 1)
 
 void main() {
-	uint i = gl_GlobalInvocationID.x;
+	uint i = la_cell();
 	if (i >= params.cell_count) {
 		return;
 	}

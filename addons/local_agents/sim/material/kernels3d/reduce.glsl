@@ -34,7 +34,11 @@ layout(push_constant, std430) uniform Params {
 	float gate_lo;     // gated cells are those inside [gate_lo, gate_hi)
 	float gate_hi;
 	uint nbr;          // NBR_*: what the cell's value is read against
+	uint chunk_stride; // chunk.glsli
+	uint chunk_phase;
 } params;
+
+#include "chunk.glsli"
 
 #include "cellvol.glsli"
 #include "neighbours.glsli"
@@ -182,9 +186,44 @@ bool la_keep(uint i) {
 	return lo_ok && g < params.gate_hi;
 }
 
+// One cell's contribution to the lane's accumulator.
+float la_take(float acc, uint i) {
+	float v = la_value(i);
+	if (params.op == OP_SUM_ABS_DIFF) {
+		v = abs(v - refv[i]);
+	}
+	if (params.op == OP_MAX_REL_DIFF) {
+		// Outside the row's mask a cell was never referenced; inside it, a negative reference is
+		// still a departure to take rather than an absence.
+		if (refv[i] == 0.0) {
+			return acc;
+		}
+		v = abs(v - refv[i]) / abs(refv[i]);
+	}
+	if (params.op == OP_SUM_ABS) {
+		v = abs(v);
+	}
+	if (params.op == OP_COUNT_GT) {
+		return acc + ((v > params.threshold) ? 1.0 : 0.0);
+	}
+	if (params.op == OP_COUNT_GE) {
+		return acc + ((v >= params.threshold) ? 1.0 : 0.0);
+	}
+	if (params.op == OP_COUNT_LT) {
+		return acc + ((v < params.threshold) ? 1.0 : 0.0);
+	}
+	if (params.op == OP_COUNT) {
+		return acc + 1.0;
+	}
+	if (params.op == OP_MIN || params.op == OP_MAX || params.op == OP_MAX_REL_DIFF) {
+		return la_fold(acc, v);
+	}
+	return acc + v * (params.weight != 0u ? cell_volume(i) : 1.0);
+}
+
 void main() {
 	uint lid = gl_LocalInvocationID.x;
-	uint g = gl_GlobalInvocationID.x;
+	uint g = la_cell();
 
 	// op is a push constant, so this branch is uniform across the workgroup: no invocation of a LATCH
 	// dispatch reaches the barriers below, which is what keeps them legal.
@@ -197,40 +236,11 @@ void main() {
 		return;
 	}
 
+	// ONE CELL PER INVOCATION: the driver dispatches a workgroup for every 64 cells, so the partial a
+	// workgroup writes is the same 64 cells folded the same way whichever submit carries it.
 	float acc = la_identity();
-	uint stride = gl_NumWorkGroups.x * 64u;
-	for (uint i = g; i < params.cell_count; i += stride) {
-		if (!la_keep(i)) {
-			continue;
-		}
-		float v = la_value(i);
-		if (params.op == OP_SUM_ABS_DIFF) {
-			v = abs(v - refv[i]);
-		}
-		if (params.op == OP_MAX_REL_DIFF) {
-			// Outside the row's mask a cell was never referenced; inside it, a negative reference is
-			// still a departure to take rather than an absence.
-			if (refv[i] == 0.0) {
-				continue;
-			}
-			v = abs(v - refv[i]) / abs(refv[i]);
-		}
-		if (params.op == OP_SUM_ABS) {
-			v = abs(v);
-		}
-		if (params.op == OP_COUNT_GT) {
-			acc += (v > params.threshold) ? 1.0 : 0.0;
-		} else if (params.op == OP_COUNT_GE) {
-			acc += (v >= params.threshold) ? 1.0 : 0.0;
-		} else if (params.op == OP_COUNT_LT) {
-			acc += (v < params.threshold) ? 1.0 : 0.0;
-		} else if (params.op == OP_COUNT) {
-			acc += 1.0;
-		} else if (params.op == OP_MIN || params.op == OP_MAX || params.op == OP_MAX_REL_DIFF) {
-			acc = la_fold(acc, v);
-		} else {
-			acc += v * (params.weight != 0u ? cell_volume(i) : 1.0);
-		}
+	if (g < params.cell_count && la_keep(g)) {
+		acc = la_take(acc, g);
 	}
 
 	s_acc[lid] = acc;
@@ -247,6 +257,6 @@ void main() {
 	}
 
 	if (lid == 0u) {
-		partials[params.base + gl_WorkGroupID.x] = s_acc[0];
+		partials[params.base + la_group()] = s_acc[0];
 	}
 }
