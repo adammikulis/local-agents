@@ -17,8 +17,11 @@ GODOT="${GODOT:-godot}"
 EXAMPLES_REL="addons/local_agents/examples"
 EXAMPLES_DIR="$REPO_ROOT/$EXAMPLES_REL"
 DEFAULT_FRAMES="${LA_DEMO_FRAMES:-40}"
-# Ceiling per demo, seconds.
+# Ceiling per demo, seconds, counted once this run holds the machine's GPU lock.
 DEMO_TIMEOUT="${LA_DEMO_TIMEOUT:-60}"
+GPU_HELD=0
+# The lock library is written for errexit off; `|| true` runs it so.
+trap 'if [ "$GPU_HELD" -eq 1 ]; then la_gpu_unlock || true; fi' EXIT
 
 now_ms() {
   perl -MTime::HiRes=time -e 'printf "%d", time * 1000' 2>/dev/null || echo $(( $(date +%s) * 1000 ))
@@ -77,7 +80,14 @@ run_one() {
     return 2
   fi
 
-  local log start rc elapsed marker
+  local log start rc elapsed marker lock_rc=0
+  # la_godot waits for the lock otherwise, inside the demo's clock.
+  la_gpu_lock || lock_rc=$?
+  case "$lock_rc" in
+    0) GPU_HELD=1 ;;
+    2) ;;
+    *) echo "run_demo: timed out waiting for the GPU lock; '$name' did not run." >&2; return 2 ;;
+  esac
   log="$(mktemp "${TMPDIR:-/tmp}/la_run_demo.XXXXXX")"
   start="$(now_ms)"
   set +e
@@ -102,6 +112,10 @@ run_one() {
   wait "$guard" 2>/dev/null
   set -e
   elapsed=$(( $(now_ms) - start ))
+  if [ "$GPU_HELD" -eq 1 ]; then
+    la_gpu_unlock || true
+    GPU_HELD=0
+  fi
 
   # The harness prints LA_RUN_COMPLETE on every exit it makes; `|| true` keeps a no-match grep from ending
   # the script under set -e.
