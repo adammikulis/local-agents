@@ -15,10 +15,20 @@ KEYS="nonfinite_cells,solid_cells,pressure_fluid_over_col,pressure_fluid_over_co
 # $1 the arm's name, $2 its report block, $3 the run's exit. Exits 2 on a reading never taken.
 judge() {
 	la_rung_require "$2" nonfinite_cells solid_cells pressure_fluid_over_col pressure_fluid_over_col_pa \
-		pressure_fluid_under_vacuum || {
+		pressure_fluid_under_vacuum
+	case $? in
+	0) ;;
+	1)
+		echo "check_sealed_state_range: $1: a locked cell's fluid or its column stands at no finite" >&2
+		echo "                          pressure." >&2
+		bad=1
+		return
+		;;
+	*)
 		echo "check_sealed_state_range: the $1 run published no sealed state to read (exit $3)." >&2
 		exit 2
-	}
+		;;
+	esac
 	local nf sealed over worst under
 	nf="$(la_rung_max "$2" nonfinite_cells)"
 	sealed="$(la_rung_value "$2" solid_cells)"

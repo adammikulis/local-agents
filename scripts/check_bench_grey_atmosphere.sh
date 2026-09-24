@@ -143,7 +143,7 @@ rc=$?
 FRAMES="${LA_BENCH_GA_FRAMES:-8}"
 . "$REPO_ROOT/scripts/lib_rung.sh"
 world="$(la_rung_report 7 "$FRAMES" "rad_emitted,rad_absorbed,rad_sb_rel_max")"
-la_rung_require "$world" rad_emitted rad_absorbed || exit 2
+la_rung_require "$world" rad_emitted rad_absorbed || exit $?
 printf 'BENCH_GREY_ATMOSPHERE_WORLD={"rad_emitted":%s,"rad_absorbed":%s}\n' \
   "$(la_rung_value "$world" rad_emitted)" "$(la_rung_value "$world" rad_absorbed)"
 echo "check_bench_grey_atmosphere: OK"

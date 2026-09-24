@@ -245,7 +245,7 @@ fi
 . "$REPO_ROOT/scripts/lib_rung.sh"
 sim_out="$(la_rung_report 0 "${LA_RUNG_FRAMES:-8}" "field_ms")"
 printf '%s\n' "$sim_out" | grep -E '^field_ms' || true
-la_rung_require "$sim_out" field_ms || exit 2
+la_rung_require "$sim_out" field_ms || exit $?
 ms="$(la_rung_value "$sim_out" field_ms)"
 if ! awk -v v="$ms" 'BEGIN{exit !(v > 0)}'; then
   echo
