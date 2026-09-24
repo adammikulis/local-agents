@@ -112,6 +112,8 @@ func step(delta: float) -> void:
 	_brush.update_brush_ring()
 
 
+## The generating-planet screen still stands over the frame, fading or not.
+func loading_shown() -> bool: return get_node_or_null("GeneratingPlanetScreen") != null
 func hud() -> CanvasLayer: return _hud
 func game_hud() -> CanvasLayer: return _game_hud
 func audio() -> LAAudioDirector: return _audio
