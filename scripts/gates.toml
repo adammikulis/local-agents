@@ -933,3 +933,24 @@ script = "scripts/check_hud_palette.sh"
 kind = "text"
 marker = "^check_hud_palette: OK"
 mutation = "printf 'theme_override_colors/font_color = Color(0.62, 0.66, 0.72, 1)\\n' >> addons/local_agents/game/ui/GameHud.tscn"
+
+[[gate]]
+name = "check_event_views"
+script = "scripts/check_event_views.sh"
+kind = "headless"
+needs = ["import"]
+marker = "^check_event_views: OK"
+mutation = [
+	"python3 -c \"p='addons/local_agents/game/render/events/CycloneView.tscn'; s=open(p).read(); open(p,'w').write(s.replace('ablation_name = \\\"cyclone_view\\\"\\n',''))\"",
+	"python3 -c \"p='addons/local_agents/game/render/events/PhenomenaMarkers.gd'; s=open(p).read(); open(p,'w').write(s.replace('if rec == null or not rec.offered() or not _adopt','if rec == null or not _adopt'))\"",
+	"python3 -c \"p='addons/local_agents/game/render/events/EventViewRecord.gd'; s=open(p).read(); open(p,'w').write(s.replace('\\t\\t\\treturn false\\n','\\t\\t\\tpass\\n'))\"",
+	"python3 -c \"p='addons/local_agents/game/render/events/PhenomenaMarkers.gd'; s=open(p).read(); open(p,'w').write(s.replace('if box == null or not box.can_process() or','if box == null or'))\"",
+	"python3 -c \"p='addons/local_agents/game/render/events/PhenomenaMarkers.gd'; s=open(p).read(); open(p,'w').write(s.replace(' or box.get_child_count() >= max_drawn_per_kind',''))\"",
+	"python3 -c \"p='addons/local_agents/game/RenderLayer.gd'; s=open(p).read(); open(p,'w').write(s.replace('\\tfor actor in actors.get_children():\\n\\t\\t_draw_actor(actor)\\n',''))\"",
+	"python3 -c \"p='addons/local_agents/game/RenderLayer.gd'; s=open(p).read(); open(p,'w').write(s.replace('\\tactors.child_entered_tree.connect(_draw_actor)\\n',''))\"",
+	"python3 -c \"p='addons/local_agents/game/render/events/CycloneView.tscn'; s=open(p).read(); open(p,'w').write(s.replace('gravity = Vector3(0, -0.001, 0)','gravity = Vector3(0, 0, 0)'))\"",
+	"python3 -c \"p='addons/local_agents/game/render/events/CycloneView.tscn'; s=open(p).read(); open(p,'w').write(s.replace('local_coords = true','local_coords = false'))\"",
+	"python3 -c \"p='addons/local_agents/game/render/events/EventView.gd'; s=open(p).read(); open(p,'w').write(s.replace('Transform3D(Basis(side, up, side.cross(up)), point)','Transform3D(Basis.IDENTITY, point)'))\"",
+	"python3 -c \"p='addons/local_agents/game/render/events/CycloneView.tscn'; s=open(p).read(); open(p,'w').write(s.replace('visibility_aabb = AABB(-6, -2, -6, 12, 4, 12)','visibility_aabb = AABB(-1, -0.1, -1, 2, 0.2, 2)'))\"",
+	"python3 -c \"p='addons/local_agents/game/render/events/PhenomenaMarkers.gd'; s=open(p).read(); open(p,'w').write(s.replace('_field._grid.cell_edge(c)','_field._grid.cell_size'))\"",
+]
