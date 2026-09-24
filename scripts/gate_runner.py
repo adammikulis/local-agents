@@ -23,6 +23,7 @@ SCRIPTS = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(SCRIPTS)
 GATES_TOML = os.path.join(SCRIPTS, "gates.toml")
 KINDS = ("text", "headless", "gpu")
+NEEDS = ("import", "capture", "body")
 
 
 def load_gates(path=GATES_TOML):
@@ -42,6 +43,9 @@ def load_gates(path=GATES_TOML):
             raise ValueError("%s: kind must be one of %s" % (name, ", ".join(KINDS)))
         if not g.get("marker"):
             raise ValueError("%s: no marker, so a silent exit 0 would read as a pass" % name)
+        needs = g.get("needs", [] if g["kind"] == "text" else ["import", "capture"])
+        if not isinstance(needs, list) or any(n not in NEEDS for n in needs):
+            raise ValueError("%s: needs must be a list drawn from %s, not %r" % (name, ", ".join(NEEDS), needs))
         gates.append({
             "name": name,
             "label": g.get("label", name + ".sh"),
@@ -52,7 +56,7 @@ def load_gates(path=GATES_TOML):
                                       else g.get("mutation", [])) if m],
             "args": list(g.get("args", [])),
             "env": dict(g.get("env", {})),
-            "needs": list(g.get("needs", [] if g["kind"] == "text" else ["import", "capture"])),
+            "needs": needs,
             "timeout_s": int(g.get("timeout_s", defaults.get("timeout_s", 900))),
         })
     if not gates:
@@ -250,9 +254,16 @@ def git(root, *argv, check=True):
                           stderr=subprocess.PIPE, text=True, errors="replace", check=check)
 
 
+BIN_REL = os.path.join("addons", "local_agents", "gdextensions", "localagents", "bin")
+
+
 def stage_scratch(scratch):
     """A detached copy of HEAD carrying this tree's uncommitted work, so it tests what is here."""
     git(ROOT, "worktree", "add", "--detach", scratch, "HEAD")
+    # THIS TREE'S EXTENSION BUILD: a lane that changed the native sources carries its own, and the primary
+    # checkout's, which ensure_worktree_ready.sh would copy in its place, is refused against these sources.
+    if os.path.isdir(os.path.join(ROOT, BIN_REL)):
+        shutil.copytree(os.path.join(ROOT, BIN_REL), os.path.join(scratch, BIN_REL), symlinks=True)
     diff = git(ROOT, "diff", "HEAD", "--binary").stdout
     if diff.strip():
         subprocess.run(["git", "-C", scratch, "apply", "--whitespace=nowarn", "-"],

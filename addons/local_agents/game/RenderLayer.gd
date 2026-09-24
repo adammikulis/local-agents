@@ -19,17 +19,15 @@ var declared_vectors: String = LAFieldVectors.SOURCE_UNSET
 
 # The node TREE is declared in RenderLayer.tscn; this script only wires it.
 @onready var _camera: Camera3D = $CameraRig
-@onready var _sky_ctrl: LAVoxelSkyController = $SkyController
+@onready var _sky: LASkyView = $Sky
 @onready var _veg_renderer: Node3D = $VegetationRenderer
-@onready var _water: Node = $WaterParticles
-@onready var _water_surface: LAMaterialFieldRender3D = $WaterSurface
+@onready var _water_surface: LAWaterSurfaceView = $WaterSurface
 @onready var _vectors: LAFieldVectors = $FieldVectors
 @onready var _heat_tex: LAHeatFieldTexture = $HeatFieldTexture
 @onready var _test_masses: LATestMassView = $TestMassView
 @onready var _outline: LAFieldBoxOutline = $FieldBoxOutline
 @onready var _ejecta: LAEjectaView = $EjectaView
 @onready var _events: LAPhenomenaMarkers = $PhenomenaMarkers
-@onready var _moon: LAMoonView = $MoonView
 
 
 func build(world: Node, sim: LASimulation, input: LAVoxelInputController) -> void:
@@ -80,15 +78,14 @@ func _slice_box() -> AABB:
 
 
 func _build_sky() -> void:
-	_sky_ctrl.setup(_world, _sim.star(), _sim.moon(), _render_opts)
 	# The sky follows THIS camera, never a viewport lookup: a photographed run draws through an
 	# off-screen SubViewport whose parent window holds no camera.
-	_sky_ctrl.bind_camera(_camera, _sim.body().center(), _sim.body().sea_radius())
+	_sky.setup(_sim.material_field(), _sim.body(), _sim.star(), _sim.moon(), _camera, _render_opts)
 	# A SLICE has already been framed: the box says where this world is looked at, and nothing re-aims it.
 	if _slice_box().size.length() > 0.0:
 		return
 	if _camera != null and _camera.has_method("face_sun_on_start"):
-		_camera.face_sun_on_start(_sky_ctrl.sun())
+		_camera.face_sun_on_start(_sky.sun())
 	# OPEN ON THE COAST, in the world frame the rig steers in: most bearings on this body are open water.
 	var terrain = _sim.terrain()
 	if terrain == null or not terrain.has_method("coast_site_world_dir") \
@@ -108,9 +105,6 @@ func _build_world_visuals() -> void:
 	if _sim.ecology().has_method("set_vegetation_renderer"):
 		_sim.ecology().set_vegetation_renderer(_veg_renderer)
 
-	# The field's condensate as ONE GPU particle system; phase is per-particle, off the cover texture.
-	_water.setup(material, _camera, _sky_ctrl.sun(), body.center(), body.sea_radius())
-
 	# One arrow glyph per open cell, at every altitude, over the chosen vector field. The scene's own
 	# declaration outranks the shell's flag; only an undeclared scene defers to it.
 	_vectors.setup(material, _camera, body.center(), body.sea_radius())
@@ -119,9 +113,7 @@ func _build_world_visuals() -> void:
 
 	# THE FREE SURFACE OF EVERY BODY OF WATER THIS WORLD HOLDS, meshed from the field's own water column:
 	# a stream, a lake and an ocean are the same liquid standing at whatever level it stands at.
-	_water_surface.setup(material, _camera, body.center(), bool(_render_opts.get("ocean_transparent", true)))
-
-	_sky_ctrl.bind_scene(material, _water)
+	_water_surface.setup(material, _camera, _sky.sun(), bool(_render_opts["ocean_transparent"]))
 
 	# The ground's look, before any uniform below is written to it.
 	if terrain_material == null:
@@ -135,19 +127,18 @@ func _build_world_visuals() -> void:
 
 	# The simulated box where it meets the world: ground edges on the relief, corner pillars fading up.
 	_outline.setup(material, terrain, _camera, body)
-	# The field's ejecta in flight, what the world was seen to do, and the moon.
+	# The field's ejecta in flight, and what the world was seen to do.
 	_ejecta.setup(material)
 	_events.setup(material, _sim.actors_root())
-	_moon.setup(_sim.moon())
 	_draw_actors(_sim.actors_root())
 
-	for pair in [["terrain", terrain.terrain_node()], ["camera", _camera], ["sky", _sky_ctrl], ["vegetation", _veg_renderer],
-			["water_particles", _water], ["water_surface", _water_surface],
+	for pair in [["terrain", terrain.terrain_node()], ["camera", _camera], ["sky", _sky], ["vegetation", _veg_renderer],
+			["water_surface", _water_surface],
 			["vectors", _vectors], ["heat_texture", _heat_tex], ["test_masses", _test_masses],
-			["box_outline", _outline], ["ejecta_view", _ejecta], ["moon_view", _moon]]:
+			["box_outline", _outline], ["ejecta_view", _ejecta]]:
 		LAAblate.adopt(pair[0], pair[1])
-	# The effects level onto the particle views.
-	_sim.settings_applier().bind(_water, _ejecta)
+	# The effects level onto the ejecta view.
+	_sim.settings_applier().bind(_ejecta)
 	# The screen-ray casts the impact controller accepts but never requires.
 	if _sim.meteor_impacts() != null:
 		_sim.meteor_impacts().set_presentation(_camera)
@@ -169,9 +160,7 @@ func _draw_actor(actor: Node) -> void:
 		actor.add_child(view.instantiate())
 
 
-func step(delta: float) -> void:
-	if _sky_ctrl != null:
-		_sky_ctrl.update(delta)
+func step(_delta: float) -> void:
 	_stream_to_the_horizon()
 
 
@@ -189,6 +178,4 @@ func _stream_to_the_horizon() -> void:
 
 func camera() -> Camera3D: return _camera
 func field_vectors() -> LAFieldVectors: return _vectors
-func sky_controller() -> LAVoxelSkyController: return _sky_ctrl
-func water_particles() -> Node: return _water
-func water_surface() -> Node: return _water_surface
+func sky() -> LASkyView: return _sky
