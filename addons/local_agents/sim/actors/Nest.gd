@@ -25,6 +25,45 @@ var _idle: float = 0.0                    # seconds since the last touch()
 var _dead: bool = false
 
 @onready var _mesh_root: MeshInstance3D = $NestMesh
+
+# Materials and primitive meshes are the same for every shelter of a kind; one of each serves them all.
+static var _shared: Dictionary = {}
+
+
+static func _matte(color: Color, roughness: float) -> StandardMaterial3D:
+	var key: String = "mat%s/%s" % [color, roughness]
+	if not _shared.has(key):
+		var m: StandardMaterial3D = StandardMaterial3D.new()
+		m.albedo_color = color
+		m.roughness = roughness
+		m.metallic = 0.0
+		_shared[key] = m
+	return _shared[key]
+
+
+static func _sphere(radius: float, mat: Material) -> SphereMesh:
+	var key: String = "sphere%s/%d" % [radius, mat.get_instance_id()]
+	if not _shared.has(key):
+		var m: SphereMesh = SphereMesh.new()
+		m.radius = radius
+		m.height = radius * 2.0
+		m.material = mat
+		_shared[key] = m
+	return _shared[key]
+
+
+static func _cylinder(top: float, bottom: float, height: float, segments: int, mat: Material) -> CylinderMesh:
+	var key: String = "cyl%s/%s/%s/%d/%d" % [top, bottom, height, segments, mat.get_instance_id()]
+	if not _shared.has(key):
+		var m: CylinderMesh = CylinderMesh.new()
+		m.top_radius = top
+		m.bottom_radius = bottom
+		m.height = height
+		if segments > 0:
+			m.radial_segments = segments
+		m.material = mat
+		_shared[key] = m
+	return _shared[key]
 @onready var _picker_shape: CollisionShape3D = $NestPicker/NestPickerShape
 
 
@@ -113,21 +152,10 @@ func _shelter_name() -> String:
 ## short cylinders (the woven twigs) around a darker cone hollow. Sits at the
 ## caller-provided roost height (Y is left untouched).
 func _build_twig_cup() -> void:
-	var twig_mat: StandardMaterial3D = StandardMaterial3D.new()
-	twig_mat.albedo_color = Color(0.36, 0.24, 0.13)      # dry twig brown
-	twig_mat.roughness = 1.0
-	twig_mat.metallic = 0.0
-
+	var twig_mat: StandardMaterial3D = _matte(Color(0.36, 0.24, 0.13), 1.0)      # dry twig brown
 	# A shallow bowl base so the cup reads as filled even at distance.
-	var bowl_mat: StandardMaterial3D = StandardMaterial3D.new()
-	bowl_mat.albedo_color = Color(0.24, 0.16, 0.09)      # darker hollow
-	bowl_mat.roughness = 1.0
-	bowl_mat.metallic = 0.0
-
-	var bowl_mesh: SphereMesh = SphereMesh.new()
-	bowl_mesh.radius = 0.24
-	bowl_mesh.height = 0.48
-	bowl_mesh.material = bowl_mat
+	var bowl_mat: StandardMaterial3D = _matte(Color(0.24, 0.16, 0.09), 1.0)      # darker hollow
+	var bowl_mesh: SphereMesh = _sphere(0.24, bowl_mat)
 	var bowl: MeshInstance3D = MeshInstance3D.new()
 	bowl.name = "NestBowl"
 	bowl.mesh = bowl_mesh
@@ -142,11 +170,7 @@ func _build_twig_cup() -> void:
 	for i in range(twig_count):
 		var frac: float = float(i) / float(twig_count)
 		var angle: float = frac * TAU
-		var twig_mesh: CylinderMesh = CylinderMesh.new()
-		twig_mesh.top_radius = 0.03
-		twig_mesh.bottom_radius = 0.04
-		twig_mesh.height = 0.22
-		twig_mesh.material = twig_mat
+		var twig_mesh: CylinderMesh = _cylinder(0.03, 0.04, 0.22, 0, twig_mat)
 
 		var twig: MeshInstance3D = MeshInstance3D.new()
 		twig.name = "NestTwig%d" % i
@@ -180,15 +204,8 @@ func _build_earthen_mound() -> void:
 
 
 func _build_mound(radius: float, flatten: float, earth_color: Color, with_entrance: bool, hole_radius: float) -> void:
-	var earth_mat: StandardMaterial3D = StandardMaterial3D.new()
-	earth_mat.albedo_color = earth_color
-	earth_mat.roughness = 1.0
-	earth_mat.metallic = 0.0
-
-	var dome_mesh: SphereMesh = SphereMesh.new()
-	dome_mesh.radius = radius
-	dome_mesh.height = radius * 2.0
-	dome_mesh.material = earth_mat
+	var earth_mat: StandardMaterial3D = _matte(earth_color, 1.0)
+	var dome_mesh: SphereMesh = _sphere(radius, earth_mat)
 	var dome: MeshInstance3D = MeshInstance3D.new()
 	dome.name = "NestDome"
 	dome.mesh = dome_mesh
@@ -201,14 +218,8 @@ func _build_mound(radius: float, flatten: float, earth_color: Color, with_entran
 		return
 
 	# A darker entrance hollow dug into the front of the mound.
-	var hole_mat: StandardMaterial3D = StandardMaterial3D.new()
-	hole_mat.albedo_color = Color(0.08, 0.06, 0.04)      # dark opening
-	hole_mat.roughness = 1.0
-	hole_mat.metallic = 0.0
-	var hole_mesh: SphereMesh = SphereMesh.new()
-	hole_mesh.radius = hole_radius
-	hole_mesh.height = hole_radius * 2.0
-	hole_mesh.material = hole_mat
+	var hole_mat: StandardMaterial3D = _matte(Color(0.08, 0.06, 0.04), 1.0)      # dark opening
+	var hole_mesh: SphereMesh = _sphere(hole_radius, hole_mat)
 	var hole: MeshInstance3D = MeshInstance3D.new()
 	hole.name = "NestEntrance"
 	hole.position = Vector3(0.0, hole_radius * 0.3, radius * 0.78)
@@ -223,16 +234,8 @@ func _build_hut() -> void:
 	var roof_height: float = HUT_SPEC["roof_height"]
 
 	# Sun-dried mud/clay walls: matte (high roughness), no metal.
-	var wall_mat: StandardMaterial3D = StandardMaterial3D.new()
-	wall_mat.albedo_color = HUT_SPEC["wall_color"]
-	wall_mat.roughness = 0.92
-	wall_mat.metallic = 0.0
-	var wall_mesh: CylinderMesh = CylinderMesh.new()
-	wall_mesh.top_radius = wall_radius
-	wall_mesh.bottom_radius = wall_radius
-	wall_mesh.height = wall_height
-	wall_mesh.radial_segments = 20
-	wall_mesh.material = wall_mat
+	var wall_mat: StandardMaterial3D = _matte(HUT_SPEC["wall_color"], 0.92)
+	var wall_mesh: CylinderMesh = _cylinder(wall_radius, wall_radius, wall_height, 20, wall_mat)
 	var walls: MeshInstance3D = MeshInstance3D.new()
 	walls.name = "HutWalls"
 	walls.mesh = wall_mesh
@@ -240,16 +243,8 @@ func _build_hut() -> void:
 	_mesh_root.add_child(walls)
 
 	# Conical thatch roof overhanging the walls, its base resting on the wall top.
-	var roof_mat: StandardMaterial3D = StandardMaterial3D.new()
-	roof_mat.albedo_color = HUT_SPEC["roof_color"]
-	roof_mat.roughness = 0.88
-	roof_mat.metallic = 0.0
-	var roof_mesh: CylinderMesh = CylinderMesh.new()     # cone: zero top radius
-	roof_mesh.top_radius = 0.0
-	roof_mesh.bottom_radius = roof_radius
-	roof_mesh.height = roof_height
-	roof_mesh.radial_segments = 20
-	roof_mesh.material = roof_mat
+	var roof_mat: StandardMaterial3D = _matte(HUT_SPEC["roof_color"], 0.88)
+	var roof_mesh: CylinderMesh = _cylinder(0.0, roof_radius, roof_height, 20, roof_mat)     # cone: zero top radius
 	var roof: MeshInstance3D = MeshInstance3D.new()
 	roof.name = "HutRoof"
 	roof.mesh = roof_mesh
@@ -257,10 +252,7 @@ func _build_hut() -> void:
 	_mesh_root.add_child(roof)
 
 	# A dark doorway hollow set into the front wall so the hut reads as enterable.
-	var door_mat: StandardMaterial3D = StandardMaterial3D.new()
-	door_mat.albedo_color = Color(0.06, 0.05, 0.03)      # shadowed opening
-	door_mat.roughness = 1.0
-	door_mat.metallic = 0.0
+	var door_mat: StandardMaterial3D = _matte(Color(0.06, 0.05, 0.03), 1.0)      # shadowed opening
 	var door_h: float = wall_height * 0.72
 	var door_mesh: BoxMesh = BoxMesh.new()
 	door_mesh.size = Vector3(wall_radius * 0.72, door_h, 0.3)

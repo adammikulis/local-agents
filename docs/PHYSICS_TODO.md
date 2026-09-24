@@ -214,17 +214,12 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
 
 ## F. Prescribed where it should emerge
 
-- [ ] **The geotherm's adiabats use the expansivity at one atmosphere.** `LAPlanetTables.cpp` `geotherm_on_profile`
-      integrates both adiabats with each substance's STP `expansion_per_k`, so the inner core seeds far above
-      the real ~6000 K. The Anderson-Gruneisen relation alpha(P) = alpha0 K0 / K(P) off the same compression
-      the EOS carries is the law; cite it.
 - [ ] **The core is seeded, and the seeded phases cannot yet move or melt on the GPU.** The planet now
       seeds differentiated — a metal core whose radius follows from the core mass fraction, one silicate
       shell of the registry's own mineral mix (maintainer's decision: differentiation at ~10^13 steps is
-      not computable). What remains for the core to LIVE rather than sit: **the six new phases are
-      sensible-heat entries**, so metal, olivine, pyroxene, plagioclase, halite and apatite never melt in
-      `state_derive.glsl` — no liquid outer core, no mantle melt beyond the wollastonite share — and
-      **none has a transport row**, so none of them erodes, slumps or percolates.
+      not computable). What remains for the core to LIVE rather than sit: metal, olivine, pyroxene,
+      plagioclase, halite and apatite have **no transport row**, so none of them erodes, slumps or
+      percolates.
 - [ ] **Trace elements ride their host phase uniformly, and nothing can ever concentrate them.** Each
       shell mineral carries the registry's traces as fixed kg/kg. Real ore bodies form when partition
       coefficients move trace mass between silicate melt, sulfide melt and aqueous brine; that needs the

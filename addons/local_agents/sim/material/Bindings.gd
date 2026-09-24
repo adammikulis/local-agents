@@ -88,7 +88,7 @@ const IN_KERNEL: Dictionary = {
 		"act_wake_args", "reaction_defs"],
 	"sparse_edit.glsl": ["cell_edge", "inject_idx", "inject_val", "inject_applied", "inject_src",
 		"inject_dst"],
-	"reduce.glsl": ["nbr", "vert_up", "vert_down", "slot_off", "face_partner", "cell_edge", "solid",
+	"reduce.glsl": ["nbr", "vert_up", "vert_down", "slot_off", "face_partner", "cell_edge", "solid", "rho_bulk",
 		"reduce_src", "reduce_aux", "reduce_aux2", "reduce_ref", "reduce_gate", "reduce_gate_aux",
 		"reduce_partials"],
 	"stack_selftest.glsl": ["stack_probe"],

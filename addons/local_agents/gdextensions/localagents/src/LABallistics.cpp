@@ -2,6 +2,7 @@
 
 #include "LABodySystem.hpp"
 #include "LAFieldCellMass.hpp"
+#include "LAFieldMirrors.hpp"
 #include "LAFieldLithostaticSeed.hpp"
 #include "LAGridGeometry.hpp"
 #include "LAPhysicalRead.hpp"
@@ -75,7 +76,8 @@ struct Table {
 	Frame frame;
 	PackedFloat32Array gravity;
 	PackedByteArray solid;
-	Array mass_mirrors;
+	Ref<LAFieldMirrors> mass_mirrors;
+	Array mass_channels;
 	PackedVector3Array centres;
 	PackedByteArray levels;
 	double cell_size = 0.0;
@@ -375,12 +377,13 @@ Vector3 LABallistics::acceleration_at(const Vector3 &p_at, int p_exclude) {
 }
 
 void LABallistics::set_field(Object *p_grid, const PackedFloat32Array &p_gravity,
-		const PackedByteArray &p_solid, const Array &p_mass_mirrors, const Basis &p_frame,
-		const Vector3 &p_pivot) {
+		const PackedByteArray &p_solid, Object *p_mass_mirrors, const Array &p_mass_channels,
+		const Basis &p_frame, const Vector3 &p_pivot) {
 	tb().grid = p_grid;
 	tb().gravity = p_gravity;
 	tb().solid = p_solid;
-	tb().mass_mirrors = p_mass_mirrors;
+	tb().mass_mirrors = Ref<LAFieldMirrors>(Object::cast_to<LAFieldMirrors>(p_mass_mirrors));
+	tb().mass_channels = p_mass_channels;
 	const Basis inv = p_frame.inverse();
 	for (int r = 0; r < 3; r++) {
 		for (int k = 0; k < 3; k++) {
@@ -407,7 +410,7 @@ void LABallistics::set_field(Object *p_grid, const PackedFloat32Array &p_gravity
 }
 
 void LABallistics::clear_field() {
-	set_field(nullptr, PackedFloat32Array(), PackedByteArray(), Array(), Basis(), Vector3());
+	set_field(nullptr, PackedFloat32Array(), PackedByteArray(), nullptr, Array(), Basis(), Vector3());
 }
 
 bool LABallistics::has_field() {
@@ -474,14 +477,14 @@ Vector3 LABallistics::g_at(const Vector3 &p_at) {
 }
 
 double LABallistics::medium_density_at(const Vector3 &p_at) {
-	if (!tb().grid || tb().mass_mirrors.size() == 0) {
+	if (!tb().grid || tb().mass_mirrors.is_null() || tb().mass_channels.is_empty()) {
 		return 0.0;
 	}
 	const int c = cell_of(Dvec(p_at));
 	if (c < 0) {
 		return 0.0;
 	}
-	return LAFieldCellMass3D::kg_m3_at(tb().mass_mirrors, c);
+	return LAFieldCellMass3D::kg_m3_at(tb().mass_mirrors.ptr(), tb().mass_channels, c);
 }
 
 double LABallistics::read_check(int p_samples) {
@@ -641,7 +644,7 @@ void LABallistics::_bind_methods() {
 	ClassDB::bind_static_method("LABallistics", D_METHOD("acceleration_at", "at", "exclude"),
 			&LABallistics::acceleration_at, DEFVAL(-1));
 	ClassDB::bind_static_method("LABallistics",
-			D_METHOD("set_field", "grid", "gravity", "solid", "mass_mirrors", "frame", "pivot"),
+			D_METHOD("set_field", "grid", "gravity", "solid", "mass_mirrors", "mass_channels", "frame", "pivot"),
 			&LABallistics::set_field);
 	ClassDB::bind_static_method("LABallistics", D_METHOD("clear_field"), &LABallistics::clear_field);
 	ClassDB::bind_static_method("LABallistics", D_METHOD("has_field"), &LABallistics::has_field);

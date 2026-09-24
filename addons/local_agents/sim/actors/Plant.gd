@@ -95,21 +95,18 @@ func setup(_terrain, _config: Dictionary) -> void:
 	add_to_group(GROUP_SELECTABLE)
 	add_to_group(GROUP_PLANT)
 	add_to_group("species_%s" % species)     # per-species group so seeding caps count each vegetation kind
+	LAGroupIndex.shared().joined(self)
 	_orient_to_ground()
 	_apply_growth()
 	_sync_render()   # push the initial (freshly-grown) pose into the instanced batch
 
 
-## Stand radially and sit on the solid surface: snap onto the surface along our radial ray and align
-## local +Y to the radial "up".
+## Stand radially: local +Y along the radial "up". The ecology places a plant on the solid surface.
 func _orient_to_ground() -> void:
 	if terrain == null:
 		return
 	var center: Vector3 = terrain.planet_center()
 	var up: Vector3 = (global_position - center).normalized()
-	var surf: Vector3 = terrain.surface_point(up)         # world point on the solid surface along our ray
-	if not is_nan(surf.x):
-		global_position = surf
 	# Build a radial basis: local +Y = up, with an arbitrary (stable) tangent frame.
 	var ref: Vector3 = Vector3.FORWARD if absf(up.dot(Vector3.FORWARD)) < 0.9 else Vector3.RIGHT
 	var right: Vector3 = up.cross(ref).normalized()
@@ -175,13 +172,25 @@ func _build_body() -> void:
 	_add_collision_shape()
 
 
+# Shapes, meshes and materials every plant of a kind draws with; one of each serves them all.
+static var _shared: Dictionary = {}
+
+
+static func _shared_res(key: String, make: Callable) -> Resource:
+	if not _shared.has(key):
+		_shared[key] = make.call()
+	return _shared[key]
+
+
 # Pickable collision cylinder shared by the bush and flower bodies (layer-2 selection like every actor).
 func _add_collision_shape() -> void:
 	var shape: CollisionShape3D = CollisionShape3D.new()
-	var cyl: CylinderShape3D = CylinderShape3D.new()
-	cyl.radius = 0.25
-	cyl.height = _base_height
-	shape.shape = cyl
+	var h: float = _base_height
+	shape.shape = _shared_res("pick%s" % h, func() -> Resource:
+		var cyl: CylinderShape3D = CylinderShape3D.new()
+		cyl.radius = 0.25
+		cyl.height = h
+		return cyl)
 	shape.position = Vector3(0.0, _base_height * 0.5, 0.0)
 	add_child(shape)
 
@@ -191,36 +200,42 @@ func _add_collision_shape() -> void:
 # growth scale in _apply_growth scales it with the plant as it matures.
 func _build_flower_body() -> void:
 	var stem: MeshInstance3D = MeshInstance3D.new()
-	var stalk: CylinderMesh = CylinderMesh.new()
-	stalk.top_radius = 0.03
-	stalk.bottom_radius = 0.05
-	stalk.height = _base_height * 0.7
-	stalk.radial_segments = 5
-	stem.mesh = stalk
+	var h: float = _base_height
+	stem.mesh = _shared_res("stalk%s" % h, func() -> Resource:
+		var stalk: CylinderMesh = CylinderMesh.new()
+		stalk.top_radius = 0.03
+		stalk.bottom_radius = 0.05
+		stalk.height = h * 0.7
+		stalk.radial_segments = 5
+		return stalk)
 	stem.position = Vector3(0.0, _base_height * 0.35, 0.0)
 	stem.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	var smat: StandardMaterial3D = StandardMaterial3D.new()
-	smat.albedo_color = Color(0.24, 0.5, 0.2)
-	smat.roughness = 0.95
-	stem.material_override = smat
+	stem.material_override = _shared_res("stem_mat", func() -> Resource:
+		var smat: StandardMaterial3D = StandardMaterial3D.new()
+		smat.albedo_color = Color(0.24, 0.5, 0.2)
+		smat.roughness = 0.95
+		return smat)
 	add_child(stem)
 	_mesh = stem
 
 	# Bright petal head in the config colour so daisies/clover read as distinct blooms.
 	var bloom: MeshInstance3D = MeshInstance3D.new()
-	var head: SphereMesh = SphereMesh.new()
-	head.radius = 0.18
-	head.height = 0.30
-	head.radial_segments = 7
-	head.rings = 4
-	bloom.mesh = head
+	bloom.mesh = _shared_res("bloom", func() -> Resource:
+		var head: SphereMesh = SphereMesh.new()
+		head.radius = 0.18
+		head.height = 0.30
+		head.radial_segments = 7
+		head.rings = 4
+		return head)
 	bloom.scale = Vector3(1.0, 0.5, 1.0)                 # a flat, splayed flower head
 	bloom.position = Vector3(0.0, _base_height * 0.72, 0.0)
 	bloom.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	var bmat: StandardMaterial3D = StandardMaterial3D.new()
-	bmat.albedo_color = color
-	bmat.roughness = 0.7
-	bloom.material_override = bmat
+	var c: Color = color
+	bloom.material_override = _shared_res("bloom_mat%s" % c, func() -> Resource:
+		var bmat: StandardMaterial3D = StandardMaterial3D.new()
+		bmat.albedo_color = c
+		bmat.roughness = 0.7
+		return bmat)
 	add_child(bloom)
 
 

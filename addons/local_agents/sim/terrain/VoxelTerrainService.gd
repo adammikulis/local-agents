@@ -82,9 +82,9 @@ func build_planet(parent: Node3D, opts: Dictionary = {}) -> void:
 		tm.set_shader_parameter("planet_sea_radius", _sea_radius)
 	terrain.lod_count = _lod_count_for(terrain.lod_distance)
 	terrain.view_distance = int(opts.get("view_distance", 8000))
-	terrain.generate_collisions = true
-	terrain.collision_layer = 1
-	terrain.collision_mask = 0
+	# NO COLLISION MESH: what stops a body is the field's ground, and a ray is marched through the SDF, so
+	# nothing depends on which levels of detail a viewer has streamed.
+	terrain.generate_collisions = false
 	var rr: float = max_surface_radius() + 80.0     # sphere-enclosing box (+ atmosphere headroom)
 	terrain.voxel_bounds = AABB(
 		_center - Vector3(rr, rr, rr), Vector3(rr * 2.0, rr * 2.0, rr * 2.0))
@@ -134,7 +134,7 @@ func attach_viewer(camera: Node3D, visuals: bool = true) -> void:
 	var viewer: VoxelViewer = VoxelViewer.new()
 	viewer.view_distance = _terrain.view_distance
 	viewer.requires_visuals = visuals
-	viewer.requires_collisions = visuals
+	viewer.requires_collisions = false
 	camera.add_child(viewer)
 	_viewer = viewer
 
@@ -179,24 +179,28 @@ func fill_sphere(world_pos: Vector3, radius: float) -> void:
 	_edit_sphere(world_pos, radius, VoxelTool.MODE_ADD)
 
 
-## Physics-space raycast against the terrain body (collision_mask=1).
-## Returns {"hit": bool, "position": Vector3, "normal": Vector3}.
+## The first crossing of the body's SDF along a world ray, coarse to fine as surface_radius brackets it.
+## Returns {"hit": bool, "position": Vector3, "normal": Vector3}; the normal is the radial up.
 func raycast_terrain(from: Vector3, dir: Vector3, max_distance: float) -> Dictionary:
 	var miss: Dictionary = {"hit": false, "position": Vector3.ZERO, "normal": Vector3.UP}
-	if _terrain == null:
+	if _generator == null or _terrain == null or max_distance <= 0.0:
 		return miss
-	var world: World3D = _terrain.get_world_3d()
-	if world == null:
+	var d: Vector3 = dir.normalized()
+	var t_a: float = 0.0
+	var t_b: float = max_distance
+	var t_hit: float = NAN
+	for stride in [GEN_RAY_COARSE, GEN_RAY_STRIDE, GEN_RAY_REFINE]:
+		var hit: float = _generator.raycast_sdf_approx(
+			_terrain.to_local(from + d * t_a), _terrain.to_local(from + d * t_b), stride)
+		if hit < 0.0:
+			break
+		t_hit = t_a + hit
+		t_a = maxf(t_hit - stride, 0.0)
+		t_b = minf(t_hit + stride, max_distance)
+	if is_nan(t_hit):
 		return miss
-	var space: PhysicsDirectSpaceState3D = world.direct_space_state
-	if space == null:
-		return miss
-	var to: Vector3 = from + dir.normalized() * max_distance
-	var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(from, to, 1)
-	var hit: Dictionary = space.intersect_ray(query)
-	if hit.is_empty():
-		return miss
-	return {"hit": true, "position": hit.position, "normal": hit.normal}
+	var at: Vector3 = from + d * t_hit
+	return {"hit": true, "position": at, "normal": up_at(at)}
 
 func ground_point(pos: Vector3) -> Vector3:
 	return surface_point(pos - _center)
@@ -258,11 +262,13 @@ func _generated_surface_radius(dir: Vector3) -> float:
 	var d: Vector3 = dir.normalized()
 	var r_top: float = max_surface_radius() + SURFACE_RAY_MARGIN
 	var r_bot: float = maxf(min_surface_radius() - SURFACE_RAY_MARGIN, 1.0)
-	var r_a: float = r_top
-	var r_b: float = r_bot
-	var r_hit: float = NAN
+	var r_hit: float = _coarse_crossing(d, r_top, r_bot)
+	if is_nan(r_hit):
+		return r_hit
+	var r_a: float = minf(r_hit + GEN_RAY_COARSE, r_top)
+	var r_b: float = maxf(r_hit - GEN_RAY_COARSE, r_bot)
 	# The generator is sampled in the terrain's OWN space; every caller here speaks world.
-	for stride in [GEN_RAY_COARSE, GEN_RAY_STRIDE, GEN_RAY_REFINE]:
+	for stride in [GEN_RAY_STRIDE, GEN_RAY_REFINE]:
 		var hit: float = _generator.raycast_sdf_approx(
 			_terrain.to_local(_center + d * r_a), _terrain.to_local(_center + d * r_b), stride)
 		if hit < 0.0:
@@ -271,6 +277,40 @@ func _generated_surface_radius(dir: Vector3) -> float:
 		r_a = minf(r_hit + stride, r_top)
 		r_b = maxf(r_hit - stride, r_bot)
 	return r_hit
+
+
+# The shortest stretch of ray the generator's range analysis is split down to, m.
+const GEN_RANGE_MIN: float = GEN_RAY_COARSE * 2.0
+const GEN_RAY_CHUNK: float = GEN_RAY_COARSE * 32.0
+
+
+## The radius of the first SDF crossing inward from r_top at GEN_RAY_COARSE. The stretch the generator's
+## range analysis bounds above zero is air and is not sampled; below it the ray is marched in chunks that
+## stop at the first crossing. NAN where none is.
+func _coarse_crossing(d: Vector3, r_top: float, r_bot: float) -> float:
+	var length: float = r_top - r_bot
+	var safe: float = 0.0
+	var span: float = length
+	while span >= GEN_RANGE_MIN and safe < length:
+		var t_end: float = minf(safe + span, length)
+		var a: Vector3 = _terrain.to_local(_center + d * (r_top - safe))
+		var b: Vector3 = _terrain.to_local(_center + d * (r_top - t_end))
+		if _generator.debug_analyze_range(a.min(b), a.max(b)).x > 0.0:
+			safe = t_end
+		else:
+			span *= 0.5
+	var k: int = maxi(int(floor(safe / GEN_RAY_COARSE)) - 1, 0)
+	var t: float = float(k) * GEN_RAY_COARSE
+	while t < length:
+		var t_end2: float = minf(t + GEN_RAY_CHUNK, length)
+		var hit: float = _generator.raycast_sdf_approx(_terrain.to_local(_center + d * (r_top - t)),
+			_terrain.to_local(_center + d * (r_top - t_end2)), GEN_RAY_COARSE)
+		if hit >= 0.0:
+			return r_top - (t + hit)
+		if t_end2 >= length:
+			break
+		t = t_end2 - GEN_RAY_COARSE
+	return NAN
 
 
 ## PLANET: the world-space surface point along `dir` (centre + dir * surface_radius).

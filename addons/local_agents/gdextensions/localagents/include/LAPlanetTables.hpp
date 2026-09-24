@@ -78,8 +78,10 @@ public:
 	static Dictionary body_field(Object *p_grid, const Vector3 &p_centre, double p_radius_m, double p_t_c);
 	static Dictionary upload_body_field(RenderingDevice *p_rd, const Dictionary &p_bufs, Object *p_grid,
 			const Vector3 &p_centre, double p_radius_m, double p_t_c);
-	// The geotherm at each depth below the surface, metres, in kelvin.
-	static PackedFloat64Array geotherm_at_depths(double p_radius_m, double p_t_c, const PackedFloat64Array &p_depth_m);
+	// Each cell's temperature, C: the seeding geotherm averaged over the depths it spans below its ground,
+	// p_depth its centre's depth and p_edge its edge, both metres.
+	static PackedFloat32Array geotherm_c_cells(double p_radius_m, double p_t_c, const PackedFloat32Array &p_depth,
+			const PackedFloat32Array &p_edge);
 	// W/m^2 the body's own radiogenic decay drives through its surface.
 	static double surface_heat_flux_w_m2(double p_mass_kg, double p_radius_m);
 	// Peridotite's solidus and liquidus at the potential-temperature reference pressure, C, and the

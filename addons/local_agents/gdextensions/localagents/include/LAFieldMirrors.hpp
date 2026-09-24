@@ -8,6 +8,7 @@
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
+#include <godot_cpp/variant/packed_int32_array.hpp>
 #include <godot_cpp/variant/packed_string_array.hpp>
 #include <godot_cpp/variant/rid.hpp>
 #include <godot_cpp/variant/vector3.hpp>
@@ -45,6 +46,8 @@ public:
 	PackedFloat32Array array(const String &p_name) const;
 	PackedByteArray bytes(const String &p_name, int p_from, int p_count) const;
 	double sum(const String &p_name) const;
+	// Cells where max(mass, 0) * clamp(phase fraction, 0, 1) >= p_min; empty when either channel is absent.
+	PackedInt32Array cells_with_phase_mass(const String &p_mass, const String &p_frac, double p_min) const;
 
 	void set_array(const String &p_name, const PackedFloat32Array &p_values);
 	void fill(const String &p_name, double p_value);

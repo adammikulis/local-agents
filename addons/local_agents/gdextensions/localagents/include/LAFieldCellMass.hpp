@@ -9,6 +9,8 @@
 
 namespace godot {
 
+class LAFieldMirrors;
+
 // THE ONE WALK FROM CHANNELS TO KILOGRAMS. A channel amount is mol/m^3, so a cell's mass is the sum over
 // every matter channel of amount * molar mass * that cell's own volume.
 class LAFieldCellMass3D : public RefCounted {
@@ -29,15 +31,14 @@ public:
 	static Array mirrors(Object *p_field);
 	// The channel names mirrors() returned, in the same order, so a per-mirror total can be named.
 	static PackedStringArray mirror_names(Object *p_field);
-	// C per cell: the geotherm's mean over the cell's span under the surface; a cell with none, p_t_surface_c.
-	static PackedFloat32Array rock_temperature(Object *p_field, Object *p_grid, double p_r_body, double p_t_surface_c,
-			const PackedFloat32Array &p_depth);
 	// THE ENTHALPY SEED, one pass over every cell: each ladder entry off its own curve at the cell's
-	// geotherm temperature and marched pressure. Returns {"e", "e_lith": J/m^3 per cell, "total_j"}.
+	// geotherm temperature (p_t_rock, C) and marched pressure. Returns {"e", "e_lith": J/m^3 per cell, "total_j"}.
 	static Dictionary seed_enthalpy(Object *p_field, Object *p_grid, const PackedFloat32Array &p_t_rock,
 			double p_t_surface_c, const PackedFloat32Array &p_p_pa, const PackedFloat32Array &p_p_rock);
+	// [channel name, molar mass kg/mol] for every mol_m3 channel the field's mirrors hold, in mirrors() order.
+	static Array mass_channels(Object *p_field);
 	// Moles per m^3 summed into kilograms per m^3 for one cell. Times the cell's own volume is its mass.
-	static double kg_m3_at(const Array &p_mirrors, int p_c);
+	static double kg_m3_at(LAFieldMirrors *p_mirrors, const Array &p_channels, int p_c);
 
 protected:
 	static void _bind_methods();

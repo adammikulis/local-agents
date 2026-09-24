@@ -112,11 +112,11 @@ func surface_climate() -> Dictionary:
 
 
 ## Open-cell temperature spread, plus the all-cell max that exposes the deep rock the open-only rows hide.
-## Four reduced rows; the mean is the open-cell sum over the open-cell count, the same population. null and
+## The mean is the sum over the open cells that hold matter, over their count: the same population. null and
 ## -1 where the device reduced nothing, because an absent reading is not a cold one.
 func _open_temp_stats() -> Dictionary:
 	var q: LAMaterialFieldQueries3D = _f._queries
-	var n: int = q.open_cells()
+	var n: int = q.row_n("open_temp_n")
 	var sum = q.row_v("open_temp_sum", false)
 	var gn = q.row_v("ground_cells", true)
 	var gsum = q.row_v("temp_ground_sum", false)

@@ -620,7 +620,7 @@ static RadialProfile radial_profile(double p_radius_m, double p_t_c) {
 	return last;
 }
 
-// T at depth z, kelvin: the lid's conductive geotherm above its base, and below it the shells' own
+// T at depth z below the local ground, kelvin: the lid's conductive geotherm above its base, and below it the shells' own
 // values between their centres, the lid's base the first node. NAN where the profile does not solve.
 static double profile_t_k(const RadialProfile &p_prof, double p_z) {
 	if (p_prof.n <= 0) {
@@ -657,13 +657,28 @@ static double profile_t_k(const RadialProfile &p_prof, double p_z) {
 	return p_prof.t_at[i] + (t_u - p_prof.t_at[i]) * (r - r_i) / (r_u - r_i);
 }
 
-PackedFloat64Array LAPlanetComposition::geotherm_at_depths(double p_radius_m, double p_t_c,
-		const PackedFloat64Array &p_depth_m) {
+PackedFloat32Array LAPlanetComposition::geotherm_c_cells(double p_radius_m, double p_t_c,
+		const PackedFloat32Array &p_depth, const PackedFloat32Array &p_edge) {
+	PackedFloat32Array out;
 	const RadialProfile prof = radial_profile(p_radius_m, p_t_c);
-	PackedFloat64Array out;
-	out.resize(p_depth_m.size());
-	for (int i = 0; i < p_depth_m.size(); i++) {
-		out[i] = profile_t_k(prof, p_depth_m[i]);
+	if (prof.n <= 0) {
+		return out;
+	}
+	const double kelvin = la_physical("KELVIN_OFFSET");
+	const int cc = p_depth.size();
+	out.resize(cc);
+	float *w = out.ptrw();
+	// The mean over each cell's span under its own ground, N_S depths through it.
+	const int n_s = 16;
+	for (int c = 0; c < cc; c++) {
+		const double e = c < p_edge.size() ? double(p_edge[c]) : 0.0;
+		const double d_lo = std::max(double(p_depth[c]) - 0.5 * e, 0.0);
+		const double d_hi = std::max(double(p_depth[c]) + 0.5 * e, d_lo);
+		double acc = 0.0;
+		for (int k = 0; k < n_s; k++) {
+			acc += profile_t_k(prof, d_lo + (d_hi - d_lo) * (double(k) + 0.5) / double(n_s));
+		}
+		w[c] = float(acc / double(n_s) - kelvin);
 	}
 	return out;
 }
@@ -1456,8 +1471,7 @@ void LAPlanetComposition::_bind_methods() {
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("lid_thickness_m", "radius_m", "t_c"), &lid_thickness_m);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("body_field", "grid", "centre", "radius_m", "t_c"), &body_field);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("upload_body_field", "rd", "bufs", "grid", "centre", "radius_m", "t_c"), &upload_body_field);
-	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("geotherm_at_depths", "radius_m", "t_surface_c", "depth_m"),
-			&geotherm_at_depths);
+	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("geotherm_c_cells", "radius_m", "t_surface_c", "depth", "edge"), &geotherm_c_cells);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("surface_heat_flux_w_m2", "mass_kg", "radius_m"), &surface_heat_flux_w_m2);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("peridotite_melting_interval_c"), &peridotite_melting_interval_c);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("mantle_potential_temp_k"), &mantle_potential_temp_k);

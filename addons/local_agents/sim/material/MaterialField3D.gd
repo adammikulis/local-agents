@@ -311,7 +311,7 @@ func _seed_silicate() -> void:
 		return
 	var r_body: float = LABodySeeds.seed_radius_m(_body_key)
 	var t_surface: float = LABodySeeds.surface_temp_c()
-	_t_rock = LAFieldCellMass3D.rock_temperature(self, _grid, r_body, t_surface, _surface_depth)
+	_t_rock = LAPlanetComposition.geotherm_c_cells(r_body, t_surface, _surface_depth, _grid.cell_edges())
 	LAPlanetComposition.seed(self, t_surface, _t_rock)
 	_body_measure = LABodyMeasure.new()
 	_body_measure.measure(self, LABodySeeds.spin_axis_of(_body_key))

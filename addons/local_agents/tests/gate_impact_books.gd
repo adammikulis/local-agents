@@ -151,7 +151,7 @@ func _partition_arm() -> String:
 func _parcel_arm() -> String:
 	LABallistics.clear()
 	_floor = _build_floor()
-	LABallistics.set_field(_floor, _floor_gravity(), _floor_solid(), [], Basis.IDENTITY, Vector3.ZERO)
+	LABallistics.set_field(_floor, _floor_gravity(), _floor_solid(), null, [], Basis.IDENTITY, Vector3.ZERO)
 	var grid: StubGrid = StubGrid.new()
 	grid.vols = PackedFloat32Array([SRC_VOLUME_M3, DST_VOLUME_M3])
 	var inject: StubInject = StubInject.new()

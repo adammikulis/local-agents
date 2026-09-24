@@ -171,6 +171,25 @@ double LAFieldMirrors::sum(const String &p_name) const {
 	return acc;
 }
 
+PackedInt32Array LAFieldMirrors::cells_with_phase_mass(const String &p_mass, const String &p_frac,
+		double p_min) const {
+	PackedInt32Array out;
+	const int sm = _slot(p_mass);
+	const int sf = _slot(p_frac);
+	if (sm < 0 || sf < 0) {
+		return out;
+	}
+	const float *m = &_store[(size_t)sm * (size_t)_cells];
+	const float *f = &_store[(size_t)sf * (size_t)_cells];
+	for (int c = 0; c < _cells; ++c) {
+		const double frac = std::fmin(std::fmax((double)f[c], 0.0), 1.0);
+		if (std::fmax((double)m[c], 0.0) * frac >= p_min) {
+			out.push_back(c);
+		}
+	}
+	return out;
+}
+
 void LAFieldMirrors::set_array(const String &p_name, const PackedFloat32Array &p_values) {
 	const int s = _slot(p_name);
 	if (s < 0) {
@@ -257,6 +276,8 @@ void LAFieldMirrors::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("array", "name"), &LAFieldMirrors::array);
 	ClassDB::bind_method(D_METHOD("bytes", "name", "from", "count"), &LAFieldMirrors::bytes);
 	ClassDB::bind_method(D_METHOD("sum", "name"), &LAFieldMirrors::sum);
+	ClassDB::bind_method(D_METHOD("cells_with_phase_mass", "mass", "frac", "min"),
+			&LAFieldMirrors::cells_with_phase_mass);
 	ClassDB::bind_method(D_METHOD("set_array", "name", "values"), &LAFieldMirrors::set_array);
 	ClassDB::bind_method(D_METHOD("fill", "name", "value"), &LAFieldMirrors::fill);
 	ClassDB::bind_method(D_METHOD("set_at", "name", "cell", "value"), &LAFieldMirrors::set_at);

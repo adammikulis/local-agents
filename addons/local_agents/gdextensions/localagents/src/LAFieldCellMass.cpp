@@ -5,7 +5,6 @@
 #include "LAFieldMirrors.hpp"
 #include "LAScriptCall.hpp"
 #include "LASubstances.hpp"
-#include "LAPlanetTables.hpp"
 #include "LAMixtureEnthalpy.hpp"
 #include "LAPhysicalRead.hpp"
 
@@ -265,43 +264,6 @@ double LAFieldCellMass3D::gas_moles_at(Object *p_field, int p_c, double p_cell_m
 
 // THE ROCK'S OWN TEMPERATURE per cell, C: the geotherm's mean over the depth span of the rock the cell
 // holds, running down from the local ground; a cell with no rock reads the surface's.
-PackedFloat32Array LAFieldCellMass3D::rock_temperature(Object *p_field, Object *p_grid, double p_r_body,
-		double p_t_surface_c, const PackedFloat32Array &p_depth) {
-	PackedFloat32Array out;
-	if (!p_field || !p_grid) {
-		return out;
-	}
-	const int cc = int(p_field->get("_cell_count"));
-	const PackedFloat32Array edges = p_grid->call("cell_edges");
-	const double kelvin = la_physical("KELVIN_OFFSET");
-	// The mean over each cell's rock: N_S depths through its span under the surface.
-	const int n_s = 16;
-	PackedFloat64Array z;
-	z.resize(cc * n_s);
-	std::vector<bool> rock(cc, false);
-	for (int c = 0; c < cc; c++) {
-		const double depth = c < p_depth.size() ? double(p_depth[c]) : 0.0;
-		const double e = c < edges.size() ? double(edges[c]) : 0.0;
-		const double d_lo = std::max(depth - 0.5 * e, 0.0);
-		const double d_hi = depth + 0.5 * e;
-		rock[c] = d_hi > d_lo;
-		for (int k = 0; k < n_s; k++) {
-			z[c * n_s + k] = d_lo + (d_hi - d_lo) * (double(k) + 0.5) / double(n_s);
-		}
-	}
-	const PackedFloat64Array t_k = LAPlanetComposition::geotherm_at_depths(p_r_body, p_t_surface_c, z);
-	out.resize(cc);
-	float *w = out.ptrw();
-	for (int c = 0; c < cc; c++) {
-		double acc = 0.0;
-		for (int k = 0; k < n_s; k++) {
-			acc += t_k[c * n_s + k];
-		}
-		w[c] = float(rock[c] ? acc / double(n_s) - kelvin : p_t_surface_c);
-	}
-	return out;
-}
-
 Dictionary LAFieldCellMass3D::seed_enthalpy(Object *p_field, Object *p_grid,
 		const PackedFloat32Array &p_t_rock, double p_t_surface_c,
 		const PackedFloat32Array &p_p_pa, const PackedFloat32Array &p_p_rock) {
@@ -441,12 +403,35 @@ PackedStringArray LAFieldCellMass3D::mirror_names(Object *p_field) {
 	return out;
 }
 
-double LAFieldCellMass3D::kg_m3_at(const Array &p_mirrors, int p_c) {
+Array LAFieldCellMass3D::mass_channels(Object *p_field) {
+	Array out;
+	LAFieldMirrors *m = LAFieldMirrors::mirrors_of(p_field);
+	if (!m || m->cells() != int(p_field->get("_cell_count"))) {
+		return out;
+	}
+	const Dictionary rows = la_call_gd(CHANNELS_GD, "rows", Array());
+	const Dictionary table = LASubstances::table();
+	const Array names = rows.keys();
+	for (int i = 0; i < names.size(); i++) {
+		const String name = names[i];
+		const Dictionary row = rows[name];
+		if (String(row.get("unit", "")) != "mol_m3" || !m->has(name)) {
+			continue;
+		}
+		const Dictionary s = table.get(String(row.get("substance", "")), Dictionary());
+		Array pair;
+		pair.append(name);
+		pair.append(double(s.get("molar_mass", 0.0)));
+		out.append(pair);
+	}
+	return out;
+}
+
+double LAFieldCellMass3D::kg_m3_at(LAFieldMirrors *p_mirrors, const Array &p_channels, int p_c) {
 	double m = 0.0;
-	for (int i = 0; i < p_mirrors.size(); i++) {
-		const Array pair = p_mirrors[i];
-		const PackedFloat32Array arr = pair[0];
-		m += MAX(double(arr[p_c]), 0.0) * double(pair[1]);
+	for (int i = 0; i < p_channels.size(); i++) {
+		const Array pair = p_channels[i];
+		m += MAX(p_mirrors->at(String(pair[0]), p_c), 0.0) * double(pair[1]);
 	}
 	return m;
 }
@@ -462,15 +447,12 @@ void LAFieldCellMass3D::_bind_methods() {
 	ClassDB::bind_static_method("LAFieldCellMass3D",
 			D_METHOD("gas_moles_at", "field", "cell", "cell_m3"), &LAFieldCellMass3D::gas_moles_at);
 	ClassDB::bind_static_method("LAFieldCellMass3D",
-			D_METHOD("rock_temperature", "field", "grid", "r_body", "t_surface_c", "depth"),
-			&LAFieldCellMass3D::rock_temperature);
-	ClassDB::bind_static_method("LAFieldCellMass3D",
 			D_METHOD("seed_enthalpy", "field", "grid", "t_rock", "t_surface_c", "p_pa", "p_rock"),
 			&LAFieldCellMass3D::seed_enthalpy);
 	ClassDB::bind_static_method("LAFieldCellMass3D", D_METHOD("mirrors", "field"),
 			&LAFieldCellMass3D::mirrors);
 	ClassDB::bind_static_method("LAFieldCellMass3D", D_METHOD("mirror_names", "field"),
 			&LAFieldCellMass3D::mirror_names);
-	ClassDB::bind_static_method("LAFieldCellMass3D", D_METHOD("kg_m3_at", "mirrors", "c"),
-			&LAFieldCellMass3D::kg_m3_at);
+	ClassDB::bind_static_method("LAFieldCellMass3D", D_METHOD("mass_channels", "field"),
+			&LAFieldCellMass3D::mass_channels);
 }

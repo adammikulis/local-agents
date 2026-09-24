@@ -42,12 +42,21 @@ static func inventory_channels() -> Dictionary: return LAChannels.inventory_chan
 static func lithosphere_channels() -> PackedStringArray: return LAChannels.lithosphere_channels()
 
 
-## Elements a unit of `channel` contains. Empty for a channel that carries no matter.
+static var _elements_of: Dictionary = {}
+
+
+## Elements a unit of `channel` contains, read-only. Empty for a channel that carries no matter.
 static func channel_elements(channel: String) -> Dictionary:
-	var slot: int = int(inventory_channels().get(channel, -1))
-	if slot < 0:
-		return {}
-	return composition().get(slot, {})
+	if _elements_of.is_empty():
+		var comp: Dictionary = composition()
+		var inv: Dictionary = inventory_channels()
+		for ch in inv:
+			var parts: Dictionary = comp.get(int(inv[ch]), {})
+			parts.make_read_only()
+			_elements_of[String(ch)] = parts
+	var empty: Dictionary = {}
+	empty.make_read_only()
+	return _elements_of.get(channel, empty)
 
 
 ## Every stored channel whose composition carries `element`. Asking where the carbon went costs the
