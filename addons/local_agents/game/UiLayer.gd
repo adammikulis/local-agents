@@ -1,6 +1,7 @@
 class_name LAUiLayer
 extends Node
 
+const SwitchPanelScene: PackedScene = preload("res://addons/local_agents/game/ui/SwitchPanel.tscn")
 
 var _world: Node = null
 var _sim: LASimulation = null
@@ -88,19 +89,9 @@ func build(world: Node, sim: LASimulation, render: LARenderLayer, input: LAVoxel
 
 
 ## The live switch list: one CanvasLayer of its own, so nothing else's visibility decides whether the
-## maintainer can reach a process mid-run.
+## maintainer can reach a process mid-run. SwitchPanel.tscn lays it out.
 func _build_switches() -> void:
-	var layer: CanvasLayer = CanvasLayer.new()
-	layer.name = "Switches"
-	var panel: PanelContainer = PanelContainer.new()
-	panel.position = Vector2(12.0, 140.0)
-	var margin: MarginContainer = MarginContainer.new()
-	for side in ["left", "right", "top", "bottom"]:
-		margin.add_theme_constant_override("margin_" + String(side), 8)
-	margin.add_child(LASwitchPanel.new())
-	panel.add_child(margin)
-	layer.add_child(panel)
-	add_child(layer)
+	add_child(SwitchPanelScene.instantiate())
 
 
 func step(delta: float) -> void:

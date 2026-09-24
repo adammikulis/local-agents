@@ -481,8 +481,8 @@ no sea, so land walkers never hit coast avoidance.
 
 `LAVoxelTerrainService` is the planet's signed-distance terrain, owned by `LAPlanetBody`, and it adds
 the voxel operations the flat adapter has no use for: `fill_sphere()`, `sdf_at()`, `is_solid()`,
-`attach_viewer()`, `build_planet()` and `set_terrain_material()`, through which a view hands it the
-material it draws with.
+`attach_viewer()`, `build_planet()` and `terrain_node()`, the VoxelLodTerrain a view dresses with
+`LATerrainLook.dress()`.
 
 `Creature.setup()` defaults `terrain` to a fresh `LAFlatGroundTerrain` when none is injected, so a
 bare creature never null-derefs its movement path.

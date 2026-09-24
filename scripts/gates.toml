@@ -855,7 +855,45 @@ name = "check_shot_look"
 script = "scripts/check_shot_look.sh"
 kind = "gpu"
 marker = "^check_shot_look: OK"
-mutation = "python3 -c \"p='addons/local_agents/game/render/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); s=s.replace('ALBEDO = col;','ALBEDO = vec3(0.0);'); open(p,'w').write(s.replace('EMISSION = incandescence(temp) * 3.8;','EMISSION = vec3(0.35);'))\""
+mutation = "python3 -c \"p='addons/local_agents/game/render/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); s=s.replace('ALBEDO = col;','ALBEDO = vec3(0.0);'); open(p,'w').write(s.replace('EMISSION = max(glow, vec3(0.0));','EMISSION = vec3(0.35);'))\""
+
+[[gate]]
+name = "check_block_seams"
+script = "scripts/check_block_seams.sh"
+kind = "gpu"
+needs = ["import"]
+marker = "^check_block_seams: OK"
+mutation = [
+	'''python3 -c "p='addons/local_agents/game/render/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); o='specular_schlick_ggx, skip_vertex_transform;'; assert o in s, o; open(p,'w').write(s.replace(o, 'specular_schlick_ggx;'))"''',
+	'''python3 -c "p='addons/local_agents/game/render/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); o='VERTEX = mat3(VIEW_MATRIX) * (to_world * rel);'; assert o in s, o; open(p,'w').write(s.replace(o, 'VERTEX = (MODELVIEW_MATRIX * vec4(v, 1.0)).xyz;'))"''',
+]
+
+[[gate]]
+name = "check_terrain_glow"
+script = "scripts/check_terrain_glow.sh"
+kind = "gpu"
+needs = ["import"]
+marker = "^check_terrain_glow: OK"
+mutation = [
+	'''python3 -c "p='addons/local_agents/game/render/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); o='EMISSION = max(glow, vec3(0.0));'; assert o in s, o; s=s.replace('void fragment() {', 'vec3 incandescence(float t) {\n\tif (t < 450.0) {\n\t\treturn vec3(0.0);\n\t}\n\tfloat g = smoothstep(450.0, 1300.0, t);\n\tvec3 c = mix(vec3(0.75, 0.06, 0.0), vec3(1.0, 0.5, 0.08), smoothstep(450.0, 850.0, t));\n\tc = mix(c, vec3(1.0, 0.96, 0.82), smoothstep(850.0, 1300.0, t));\n\treturn c * g;\n}\n\nvoid fragment() {'); open(p,'w').write(s.replace(o, 'EMISSION = incandescence(temp_c) * 3.8;'))"''',
+	'''python3 -c "p='addons/local_agents/game/render/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); o='EMISSION = max(glow, vec3(0.0));'; assert o in s, o; open(p,'w').write(s.replace(o, 'EMISSION = max(glow, vec3(0.0)) * 2.0;'))"''',
+	'''python3 -c "p='addons/local_agents/game/render/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); o='glow = (1.0 - col) * planck_srgb('; assert o in s, o; open(p,'w').write(s.replace(o, 'glow = planck_srgb('))"''',
+	'''python3 -c "p='addons/local_agents/game/world/HeatFieldTexture.gd'; s=open(p).read(); o='return Color(t_k, (r_m / d_m) * (r_m / d_m), 0.0)'; assert o in s, o; open(p,'w').write(s.replace(o, 'return Color(t_k, r_m / d_m, 0.0)'))"''',
+	'''python3 -c "p='addons/local_agents/game/world/HeatFieldTexture.gd'; s=open(p).read(); o='var t_k: float = pow(l_w / (4.0 * PI * r_m * r_m * LAPhysical.STEFAN_BOLTZMANN), 0.25)'; assert o in s, o; open(p,'w').write(s.replace(o, 'var t_k: float = 5772.0'))"''',
+]
+
+[[gate]]
+name = "check_terrain_field"
+script = "scripts/check_terrain_field.sh"
+kind = "gpu"
+needs = ["import"]
+marker = "^check_terrain_field: OK"
+mutation = [
+	'''python3 -c "p='addons/local_agents/game/world/HeatFieldTexture.gd'; s=open(p).read(); o='mirrors.cells() != _cells:'; assert o in s, o; open(p,'w').write(s.replace(o, 'mirrors.cells() != _field._grid.nx * _field._grid.ny * _field._grid.nz:'))"''',
+	'''python3 -c "p='addons/local_agents/game/render/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); o='v_box_pos = (u_block_local_transform[3].xyz - field_box_min) + v;'; assert o in s, o; open(p,'w').write(s.replace(o, 'v_box_pos = (MODEL_MATRIX * vec4(v, 1.0)).xyz - field_box_min;'))"''',
+	'''python3 -c "p='addons/local_agents/game/world/HeatFieldTexture.gd'; s=open(p).read(); o='\"field_box_min\": terrain.terrain_node().to_local(pivot) + (grid.origin - pivot),'; assert o in s, o; open(p,'w').write(s.replace(o, '\"field_box_min\": grid.origin,'))"''',
+	'''python3 -c "p='addons/local_agents/game/render/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); o='(spread3(f.z) << 2)'; assert o in s, o; open(p,'w').write(s.replace(o, '(spread3(f.z) << 1)'))"''',
+]
 
 [[gate]]
 name = "check_impact_books"

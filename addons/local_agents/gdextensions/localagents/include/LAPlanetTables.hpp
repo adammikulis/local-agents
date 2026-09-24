@@ -10,8 +10,8 @@ namespace godot {
 
 // Elemental composition of the planet's reservoirs, kg of element per kg of reservoir.
 // McDonough 2003, Treatise on Geochemistry 2.15 (Tables 1-4); silicate Earth cross-checked against
-// McDonough & Sun 1995, Chem. Geol. 120:223, Table 5. Ported from GDScript per HANDOFF item 5;
-// PhysicalConstants.gd stays the SSOT for every constant this reads.
+// McDonough & Sun 1995, Chem. Geol. 120:223, Table 5. PhysicalConstants.gd stays the SSOT for every
+// constant this reads.
 class LAElementAbundances : public RefCounted {
 	GDCLASS(LAElementAbundances, RefCounted);
 
