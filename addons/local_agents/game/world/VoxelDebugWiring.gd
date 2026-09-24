@@ -7,8 +7,11 @@ const DebugOverlayScript: GDScript = preload("res://addons/local_agents/game/ui/
 const FamilyTreePanelScript: GDScript = preload("res://addons/local_agents/game/ui/FamilyTreePanel.gd")
 const CreatureScript: GDScript = preload("res://addons/local_agents/creatures/Creature.gd")
 
-# The active field-channel keys (a heatmap in the DebugOverlay), distinct from temp (terrain shader),
-# wind, and scent (own overlays). One is drawn at a time; enabling a new one replaces the last.
+# The views the terrain shader draws itself: view key -> the uniform that switches it.
+const TERRAIN_VIEWS: Dictionary = {"temp": "heat_debug", "blocks": "block_view"}
+
+# The active field-channel keys (a heatmap in the DebugOverlay), distinct from the terrain views, wind,
+# and scent (own overlays). One is drawn at a time; enabling a new one replaces the last.
 const FIELD_CHANNELS: Array = ["biomass", "water_phase", "snow", "melt", "silicate", "co2", "o2", "charge", "fertility"]
 
 # Behavior-state highlight tints: category -> colour a matching creature is dyed. Foraging green +
@@ -144,11 +147,12 @@ func on_selection_changed(node: Node) -> void:
 
 
 func _on_debug_view(view: String, on: bool) -> void:
-	match view:
-		"temp":
+	if TERRAIN_VIEWS.has(view):
+		if view == "temp":
 			_temp_debug_visible = on
-			if _terrain != null and _terrain.has_method("set_shader_param"):
-				_terrain.set_shader_param("heat_debug", 1.0 if on else 0.0)
+		_set_terrain_view(String(TERRAIN_VIEWS[view]), on)
+		return
+	match view:
 		"wind":
 			if _vectors != null:
 				_vectors.set_source(LAFieldVectors.SOURCE_WIND if on else LAFieldVectors.SOURCE_OFF)
@@ -249,10 +253,14 @@ func toggle_scent_view() -> void:
 		_hud.set_status("Airborne CO₂ view: %s" % ("ON" if _scent_visible else "off"))
 
 
+func _set_terrain_view(uniform_name: String, on: bool) -> void:
+	if _terrain != null and _terrain.has_method("terrain_node"):
+		LATerrainLook.set_params(_terrain.terrain_node(), {uniform_name: 1.0 if on else 0.0})
+
+
 ## T key: toggle the terrain temperature heatmap debug view.
 func toggle_temp_view() -> void:
 	_temp_debug_visible = not _temp_debug_visible
-	if _terrain != null and _terrain.has_method("set_shader_param"):
-		_terrain.set_shader_param("heat_debug", 1.0 if _temp_debug_visible else 0.0)
+	_set_terrain_view(String(TERRAIN_VIEWS["temp"]), _temp_debug_visible)
 	if _hud != null:
 		_hud.set_status("Temperature view: %s" % ("ON" if _temp_debug_visible else "off"))

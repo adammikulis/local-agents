@@ -69,13 +69,12 @@ finds the sea as a declared shell radius and the field sampling the generator af
 the box's finest cells.
 Reading: `LAWaterSurfaceMesh.build` skips every cell whose `level_of` is not `max_level`.
 
-## 7. THE LEVEL BOUNDARY DRAWS AS A LINE ACROSS THE GROUND
+## 7. THE GROUND NEAR THE EYE IS TERRACED, AND THE LEVEL BOUNDARY SHADES AS A CREASE
 
-`scripts/shoot_demo.sh addons/local_agents/examples/SliceRung1Demo.tscn <dir>` carries thin dark lines
-running to the horizon in every pose under a kilometre, straight in world space and jointed at right
-angles. Read the PNGs.
-Reading: `get_transvoxel_position` in `VoxelTerrainTriplanar.gdshader` moves a transition vertex onto
-the coarse surface and leaves its `NORMAL` at the fine one's.
+`LA_SHOTS="30:-3:0" scripts/shoot_demo.sh addons/local_agents/examples/SliceRung1Demo.tscn <dir>` shows
+the near ground banded along its contours and a crease along the level boundary to the horizon.
+Reading: `LASpherePlanetGenerator.build` leaves the position inputs of `NODE_SDF_SPHERE` unwired, so
+`length(p) - radius` is taken at each voxel's absolute position.
 
 ## 8. THE DEMO SITE HOLDS NO WATER A VIEWER CAN STAND BESIDE
 
@@ -165,6 +164,14 @@ Maintainer's decision, standing: per-cell moles of elements are the state and sp
 ## 18. THE GPU LINT RUNS HERE ONLY
 
 `.github/workflows/gpu-lint.yml` targets a self-hosted macOS runner labelled `gpu`; none is registered.
+
+## 19. THE STAR IS SEEDED WITH TODAY'S RADIUS BESIDE THE EPOCH'S LUMINOSITY
+
+`rg -n 'star\["(radius_m|luminosity_w)"\]' addons/local_agents/gdextensions/localagents/src/LABodySystem.cpp`
+reads the present nominal radius for a star `star_age_at_epoch_gyr()` old, where the standard solar model
+gives 0.869 of it at zero age and 0.882 at 0.2 Gyr (Bahcall, Pinsonneault & Basu 2001, ApJ 555:990,
+Table 1); the sky's disc and the ground's sunlit unit are drawn from that radius.
+Reading: `LABodySeeds::rows` sets the star's `radius_m` to `SOLAR_RADIUS_M`.
 
 ## How to run
 
