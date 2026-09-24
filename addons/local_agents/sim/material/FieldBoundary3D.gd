@@ -166,6 +166,8 @@ func _valid_state(st: Dictionary, d: int) -> bool:
 		var row: Dictionary = rows.get(String(name), {})
 		if String(row.get("unit", "")) != "mol_m3":
 			return _fail("face %d state names \"%s\", which is not a matter channel" % [d, name])
+		if not (float(st["amounts"][name]) >= 0.0):
+			return _fail("face %d state holds %s mol/m^3 of \"%s\": an amount of matter is not negative" % [d, str(st["amounts"][name]), name])
 	return true
 
 
@@ -298,7 +300,7 @@ func _derive(st: Dictionary, d: int) -> Dictionary:
 	var v_used: float = 0.0
 	var m_by_id: Dictionary = {}
 	for name in amounts:
-		var amount: float = maxf(float(amounts[name]), 0.0)
+		var amount: float = float(amounts[name])
 		out[String(name)] = amount
 		if amount <= 0.0:
 			continue

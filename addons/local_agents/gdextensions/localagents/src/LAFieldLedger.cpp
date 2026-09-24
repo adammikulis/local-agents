@@ -180,7 +180,7 @@ void LAFieldLedger::fold(const Dictionary &p_drained, double p_mineral_minted,
 	const Array rows = LAProcessSet::reduce_rows(LAProcessSet::ANY);
 	for (int i = 0; i < rows.size(); i++) {
 		const Dictionary row = rows[i];
-		if (static_cast<bool>(row.get("energy_book", false))) {
+		if (as_d(row.get("energy_book", 0.0)) != 0.0) {
 			want.push_back(String(row["key"]));
 		}
 	}
@@ -211,10 +211,36 @@ void LAFieldLedger::fold(const Dictionary &p_drained, double p_mineral_minted,
 	// same steps; this fold's own crossings are already inside the stock it latched.
 	if (!_latched) {
 		_latched = true;
-		report(static_cast<int>(out["step"]), p_mineral_minted, p_inject_heat_j);
+		_latch_step = static_cast<int>(out["step"]);
+		report(_latch_step, p_mineral_minted, p_inject_heat_j);
 		return;
 	}
 	boundary_sample(out);
+	_exchange_sample(out);
+}
+
+// One drained step's energy exchanged with what the field holds no stock of: every `energy_book` row,
+// signed into the domain, joules over that step. A declared row the drain did not carry is a hole.
+void LAFieldLedger::_exchange_sample(const Dictionary &p_fold) {
+	if (_first_step_of("energy_held") < 0) {
+		return;
+	}
+	const Array rows = LAProcessSet::reduce_rows(LAProcessSet::ANY);
+	for (int i = 0; i < rows.size(); i++) {
+		const Dictionary row = rows[i];
+		const double sign = as_d(row.get("energy_book", 0.0));
+		if (sign == 0.0) {
+			continue;
+		}
+		const String key = row["key"];
+		if (!p_fold.has(key)) {
+			_exchange_hole = true;
+			continue;
+		}
+		const double j = as_d(p_fold[key]);
+		_exchange_net += sign * j;
+		_exchange_gross += std::abs(j);
+	}
 }
 
 // --- the boundary books -------------------------------------------------------------------------------
@@ -230,17 +256,17 @@ PackedStringArray LAFieldLedger::boundary_declared(const PackedStringArray &p_si
 	return out;
 }
 
+// A leg missed once is a hole in its integral for good, so a name stays on `_bnd_missing`.
 void LAFieldLedger::boundary_sample(const Dictionary &p_drained) {
-	_bnd_missing = PackedStringArray();
 	const PackedStringArray declared = boundary_declared(_bnd_signed);
 	for (int i = 0; i < declared.size(); i++) {
 		const String ch = declared[i];
 		const String a = _bnd_amount + ch;
 		const String h = _bnd_heat + ch;
-		if (!p_drained.has(a)) {
+		if (!p_drained.has(a) && !_bnd_missing.has(a)) {
 			_bnd_missing.push_back(a);
 		}
-		if (!p_drained.has(h)) {
+		if (!p_drained.has(h) && !_bnd_missing.has(h)) {
 			_bnd_missing.push_back(h);
 		}
 		if (!p_drained.has(a) || !p_drained.has(h)) {
@@ -261,7 +287,9 @@ void LAFieldLedger::boundary_sample(const Dictionary &p_drained) {
 		}
 		const String sa = _bnd_amount + sch;
 		if (!p_drained.has(sa)) {
-			_bnd_missing.push_back(sa);
+			if (!_bnd_missing.has(sa)) {
+				_bnd_missing.push_back(sa);
+			}
 			continue;
 		}
 		const double sd = as_d(p_drained[sa]);
@@ -305,20 +333,6 @@ Array LAFieldLedger::boundary_of(const PackedStringArray &p_group, const String 
 }
 
 // --- the baselines ------------------------------------------------------------------------------------
-
-int LAFieldLedger::_elapsed(const String &p_key, int p_step) {
-	int out = 0;
-	if (_prev_s.has(p_key)) {
-		out = p_step - static_cast<int>(_prev_s[p_key]);
-		if (out < 0) {
-			out = 0;
-		}
-	}
-	if (!_prev_s.has(p_key) || p_step > static_cast<int>(_prev_s[p_key])) {
-		_prev_s[p_key] = p_step;
-	}
-	return out;
-}
 
 Array LAFieldLedger::_run(const String &p_key, const String &p_seed_key, double p_value, int p_step) {
 	Array out;
@@ -377,9 +391,12 @@ Dictionary LAFieldLedger::report(int p_step, double p_mineral_minted, double p_i
 		step = p_step;
 	}
 	out["bnd_declared"] = _latest.get("bnd_declared", PackedStringArray());
+	// The step the drain every `*_first` baseline latched on was reduced at; -1 before the seal.
+	out["world_baseline_step"] = _latch_step;
 	_publish_h2o(out, step);
 	_publish_mineral(out, step, p_mineral_minted);
 	_publish_element(out, step);
+	_publish_atoms(out, step);
 	_publish_energy(out, step, p_inject_heat_j);
 	_publish_charge(out, step);
 	_last = out;
@@ -427,7 +444,7 @@ void LAFieldLedger::_publish_mineral(Dictionary &p_out, int p_step, double p_min
 	for (int i = 0; i < els.size(); i++) {
 		p_out["lith_element_" + String(els[i])] = Math::snapped(as_d(lith[els[i]]), 0.01);
 	}
-	// erupt_source injects mantle lava with no debit in the field; `p_mineral_minted` books it.
+	// The silicate injection created, as the device's own tally reads it.
 	p_out["mineral_src_total"] = Math::snapped(p_mineral_minted, 0.01);
 	_run_pair(p_out, "mineral", "mineral", "mineral", total, p_step, boundary_of(group, "Si"));
 	// Every element the rock alone holds gets its own drift book, keyed on its lith moles.
@@ -585,6 +602,25 @@ void LAFieldLedger::_publish_element(Dictionary &p_out, int p_step) {
 			as_d(_elements_of(_only(all, h_pool)).get("H", 0.0)), p_step, boundary_of(h_pool, "H"));
 }
 
+// Carbon and oxygen over every channel that carries them, water and rock included: chemistry conserves
+// the atom, never one molecule of it. Each is net of what crossed the edge, like every matter book.
+void LAFieldLedger::_publish_atoms(Dictionary &p_out, int p_step) {
+	const bool absent = _absent(_amounts);
+	const Dictionary every = absent ? Dictionary() : _elements_of(_only(_latest["all"], _amounts));
+	const char *atoms[] = { "C", "O" };
+	for (const char *el : atoms) {
+		const String name = String("element_") + el + "_total";
+		if (absent) {
+			p_out[name] = Variant();
+			continue;
+		}
+		const double moles = as_d(every.get(String(el), 0.0));
+		p_out[name] = Math::snapped(moles, 0.01);
+		_run_pair(p_out, name, name, String("element_") + el + "_mol", moles, p_step,
+				boundary_of(_amounts, String(el)));
+	}
+}
+
 void LAFieldLedger::_publish_energy(Dictionary &p_out, int p_step, double p_inject_heat_j) {
 	const PackedStringArray missing = _latest.get("energy_missing", PackedStringArray());
 	if (missing.size() > 0 || !_latest.has("energy_stock") || !_latest.has("energy_stock_lith")) {
@@ -599,24 +635,12 @@ void LAFieldLedger::_publish_energy(Dictionary &p_out, int p_step, double p_inje
 			: Variant();
 	const double held = stock + as_d(_latest["energy_kinetic"]) + as_d(_latest["energy_potential"]);
 	p_out["energy_held"] = held;
+	// WATTS over the last drained step: its radiative pair in joules, over the step's own real seconds.
+	const bool has_rad = _latest.has("rad_absorbed") && _latest.has("rad_emitted") && _dt_s > 0.0;
+	p_out["energy_net_w"] = has_rad
+			? Variant((as_d(_latest["rad_absorbed"]) - as_d(_latest["rad_emitted"])) / _dt_s)
+			: Variant();
 
-	// WATTS, off the device. flux.glsl's RADIATE row writes what each cell took in and sent out as
-	// J/m^3 for one step; the two reduce rows weight those by cell volume, so the pair arrives in joules
-	// over one step and only the step's own real seconds separate it from watts.
-	const bool has_rad = _latest.has("rad_absorbed") && _latest.has("rad_emitted")
-			&& _latest.has("radiogenic") && _dt_s > 0.0;
-	// A world that declares no radiative record exchanges nothing by radiation; one that declares it
-	// and publishes no reading is unmeasured.
-	const bool rad_declared = LAProcessSet::has_record("transport", "heat_radiate", LAProcessSet::ANY);
-	const double absorbed_w = has_rad ? as_d(_latest.get("rad_absorbed", 0.0)) / _dt_s : 0.0;
-	const double emitted_w = has_rad ? as_d(_latest.get("rad_emitted", 0.0)) / _dt_s : 0.0;
-	const double radiogenic_w = has_rad ? as_d(_latest.get("radiogenic", 0.0)) / _dt_s : 0.0;
-	p_out["energy_net_w"] = has_rad ? Variant(absorbed_w - emitted_w) : Variant();
-
-	// THE STOCK AND ITS DRIFT STAND WITHOUT THE RADIATIVE PAIR. A world whose processes do not include
-	// radiation exchanges no energy with anything, so what it holds must not move; only the RESIDUAL —
-	// the drift net of what was booked — needs terms to book against.
-	const int steps = _elapsed("energy_held", p_step);
 	const bool was_latched = _first_step_of("energy_held") >= 0;
 	const Array r = _run("energy_held", "energy_j", held, p_step);
 	if (r.is_empty()) {
@@ -625,47 +649,34 @@ void LAFieldLedger::_publish_energy(Dictionary &p_out, int p_step, double p_inje
 	p_out["energy_held_first"] = as_d(r[0]);
 	p_out["energy_run_drift"] = as_d(r[1]);
 	p_out["energy_run_drift_rel"] = _rel(as_d(r[1]), std::abs(as_d(r[0])));
-	if (rad_declared && !has_rad) {
-		// A missing measurement is missing: the declared radiative pair published no reading.
-		p_out["energy_booked"] = Variant();
-		p_out["energy_residual"] = Variant();
-		p_out["energy_residual_rel"] = Variant();
-		p_out["energy_turnover_j"] = Variant();
-		return;
-	}
 	if (!was_latched) {
-		_cum_absorbed = 0.0;
-		_cum_emitted = 0.0;
-		_cum_radiogenic = 0.0;
 		_first_inject_j = p_inject_heat_j;
-	} else if (steps > 0) {
-		// Rectangle rule over the window, at the flux sampled at its right-hand end, integrated against
-		// the real seconds the kernel applies.
-		const double window_s = _dt_s * static_cast<double>(steps);
-		_cum_absorbed += absorbed_w * window_s;
-		_cum_emitted += emitted_w * window_s;
-		_cum_radiogenic += radiogenic_w * window_s;
 	}
 	if (static_cast<int>(r[3]) <= 0) {
 		return;
 	}
-	const double run_drift = as_d(r[1]);
+	// A step whose exchange went unread is a hole in the integral: no residual is a measurement after it.
+	if (_exchange_hole || !_bnd_missing.is_empty()) {
+		p_out["energy_booked"] = Variant();
+		p_out["energy_residual"] = Variant();
+		p_out["energy_turnover_j"] = Variant();
+		p_out["energy_residual_rel"] = Variant();
+		p_out["energy_residual_stock_rel"] = Variant();
+		return;
+	}
 	const double cum_inject = p_inject_heat_j - _first_inject_j;
-	// The joules that crossed the open edge with the matter. POSITIVE IS INTO the domain, so they are
-	// booked with the same sign as absorbed sunlight; zero while the wall is shut.
-	const double booked = _cum_absorbed - _cum_emitted + cum_inject + _cum_radiogenic + _bnd_heat_net;
-	// What entered or left the thermal field over the window, and the only admissible denominator for the
-	// residual: read as a fraction of the STOCK, a wholly unaccounted window reports as round-off.
-	const double turnover = _cum_absorbed + _cum_emitted + std::abs(cum_inject)
-			+ std::abs(_cum_radiogenic) + _bnd_heat_gross;
+	// POSITIVE IS INTO the domain; the edge's own joules read zero while the wall is shut.
+	const double booked = _exchange_net + cum_inject + _bnd_heat_net;
+	const double turnover = _exchange_gross + std::abs(cum_inject) + _bnd_heat_gross;
+	const double residual = as_d(r[1]) - booked;
 	p_out["energy_booked"] = booked;
-	p_out["energy_residual"] = run_drift - booked;
+	p_out["energy_residual"] = residual;
 	p_out["energy_turnover_j"] = turnover;
 	p_out["energy_bnd_in"] = _bnd_heat_net;
 	p_out["energy_bnd_crossed"] = _bnd_heat_gross;
-	p_out["energy_residual_rel"] = _bnd_missing.is_empty()
-			? _rel(run_drift - booked, turnover)
-			: Variant();
+	// The residual as a fraction of what crossed, none when nothing did, and of what is held: the audit's.
+	p_out["energy_residual_rel"] = turnover > 0.0 ? _rel(residual, turnover) : Variant();
+	p_out["energy_residual_stock_rel"] = _rel(residual, std::abs(held));
 }
 
 // Net charge over the box, coulombs: no heat leg, so the edge crossing books amount-only. Riming
@@ -688,12 +699,14 @@ void LAFieldLedger::_publish_charge(Dictionary &p_out, int p_step) {
 
 // --- momentum -----------------------------------------------------------------------------------------
 
+// `p_step` is the step the drained reduction ran at, negative before any: each drain folds once, and its
+// impulses are that one step's, whatever the clock did between drains.
 void LAFieldLedger::momentum_sample(int p_step, const Vector3 &p_stock, const Vector3 &p_body,
 		const Vector3 &p_bnd) {
-	const int steps = p_step - _mom_prev_step;
-	if (steps > 0 || _mom_prev_step < 0) {
-		_mom_prev_step = p_step;
+	if (p_step < 0 || p_step <= _mom_prev_step) {
+		return;
 	}
+	_mom_prev_step = p_step;
 	if (_mom_first_step < 0) {
 		if (_sealed() && p_stock.is_finite()) {
 			_mom_first_stock = p_stock;
@@ -702,12 +715,14 @@ void LAFieldLedger::momentum_sample(int p_step, const Vector3 &p_stock, const Ve
 		}
 		return;
 	}
-	// Both books are impulses PER STEP; a non-finite step's book is absent, never folded.
-	if (steps > 0 && p_body.is_finite() && p_bnd.is_finite()) {
-		_cum_body += p_body * static_cast<double>(steps);
-		_cum_bnd += p_bnd * static_cast<double>(steps);
-		_cum_impulse += (p_body.length() + p_bnd.length()) * static_cast<double>(steps);
+	// A non-finite step's book is absent, and the integral it leaves a hole in is no measurement.
+	if (!p_body.is_finite() || !p_bnd.is_finite()) {
+		_mom_hole = true;
+		return;
 	}
+	_cum_body += p_body;
+	_cum_bnd += p_bnd;
+	_cum_impulse += p_body.length() + p_bnd.length();
 }
 
 Dictionary LAFieldLedger::momentum_report(int p_step, const Vector3 &p_stock, const Vector3 &p_body,
@@ -746,6 +761,12 @@ Dictionary LAFieldLedger::momentum_report(int p_step, const Vector3 &p_stock, co
 	out["momentum_run_drift_rel"] = p_carried == 0.0
 			? Variant()
 			: _rel(run_drift.length(), p_carried);
+	if (_mom_hole) {
+		out["momentum_residual_vec"] = Variant();
+		out["momentum_residual"] = Variant();
+		out["momentum_residual_rel"] = Variant();
+		return out;
+	}
 	out["momentum_residual_vec"] = _vec(residual);
 	out["momentum_residual"] = static_cast<double>(residual.length());
 	out["momentum_residual_rel"] = _cum_impulse == 0.0

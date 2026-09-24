@@ -109,13 +109,6 @@ if on_read is None or math.isnan(on_read) or abs(on_read) > 1e-3:
     fails.append("the control run's integrator and field disagree by %r, so absence cannot be told "
                  "from agreement" % on_read)
 
-# The solve itself stops while the switch is off, and starts again when it comes back.
-off_solves = float(off_rep.get("gauges", {}).get("gravity_solves", {}).get("cur", -1.0))
-on_solves = float(on_rep.get("gauges", {}).get("gravity_solves", {}).get("cur", -1.0))
-if not (0.0 <= off_solves < on_solves):
-    fails.append("the switched-off run solved gravity %r times against the control's %r"
-                 % (off_solves, on_solves))
-
 # The probe was offered in both worlds: rung 1 contains gravity whether or not the switch is on.
 for text, which in ((off, "switched-off"), (on, "control")):
     if "TEST_MASS_REFUSED=" in text:

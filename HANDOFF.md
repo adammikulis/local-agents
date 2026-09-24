@@ -36,8 +36,9 @@ Reading: `state_derive.glsl` ends the (T, p) solve on `abs(f) <= LA_STATE_TOL * 
 ## 3. THE BOUNDARY GATES CANNOT RECORD THEIR OWN CAPTURE, AND A GHOST'S REST GRAVITY IS READ PAST ITS BUFFER
 
 `scripts/check_boundary_books.sh` with no `LA_LINT_CAPTURE` exits 2: its capture run,
-`scripts/sim_run.sh --body --frames 20 --rung 3 --slice-capture C`, ends `RUN FAILED, exit 122` with
-`PRESSURE_BROKEN: pressure fell going down.` `rg -n 'g_rest.*cc \* 3' addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd`
+`scripts/sim_run.sh --body --frames 20 --rung 8 --slice-capture C`, logs `LASubstances gives "fixed_n"
+no specific heat`, is killed at the run timeout and publishes no capture; at `--rung 3` it is killed at
+the timeout. `rg -n 'g_rest.*cc \* 3' addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd`
 Reading: `_allocate_declared` in `MaterialSphereGPU3D.gd` adds `_ng` once to a declared length, so a
 three-vector declared `{"n": cc * 3, "ghosts": true}` is `cc * 3 + ng` long.
 
@@ -115,7 +116,15 @@ is an invented threshold. The design: kinematic until thrown; then a Jolt `Rigid
 `gravity_scale = 0` pushed each tick by `m·g(pos)` from `LABallistics.g_at` plus the seeded air's drag
 (bound, not copied), the impulse from the overpressure in its cell, kinematic again when asleep.
 
-## 13. NOT EXAMINED UNTIL THE RUNG-2 DEMO IS APPROVED — rung 3
+## 13. MATTER INJECTED FROM OUTSIDE THE FIELD IS NOT BOOKED IN
+
+`scripts/sim_run.sh --slice --rung 2 --frames 200 --report inject_created_silicate,mineral_src_total,mineral_run_drift,mineral_bnd_in -- --stamp-test`
+reads `mineral_run_drift` equal to the deposited rock in moles and `mineral_bnd_in` 0, while
+`mineral_src_total` carries the same deposit in mol/m^3 of one cell.
+Reading: `_drain` in `InjectPass.gd` tallies `inject_created_<channel>` in cell values, and
+`_publish_mineral` in `LAFieldLedger.cpp` nets `boundary_of(group, "Si")` alone.
+
+## 14. NOT EXAMINED UNTIL THE RUNG-2 DEMO IS APPROVED — rung 3
 
 - `scripts/check_bench_shock_tube.sh`: at a 10:1 Sod jump the rarefaction head stands outside the bound
   and the overshoot grows as the grid halves; at a 1% jump every claim passes.
@@ -124,12 +133,14 @@ is an invented threshold. The design: kinematic until thrown; then a Jolt `Rigid
   above its bar on a land column; its vent arm reads an energy residual near a tenth of the turnover.
 - `scripts/sim_run.sh --rung 3 --frames 3 --report nonfinite_cells,mach_max` refuses a water record at
   light speed by the second frame; `LA_PASS_PROBE=mach LA_PASS_PROBE_STEPS=1` names the cell.
+- `scripts/check_boundary_momentum_book.sh`, with or without `LA_RUNG=3`, fails its device rig: an open
+  face under a higher exterior pressure books no momentum and no nitrogen, and the REPLAY rim no nudge.
 - Maintainer's decision, standing: the acoustic part of the momentum equation goes implicit (one
   Helmholtz solve per field step on `gravity_poisson.glsl`'s operator shape), the step is derived from
   the advective CFL, `SIM_SECONDS_PER_STEP` and the acoustic temporal levels are deleted; declared in
   `docs/APPROXIMATIONS.md` when built.
 
-## 14. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the rows above it and their books
+## 15. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the rows above it and their books
 
 - `scripts/check_bench_heat_slab.sh` (rung 4): a slab held between 20 and 520 °C leaves that range.
   Reading: `la_row_need` in `flux.glsl` gates the conduction row on `cap_sensible[c] > 0`.
@@ -143,25 +154,25 @@ is an invented threshold. The design: kinematic until thrown; then a Jolt `Rigid
 - `LA_RUN_TIMEOUT=110 scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn --
   --sandbox --ui --run-frames=20` prints no report and logs no error; `--planet-only --no-fauna` reports.
 
-## 15. TWO ROWS THE ENGINE READS ARE EMPTY
+## 16. TWO ROWS THE ENGINE READS ARE EMPTY
 
 `scripts/check_bench_phase_change.sh` melts iron and forsterite off their own rows; `apatite` carries
 neither a melting point nor a fusion enthalpy, so `LAMixtureEnthalpy::thermal_row` keeps it linear in T,
 and every planet mineral carries basalt's `albedo` and `emissivity`.
 
-## 16. THE PHYSICS RUNS INSIDE GODOT'S PROCESS
+## 17. THE PHYSICS RUNS INSIDE GODOT'S PROCESS
 
 Maintainer's decision, standing: a standalone native process with its own device, clock and CLI; gates
 run it with no Godot launch; Godot attaches as a viewer. Today every pass is a GDScript record on a Godot
 RenderingDevice (`LAFieldDriver`) and `scripts/run_sim_offscreen.sh` launches Godot for every gate.
 Branch `native-plans` is unlanded: `scripts/check_lasim_parity.sh` there reads `plan_reduce.lapl is truncated`.
 
-## 17. THE LEDGER RECONSTRUCTS ELEMENTS FROM CHANNEL AMOUNTS
+## 18. THE LEDGER RECONSTRUCTS ELEMENTS FROM CHANNEL AMOUNTS
 
 Maintainer's decision, standing: per-cell moles of elements are the state and species are derived
 (`docs/PHYSICS_TODO.md` B); today the ledger reconstructs them from `Channels.gd` (`mol_per_unit`).
 
-## 18. THE GPU LINT RUNS HERE ONLY
+## 19. THE GPU LINT RUNS HERE ONLY
 
 `.github/workflows/gpu-lint.yml` targets a self-hosted macOS runner labelled `gpu`; none is registered.
 

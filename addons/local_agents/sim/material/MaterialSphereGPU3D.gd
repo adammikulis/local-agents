@@ -38,7 +38,7 @@ var _cc: int = 0
 var _ng: int = 0                    # ghost tail cells appended past _cc; 0 = every wall shut
 var _face_count: int = 0            # faces over interior plus ghost tail: LAVoxelGrid.neighbours
 var _bnd_keys: PackedStringArray = PackedStringArray()   # per-step boundary books, cleared before each step
-var _step_index: int = 0            # monotonic field-step counter, published to kernels as ctx["step_index"]
+var _step_index: int = 0            # LASimLoop's step this field step runs at, published as ctx["step_index"]
 var _seed_totals: Dictionary = {}   # per channel: the total the last whole-mirror seed declared
 var _groups: int = 0
 var _bufs: Dictionary = {}          # channel/buffer name → its one RID
@@ -279,7 +279,6 @@ func step() -> void:
 	# Deferred sync — drained at the next begin_frame, so the GPU overlaps the CPU frame work.
 	_driver.step(_passes, _pass_names, _ctx, _cc, _groups, _step_probe)
 	_pending = true
-	_step_index += 1
 
 
 ## Signature: `probe.call(pass_index: int, pass_name: String)`, pass_index -1 = before any pass ran.
@@ -300,15 +299,6 @@ func read_raw_bytes(name: String) -> PackedByteArray:
 	if _rd == null or not _bufs.has(name):
 		return PackedByteArray()
 	return _rd.buffer_get_data(_bufs[name])
-
-
-## Sync an in-flight step submit WITHOUT reading channels — for save/load/dispose paths that touch buffers
-## outside the normal begin/step/end loop. Leaves the mirrors untouched.
-func _flush_pending() -> void:
-	if not _pending:
-		return
-	_rd.sync()
-	_pending = false
 
 
 func _drain_pending() -> void:
@@ -507,7 +497,7 @@ func inject_created(channel: String) -> float:
 func dispose() -> void:
 	if _rd == null:
 		return
-	_flush_pending()        # ensure the GPU is idle (no in-flight step submit) before freeing any RID
+	_drain_pending()        # the GPU idle, and the step in flight read, before any RID is freed
 	for p in _passes:
 		if p != null and p.has_method("dispose"):
 			p.dispose(_rd)
