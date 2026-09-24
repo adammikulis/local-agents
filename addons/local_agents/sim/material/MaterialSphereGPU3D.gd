@@ -25,7 +25,7 @@ static func available() -> bool:
 	return true
 
 var _rd: RenderingDevice = null
-## The native driver: it sequences the passes, issues every compute list and does the drain's readback.
+## The device's one driver: it sequences the passes, owns every submit and does the drain's readback.
 var _driver: LAFieldDriver = null
 ## One buffer every channel this drain reads is copied into on the device, so the CPU waits once.
 var _staging: RID = RID()
@@ -82,8 +82,7 @@ func setup(field) -> void:
 	if _rd == null:
 		push_error("LAMaterialSphereGPU3D: no RenderingDevice")
 		return
-	_driver = LAFieldDriver.new()
-	_driver.set_device(_rd)
+	_driver = LAFieldDriver.on(_rd)
 	_mirrors = field._mirrors
 	_mirrors.set_device(_rd)
 	_groups = int(ceil(float(_cc) / 64.0))
@@ -166,7 +165,7 @@ func setup(field) -> void:
 		if _pass_names[i] == "InjectPass":
 			_inject = _passes[i]
 	for p2 in _passes:
-		p2.setup(_rd, _bufs, _cc)
+		p2.setup(_rd, _driver, _bufs, _cc)
 	# The boundary books are per-step rates: cleared before every step, summed by their reduce rows after.
 	for key in _bufs:
 		if String(key).begins_with("bnd_"):
@@ -276,7 +275,7 @@ func step() -> void:
 	_ctx["dt_s"] = LAMaterialFieldSphereStep3D.real_seconds_per_step()
 	_driver.pre_step(_passes, _ctx, _cc, _groups)
 	_driver.clear_buffers(_bnd_rids, _cc * 4)
-	# Deferred sync — drained at the next begin_frame, so the GPU overlaps the CPU frame work.
+	# Every submit of the step is waited on inside it; an empty tail stays in flight for the drain's sync.
 	_driver.step(_passes, _pass_names, _ctx, _cc, _groups, _step_probe)
 	_pending = true
 	_step_index += 1
@@ -358,13 +357,12 @@ func derive_seeded(sealing: bool = false) -> void:
 	_ctx["cell_size"] = _grid.cell_size
 	_ctx["cell_size_min"] = _grid.cell_size * pow(0.5, float(_grid.max_level))
 	_ctx["seeding"] = not sealing
+	_driver.restart()
 	for i in _passes.size():
 		if not (_pass_names[i] in ["StateDerivePass", "ReducePass"]): continue
-		var cl: int = _rd.compute_list_begin()
-		_passes[i].dispatch(_rd, cl, _ctx, _cc, _groups)
-		_rd.compute_list_end()
-		_rd.submit()
-		_rd.sync()
+		_driver.open()
+		_passes[i].dispatch(_rd, _ctx, _cc, _groups)
+		_driver.close()
 		_passes[i]._drain(_rd)
 	_ctx.erase("seeding")
 

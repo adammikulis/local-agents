@@ -184,11 +184,11 @@ func _set_for(src: String, dst: String) -> RID:
 	return uset
 
 
-func dispatch(_rd_in: RenderingDevice, cl: int, _ctx: Dictionary, _cc: int, _groups: int) -> void:
+func dispatch(_rd_in: RenderingDevice, _ctx: Dictionary, _cc: int, _groups: int) -> void:
 	if not _dispatchable() or _dispatch_pcs.is_empty():
 		return
-	_driver.run(cl, _pipe, _dispatch_sets, _dispatch_pcs, _dispatch_groups, _dispatch_args,
-		_dispatch_offsets, true)
+	_driver.run(_pipe, _dispatch_sets, _dispatch_pcs, _dispatch_groups, _dispatch_args,
+		_dispatch_offsets, true, PackedStringArray([_label() + "/edit"]))
 	_dispatch_pcs = []
 	_dispatch_sets = []
 	_dispatch_groups = PackedInt32Array()

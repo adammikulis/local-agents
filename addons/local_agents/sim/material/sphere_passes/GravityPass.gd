@@ -107,7 +107,7 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	_set = _uset(_pipe, LABindings.set_for("gravity_poisson.glsl", bufs, {"grav_props": props_ssbo}))
 
 
-func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:
+func dispatch(_rd: RenderingDevice, ctx: Dictionary, cc: int, groups: int) -> void:
 	ctx["gravity_self"] = 1.0 if _slab else 0.5
 	if not _dispatchable() or not _set.is_valid():
 		if not _failed_announced:
@@ -133,7 +133,7 @@ func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: i
 	else:
 		_solves += 1
 		_read_due = true
-	_issue(cl, plan, cc)
+	_issue(plan, cc)
 
 
 ## THE SOLVE, CONVERGED: density, moments and the Dirichlet ring on the device; the potential by
@@ -143,22 +143,18 @@ func solve_converged(rd: RenderingDevice, grid, cc: int, groups: int) -> float:
 	if not _dispatchable() or not _set.is_valid() or _slab or grid == null:
 		return INF
 	var ctx: Dictionary = {"gravity_solve": "pre"}
-	var cl: int = rd.compute_list_begin()
-	dispatch(rd, cl, ctx, cc, groups)
-	rd.compute_list_end()
-	rd.submit()
-	rd.sync()
+	_driver.open()
+	dispatch(rd, ctx, cc, groups)
+	_driver.close()
 	var r: Dictionary = LAGravitySolve.solve_device(rd, grid, _density_rid, _phi_rid, _flags_rid,
 		_moments, LAPhysical.GRAVITATIONAL_CONSTANT, RESIDUAL_TOLERANCE, MAX_ITERATIONS)
 	if r.is_empty():
 		return INF
 	_iterations = int(r["iterations"])
 	ctx["gravity_solve"] = "post"
-	cl = rd.compute_list_begin()
-	dispatch(rd, cl, ctx, cc, groups)
-	rd.compute_list_end()
-	rd.submit()
-	rd.sync()
+	_driver.open()
+	dispatch(rd, ctx, cc, groups)
+	_driver.close()
 	_drain(rd)
 	# The solve's own residual, in double over the full potential: the device holds only the deviation.
 	_residual_rel = float(r["residual_rel"])
@@ -179,28 +175,30 @@ func phi_datum() -> float:
 
 
 ## SLICE ONLY, once at the seed, after the body's field is uploaded: the vertical relation and |g| stats.
-func dispatch_slab(_rd: RenderingDevice, cl: int, cc: int, groups: int) -> void:
+func dispatch_slab(_rd: RenderingDevice, cc: int, groups: int) -> void:
 	_slab = true
 	if not _dispatchable() or not _set.is_valid():
 		return
-	_issue(cl, [[MODE_VERT_UP, 0, groups], [MODE_VERT_DOWN, 0, groups],
+	_issue([[MODE_VERT_UP, 0, groups], [MODE_VERT_DOWN, 0, groups],
 		[MODE_VERT_DOWN_KEY, 0, groups], [MODE_FIELD_STATS, 0, 1]], cc)
 	_solves += 1
 	_read_due = true
 
 
 ## One mode per entry, each followed by a barrier: a sweep reads what the sweep before it wrote.
-func _issue(cl: int, plan: Array, cc: int) -> void:
+func _issue(plan: Array, cc: int) -> void:
 	var pcs: Array = []
 	var wgs: PackedInt32Array = PackedInt32Array()
 	var args: Array = []
 	var offs: PackedInt32Array = PackedInt32Array()
+	var keys: PackedStringArray = PackedStringArray()
 	for e: Array in plan:
 		pcs.append(_push(int(e[0]), int(e[1]), cc))
 		wgs.append(int(e[2]))
 		args.append(RID())
 		offs.append(0)
-	_driver.run(cl, _pipe, [_set], pcs, wgs, args, offs, true)
+		keys.append("%s/mode%d" % [_label(), int(e[0])])
+	_driver.run(_pipe, [_set], pcs, wgs, args, offs, true, keys)
 
 
 func _push(mode: int, colour: int, cc: int) -> PackedByteArray:

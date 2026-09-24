@@ -606,6 +606,19 @@ kind = "gpu"
 marker = "^check_driver_native: OK"
 
 [[gate]]
+name = "check_submit_budget"
+script = "scripts/check_submit_budget.sh"
+kind = "gpu"
+marker = "^check_submit_budget: OK"
+mutation = [
+	"perl -0pi -e 's/return gl_WorkGroupID\\.x \\* params\\.chunk_stride \\+ params\\.chunk_phase;/return gl_WorkGroupID.x;/' addons/local_agents/sim/material/kernels3d/chunk.glsli",
+	"perl -0pi -e 's/partials\\[params\\.base \\+ la_group\\(\\)\\]/partials[params.base + gl_WorkGroupID.x]/' addons/local_agents/sim/material/kernels3d/reduce.glsl",
+	"perl -0pi -e 's/alone > _wait_usec/false/' addons/local_agents/gdextensions/localagents/src/LAFieldDriver.cpp",
+	"perl -0pi -e 's/if \\(_bounded\\(\\) && n > 1 && /if (false && /' addons/local_agents/gdextensions/localagents/src/LAFieldDriver.cpp",
+]
+needs = ["build", "import", "capture"]
+
+[[gate]]
 name = "check_comment_claims"
 script = "scripts/check_comment_claims.sh"
 kind = "text"

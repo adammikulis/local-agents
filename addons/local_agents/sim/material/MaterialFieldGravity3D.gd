@@ -83,11 +83,9 @@ func _solve_slice() -> void:
 	_phi_slab = bf["phi"]
 	_phi_datum_slab = float(bf["phi_datum"])
 	var rd: RenderingDevice = _f._gpu._rd
-	var cl: int = rd.compute_list_begin()
-	_pass.dispatch_slab(rd, cl, _f._gpu._cc, _f._gpu._groups)
-	rd.compute_list_end()
-	rd.submit()
-	rd.sync()
+	_f._gpu._driver.open()
+	_pass.dispatch_slab(rd, _f._gpu._cc, _f._gpu._groups)
+	_f._gpu._driver.close()
 	_pass._drain(rd)
 
 

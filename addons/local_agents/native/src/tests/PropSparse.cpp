@@ -27,6 +27,9 @@ struct Push {
 	uint32_t count;
 	uint32_t cell_count;
 	uint32_t same;
+	// chunk.glsli: the whole dispatch in one submit.
+	uint32_t chunk_stride = 1;
+	uint32_t chunk_phase = 0;
 };
 
 struct Edit {

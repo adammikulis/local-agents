@@ -78,7 +78,7 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 		_keys.append(String(row["key"]))
 
 
-func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, _groups_in: int) -> void:
+func dispatch(rd: RenderingDevice, ctx: Dictionary, cc: int, _groups_in: int) -> void:
 	if not _dispatchable() or _sets.is_empty():
 		if not _failed_announced:
 			_failed_announced = true
@@ -88,11 +88,11 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, _groups_in
 		return
 	_step = int(ctx.get("step_index", -1))
 	# A REFERENCE IS THE STATE THE WORLD WAS BUILT WITH, so a mid-seed derive takes none.
-	_run(rd, cl, ctx, cc, not bool(ctx.get("seeding", false)))
+	_run(rd, ctx, cc, not bool(ctx.get("seeding", false)))
 
 
 ## Every row. `latch_ok` false leaves every reference where it is.
-func _run(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, latch_ok: bool) -> void:
+func _run(_rd: RenderingDevice, ctx: Dictionary, cc: int, latch_ok: bool) -> void:
 	var usets: Array = []
 	var pcs: Array = []
 	var wgs: PackedInt32Array = PackedInt32Array()
@@ -111,7 +111,7 @@ func _run(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, latch_ok: boo
 		offs.append(0)
 		if latch:
 			_latch_step[ref] = _step
-	_driver.run(cl, _pipe, usets, pcs, wgs, args, offs, true)
+	_driver.run(_pipe, usets, pcs, wgs, args, offs, true, PackedStringArray([_label() + "/rows"]))
 
 
 ## A reduce taken BETWEEN passes: this pass runs last, so a row cannot say WHICH pass moved a total.
@@ -119,11 +119,9 @@ func _run(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, latch_ok: boo
 func checkpoint(rd: RenderingDevice, ctx: Dictionary, cc: int) -> Dictionary:
 	if not _dispatchable() or _sets.is_empty():
 		return {}
-	var cl: int = rd.compute_list_begin()
-	_run(rd, cl, ctx, cc, false)
-	rd.compute_list_end()
-	rd.submit()
-	rd.sync()
+	_driver.open()
+	_run(rd, ctx, cc, false)
+	_driver.close()
 	return _fold_rows()
 
 

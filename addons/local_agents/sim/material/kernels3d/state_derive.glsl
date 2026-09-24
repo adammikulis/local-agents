@@ -160,12 +160,16 @@ layout(push_constant, std430) uniform Params {
 	float grav_self;        // 1/2 where the box's own mass sources the potential, 1 for a declared body
 	uint lithify;           // 1 where the ladder holds the "lithify" derive record
 	uint detect;            // 1 = the detect phase: only the neighbour classes, off settled state
-	// THE LAST THREE WORDS ARE THE RESTATE'S OWN: LAFieldDriver::run_transport writes them at
-	// size-12, size-8 and size-4, so nothing may be appended after them.
+	// THE RESTATE'S THREE WORDS END THE PASS'S OWN BLOCK: LAFieldDriver::run_transport writes them at
+	// its size-12, size-8 and size-4, and appends the chunk words after them.
 	uint restate;           // 0 = the field step's derive; 1 = the transport substep's restate
 	uint args_slot;         // where this substep's level args start, in words
 	uint act_base;          // where this row group's sorted list starts, in cells
+	uint chunk_stride;      // chunk.glsli
+	uint chunk_phase;
 } params;
+
+#include "chunk.glsli"
 
 const float SOLID_IN = 0.6;    // LAPhysical.SEDIMENT_LOAD_BEARING_SOLID_FRAC
 const float SOLID_OUT = 0.555; // LAPhysical.SEDIMENT_RIGIDITY_SOLID_FRAC
@@ -708,7 +712,7 @@ float la_cyclone(uint g) {
 
 
 void main() {
-	uint g = gl_GlobalInvocationID.x;
+	uint g = la_cell();
 	if (params.detect != 0u) {
 		if (g < params.cell_count) {
 			surface_class[g] = la_surface_class(g);

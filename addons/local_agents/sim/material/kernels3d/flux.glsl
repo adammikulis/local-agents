@@ -182,7 +182,11 @@ layout(push_constant, std430) uniform Params {
 	uint act_group;       // the row group whose activity counter and cell list this dispatch walks
 	uint act_group2;      // a second group this row's crossings wake; ACT_NO_GROUP for none
 	float phi_datum;      // J/kg: la_phi's zero against infinity
+	uint chunk_stride;    // chunk.glsli
+	uint chunk_phase;
 } params;
+
+#include "chunk.glsli"
 
 // The seconds THIS invocation integrates. A cell's own is dt/2^tlevel.
 float la_dt;
@@ -1028,7 +1032,7 @@ void field_detect(uint c) {
 
 
 void main() {
-	uint gidx = gl_GlobalInvocationID.x;
+	uint gidx = la_cell();
 	la_dt = params.dt_s;
 	// pass_id is a push constant, so each branch here is uniform and APPEND's barriers are legal.
 	if (la_active_levels(gidx)) {

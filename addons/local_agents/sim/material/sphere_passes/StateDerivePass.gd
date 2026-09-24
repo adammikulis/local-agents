@@ -41,8 +41,8 @@ const PROP_LADDER: int = 26
 ## Push-constant slots for distinct radiogenic trace mixes, re-evaluated at the run's epoch per step.
 const RAD_GROUPS: int = 4
 
-## state_derive.glsl's Params. LAFieldDriver::run_transport writes the restate's three words at
-## PC_BYTES-12, -8 and -4, so `restate`, `args_slot` and `act_base` stay the last three.
+## state_derive.glsl's Params, less the chunk words the driver appends. LAFieldDriver::run_transport
+## writes the restate's three words at PC_BYTES-12, -8 and -4, so they stay the last three here.
 const PC_BYTES: int = 96
 const PC_LITHIFY: int = 76
 const PC_DETECT: int = 80
@@ -95,7 +95,7 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 	_set = _uset(_pipe, LABindings.set_for("state_derive.glsl", bufs, {"derive_props": props_ssbo}))
 
 
-func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:
+func dispatch(_rd: RenderingDevice, ctx: Dictionary, cc: int, groups: int) -> void:
 	if not _dispatchable() or not _set.is_valid():
 		return
 	# The body's spin vector, rad/s: direction from its seeded angular momentum, rate from its measured
@@ -134,8 +134,9 @@ func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: i
 	# the phase above settled. Reading a neighbour inside the derive would read a value being written.
 	var pc_detect: PackedByteArray = pc.duplicate()
 	pc_detect.encode_u32(PC_DETECT, 1)
-	_driver.run(cl, _pipe, [_set], [pc, pc_detect], PackedInt32Array([groups, groups]),
-		[RID(), RID()], PackedInt32Array([0, 0]), true)
+	_driver.run(_pipe, [_set], [pc, pc_detect], PackedInt32Array([groups, groups]),
+		[RID(), RID()], PackedInt32Array([0, 0]), true,
+		PackedStringArray([_label() + "/derive", _label() + "/detect"]))
 	# THE SAME SOLVE, HANDED TO THE SUBSTEP LOOP. One owner of the equation of state: transport dispatches
 	# this pipeline again over its active list, and the driver writes the list slot into the block.
 	ctx["restate"] = {"pipe": _pipe, "set": _set, "pc": pc, "total": cc + ghost_count}

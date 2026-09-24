@@ -53,6 +53,9 @@ struct Push {
 	uint32_t act_group;
 	uint32_t act_group2;
 	float phi_datum;
+	// chunk.glsli: the whole dispatch in one submit.
+	uint32_t chunk_stride = 1;
+	uint32_t chunk_phase = 0;
 };
 
 struct Row {

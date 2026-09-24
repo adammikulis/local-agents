@@ -35,6 +35,9 @@ struct Push {
 	float gate_lo;
 	float gate_hi;
 	uint32_t nbr;
+	// chunk.glsli: the whole dispatch in one submit.
+	uint32_t chunk_stride = 1;
+	uint32_t chunk_phase = 0;
 };
 
 struct Row {

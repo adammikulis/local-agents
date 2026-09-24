@@ -1,0 +1,16 @@
+// THE WORKGROUPS ONE SUBMIT COVERS: every `chunk_stride`-th workgroup of the whole dispatch, from
+// `chunk_phase` on, so each submit is an even sample of the grid. LAFieldDriver appends the two words
+// to every block it dispatches; a whole dispatch is stride 1, phase 0. Include after the Params block.
+
+#ifndef LA_CHUNK_GLSLI
+#define LA_CHUNK_GLSLI
+
+uint la_group() {
+	return gl_WorkGroupID.x * params.chunk_stride + params.chunk_phase;
+}
+
+uint la_cell() {
+	return la_group() * gl_WorkGroupSize.x + gl_LocalInvocationID.x;
+}
+
+#endif

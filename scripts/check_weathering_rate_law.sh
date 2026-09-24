@@ -126,12 +126,10 @@ func _run(cond: Dictionary, recs: Array = []) -> Dictionary:
 	var p: RefCounted = (load(PASS_PATH) as GDScript).new()
 	if not recs.is_empty():
 		bufs["reaction_records"] = recs
-	p.setup(_rd, bufs, cc)
-	var cl: int = _rd.compute_list_begin()
-	p.dispatch(_rd, cl, {"sun_dir": Vector3.ZERO}, cc, int(ceil(float(cc) / 64.0)))
-	_rd.compute_list_end()
-	_rd.submit()
-	_rd.sync()
+	p.setup(_rd, LAFieldDriver.on(_rd), bufs, cc)
+	p._driver.open()
+	p.dispatch(_rd, {"sun_dir": Vector3.ZERO}, cc, int(ceil(float(cc) / 64.0)))
+	p._driver.close()
 	var out: Dictionary = {}
 	for key in ["silicate", "carbonate", "silica", "h2o", "o2", "co2", "fuel", "detritus", "fungus"]:
 		out[key] = _rd.buffer_get_data(bufs[key]).to_float32_array()

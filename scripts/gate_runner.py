@@ -264,8 +264,23 @@ def stage_scratch(scratch):
             shutil.copy2(src, dst)
 
 
+EXT_REL = "addons/local_agents/gdextensions/localagents"
+
+
+def build_scratch(scratch):
+    """A native mutation is one only once compiled: every launch refuses a bin built from other sources."""
+    deps = os.path.join(scratch, EXT_REL, "thirdparty")
+    if not os.path.lexists(deps):
+        os.symlink(os.path.realpath(os.path.join(ROOT, EXT_REL, "thirdparty")), deps)
+    return subprocess.run([os.path.join(scratch, EXT_REL, "scripts/build_extension.sh"), "--platform", "macos"],
+                          cwd=scratch, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+
+
 def arm_scratch(g, scratch):
-    """Give the scratch tree what the gate declares it needs. A mutation may break either, on purpose."""
+    """Give the scratch tree what the gate declares it needs. A mutation may break either, on purpose.
+    False when the tree's own extension does not build, which leaves nothing to run the gate on."""
+    if "build" in g["needs"] and not build_scratch(scratch):
+        return False
     if "import" in g["needs"]:
         subprocess.run([os.path.join(scratch, "scripts/ensure_worktree_ready.sh")], cwd=scratch)
     os.environ.pop("LA_LINT_CAPTURE", None)
@@ -273,6 +288,7 @@ def arm_scratch(g, scratch):
         cap, _ = make_capture(scratch, arm="body" if "body" in g["needs"] else "slice")
         if cap:
             os.environ["LA_LINT_CAPTURE"] = cap
+    return True
 
 
 def cmd_mutate(args):
@@ -296,7 +312,9 @@ def mutate_one(g, mutation):
     os.environ["LA_LAUNCH_LOG"] = ledger
     try:
         stage_scratch(scratch)
-        arm_scratch(g, scratch)
+        if not arm_scratch(g, scratch):
+            print("MUTATION_UNRUNNABLE: %s — the unmutated scratch tree's extension did not build." % g["name"])
+            return 2
         rc0, out0, _ = run_gate(g, scratch, ledger, False)
         sys.stdout.write(out0)
         if rc0 != 0:
@@ -306,9 +324,15 @@ def mutate_one(g, mutation):
         if subprocess.run(["bash", "-c", mutation], cwd=scratch).returncode != 0:
             print("MUTATION_UNRUNNABLE: %s — the mutation command itself failed." % g["name"])
             return 2
-        arm_scratch(g, scratch)
+        if not arm_scratch(g, scratch):
+            print("MUTATION_UNRUNNABLE: %s — `%s` left an extension that does not build." % (g["name"], mutation))
+            return 2
         rc1, out1, _ = run_gate(g, scratch, ledger, False)
         sys.stdout.write(out1)
+        # A gate that could not run under the mutation reported no violation, so it caught nothing.
+        if rc1 == 2:
+            print("MUTATION_UNRUNNABLE: %s could not run under `%s`, which proves nothing." % (g["name"], mutation))
+            return 2
         if rc1 == 0:
             print("MUTATION_SURVIVED: %s stayed green under `%s`. It cannot fail, so it is not a "
                   "gate." % (g["name"], mutation))
