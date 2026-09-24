@@ -575,11 +575,11 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 		return std::isnan(s.b) ? NAN
 							   : LAPhaseEosFn::mixture_pressure(vol[c], s.a_rt, s.s_a, s.s_b, s.b, s.c, p);
 	};
-	// The lattice's pressure, state_derive.glsl's p_rock: the column in a locked cell, and in an open one
-	// the fluid's plus half its own lattice's weight.
+	// The lattice's pressure, state_derive.glsl's p_rock: the column in a locked cell where the hydrostatic
+	// rung stands one, and otherwise the fluid's plus half its own lattice's weight.
 	std::vector<double> p_open(cc, 0.0), p_col(cc, 0.0), p_fl(cc, 0.0);
 	auto rock_at = [&](int c, double p) {
-		return solid[c] != 0 ? p_col[c] : p + 0.5 * rho_lat[c] * g_mag[c] * edge[c];
+		return solid[c] != 0 && pulled ? p_col[c] : p + 0.5 * rho_lat[c] * g_mag[c] * edge[c];
 	};
 	// THE PRESSURE A CELL'S MATTER STATES: the root of p_eos(p) = p, which falls as p rises. Full steps --
 	// Newton on the condensed volume -- until the root is bracketed, then halving wherever a step leaves the
@@ -717,25 +717,41 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 		}
 	}
 	std::stable_sort(order.begin(), order.end(), [&depth](int a, int b) { return depth[a] < depth[b]; });
-	// A LOCKED CELL's rock carries its column, and its fluid stands at the pressure its own equation of state
-	// gives it in the room the grains leave: in rock with no free surface that fluid is the pores' own, their
-	// water with it; beside a free surface it is the sea and air there, the pore water the lattice's.
+	// A LOCKED CELL's fluid stands at the pressure its own equation of state gives it in the room the grains
+	// leave: in rock with no free surface that fluid is the pores' own, their water with it; beside a free
+	// surface it is the sea and air there, the pore water the lattice's. Its rock carries the column where the
+	// hydrostatic rung stands one, and below that rung its fluid's pressure and half its own lattice's weight,
+	// as an open cell's does.
 	for (int c : order) {
+		const bool fluid = holds_fluid(c);
+		const bool pore_fluid = !(double(rock_fr[c]) < 1.0);
 		bool settled = false;
 		for (int round = 0; round < HALVINGS && !settled; round++) {
-			p_col[c] = walk(c);
-			const double k = relay(c, p_col[c]);
+			if (pulled) {
+				p_col[c] = walk(c);
+			}
+			const double k = relay(c, rock_at(c, p_fl[c]));
 			ERR_FAIL_COND_V_MSG(std::isnan(k), Dictionary(), "LAFieldLithostaticSeed: locked cell "
-					+ String::num_int64(c) + " holds rock beside fluid with no grains to size at its column.");
+					+ String::num_int64(c) + " holds rock beside fluid with no grains to size at its load.");
 			settled = std::abs(k - 1.0) <= eps;
+			if (!pulled && fluid) {
+				p_fl[c] = solve(c, pore_fluid);
+				ERR_FAIL_COND_V_MSG(std::isnan(p_fl[c]), Dictionary(), "LAFieldLithostaticSeed: locked cell "
+						+ String::num_int64(c) + "'s fluid states no pressure in the room its grains leave.");
+			}
 		}
 		ERR_FAIL_COND_V_MSG(!settled, Dictionary(), "LAFieldLithostaticSeed: locked cell " + String::num_int64(c)
 				+ "'s grains did not settle at the load they stand under.");
-		p_col[c] = walk(c);
-		if (holds_fluid(c)) {
-			p_fl[c] = solve(c, !(double(rock_fr[c]) < 1.0));
+		if (pulled) {
+			p_col[c] = walk(c);
+		}
+		if (fluid) {
+			p_fl[c] = solve(c, pore_fluid);
 			ERR_FAIL_COND_V_MSG(std::isnan(p_fl[c]), Dictionary(), "LAFieldLithostaticSeed: locked cell "
 					+ String::num_int64(c) + "'s fluid states no pressure in the room its grains leave.");
+		}
+		if (!pulled) {
+			p_col[c] = rock_at(c, p_fl[c]);
 		}
 	}
 	if (relaid) {
