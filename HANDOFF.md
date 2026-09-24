@@ -131,6 +131,7 @@ Reading: `_drain` in `InjectPass.gd` tallies `inject_created_<channel>` in cell 
 
 - `scripts/check_bench_shock_tube.sh`: at a 10:1 Sod jump the rarefaction head stands outside the bound
   and the overshoot grows as the grid halves; at a 1% jump every claim passes.
+- `scripts/sim_run.sh --rung 3 --frames 2` (slice or `--body`) ends with `RUN_TIMEOUT` and no report.
 - `LA_REST_CELL_M=68000 LA_REST_CELLS=8 scripts/check_atmosphere_at_rest.sh` reads a rest departure
   above its bar on a land column; its vent arm reads an energy residual near a tenth of the turnover.
 - `scripts/sim_run.sh --rung 3 --frames 3 --report nonfinite_cells,mach_max` refuses a water record at
@@ -166,9 +167,8 @@ point or fusion enthalpy, and each planet mineral row takes `BASALT_EMISSIVITY` 
 
 ## 18. THE PHYSICS RUNS INSIDE GODOT'S PROCESS
 
-Maintainer's decision, standing: a standalone native process with its own device, clock and CLI; gates
-run it with no Godot launch; Godot attaches as a viewer. Today every pass is a GDScript record on a Godot
-RenderingDevice (`LAFieldDriver`) and `scripts/run_sim_offscreen.sh` launches Godot for every gate.
+Maintainer's decision, standing: a standalone native process with its own device, clock and CLI; Godot
+attaches as a viewer. Today every pass runs on a Godot RenderingDevice and every gate launches Godot.
 Branch `native-plans` is unlanded: `scripts/check_lasim_parity.sh` there reads `plan_reduce.lapl is truncated`.
 
 ## 19. THE LEDGER RECONSTRUCTS ELEMENTS FROM CHANNEL AMOUNTS

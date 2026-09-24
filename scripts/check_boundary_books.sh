@@ -177,20 +177,18 @@ func _init() -> void:
 		var vals: PackedByteArray = _filled(tc, float(pair[1])).to_byte_array()
 		_rd.buffer_update(bufs[String(pair[0])], 0, vals.size(), vals)
 
-	p.setup(_rd, bufs, cc)
+	p.setup(_rd, LAFieldDriver.on(_rd), bufs, cc)
 	var stub: StubGpu = StubGpu.new()
 	stub._rd = _rd
 	stub._bufs = bufs
 	bnd.attach(stub)
 	if bnd.error != "":
 		_expect(false, "boundary attach failed: " + bnd.error)
-	var cl: int = _rd.compute_list_begin()
+	p._driver.open()
 	# The step is a small fraction of CELL over the sound speed: inside the explicit acoustic regime.
-	p.dispatch(_rd, cl, {"cell_size": CELL, "sun_dir": Vector3.ZERO, "dt_s": 1.0e-4},
+	p.dispatch(_rd, {"cell_size": CELL, "sun_dir": Vector3.ZERO, "dt_s": 1.0e-4},
 		cc, int(ceil(float(cc) / 64.0)))
-	_rd.compute_list_end()
-	_rd.submit()
-	_rd.sync()
+	p._driver.close()
 
 	# Matter closes per channel. The thermal field closes across every heat leg: matter that crosses
 	# carries its joules into e_j_m3, booked under the MATTER channel's bnd_h_<ch>.

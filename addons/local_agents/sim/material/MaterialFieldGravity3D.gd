@@ -38,7 +38,7 @@ func solve() -> void:
 		return
 	_pass.set_datum(0.5 * float(_f._grid.nx) * _f._grid.cell_size)
 	var rel: float = _pass.solve_converged(_f._gpu._rd, _f._grid, _f._gpu._cc, _f._gpu._groups)
-	if rel > _pass.RESIDUAL_TOLERANCE:
+	if rel > _pass.RESIDUAL_TOLERANCE and _f._gpu._driver.aborted() == "":
 		push_error(("The gravity solve did not converge: the discrete Poisson residual is still %f of its "
 			+ "source. Every `above`/`below` walk below this — pressure, the regolith burial march, the "
 			+ "lake flood, the surface seed — is reading a direction the solve has not yet produced.") % rel)
@@ -84,11 +84,9 @@ func _solve_slice() -> void:
 	_phi_slab = bf["phi"]
 	_phi_datum_slab = float(bf["phi_datum"])
 	var rd: RenderingDevice = _f._gpu._rd
-	var cl: int = rd.compute_list_begin()
-	_pass.dispatch_slab(rd, cl, _f._gpu._cc, _f._gpu._groups)
-	rd.compute_list_end()
-	rd.submit()
-	rd.sync()
+	_f._gpu._driver.open()
+	_pass.dispatch_slab(rd, _f._gpu._cc, _f._gpu._groups)
+	_f._gpu._driver.close()
 	_pass._drain(rd)
 
 

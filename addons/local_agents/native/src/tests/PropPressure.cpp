@@ -25,6 +25,9 @@ struct Push {
 	uint32_t cell_count;
 	float p_top;
 	uint32_t max_steps;
+	// chunk.glsli: the whole dispatch in one submit.
+	uint32_t chunk_stride = 1;
+	uint32_t chunk_phase = 0;
 };
 
 struct World {

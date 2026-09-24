@@ -44,7 +44,8 @@ const SLOT: Dictionary = {
 	# transport's own scratch
 	"flux_face_u": 139, "flux_fp_star": 140, "flux_face_uw": 141, "flux_fpw_star": 142, "flux_send": 143,
 	"flux_x_amt": 144, "flux_x_h": 145, "flux_x_q": 146, "flux_lw_emis": 147, "flux_sw_absorbed": 148,
-	"flux_sw_keep": 149, "flux_sw_src": 150, "flux_nu_t": 151, "flux_w_top": 152,
+	"flux_sw_keep": 149, "flux_sw_src": 150, "flux_nu_t": 151, "flux_w_top": 152, "flux_dm_x": 174,
+	"flux_dm_y": 175, "flux_dm_z": 176,
 	# the reduce row's slots
 	"reduce_src": 153, "reduce_aux": 154, "reduce_aux2": 155, "reduce_ref": 156, "reduce_gate": 157,
 	"reduce_gate_aux": 158, "reduce_partials": 159,
@@ -74,7 +75,8 @@ const IN_KERNEL: Dictionary = {
 		"flux_aux", "flux_frac", "flux_h_carried", "flux_bnd_amt", "flux_bnd_h", "flux_bnd_mom_x",
 		"flux_bnd_mom_y", "flux_bnd_mom_z", "flux_bnd_q", "flux_o3", "flux_rad_table", "flux_face_u",
 		"flux_fp_star", "flux_face_uw", "flux_fpw_star", "flux_send", "flux_x_amt", "flux_x_h", "flux_x_q",
-		"flux_lw_emis", "flux_sw_absorbed", "flux_sw_keep", "flux_sw_src", "flux_nu_t", "flux_w_top"],
+		"flux_lw_emis", "flux_sw_absorbed", "flux_sw_keep", "flux_sw_src", "flux_nu_t", "flux_w_top",
+		"flux_dm_x", "flux_dm_y", "flux_dm_z"],
 	"gravity_poisson.glsl": ["nbr", "pos", "vert_up", "vert_down", "slot_off", "face_partner", "cell_edge",
 		"h2o", "silicate", "carbonate", "silica", "o2", "co2", "n2", "biomass", "fungus", "detritus", "fuel",
 		"org_h", "org_o", "fert", "metal", "olivine", "pyroxene", "plagioclase", "halite", "apatite", "h2",

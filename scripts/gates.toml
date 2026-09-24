@@ -7,8 +7,9 @@
 # kind = "gpu"      needs a real device; LA_NO_GPU=1 skips exactly these.
 # marker            the verdict line a passing gate must print, so silence is not a pass.
 # mutation          a shell command, or a list of them, each of which must turn the gate red.
-# needs             what a --mutate scratch tree must be given: "import", "capture", "body"
-#                   (a body-scoped gate: NOT EXAMINED on a slice arm).
+# needs             what a --mutate scratch tree must be given: "build" (its own extension compiled,
+#                   since a launch refuses a bin built from other sources), "import", "capture",
+#                   "body" (a body-scoped gate: NOT EXAMINED on a slice arm).
 
 [defaults]
 timeout_s = 900
@@ -623,6 +624,7 @@ name = "check_no_global_cfl"
 script = "scripts/check_no_global_cfl.sh"
 kind = "text"
 marker = "^check_no_global_cfl: OK"
+mutation = "perl -0pi -e 's/PASS_LEVEL_SEED/PASS_LEVEL_FIRST/g' addons/local_agents/sim/material/kernels3d/active_levels.glsli"
 
 [[gate]]
 name = "check_active_rows"
@@ -635,6 +637,27 @@ name = "check_driver_native"
 script = "scripts/check_driver_native.sh"
 kind = "gpu"
 marker = "^check_driver_native: OK"
+
+[[gate]]
+name = "check_submit_budget"
+script = "scripts/check_submit_budget.sh"
+kind = "gpu"
+marker = "^check_submit_budget: OK"
+mutation = [
+	"perl -0pi -e 's/return gl_WorkGroupID\\.x \\* params\\.chunk_stride \\+ params\\.chunk_phase;/return gl_WorkGroupID.x;/' addons/local_agents/sim/material/kernels3d/chunk.glsli",
+	"perl -0pi -e 's/partials\\[params\\.base \\+ la_group\\(\\)\\]/partials[params.base + gl_WorkGroupID.x]/' addons/local_agents/sim/material/kernels3d/reduce.glsl",
+	"perl -0pi -e 's/alone > _wait_usec/false/' addons/local_agents/gdextensions/localagents/src/LAFieldDriver.cpp",
+	"perl -0pi -e 's/it->second\\.known\\s*&& _pred\\(it->second, p_groups\\) <= _target\\(it->second\\);/it->second.known;/' addons/local_agents/gdextensions/localagents/src/LAFieldDriver.cpp",
+	"perl -0pi -e 's/indirect \\? _count\\(p_args, p_offset\\) : p_groups;/indirect ? 1 : p_groups;/' addons/local_agents/gdextensions/localagents/src/LAFieldDriver.cpp",
+	"perl -0pi -e 's/put_u32\\(w, n, \\(uint32_t\\)p_stride\\);\\n\\tput_u32\\(w, n \\+ 4, \\(uint32_t\\)p_phase\\);/put_u32(w, n, p_args.is_valid() ? 1u : (uint32_t)p_stride);\\n\\tput_u32(w, n + 4, p_args.is_valid() ? 0u : (uint32_t)p_phase);/' addons/local_agents/gdextensions/localagents/src/LAFieldDriver.cpp",
+	"perl -0pi -e 's/std::min\\(cost\\.floor_usec, p_usec\\)/std::max(cost.floor_usec, p_usec)/' addons/local_agents/gdextensions/localagents/src/LAFieldDriver.cpp",
+	"perl -0pi -e 's/\\t\\t_abort = p_key;\\n//' addons/local_agents/gdextensions/localagents/src/LAFieldDriver.cpp",
+	"perl -0pi -e 's/\\(pc\\.slice\\(4, 12\\) \\+ pc\\.slice\\(20, 32\\) \\+ pc\\.slice\\(40, 44\\)\\)\\.hex_encode\\(\\)/\"rows\"/' addons/local_agents/sim/material/sphere_passes/ReducePass.gd",
+	"perl -0pi -e 's/\\tdm_z\\[c\\] = dm\\.z;\\n/\\tdm_z[c] = dm.z;\\n\\tvel_x[c] += dm.x;\\n/' addons/local_agents/sim/material/kernels3d/flux.glsl",
+	"perl -0pi -e 's/\\tLASimReport\\.register\\(_driver\\.report\\)\\n//' addons/local_agents/sim/material/MaterialSphereGPU3D.gd",
+	"perl -0pi -e 's/atomicMax\\(tlevel\\[uint\\(rnb\\)\\], lv\\);/atomicMax(tlevel[uint(rnb)], tlevel[c]);/' addons/local_agents/sim/material/kernels3d/active_levels.glsli",
+]
+needs = ["build", "import", "capture"]
 
 [[gate]]
 name = "check_comment_claims"

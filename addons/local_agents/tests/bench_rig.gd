@@ -7,6 +7,8 @@ extends RefCounted
 const TEMPORAL_PATH: String = "res://addons/local_agents/sim/material/sphere_passes/TemporalLevels.gd"
 
 var rd: RenderingDevice = null
+## The device's one driver: every pass the rig attaches submits through it.
+var driver: LAFieldDriver = null
 var grid: LAVoxelGrid = null
 var bufs: Dictionary = {}
 var cell_count: int = 0
@@ -31,6 +33,7 @@ func open() -> bool:
 	if rd == null:
 		error = "no RenderingDevice: this build has no compute device"
 		return false
+	driver = LAFieldDriver.on(rd)
 	return true
 
 
@@ -144,7 +147,7 @@ func attach(script_path: String) -> RefCounted:
 	var want: Dictionary = p._buffers(cell_count)
 	for key in want:
 		_allocate_spec(String(key), want[key])
-	p.setup(rd, bufs, cell_count)
+	p.setup(rd, driver, bufs, cell_count)
 	_passes.append(p)
 	return p
 
@@ -193,21 +196,17 @@ func clear_prefix(prefix: String) -> void:
 ## One dispatch of every attached pass, in the order they were attached, submitted and synced.
 func step(ctx: Dictionary) -> void:
 	var groups: int = int(ceil(float(cell_count) / 64.0))
-	var cl: int = rd.compute_list_begin()
+	driver.open()
 	for p in _passes:
-		p.dispatch(rd, cl, ctx, cell_count, groups)
-	rd.compute_list_end()
-	rd.submit()
-	rd.sync()
+		p.dispatch(rd, ctx, cell_count, groups)
+	driver.close()
 
 
 ## One dispatch of a single pass, when the rig holds more than one and only this one is asked for.
 func step_only(p: RefCounted, ctx: Dictionary) -> void:
-	var cl: int = rd.compute_list_begin()
-	p.dispatch(rd, cl, ctx, cell_count, int(ceil(float(cell_count) / 64.0)))
-	rd.compute_list_end()
-	rd.submit()
-	rd.sync()
+	driver.open()
+	p.dispatch(rd, ctx, cell_count, int(ceil(float(cell_count) / 64.0)))
+	driver.close()
 
 
 ## Transport reads the peak temporal level per group in a submit of its own before the step records.
@@ -223,5 +222,6 @@ func close() -> void:
 		if r.is_valid():
 			rd.free_rid(r)
 	_owned.clear()
+	driver = null
 	rd.free()
 	rd = null

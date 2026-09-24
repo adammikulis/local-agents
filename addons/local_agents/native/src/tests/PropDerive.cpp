@@ -106,6 +106,9 @@ struct Push {
 	uint32_t restate;
 	uint32_t args_slot;
 	uint32_t act_base;
+	// chunk.glsli: the whole dispatch in one submit.
+	uint32_t chunk_stride = 1;
+	uint32_t chunk_phase = 0;
 };
 
 // Everything the derive states about a cell, from its matter and its energy.
