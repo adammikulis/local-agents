@@ -1040,7 +1040,7 @@ marker = "^check_sealed_state_range: OK"
 mutation = [
 	"python3 -c \"p='addons/local_agents/sim/material/reduce/PressureRows.gd'; s=open(p).read(); open(p,'w').write(s.replace('\\\"less\\\": \\\"pressure\\\", ', ''))\"",
 	"python3 -c \"p='addons/local_agents/sim/material/kernels3d/reduce.glsl'; s=open(p).read(); open(p,'w').write(s.replace('return v - aux[i];', 'return v + aux[i];'))\"",
-	"perl -0pi -e 's/pw\\[c\\] = float\\(v_pore \\* rho_pore \\/ mm\\);/pw[c] = float(1.01 * v_pore * rho_pore \\/ mm);/g' addons/local_agents/gdextensions/localagents/src/LAFieldHydrosphereSeed.cpp && addons/local_agents/gdextensions/localagents/scripts/build_extension.sh",
+	"python3 -c \"p='addons/local_agents/sim/material/kernels3d/state_derive.glsl'; s=open(p).read(); open(p,'w').write(s.replace('pore_m3 = pore_kg * la_water_v_m3_kg(', 'pore_m3 = 1.01 * pore_kg * la_water_v_m3_kg('))\"",
 	"perl -0pi -e 's/if \\(dry > 0\\.0\\) \\{/if (false \\&\\& dry > 0.0) {/' addons/local_agents/gdextensions/localagents/src/LAFieldLithostaticSeed.cpp && addons/local_agents/gdextensions/localagents/scripts/build_extension.sh",
 	"python3 -c \"p='addons/local_agents/sim/material/kernels3d/state_derive.glsl'; s=open(p).read(); open(p,'w').write(s.replace('nf += (t_l + LA_KELVIN_OFFSET <= 0.0)', 'nf += (t_l + LA_KELVIN_OFFSET > 0.0)'))\"",
 	"python3 -c \"p='addons/local_agents/sim/material/reduce/PressureRows.gd'; s=open(p).read(); open(p,'w').write(s.replace('Rec.Op.COUNT_LT', 'Rec.Op.COUNT_GT'))\"",

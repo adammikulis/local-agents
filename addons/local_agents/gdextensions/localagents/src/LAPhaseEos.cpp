@@ -77,15 +77,24 @@ double bm_strain(const LAPhaseEos &p_e, double p_dp) {
 					+ ", b4 " + String::num_scientific(bm_b4(p_e)) + " can invert, up to "
 					+ String::num_scientific(bm_pressure(p_e, hi)) + " Pa.");
 	hi = std::isinf(hi) ? 0.0 : hi;
-	for (int i = 0; i < 60; ++i) {
-		const double mid = 0.5 * (lo + hi);
-		if (bm_pressure(p_e, mid) < p_dp) {
-			lo = mid;
-		} else {
-			hi = mid;
+	// Newton on P(f) = p inside the bracket, halving it wherever a step would leave it.
+	const double eps = std::numeric_limits<double>::epsilon();
+	double f = std::clamp(p_dp / (3.0 * p_e.k), lo, hi);
+	for (int i = 0; i < 200; ++i) {
+		const double r = bm_pressure(p_e, f) - p_dp;
+		if (r == 0.0) {
+			return f;
 		}
+		(r < 0.0 ? lo : hi) = f;
+		const double slope = 3.0 * p_e.k * std::pow(1.0 + 2.0 * f, 1.5) * la_bm::slope(f, p_e.kp, bm_b4(p_e));
+		double next = slope > 0.0 ? f - r / slope : 0.5 * (lo + hi);
+		next = (next > lo && next < hi) ? next : 0.5 * (lo + hi);
+		if (std::abs(next - f) <= 2.0 * eps * std::abs(next) || hi - lo <= 2.0 * eps * std::max(std::abs(lo), std::abs(hi))) {
+			return next;
+		}
+		f = next;
 	}
-	return 0.5 * (lo + hi);
+	return f;
 }
 
 // LA_APPROX: separable_thermal_compression

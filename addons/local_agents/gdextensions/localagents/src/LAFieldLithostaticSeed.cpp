@@ -476,6 +476,7 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 	struct Part {
 		double m, v, k, t;
 		int i;
+		double p_v;   // its vapour pressure at (t, p); NaN where it raises none
 	};
 	std::vector<Part> parts;
 	auto sums_at = [&](int c, double p, double p_rock, bool pore_fluid) -> FluidSums {
@@ -509,8 +510,9 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 				v_lat += m * spec;
 				continue;
 			}
+			const bool boils = ch[i].vapour && std::isfinite(LAMixtureEnthalpy::vapour_boundary_c(ch[i].sub, p));
 			parts.push_back({ m, spec, LAPhaseEosFn::condensed_compressibility(*ch[i].eos, t_here, p), t_here,
-					int(i) });
+					int(i), boils ? LAMixtureEnthalpy::vapour_p_at(ch[i].sub, t_here, p) : NAN });
 		}
 		// The vapours' room is what their own condensed volume leaves, so the two settle together.
 		double room = v - v_lat;
@@ -520,8 +522,8 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 			b_free = c_free = a_vap = sa_vap = sb_vap = 0.0;
 			for (const Part &q : parts) {
 				const Chan &k = ch[q.i];
-				const double fv = (k.vapour && room > 0.0)
-						? LAMixtureEnthalpy::vapour_fraction(k.sub, q.t, p, q.m, room) : 0.0;
+				const double fv = (!std::isnan(q.p_v) && room > 0.0)
+						? LAMixtureEnthalpy::vapour_share(k.sub, q.t, q.m, room, q.p_v) : 0.0;
 				b_free += q.m * (1.0 - fv) * q.v;
 				c_free += q.m * (1.0 - fv) * q.k;
 				if (fv > 0.0) {
@@ -646,10 +648,16 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 		pore_air[c] = double(p_pore_air[c]);
 	}
 	bool compacted = false;
+	// A pore fluid over the load its frame carries has fractured the frame, and no porosity law holds there.
+	int fractured = -1;
 	// One closing step at an effective load: true while the porosity still moves by less each step than the
 	// last, which ends where the float32 amounts no longer resolve the load.
 	auto close = [&](int c, double p_sigma, double &r_last) -> bool {
 		if (!compacts || regolith[c] == 0) {
+			return false;
+		}
+		if (p_sigma < 0.0) {
+			fractured = c;
 			return false;
 		}
 		const double was = double(porosity[c]);
@@ -689,6 +697,8 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 					"co-volume, or rock beside fluid with no grains, states no pressure.");
 			settled = std::abs(k - 1.0) <= eps && !close(c, rock_at(c, p_open[c]) - p_open[c], last);
 		}
+		ERR_FAIL_COND_V_MSG(fractured >= 0, Dictionary(), "LAFieldLithostaticSeed: open cell "
+				+ String::num_int64(c) + "'s pore fluid stands over the load its rock carries.");
 		ERR_FAIL_COND_V_MSG(!settled, Dictionary(), "LAFieldLithostaticSeed: open cell " + String::num_int64(c)
 				+ "'s grains did not settle at the load they stand under.");
 	}
@@ -751,6 +761,8 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 				}
 				closed = !close(c, p_col[c] - p_fl[c], last);
 			}
+			ERR_FAIL_COND_V_MSG(fractured >= 0, Dictionary(), "LAFieldLithostaticSeed: locked cell "
+					+ String::num_int64(c) + "'s pore fluid stands over the load its rock carries.");
 			ERR_FAIL_COND_V_MSG(!closed, Dictionary(), "LAFieldLithostaticSeed: locked cell "
 					+ String::num_int64(c) + "'s pores did not close at the load they stand under.");
 		}
