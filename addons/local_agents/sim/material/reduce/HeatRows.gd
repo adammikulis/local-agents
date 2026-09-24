@@ -10,6 +10,7 @@ static func rows() -> Array:
 		# Unweighted: over the open-cell count this is a mean over CELLS, not volume. all_temp_max is the
 		# deep rock the open-only rows cannot see.
 		{"key": "open_temp_sum", "source": "temp", "op": Rec.Op.SUM, "mask": Rec.Mask.OPEN},
+		{"key": "open_temp_n", "source": "temp", "op": Rec.Op.COUNT, "mask": Rec.Mask.OPEN},
 		{"key": "all_temp_max", "source": "temp", "op": Rec.Op.MAX, "mask": Rec.Mask.ALL},
 		# The ground SKIN: an open cell whose gravity-below neighbour is solid. Unweighted, so over
 		# ground_cells this is a mean over cells. First rows to dispatch Mask.GROUND.

@@ -15,6 +15,9 @@ enum Mask { ALL, OPEN, SOLID, GROUND, AIR, BEDDED }
 ## or the two faces of one grid axis. Generated into reduce.glsl as NBR_*.
 enum Nbr { NONE, SOLID_COUNT, BELOW, ABOVE, GRAD_X, GRAD_Y, GRAD_Z }
 
+## Counted only where rho_bulk > 0, at both ends of a BELOW/ABOVE pair.
+const HELD_SOURCES: PackedStringArray = ["temp", "temp_lith"]
+
 ## Channels whose stock the conservation ledger books, mask-free and open-only.
 const AMOUNTS: PackedStringArray = ["h2o", "h2o_pore", "silicate", "carbonate", "silica",
 	"co2", "o2", "n2", "h2", "co", "so2", "h2s", "ch4",

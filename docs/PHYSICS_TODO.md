@@ -216,10 +216,6 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
 
 ## F. Prescribed where it should emerge
 
-- [ ] **The geotherm's adiabats use the expansivity at one atmosphere.** `FieldGeothermSeed3D.gd`
-      integrates both adiabats with each substance's STP `expansion_per_k`, so the inner core seeds far above
-      the real ~6000 K. The Anderson-Gruneisen relation alpha(P) = alpha0 K0 / K(P) off the same compression
-      the EOS carries is the law; cite it.
 - [ ] **The core is seeded, and the seeded phases cannot yet move or melt on the GPU.** The planet now
       seeds differentiated — a metal core whose radius follows from the core mass fraction, one silicate
       shell of the registry's own mineral mix (maintainer's decision: differentiation at ~10^13 steps is

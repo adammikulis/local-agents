@@ -30,10 +30,10 @@ static func emit_population_trace(w, frame: int) -> void:
 	var tree: SceneTree = w.get_tree()
 	var counts: Dictionary = {}
 	for sp in ["rabbit", "fox", "bird", "villager", "vulture", "fish"]:
-		counts[sp] = tree.get_nodes_in_group("species_%s" % sp).size()
-	counts["creatures"] = tree.get_nodes_in_group("creature").size()
-	counts["plants"] = tree.get_nodes_in_group("plant").size()
-	counts["trees"] = tree.get_nodes_in_group("tree").size()
+		counts[sp] = tree.get_node_count_in_group("species_%s" % sp)
+	counts["creatures"] = tree.get_node_count_in_group("creature")
+	counts["plants"] = tree.get_node_count_in_group("plant")
+	counts["trees"] = tree.get_node_count_in_group("tree")
 	_emit_in_box(w, tree)
 	var deaths: Dictionary = {}
 	var snap: Dictionary = LASimReport.snapshot(true)
@@ -62,6 +62,8 @@ static func emit_population_trace(w, frame: int) -> void:
 			var p = probes[i]
 			if is_instance_valid(p) and p is Node3D:
 				var t: float = float(mat.temp_at((p as Node3D).global_position + Vector3(0.0, 2.0, 0.0)))
+				if not is_finite(t):
+					continue
 				surf_sum += t
 				surf_max = maxf(surf_max, t)
 				surf_n += 1
@@ -136,6 +138,33 @@ static func _emit_in_box(w, tree: SceneTree) -> void:
 static func _num(snap: Dictionary, key: String) -> float:
 	var v: Variant = snap.get(key, null)
 	return float(v) if v is float or v is int else NAN
+
+
+static var _measured_vp: RID = RID()
+static var _last_cpu_us: int = -1
+
+
+## The frame's own cost in ms, from the frame after life is placed: the larger of the main thread's CPU
+## time over one main-loop iteration and the viewport's GPU time. GPU time is absent where the driver
+## writes no timestamps (Metal), and then only the CPU side is measured.
+static func gauge_frame_cost(vp: Viewport, spawned: bool) -> void:
+	var rid: RID = vp.get_viewport_rid()
+	if rid != _measured_vp:
+		RenderingServer.viewport_set_measure_render_time(rid, true)
+		_measured_vp = rid
+	LASimReport.gauge("physics_ms", Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0)
+	var now_us: int = LAThreadClock.cpu_usec()
+	var last_us: int = _last_cpu_us
+	_last_cpu_us = now_us if spawned else -1
+	if last_us < 0 or now_us < 0:
+		return
+	var cost_ms: float = float(now_us - last_us) / 1000.0
+	LASimReport.gauge("frame_cpu_ms", cost_ms)
+	var gpu_ms: float = RenderingServer.viewport_get_measured_render_time_gpu(rid)
+	if gpu_ms > 0.0:
+		LASimReport.gauge("frame_gpu_ms", gpu_ms)
+		cost_ms = maxf(cost_ms, gpu_ms)
+	LASimReport.gauge("frame_cost_ms", cost_ms)
 
 
 static func build_report(w) -> Dictionary:
