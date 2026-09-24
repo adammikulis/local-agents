@@ -26,7 +26,8 @@ them the report body is `{}`:
 - `demo_shot_info() -> String`. Extra `key=value` text appended to the `SHOT_SAVED` line.
 - `demo_shot_ready() -> bool`. Whether the picture is worth taking. Waited on past `shoot_frames`, up to the run's ceiling.
 - `demo_shot_pose(alt_m: float, pitch_deg: float, yaw_deg: float) -> void`. Move the camera to one pose of `--shots=`. Required by
-  that flag: a scene without it exits 2.
+  that flag: a scene without it exits 2. `--shot-without=a,b` photographs each pose again with each named `LAAblate` module
+  switched off, to `<pose png stem>_without_<name>.png`; a name `LAAblate` does not hold exits 2.
 - `demo_harness_configured(frames: int, shoot: String) -> void`. Called once, right after the command line is parsed, so the scene
   can react to the resolved settings without re-reading argv.
 

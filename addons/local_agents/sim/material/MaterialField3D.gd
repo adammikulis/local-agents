@@ -321,9 +321,10 @@ var _regolith: PackedByteArray = PackedByteArray()
 
 
 
-## Release the GPU driver's local RenderingDevice while the tree is still up, so every RID is freed cleanly.
-func _exit_tree() -> void:
-	if _gpu != null and _gpu.has_method("dispose"):
+## Release the GPU driver's local RenderingDevice when the field is freed, not when a reparent takes it
+## out of the tree and puts it back.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_PREDELETE and _gpu != null and _gpu.has_method("dispose"):
 		_gpu.dispose()
 
 
@@ -352,7 +353,6 @@ var _atmos_dirty: bool = true
 var _cloud_cover_c: float = 0.0
 var _fog_cover_c: float = 0.0
 var _cloud_cells_c: int = 0
-var _precip_c: float = 0.0
 var _vapour_total_c: float = 0.0
 
 ## Cloud density at a world XZ column (0 if unresolved). Cloud = the condensate that is NOT ground fog.
@@ -363,19 +363,6 @@ func cloud_at(x: float, z: float) -> float:
 func fog_at(x: float, z: float) -> float:
 	return _atmos.fog_at(x, z)
 
-## The atmosphere band radii, measured from `centre()`, that the water-particle renderer places against.
-func atmos_cloud_base_r() -> float:
-	return _atmos.atmos_cloud_base_r()
-
-func atmos_fog_top_r() -> float:
-	return _atmos.atmos_fog_top_r()
-
-func atmos_fog_lo_r() -> float:
-	return _atmos.atmos_fog_lo_r()
-
-func atmos_outer_r() -> float:
-	return _atmos.atmos_outer_r()
-
 func avg_cloud_cover() -> float:
 	return _atmos.avg_cloud_cover()
 
@@ -384,10 +371,6 @@ func avg_airborne_mineral() -> float:
 
 func avg_fog_cover() -> float:
 	return _atmos.avg_fog_cover()
-
-## Domain precipitation proxy 0..1 — fraction of open cells whose condensate is over the rain threshold.
-func precipitation() -> float:
-	return _atmos.precipitation()
 
 ## Total suspended atmospheric water mass (mass-conservation spot check; used by the SIM_REPORT).
 func vapour_total() -> float:

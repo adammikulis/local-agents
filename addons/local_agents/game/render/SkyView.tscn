@@ -1,0 +1,53 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/game/render/SkyView.gd" id="1_skyview"]
+[ext_resource type="Shader" path="res://addons/local_agents/game/render/shaders/VoxelSky.gdshader" id="2_skyshader"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_air"]
+shader = ExtResource("2_skyshader")
+shader_parameter/view_samples = 32
+
+[sub_resource type="Sky" id="Sky_air"]
+sky_material = SubResource("ShaderMaterial_air")
+process_mode = 3
+
+[sub_resource type="Environment" id="Environment_air"]
+background_mode = 2
+sky = SubResource("Sky_air")
+ambient_light_source = 3
+tonemap_mode = 2
+ssao_enabled = true
+ssao_radius = 3.5
+ssao_intensity = 2.2
+ssao_power = 1.6
+ssao_detail = 0.4
+ssao_horizon = 0.09
+ssao_sharpness = 0.95
+glow_enabled = true
+glow_levels/2 = 0.0
+glow_levels/3 = 0.0
+glow_levels/4 = 1.0
+glow_levels/5 = 0.8
+glow_intensity = 0.85
+glow_bloom = 0.05
+glow_hdr_threshold = 1.05
+fog_enabled = true
+fog_density = 0.0
+fog_aerial_perspective = 1.0
+fog_sky_affect = 0.0
+
+[node name="SkyView" type="Node3D"]
+script = ExtResource("1_skyview")
+
+[node name="Environment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_air")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+shadow_enabled = true
+shadow_bias = 0.04
+shadow_normal_bias = 1.5
+shadow_blur = 1.2
+directional_shadow_split_1 = 0.08
+directional_shadow_blend_splits = true
+directional_shadow_fade_start = 0.85
+directional_shadow_max_distance = 400.0

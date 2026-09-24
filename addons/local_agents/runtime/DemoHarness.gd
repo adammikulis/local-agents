@@ -7,7 +7,9 @@ const ARG_RUN_FRAMES: String = "--run-frames="
 const ARG_SHOOT: String = "--shoot="
 const ARG_SHOOT_FRAMES: String = "--shoot-frames="
 const ARG_SHOOT_SIZE: String = "--shoot-size="
+const ARG_SHOOT_STEP: String = "--shoot-step="
 const ARG_SHOTS: String = "--shots="
+const ARG_SHOT_WITHOUT: String = "--shot-without="
 const DEFAULT_SHOOT_SIZE: Vector2i = Vector2i(1280, 800)
 
 @export_group("Headless run")
@@ -36,6 +38,9 @@ const DEFAULT_SHOOT_SIZE: Vector2i = Vector2i(1280, 800)
 ## Frame the screenshot is taken on. Give the scene enough frames to settle before it shoots.
 ## The command line overrides this: `-- --shoot-frames=N`.
 @export_range(1, 100000, 1, "suffix:frames") var shoot_frames: int = 90
+## Simulated step every picture is of: the loop halts there and the shot waits for it. -1 shoots whatever
+## step the frame lands on. The command line overrides this: `-- --shoot-step=N`.
+@export_range(-1, 100000, 1, "suffix:steps") var shoot_step: int = -1
 
 @export_group("Exit")
 ## Route the quit through the AppExit autoload when it is registered (game installs), otherwise
@@ -53,6 +58,10 @@ var _poses: Array[Vector3] = []       # alt_m, pitch_deg, yaw_deg
 var _pose_index: int = 0
 var _pose_applied: int = -1
 var _pose_deadline_ms: int = 0
+# --shot-without: each pose photographed again with each named LAAblate module switched off.
+var _without: PackedStringArray = PackedStringArray()
+var _without_at: int = -1             # the module this pose is being photographed without; -1 = none
+var _hold: int = 0                    # frames left before a switched-off module is out of the picture
 
 # The image read out is the one drawn BEFORE this frame, so readiness must have held through that draw.
 const SHOT_SETTLE_FRAMES: int = 2
@@ -112,7 +121,7 @@ func _physics_process(_delta: float) -> void:
 func _process(_delta: float) -> void:
 	_render_frame += 1
 	# Screenshot first: a scene given both flags is being photographed, not measured.
-	if _done or shoot_path == "" or _render_frame < shoot_frames:
+	if _done or shoot_path == "" or not _at_shoot_step() or _render_frame < shoot_frames:
 		return
 	if _poses.is_empty():
 		if not _settled():
@@ -129,16 +138,73 @@ func _process(_delta: float) -> void:
 		_ready_frames = 0
 		_pose_deadline_ms = _pose_budget_ms(_pose_index)
 		return
+	if _without_at >= 0:
+		_photograph_without()
+		return
 	if not _settled():
 		return
 	var pose: Vector3 = _poses[_pose_index]
 	_capture(pose_path(shoot_path, _pose_index, pose),
 		" shot_index=%d shot_pose=%s" % [_pose_index, pose_tag(pose)])
 	_ready_frames = 0
+	if _without.is_empty():
+		_next_pose()
+		return
+	_without_at = 0
+	_switch_without(false)
+
+
+## The same pose again once the module is out of the picture, then the next module or the next pose.
+func _photograph_without() -> void:
+	if _hold > 0:
+		_hold -= 1
+		return
+	var pose: Vector3 = _poses[_pose_index]
+	var module: String = _without[_without_at]
+	_capture(without_path(pose_path(shoot_path, _pose_index, pose), module),
+		" shot_index=%d shot_pose=%s shot_without=%s" % [_pose_index, pose_tag(pose), module])
+	_switch_without(true)
+	_without_at += 1
+	if _without_at < _without.size():
+		_switch_without(false)
+		return
+	_without_at = -1
+	_next_pose()
+
+
+## A name LAAblate does not hold would photograph the pose unchanged under a label saying otherwise.
+func _switch_without(on: bool) -> void:
+	var module: String = _without[_without_at]
+	if LAAblate.kind_of(module) == "":
+		_done = true
+		print("SHOT_WITHOUT_UNKNOWN=%s" % module)
+		_quit(2)
+		return
+	LAAblate.set_on(module, on)
+	_hold = SHOT_SETTLE_FRAMES
+
+
+func _next_pose() -> void:
 	_pose_index += 1
 	if _pose_index >= _poses.size():
 		_done = true
 		_quit(0)
+
+
+## The loop stands at `shoot_step`, halted there from the first frame. True with no step declared. A loop
+## already past it cannot be photographed at it, and the run fails.
+func _at_shoot_step() -> bool:
+	if shoot_step < 0:
+		return true
+	var loop: LASimLoop = LASimLoop.active()
+	if loop == null:
+		return false
+	loop.halt_at(shoot_step)
+	if loop.step_index() > shoot_step:
+		_done = true
+		print("SHOT_STEP_PASSED=%d" % loop.step_index())
+		_quit(2)
+	return loop.step_index() == shoot_step
 
 
 ## Ready for SHOT_SETTLE_FRAMES running, or out of the time this pose was given.
@@ -165,6 +231,10 @@ static func pose_path(base: String, index: int, pose: Vector3) -> String:
 	var stem: String = base.get_basename()
 	return "%s_%d_%dm_%d_%d.%s" % [stem, index, roundi(pose.x), roundi(pose.y), roundi(pose.z),
 		base.get_extension()]
+
+
+static func without_path(pose_png: String, module: String) -> String:
+	return "%s_without_%s.%s" % [pose_png.get_basename(), module, pose_png.get_extension()]
 
 
 ## `alt_m:pitch_deg:yaw_deg` triples separated by `;`. Empty when any of them is malformed: a pose the
@@ -322,8 +392,12 @@ func _parse_cli() -> void:
 		var arg: String = String(arg_v)
 		if arg.begins_with(ARG_SHOOT_FRAMES):
 			shoot_frames = maxi(1, int(arg.substr(ARG_SHOOT_FRAMES.length())))
+		elif arg.begins_with(ARG_SHOOT_STEP):
+			shoot_step = maxi(0, int(arg.substr(ARG_SHOOT_STEP.length())))
 		elif arg.begins_with(ARG_SHOTS):
 			_shots_spec = arg.substr(ARG_SHOTS.length())
 			_poses = parse_shots(_shots_spec)
+		elif arg.begins_with(ARG_SHOT_WITHOUT):
+			_without = arg.substr(ARG_SHOT_WITHOUT.length()).split(",", false)
 		elif arg.begins_with(ARG_SHOOT):
 			shoot_path = arg.substr(ARG_SHOOT.length())
