@@ -9,11 +9,11 @@ static func is_ready(field) -> bool:
 	return field != null and field._use_gpu and field._gpu != null and field._gpu._rd != null
 
 
-## Point `store` at this field's device, cells and box, syncing any step still in flight first.
+## Point `store` at this field's device, cells and box, draining any step still in flight first.
 static func bind(field, store: LAFieldSnapshot) -> bool:
 	if not is_ready(field) or store == null:
 		return false
-	field._gpu._flush_pending()
+	field._gpu._drain_pending()
 	store.bind(field._gpu._rd, field._gpu._bufs,
 		LAMaterialSphereGPU3D.channels() + LAMaterialSphereGPU3D.SEED_PRODUCTS,
 		field._cell_count, field._grid)

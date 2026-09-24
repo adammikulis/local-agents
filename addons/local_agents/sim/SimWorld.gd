@@ -169,7 +169,7 @@ func _wire_loop() -> void:
 		_loop.hold()
 		_loop.seeding.connect(_on_seeding)
 		_loop.stepped.connect(_on_step)
-		_loop.stepped.connect(Callable(_material.step_driver(), "step").unbind(1))
+		_loop.stepped.connect(Callable(_material.step_driver(), "step"))
 	_loop.stepped.connect(_ecology.on_sim_step)
 
 

@@ -19,12 +19,12 @@ func _row3(prefix: String) -> Vector3:
 	return Vector3(q.row_f(prefix + "x"), q.row_f(prefix + "y"), q.row_f(prefix + "z"))
 
 
-## Fold the drained step's books. Runs on the FIELD step, so the fold does not depend on report cadence.
-func sample(step_index: int) -> void:
+## Fold the drained step's books, keyed on the step its reduction ran at, so one drain folds once.
+func sample() -> void:
 	if _f == null or _f._queries == null:
 		return
 	_n.set_seal(_f._seal)
-	_n.momentum_sample(step_index, _row3("open_mom_"), _row3("bodyf_"), _row3("bnd_mom_"))
+	_n.momentum_sample(_f._queries.row_n("reduce_step"), _row3("open_mom_"), _row3("bodyf_"), _row3("bnd_mom_"))
 
 
 func report(step_index: int) -> Dictionary:

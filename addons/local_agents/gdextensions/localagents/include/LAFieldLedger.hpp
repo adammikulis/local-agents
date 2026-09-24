@@ -64,8 +64,8 @@ private:
 
 	Dictionary _first_v;
 	Dictionary _first_s;
-	Dictionary _prev_s;
 	bool _latched = false;
+	int _latch_step = -1;
 
 	PackedStringArray _bnd_missing;
 	Dictionary _bnd_net;
@@ -73,9 +73,10 @@ private:
 	double _bnd_heat_net = 0.0;
 	double _bnd_heat_gross = 0.0;
 
-	double _cum_absorbed = 0.0;
-	double _cum_emitted = 0.0;
-	double _cum_radiogenic = 0.0;
+	// Joules every `energy_book` row carried since the energy baseline: signed into the domain, and gross.
+	double _exchange_net = 0.0;
+	double _exchange_gross = 0.0;
+	bool _exchange_hole = false;
 	double _first_inject_j = 0.0;
 
 	int _mom_prev_step = -1;
@@ -84,6 +85,7 @@ private:
 	Vector3 _cum_body;
 	Vector3 _cum_bnd;
 	double _cum_impulse = 0.0;
+	bool _mom_hole = false;
 
 	// Moles of each radiogenic daughter per mole of channel, closed-form over the epoch. Built once.
 	Dictionary _daughters;
@@ -106,7 +108,6 @@ private:
 	bool _absent(const PackedStringArray &p_group) const;
 	Dictionary _live_of(const PackedStringArray &p_group) const;
 
-	int _elapsed(const String &p_key, int p_step);
 	Array _run(const String &p_key, const String &p_seed_key, double p_value, int p_step);
 	int _first_step_of(const String &p_key) const;
 	int _run_pair(Dictionary &p_out, const String &p_name, const String &p_book,
@@ -117,7 +118,9 @@ private:
 	void _publish_mineral(Dictionary &p_out, int p_step, double p_mineral_minted);
 	void _publish_daughters(Dictionary &p_out);
 	void _publish_element(Dictionary &p_out, int p_step);
+	void _publish_atoms(Dictionary &p_out, int p_step);
 	void _publish_energy(Dictionary &p_out, int p_step, double p_inject_heat_j);
+	void _exchange_sample(const Dictionary &p_fold);
 	void _publish_charge(Dictionary &p_out, int p_step);
 	void _build_daughters();
 	void _build_lith_only();

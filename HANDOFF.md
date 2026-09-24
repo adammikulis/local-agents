@@ -36,8 +36,9 @@ Reading: `state_derive.glsl` ends the (T, p) solve on `abs(f) <= LA_STATE_TOL * 
 ## 3. THE BOUNDARY GATES CANNOT RECORD THEIR OWN CAPTURE, AND A GHOST'S REST GRAVITY IS READ PAST ITS BUFFER
 
 `scripts/check_boundary_books.sh` with no `LA_LINT_CAPTURE` exits 2: its capture run,
-`scripts/sim_run.sh --body --frames 20 --rung 3 --slice-capture C`, ends `RUN FAILED, exit 122` with
-`PRESSURE_BROKEN: pressure fell going down.` `rg -n 'g_rest.*cc \* 3' addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd`
+`scripts/sim_run.sh --body --frames 20 --rung 8 --slice-capture C`, logs `LASubstances gives "fixed_n"
+no specific heat`, is killed at the run timeout and publishes no capture; at `--rung 3` it is killed at
+the timeout. `rg -n 'g_rest.*cc \* 3' addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd`
 Reading: `_allocate_declared` in `MaterialSphereGPU3D.gd` adds `_ng` once to a declared length, so a
 three-vector declared `{"n": cc * 3, "ghosts": true}` is `cc * 3 + ng` long.
 
@@ -69,11 +70,9 @@ floods `sky` only through cells whose `solid[c] == 0`.
 
 ## 7. THE CRUST HAS TWO REPRESENTATIONS, AND THE SEA IS A SPHERE AT ONE RADIUS
 
-Maintainer's decision, standing: one substrate everywhere. The field is the only representation of
-matter; the ground and the water surface are detectors on it (an isosurface a compute kernel extracts
-into mesh buffers per block, which is also the collider); the generator is sampled into the field once
-at seed; a body of water is where the inventory settled under the solved gravity, one liquid in one
-channel. `rg -n "sea_radius|OceanPlane|_open_sea|sea_level_m|resample_terrain" addons/local_agents`
+Maintainer's decision, standing: the field is the only representation of matter; ground and water
+surface are isosurfaces a kernel extracts per block (also the collider); the generator is sampled once at
+seed; a body of water is where the inventory settled under the solved gravity. `rg -n "sea_radius|OceanPlane|_open_sea|sea_level_m|resample_terrain" addons/local_agents`
 finds the sea as a declared shell radius and the field sampling the generator after the seal. A coast slice
 (`LA_SLICE_BOX=0,site=coast,0,3,24,3,5120,10`, `--rung=2 --ui --shots=1000:-35:0`) draws its sea only over
 the box's finest cells.
@@ -111,35 +110,39 @@ that `PRE_MODES` runs before it.
 ## 12. A FALL IS OVER BETWEEN TWO RENDERED FRAMES, AND ONE DRAG COEFFICIENT SERVES EVERY SPEED
 
 `scripts/shoot_demo.sh addons/local_agents/examples/SliceRung1Demo.tscn <dir>` photographs a test mass
-already landed: the world advances 43.2 simulated seconds per rendered frame, so a two-kilometre fall is
-over between two frames and nothing is seen falling. `SPHERE_CD` in `LABallistics.cpp` is the hypersonic
-limit at every Reynolds and Mach number, so a body the air has already slowed is over-braked
-(`newtonian_sphere_drag` in `docs/APPROXIMATIONS.md`).
+already landed: 43.2 simulated seconds pass per rendered frame. `SPHERE_CD` in `LABallistics.cpp` is the
+hypersonic limit at every Reynolds and Mach number.
 Reading: `stride_m` in `LABallistics.cpp` reads no sound speed and no viscosity.
 
-## 13. A THROWN BODY FALLS UNDER THE ENGINE'S GRAVITY, NOT THE FIELD'S
+## 13. A CREATURE IS FLUNG ONLY PAST AN INVENTED IMPULSE
 
-`rg -n "gravity_scale" addons/local_agents/creatures/creature/CreatureRagdoll.gd` reads `1.0`, so the
-live gravity switch never reaches a flung or dying creature; `impulse.length() > 3.0` in `Creature.gd`
-is an invented threshold. The design: kinematic until thrown; then a Jolt `RigidBody3D` with
-`gravity_scale = 0` pushed each tick by `m·g(pos)` from `LABallistics.g_at` plus the seeded air's drag
-(bound, not copied), the impulse from the overpressure in its cell, kinematic again when asleep.
+`rg -n 'impulse.length\(\) > 3.0' addons/local_agents/creatures/Creature.gd` finds the threshold that
+decides whether a push throws a creature; it names no mass, no ground friction and no source.
 
-## 14. NOT EXAMINED UNTIL THE RUNG-2 DEMO IS APPROVED — rung 3
+## 14. MATTER INJECTED FROM OUTSIDE THE FIELD IS NOT BOOKED IN
+
+`scripts/sim_run.sh --slice --rung 2 --frames 200 --report inject_created_silicate,mineral_src_total,mineral_run_drift,mineral_bnd_in -- --stamp-test`
+reads `mineral_run_drift` equal to the deposited rock in moles and `mineral_bnd_in` 0, while
+`mineral_src_total` carries the same deposit in mol/m^3 of one cell.
+Reading: `_drain` in `InjectPass.gd` tallies `inject_created_<channel>` in cell values, and
+`_publish_mineral` in `LAFieldLedger.cpp` nets `boundary_of(group, "Si")` alone.
+
+## 15. NOT EXAMINED UNTIL THE RUNG-2 DEMO IS APPROVED — rung 3
 
 - `scripts/check_bench_shock_tube.sh`: at a 10:1 Sod jump the rarefaction head stands outside the bound
   and the overshoot grows as the grid halves; at a 1% jump every claim passes.
-- `scripts/sim_run.sh --rung 3 --frames 8` on the planet ends with `timeout waiting for fence`.
 - `LA_REST_CELL_M=68000 LA_REST_CELLS=8 scripts/check_atmosphere_at_rest.sh` reads a rest departure
   above its bar on a land column; its vent arm reads an energy residual near a tenth of the turnover.
 - `scripts/sim_run.sh --rung 3 --frames 3 --report nonfinite_cells,mach_max` refuses a water record at
   light speed by the second frame; `LA_PASS_PROBE=mach LA_PASS_PROBE_STEPS=1` names the cell.
+- `scripts/check_boundary_momentum_book.sh`, with or without `LA_RUNG=3`, fails its device rig: an open
+  face under a higher exterior pressure books no momentum and no nitrogen, and the REPLAY rim no nudge.
 - Maintainer's decision, standing: the acoustic part of the momentum equation goes implicit (one
   Helmholtz solve per field step on `gravity_poisson.glsl`'s operator shape), the step is derived from
   the advective CFL, `SIM_SECONDS_PER_STEP` and the acoustic temporal levels are deleted; declared in
   `docs/APPROXIMATIONS.md` when built.
 
-## 15. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the rows above it and their books
+## 16. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the rows above it and their books
 
 - `scripts/check_bench_heat_slab.sh` (rung 4): every cell of the slab reads a non-finite temperature and
   a zero `cap_sensible`.
@@ -156,29 +159,28 @@ is an invented threshold. The design: kinematic until thrown; then a Jolt `Rigid
 - `LA_RUN_TIMEOUT=110 scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn --
   --sandbox --ui --run-frames=20` prints no report and logs no error; `--planet-only --no-fauna` reports.
 
-## 16. TWO ROWS THE ENGINE READS ARE EMPTY
+## 17. APATITE NEVER MELTS, AND EVERY MINERAL WEARS BASALT'S ALBEDO
 
-`scripts/check_bench_phase_change.sh` melts iron and forsterite off their own rows; `apatite` carries
-neither a melting point nor a fusion enthalpy, so `LAMixtureEnthalpy::thermal_row` keeps it linear in T,
-and every planet mineral carries basalt's `albedo` and `emissivity`.
+`rg -n '"apatite"' -A12 addons/local_agents/gdextensions/localagents/src/LASubstances.cpp` shows no melting
+point or fusion enthalpy, and each planet mineral row takes `BASALT_EMISSIVITY` and `ALBEDO_BARE_GROUND`.
 
-## 17. THE PHYSICS RUNS INSIDE GODOT'S PROCESS
+## 18. THE PHYSICS RUNS INSIDE GODOT'S PROCESS
 
 Maintainer's decision, standing: a standalone native process with its own device, clock and CLI; gates
 run it with no Godot launch; Godot attaches as a viewer. Today every pass is a GDScript record on a Godot
 RenderingDevice (`LAFieldDriver`) and `scripts/run_sim_offscreen.sh` launches Godot for every gate.
 Branch `native-plans` is unlanded: `scripts/check_lasim_parity.sh` there reads `plan_reduce.lapl is truncated`.
 
-## 18. THE LEDGER RECONSTRUCTS ELEMENTS FROM CHANNEL AMOUNTS
+## 19. THE LEDGER RECONSTRUCTS ELEMENTS FROM CHANNEL AMOUNTS
 
 Maintainer's decision, standing: per-cell moles of elements are the state and species are derived
 (`docs/PHYSICS_TODO.md` B); today the ledger reconstructs them from `Channels.gd` (`mol_per_unit`).
 
-## 19. THE GPU LINT RUNS HERE ONLY
+## 20. THE GPU LINT RUNS HERE ONLY
 
 `.github/workflows/gpu-lint.yml` targets a self-hosted macOS runner labelled `gpu`; none is registered.
 
-## 20. THE STAR IS SEEDED WITH TODAY'S RADIUS BESIDE THE EPOCH'S LUMINOSITY
+## 21. THE STAR IS SEEDED WITH TODAY'S RADIUS BESIDE THE EPOCH'S LUMINOSITY
 
 `rg -n 'star\["(radius_m|luminosity_w)"\]' addons/local_agents/gdextensions/localagents/src/LABodySystem.cpp`
 reads the present nominal radius for a star `star_age_at_epoch_gyr()` old, where the standard solar model

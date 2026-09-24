@@ -196,8 +196,7 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       that replaced the deleted `sediment_total` gauge. **Reproduce:** `scripts/agent_harness.sh sim
       --frames 200` and read whether either share is ever non-zero away from a slump.
 - [ ] **Five matter rows trip the conservation gate on a clean tree** — h2o, nitrogen, mineral, oxidant and
-      element_C — and the energy row reads UNMEASURED rather than conserved. **Reproduce:**
-      `scripts/check_conservation.sh`.
+      element_C. **Reproduce:** `scripts/check_conservation.sh`.
 
 - [ ] **The wind is supersonic and always has been**, against a real jet stream of ~70 m/s. `MAX_WIND` was
       deleted on purpose (wind speed is an output), so this is the momentum equation, not a missing clamp.

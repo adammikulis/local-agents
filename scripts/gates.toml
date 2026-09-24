@@ -54,6 +54,16 @@ marker = "^check_gate_shapes: OK"
 mutation = "git update-index --chmod=-x scripts/check_conservation.sh"
 
 [[gate]]
+name = "check_capture_publication"
+script = "scripts/check_capture_publication.sh"
+kind = "text"
+marker = "^check_capture_publication: OK"
+mutation = [
+	"perl -0pi -e 's/0\\|122\\|123\\|126\\) mv/0|4|122|123|126) mv/' scripts/lib_slice_capture.sh",
+	"perl -0pi -e 's/LA_SLICE_CAPTURE=\"\\$\\(la_slice_capture_partial \"\\$SLICE_CAPTURE\"\\)\"/LA_SLICE_CAPTURE=\"\\$SLICE_CAPTURE\"/' scripts/sim_run.sh",
+]
+
+[[gate]]
 name = "check_boundary_buffers"
 script = "scripts/check_boundary_buffers.sh"
 kind = "text"
@@ -386,6 +396,7 @@ name = "check_process_set"
 script = "scripts/check_process_set.sh"
 kind = "headless"
 marker = "^check_process_set: OK"
+mutation = "perl -0pi -e 's/(\\t\\t\\{\"key\": \"solid_detritus\")/\\t\\t{\"key\": \"all_org_h\", \"source\": \"org_h\", \"op\": Rec.Op.SUM, \"mask\": Rec.Mask.ALL, \"weight\": true},\\n$1/' addons/local_agents/sim/material/reduce/LifeRows.gd"
 
 [[gate]]
 name = "check_fly_nav"
@@ -729,7 +740,23 @@ name = "check_live_toggles"
 script = "scripts/check_live_toggles.sh"
 kind = "gpu"
 marker = "^check_live_toggles: OK"
-mutation = "perl -0pi -e 's/not LAAblate\\.step_switches\\(_f\\._gpu\\._step_index\\)/true/' addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd"
+mutation = "perl -0pi -e 's/LAAblate\\.step_switches\\(sim_step\\)/false/' addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd"
+
+[[gate]]
+name = "check_audit_at_rest"
+script = "scripts/check_audit_at_rest.sh"
+kind = "gpu"
+marker = "^check_audit_at_rest: OK"
+mutation = [
+	"python3 -c \"p='addons/local_agents/sim/material/kernels3d/state_derive.glsl'; s=open(p).read(); open(p,'w').write(s.replace('e_j_m3[g] += ke;', 'e_j_m3[g] += ke + 1.0e6;', 1))\"",
+	"perl -0pi -e 's/\\t_f\\._gpu\\._step_index = sim_step\\n//' addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd",
+	"perl -0pi -e 's/sim_step % REST_AUDIT_EVERY != 0/true/' addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd",
+	"perl -0pi -e 's/\"energy_residual_stock_rel\"/\"energy_residual_stock_rel_absent\"/' addons/local_agents/sim/material/MaterialFieldConservation3D.gd",
+	"perl -0pi -e 's/if books >= 0:/if true:/' addons/local_agents/sim/material/MaterialFieldReport3D.gd",
+	"perl -0pi -e 's/report\\(books\\), books\\)/report(books), int(_f._gpu._step_index))/' addons/local_agents/sim/material/MaterialFieldReport3D.gd",
+	"perl -0pi -e 's/ or \\(books_step < 0 and _clock_since_seal\\(\\) >= REFERENCE_STEPS\\)//' addons/local_agents/sim/material/MaterialFieldConservation3D.gd",
+]
+needs = ["import"]
 
 [[gate]]
 name = "check_test_mass"
@@ -821,6 +848,17 @@ name = "check_boundary_books"
 script = "scripts/check_boundary_books.sh"
 kind = "gpu"
 marker = "^check_boundary_books: OK"
+
+[[gate]]
+name = "check_boundary_replay"
+script = "scripts/check_boundary_replay.sh"
+kind = "gpu"
+marker = "^check_boundary_replay: OK"
+mutation = [
+	"perl -0pi -e 's/var idx: int = \\(step - first\\) \\/ cadence/var idx: int = step \\/ cadence/' addons/local_agents/sim/material/FieldBoundaryCapture3D.gd",
+	"perl -0pi -e 's/_fold\\(step, legs\\)/_fold(step + 1, legs)/' addons/local_agents/sim/material/FieldBoundaryCapture3D.gd",
+]
+needs = ["import"]
 
 [[gate]]
 name = "check_escape_law"

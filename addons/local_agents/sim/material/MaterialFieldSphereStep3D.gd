@@ -32,11 +32,15 @@ func full_steps() -> int:
 	return _sealed_full_steps
 
 
-## A sealed world with no writer this step is unchanged, so nothing is dispatched or read back.
-func _at_rest() -> bool:
-	# THE SWITCHES, on the sim clock: `--ablate=name@step` lands here, and a thrown switch is a writer
-	# event, so a resting world takes a full step under the process set it now has.
-	return not LAAblate.step_switches(_f._gpu._step_index) \
+## Field steps per whole step a resting world still takes, so the books the audit folds are a reading of
+## the world, and a pass that writes while declaring no writer is caught.
+const REST_AUDIT_EVERY: int = 64
+
+
+## A sealed world with no writer this step is unchanged, so nothing is dispatched or read back. A thrown
+## switch is a writer event, so a resting world takes a full step under the process set it now has.
+func _at_rest(sim_step: int, switched: bool) -> bool:
+	return not switched and sim_step % REST_AUDIT_EVERY != 0 \
 		and _sealed_full_steps > 0 and _f._seal != null and _f._seal.sealed() and _f._capture == null \
 		and not _f._gpu.state_moves() and (_f._inject == null or _f._inject.queue.is_empty()) \
 		and not _f._gpu._step_probe.is_valid()
@@ -170,16 +174,18 @@ func _seed_under_gravity() -> void:
 	LAFieldHydrosphereSeed.seed(_f)   # the body's own water, in its basins and its pores
 
 
-## ONE step: SIM_SECONDS_PER_STEP of simulated time. Every per-step term happens once here, so a
-## step's books cannot be split across a frame boundary.
-func step() -> void:
+## ONE step: SIM_SECONDS_PER_STEP of simulated time, at LASimLoop's `sim_step`, resting or not. Every
+## per-step term happens once here, so a step's books cannot be split across a frame boundary.
+func step(sim_step: int) -> void:
 	if not _f._ready_sim or not _f._use_gpu:
 		return
+	_f._gpu._step_index = sim_step
 	# Refresh the body rotation FIRST: everything below that converts a position or a direction reads it.
 	_f.sync_body_frame()
 	LASimReport.event("field_step")   # telemetry: field steps per run, moving or at rest
 	LASimReport.gauge("field_cells", float(_f._gpu._cc))
-	if _at_rest():
+	# `--ablate=name@step` lands on this clock.
+	if _at_rest(sim_step, LAAblate.step_switches(sim_step)):
 		var t_rest: int = Time.get_ticks_usec()
 		LASimReport.event("field_rest")
 		if _f._gpu._pending:              # the last moving step's readback and books, drained once
@@ -193,7 +199,7 @@ func step() -> void:
 	var t_begin: int = t0
 	_f._gpu.begin_frame()                    # drains prev step (sync + readback into the mirrors) + uploads
 	if LAProcessSet.has_record("pass", GRAVITY_PASS):
-		_f._gravity.solve_step(_f._gpu._step_index)   # the potential of the mass that moved, converged; the device is idle here
+		_f._gravity.solve_step(sim_step)   # the potential of the mass that moved, converged; the device is idle here
 	LASimReport.gauge("field_begin_ms", float(Time.get_ticks_usec() - t_begin) / 1000.0)
 	# Per-cell solar terminator + marine cooling need the world-space sun direction and the sea shell radius.
 	if _f._star != null and _f._gpu.has_method("set_sun_flux"):
@@ -206,9 +212,9 @@ func step() -> void:
 		_f._gpu.set_sea_radius(_f.sea_radius())
 	if _f._inject != null and not _f._inject.queue.is_empty():
 		_f._inject.queue.flush(_f._gpu)
-	# Boundary face-state record/replay: samples at the drain, feeds REPLAY tails before the dispatch.
+	# Boundary face-state record/replay on the loop's step: reads or feeds the state this step starts from.
 	if _f._capture != null:
-		_f._capture.pre_step()
+		_f._capture.pre_step(sim_step)
 	var t_step: int = Time.get_ticks_usec()
 	if _probe != null:
 		_probe.pre_step()             # arm/disarm the driver's between-pass probe for THIS step

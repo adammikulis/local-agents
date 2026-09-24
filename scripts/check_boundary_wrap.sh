@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 # A TORUS HAS NO EDGE. A fully sealed slice — sides WRAP, vertical SHUT, requested explicitly, since the
 # capture-less default now opens its top to SPACE — must book exactly zero on every boundary row and hold
-# every gated stock to round-off. energy_stock may read
-# unmeasured only while HANDOFF item 0's momentum runaway poisons the enthalpy sum; any other unmeasured
-# stock is red.
+# every gated stock to round-off. An unmeasured stock is red.
 # EXIT 0 clean · 1 a violation · 2 could not run.
 set -uo pipefail
 
@@ -68,8 +66,6 @@ if not isinstance(rows, dict) or not isinstance(allowed, dict):
     print("ERROR: the run published no conservation rows.", file=sys.stderr)
     raise SystemExit(2)
 for key, v in sorted(rows.items()):
-    if key == "energy_held" and v == "unmeasured":
-        continue
     # A row with no number, or no floor to judge it against, EXAMINED NOTHING: that is exit 2.
     # A violation is a stock that was measured and moved.
     if not isinstance(v, (int, float)):
