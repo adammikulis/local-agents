@@ -74,7 +74,7 @@ func setup(_terrain, _config: Dictionary) -> void:
 	if loop == null:
 		push_error("LAPlant: no simulation loop, so nothing advances this one's growth.")
 	else:
-		loop.stepped.connect(_on_sim_step)
+		loop.subscribe(_on_sim_step)
 	species = String(config.get("species", species))
 	color = config.get("color", color)
 	grow_time = maxf(float(config.get("grow_time", grow_time)), 0.1)

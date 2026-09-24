@@ -106,7 +106,7 @@ func dispatch(_rd: RenderingDevice, ctx: Dictionary, cc: int, groups: int) -> vo
 	pc.resize(PC_BYTES)
 	pc.encode_u32(PC_LITHIFY, 1 if LAProcessSet.has_record("derive", "lithify") else 0)
 	pc.encode_u32(0, cc)
-	pc.encode_float(4, LAMaterialFieldSphereStep3D.real_seconds_per_step())
+	pc.encode_float(4, LAMaterialFieldSphereStep3D.SIM_SECONDS_PER_STEP)
 	pc.encode_float(8, w.x)
 	pc.encode_float(12, w.y)
 	pc.encode_float(16, w.z)

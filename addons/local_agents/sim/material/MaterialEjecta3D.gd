@@ -44,7 +44,7 @@ func _ready() -> void:
 	add_to_group("la_ballistics")
 	var loop: LASimLoop = LASimLoop.active()
 	if loop != null:
-		loop.stepped.connect(_on_sim_step)
+		loop.subscribe(_on_sim_step)
 
 
 ## Where each parcel in flight stands now, world frame, read off the one integrator.

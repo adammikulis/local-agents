@@ -33,7 +33,6 @@ const SLOW_BUILD_CELLS: int = 250000
 @export var body_seed: String = "planet"
 ## Carve winding cave tunnels into the crust while the terrain generates.
 @export var caves_enabled: bool = true
-@export var tides_enabled: bool = false
 
 @export_subgroup("Field grid")
 ## Root cells along one edge of the box. Where res://docs/CELL_BUDGET declares a budget, the build refines
@@ -168,12 +167,12 @@ func _wire_loop() -> void:
 	if world_type == WorldType.SPHERE:
 		_loop.hold()
 		_loop.seeding.connect(_on_seeding)
-		_loop.stepped.connect(_on_step)
-		_loop.stepped.connect(Callable(_material.step_driver(), "step"))
-	_loop.stepped.connect(_ecology.on_sim_step)
+		_loop.subscribe(_on_step)
+		_loop.subscribe(Callable(_material.step_driver(), "step"))
+	_loop.subscribe(_ecology.on_sim_step)
 
 
-func _on_seeding(_tick: int) -> void:
+func _on_seeding() -> void:
 	if _material.step_driver().seed_tick():
 		_loop.release()
 
@@ -212,7 +211,7 @@ func _build_sphere() -> bool:
 	add_child(_body)
 	_body.setup({
 		"radius": seed_radius(), "seed_key": body_seed, "caves_enabled": caves_enabled,
-		"tides_enabled": tides_enabled, "seed": world_seed,
+		"seed": world_seed,
 	})
 	_terrain = _body.terrain()
 	_actors_root = _body.actors_root
