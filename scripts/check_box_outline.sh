@@ -24,6 +24,8 @@ SIZE="${LA_BOX_OUTLINE_SIZE:-1280x800}"
 STILL="vectors,test_masses"
 PANELS="hud,game_hud,progression,time_control,audio,debug,brush,interaction,companion,thought_panel"
 PANELS="$PANELS,tutorial,vector_legend"
+# THE SIMULATED STEP BOTH PICTURES ARE OF: the loop halts there, so the sun and the ground are one world.
+STEP="${LA_BOX_OUTLINE_STEP:-60}"
 
 DIR="$(mktemp -d "${TMPDIR:-/tmp}/la_box_outline.XXXXXX")"
 trap 'rm -rf "$DIR"' EXIT INT TERM
@@ -31,7 +33,7 @@ trap 'rm -rf "$DIR"' EXIT INT TERM
 shoot() {  # <name> <ablations>
 	LA_RUN_TIMEOUT="${LA_BOX_OUTLINE_TIMEOUT:-110}" "$ROOT/scripts/run_sim_offscreen.sh" --path "$ROOT" \
 		"$SCENE" -- --sandbox "--shoot=$DIR/$1.png" "--shots=$POSE" --local-hour=12 \
-		--shoot-frames=150 "--shoot-size=$SIZE" "--ablate=$2" > "$DIR/$1.log" 2>&1
+		"--shoot-step=$STEP" --shoot-frames=150 "--shoot-size=$SIZE" "--ablate=$2" > "$DIR/$1.log" 2>&1
 	echo $?
 }
 
@@ -109,6 +111,27 @@ fails = []
 # THE ABLATION IS REAL: --ablate=box_outline stops the module, so the dark arm publishes nothing.
 if "BOX_OUTLINE=" in off_log:
     fails.append("--ablate=box_outline left the outline running: the dark arm published its geometry")
+
+def shot_flag(text, name):
+    for line in text.splitlines():
+        if line.startswith("SHOT_SAVED="):
+            for tok in line.split():
+                if tok.startswith(name + "="):
+                    return tok[len(name) + 1:]
+    return None
+
+
+# ONE WORLD TWICE: both frames at one simulated step, each taken once its ground was built and uncovered.
+steps = (shot_flag(on_log, "sim_step"), shot_flag(off_log, "sim_step"))
+if steps[0] is None or steps[0] != steps[1] or int(steps[0]) < 0:
+    print("check_box_outline: the arms were shot at simulated steps %s and %s, so they are two worlds."
+          % steps, file=sys.stderr)
+    sys.exit(2)
+for name, text in (("on", on_log), ("off", off_log)):
+    if shot_flag(text, "ground_meshed") != "true":
+        print("check_box_outline: the %s arm was shot before its ground was built and uncovered." % name,
+              file=sys.stderr)
+        sys.exit(2)
 
 pa, pb = shot_path(on_log), shot_path(off_log)
 if pa is None or pb is None:
