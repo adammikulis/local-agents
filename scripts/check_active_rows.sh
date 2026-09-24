@@ -160,7 +160,7 @@ func _build(owned: Array[RID]) -> Dictionary:
 	_write(bufs, "gas_r", _filled(cc, LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK))
 	_write(bufs, "gas_gamma", _filled(cc, LAPhysical.AIR_ADIABATIC_INDEX))
 	_write(bufs, "h2o_liquid", _filled(cc, 1.0))
-	_write(bufs, "k_cond", _filled(cc, LAPhysical.WATER_BULK_MODULUS_PA))
+	_write(bufs, "k_cond", _filled(cc, LAPhysical.WATER_BULK_MODULUS_T_PA))
 	return bufs
 
 
@@ -243,7 +243,7 @@ func _seam() -> void:
 	_write(bufs, "o2", o2)
 	_write(bufs, "co2", co2)
 	_write(bufs, "h2o_liquid", _filled(cc, 1.0))
-	_write(bufs, "k_cond", _filled(cc, LAPhysical.WATER_BULK_MODULUS_PA))
+	_write(bufs, "k_cond", _filled(cc, LAPhysical.WATER_BULK_MODULUS_T_PA))
 	_write(bufs, "rho_bulk", _filled(cc, SEAM_RHO))
 	_write(bufs, "pressure", _filled(cc, SEAM_P))
 	_write(bufs, "temp", temps)

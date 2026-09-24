@@ -36,18 +36,29 @@ Reading: `state_derive.glsl` ends the (T, p) solve on `abs(f) <= LA_STATE_TOL * 
 ## 3. THE BOUNDARY GATES CANNOT RECORD THEIR OWN CAPTURE, AND A GHOST'S REST GRAVITY IS READ PAST ITS BUFFER
 
 `scripts/check_boundary_books.sh` with no `LA_LINT_CAPTURE` exits 2: its capture run,
-`scripts/sim_run.sh --body --frames 20 --rung 3 --slice-capture C`, ends `RUN FAILED, exit 122` with
-`PRESSURE_BROKEN: pressure fell going down.` `rg -n 'g_rest.*cc \* 3' addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd`
+`scripts/sim_run.sh --body --frames 20 --rung 8 --slice-capture C`, logs `LASubstances gives "fixed_n"
+no specific heat`, is killed at the run timeout and publishes no capture; at `--rung 3` it is killed at
+the timeout. `rg -n 'g_rest.*cc \* 3' addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd`
 Reading: `_allocate_declared` in `MaterialSphereGPU3D.gd` adds `_ng` once to a declared length, so a
 three-vector declared `{"n": cc * 3, "ghosts": true}` is `cc * 3 + ng` long.
 
-## 4. THE BODY RECORD OMITS THE PORE WATER BELOW THE SEA FLOOR, AND ONE POROSITY LAW SERVES EVERY ROCK
+## 4. AN EARTH-MASS BODY SOLVES LARGER THAN EARTH, SO BASALT'S GRAIN DENSITY CANNOT LAND
+
+The shell carries its high-pressure phases (`docs/PHYSICS_TODO.md` A, solid polymorphs); then
+`ROCK_DENSITY_KG_M3` in `PhysicalConstants.gd` takes basalt's grain density, 2949.0 kg/m^3 (Hyndman &
+Drury 1977, Init. Rep. DSDP 37:395), and `RHO_SILICATE` in `closures.glsli` and `reactions_sphere3d.glsl`
+follows it. With that density alone `scripts/check_hypsometry.sh` reads its land fraction past the bound,
+as `scripts/check_hypsometry.gd` does on this tree with `SAMPLES` at 65536.
+Reading: `shell_minerals` in `LAPlanetTables.cpp` fills every shell with olivine, pyroxene, plagioclase,
+silicate, apatite and halite at every pressure.
+
+## 5. THE BODY RECORD OMITS THE PORE WATER BELOW THE SEA FLOOR, AND ONE POROSITY LAW SERVES EVERY ROCK
 
 `scripts/check_hydrosphere_mass.sh --body` is red: the declared `hydrosphere_kg`/`groundwater_kg` in
 `LABodySystem.cpp` (Gleick 1996) count the surface ocean and continental groundwater only, and
 `REGOLITH_SURFACE_POROSITY`/`COMPACTION_LENGTH_M` (Athy 1930, shales) are applied to basalt and basement.
 
-## 5. THE PLANET CARRIES LESS AIR THAN IT WAS GIVEN, AND A BOX CANNOT WEIGH ITS OWN SHARE
+## 6. THE PLANET CARRIES LESS AIR THAN IT WAS GIVEN, AND A BOX CANNOT WEIGH ITS OWN SHARE
 
 `scripts/check_atmosphere_mass.sh` prints a seeded nitrogen below the declared inventory, and its test is
 one-sided because the deficit is not the seed's: `scripts/sim_run.sh --body --rung 2 --frames 2 --report
@@ -57,26 +68,24 @@ reads a box whose long axis is the world axis nearest the local vertical, not th
 Reading: `solid_of` in `LAPlanetTables.cpp` calls a cell solid at half rock, and `shape_atmosphere`
 floods `sky` only through cells whose `solid[c] == 0`.
 
-## 6. THE CRUST HAS TWO REPRESENTATIONS, AND THE SEA IS A SPHERE AT ONE RADIUS
+## 7. THE CRUST HAS TWO REPRESENTATIONS, AND THE SEA IS A SPHERE AT ONE RADIUS
 
-Maintainer's decision, standing: one substrate everywhere. The field is the only representation of
-matter; the ground and the water surface are detectors on it (an isosurface a compute kernel extracts
-into mesh buffers per block, which is also the collider); the generator is sampled into the field once
-at seed; a body of water is where the inventory settled under the solved gravity, one liquid in one
-channel. `rg -n "sea_radius|OceanPlane|_open_sea|sea_level_m|resample_terrain" addons/local_agents`
+Maintainer's decision, standing: the field is the only representation of matter; ground and water
+surface are isosurfaces a kernel extracts per block (also the collider); the generator is sampled once at
+seed; a body of water is where the inventory settled under the solved gravity. `rg -n "sea_radius|OceanPlane|_open_sea|sea_level_m|resample_terrain" addons/local_agents`
 finds the sea as a declared shell radius and the field sampling the generator after the seal. A coast slice
 (`LA_SLICE_BOX=0,site=coast,0,3,24,3,5120,10`, `--rung=2 --ui --shots=1000:-35:0`) draws its sea only over
 the box's finest cells.
 Reading: `LAWaterSurfaceMesh.build` skips every cell whose `level_of` is not `max_level`.
 
-## 7. THE GROUND NEAR THE EYE IS TERRACED, AND THE LEVEL BOUNDARY SHADES AS A CREASE
+## 8. THE GROUND NEAR THE EYE IS TERRACED, AND THE LEVEL BOUNDARY SHADES AS A CREASE
 
 `LA_SHOTS="30:-3:0" scripts/shoot_demo.sh addons/local_agents/examples/SliceRung1Demo.tscn <dir>` shows
 the near ground banded along its contours and a crease along the level boundary to the horizon.
 Reading: `LASpherePlanetGenerator.build` leaves the position inputs of `NODE_SDF_SPHERE` unwired, so
 `length(p) - radius` is taken at each voxel's absolute position.
 
-## 8. THE DEMO SITE HOLDS NO WATER A VIEWER CAN STAND BESIDE
+## 9. THE DEMO SITE HOLDS NO WATER A VIEWER CAN STAND BESIDE
 
 `LA_SHOTS="30:-3:0" scripts/shoot_demo.sh addons/local_agents/examples/SliceRung1Demo.tscn <dir>` shows
 no free water surface; `scripts/sim_run.sh --slice --rung 1 --frames 4 --report water_liquid_total,wet_cells`
@@ -85,56 +94,63 @@ Reading: `coast_site` in `LAPlanetTables.cpp` bisects onto the waterline and the
 `land_m + depth_m`, which is largest where the relief is steepest rather than where the box's own
 footprint is half wet.
 
-## 9. THE SURFACE IS STILL: EVERY WEATHER-SHAPED STAND-IN IS ABSENT RATHER THAN FAKED
+## 10. THE SURFACE IS STILL: EVERY WEATHER-SHAPED STAND-IN IS ABSENT RATHER THAN FAKED
 
 `docs/FAKES.md` carries what creatures need and nothing the surface shows: `wind_field` (real at
 ACOUSTIC), `rain` (WATER), `streams` (ADVECT), `diurnal_heat` (RADIATION), each read through the query
 the real row will answer, offered in the HUD as a stand-in.
 
-## 10. THE SLICE'S OWN GRAVITY READS ZERO IN THE REPORT WHILE A MASS FALLS AT ~9.5 m/s^2 IN IT
+## 11. THE SLICE'S OWN GRAVITY READS ZERO IN THE REPORT WHILE A MASS FALLS AT ~9.5 m/s^2 IN IT
 
 `scripts/sim_run.sh --slice --rung 1 --frames 4 --report gravity_mean_g,gravity_solves` reads
 `gravity_mean_g` 0 in the box where `scripts/check_test_mass.sh` measures `g_release` near 9.5.
 Reading: `dispatch_slab` in `GravityPass.gd` issues `MODE_FIELD_STATS` without the `MODE_MOMENTS` sweep
 that `PRE_MODES` runs before it.
 
-## 11. A FALL IS OVER BETWEEN TWO RENDERED FRAMES, AND ONE DRAG COEFFICIENT SERVES EVERY SPEED
+## 12. A FALL IS OVER BETWEEN TWO RENDERED FRAMES, AND ONE DRAG COEFFICIENT SERVES EVERY SPEED
 
 `scripts/shoot_demo.sh addons/local_agents/examples/SliceRung1Demo.tscn <dir>` photographs a test mass
-already landed: the world advances 43.2 simulated seconds per rendered frame, so a two-kilometre fall is
-over between two frames and nothing is seen falling. `SPHERE_CD` in `LABallistics.cpp` is the hypersonic
-limit at every Reynolds and Mach number, so a body the air has already slowed is over-braked
-(`newtonian_sphere_drag` in `docs/APPROXIMATIONS.md`).
+already landed: 43.2 simulated seconds pass per rendered frame. `SPHERE_CD` in `LABallistics.cpp` is the
+hypersonic limit at every Reynolds and Mach number.
 Reading: `stride_m` in `LABallistics.cpp` reads no sound speed and no viscosity.
 
-## 12. A THROWN BODY FALLS UNDER THE ENGINE'S GRAVITY, NOT THE FIELD'S
+## 13. A CREATURE IS FLUNG ONLY PAST AN INVENTED IMPULSE
 
-`rg -n "gravity_scale" addons/local_agents/creatures/creature/CreatureRagdoll.gd` reads `1.0`, so the
-live gravity switch never reaches a flung or dying creature; `impulse.length() > 3.0` in `Creature.gd`
-is an invented threshold. The design: kinematic until thrown; then a Jolt `RigidBody3D` with
-`gravity_scale = 0` pushed each tick by `m·g(pos)` from `LABallistics.g_at` plus the seeded air's drag
-(bound, not copied), the impulse from the overpressure in its cell, kinematic again when asleep.
+`rg -n 'impulse.length\(\) > 3.0' addons/local_agents/creatures/Creature.gd` finds the threshold that
+decides whether a push throws a creature; it names no mass, no ground friction and no source.
 
-## 13. NOT EXAMINED UNTIL THE RUNG-2 DEMO IS APPROVED — rung 3
+## 14. MATTER INJECTED FROM OUTSIDE THE FIELD IS NOT BOOKED IN
+
+`scripts/sim_run.sh --slice --rung 2 --frames 200 --report inject_created_silicate,mineral_src_total,mineral_run_drift,mineral_bnd_in -- --stamp-test`
+reads `mineral_run_drift` equal to the deposited rock in moles and `mineral_bnd_in` 0, while
+`mineral_src_total` carries the same deposit in mol/m^3 of one cell.
+Reading: `_drain` in `InjectPass.gd` tallies `inject_created_<channel>` in cell values, and
+`_publish_mineral` in `LAFieldLedger.cpp` nets `boundary_of(group, "Si")` alone.
+
+## 15. NOT EXAMINED UNTIL THE RUNG-2 DEMO IS APPROVED — rung 3
 
 - `scripts/check_bench_shock_tube.sh`: at a 10:1 Sod jump the rarefaction head stands outside the bound
   and the overshoot grows as the grid halves; at a 1% jump every claim passes.
-- `scripts/sim_run.sh --rung 3 --frames 2` and `scripts/sim_run.sh --body --rung 3 --frames 8` end with
-  `RUN_TIMEOUT` and no report.
+- `scripts/sim_run.sh --rung 3 --frames 2` (slice or `--body`) ends with `RUN_TIMEOUT` and no report.
 - `LA_REST_CELL_M=68000 LA_REST_CELLS=8 scripts/check_atmosphere_at_rest.sh` reads a rest departure
   above its bar on a land column; its vent arm reads an energy residual near a tenth of the turnover.
 - `scripts/sim_run.sh --rung 3 --frames 3 --report nonfinite_cells,mach_max` refuses a water record at
   light speed by the second frame; `LA_PASS_PROBE=mach LA_PASS_PROBE_STEPS=1` names the cell.
+- `scripts/check_boundary_momentum_book.sh`, with or without `LA_RUNG=3`, fails its device rig: an open
+  face under a higher exterior pressure books no momentum and no nitrogen, and the REPLAY rim no nudge.
 - Maintainer's decision, standing: the acoustic part of the momentum equation goes implicit (one
   Helmholtz solve per field step on `gravity_poisson.glsl`'s operator shape), the step is derived from
   the advective CFL, `SIM_SECONDS_PER_STEP` and the acoustic temporal levels are deleted; declared in
   `docs/APPROXIMATIONS.md` when built.
 
-## 14. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the rows above it and their books
+## 16. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the rows above it and their books
 
-- `scripts/check_bench_heat_slab.sh` (rung 4): a slab held between 20 and 520 °C leaves that range.
+- `scripts/check_bench_heat_slab.sh` (rung 4): every cell of the slab reads a non-finite temperature and
+  a zero `cap_sensible`.
   Reading: `la_row_need` in `flux.glsl` gates the conduction row on `cap_sensible[c] > 0`.
 - `scripts/check_bench_darcy.sh` (rung 5): six regolith columns under a head difference transfer zero.
+- `scripts/check_active_rows.sh` (rung 5): nothing crosses a face on its sealed lines, and its blob never
+  leaves the seed cell.
 - `scripts/check_bench_grey_atmosphere.sh` (rung 7): identical neighbours exchange unevenly past the
   bound; the lit plate settles below the grey Eddington skin temperature.
 - `scripts/sim_run.sh --frames 20 --slice-capture C` then `LA_RUN_TIMEOUT=900 scripts/sim_run.sh --slice
@@ -144,29 +160,27 @@ is an invented threshold. The design: kinematic until thrown; then a Jolt `Rigid
 - `LA_RUN_TIMEOUT=110 scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn --
   --sandbox --ui --run-frames=20` prints no report and logs no error; `--planet-only --no-fauna` reports.
 
-## 15. TWO ROWS THE ENGINE READS ARE EMPTY
+## 17. APATITE NEVER MELTS, AND EVERY MINERAL WEARS BASALT'S ALBEDO
 
-`scripts/check_bench_phase_change.sh` melts iron and forsterite off their own rows; `apatite` carries
-neither a melting point nor a fusion enthalpy, so `LAMixtureEnthalpy::thermal_row` keeps it linear in T,
-and every planet mineral carries basalt's `albedo` and `emissivity`.
+`rg -n '"apatite"' -A12 addons/local_agents/gdextensions/localagents/src/LASubstances.cpp` shows no melting
+point or fusion enthalpy, and each planet mineral row takes `BASALT_EMISSIVITY` and `ALBEDO_BARE_GROUND`.
 
-## 16. THE PHYSICS RUNS INSIDE GODOT'S PROCESS
+## 18. THE PHYSICS RUNS INSIDE GODOT'S PROCESS
 
-Maintainer's decision, standing: a standalone native process with its own device, clock and CLI; gates
-run it with no Godot launch; Godot attaches as a viewer. Today every pass is a GDScript record on a Godot
-RenderingDevice (`LAFieldDriver`) and `scripts/run_sim_offscreen.sh` launches Godot for every gate.
+Maintainer's decision, standing: a standalone native process with its own device, clock and CLI; Godot
+attaches as a viewer. Today every pass runs on a Godot RenderingDevice and every gate launches Godot.
 Branch `native-plans` is unlanded: `scripts/check_lasim_parity.sh` there reads `plan_reduce.lapl is truncated`.
 
-## 17. THE LEDGER RECONSTRUCTS ELEMENTS FROM CHANNEL AMOUNTS
+## 19. THE LEDGER RECONSTRUCTS ELEMENTS FROM CHANNEL AMOUNTS
 
 Maintainer's decision, standing: per-cell moles of elements are the state and species are derived
 (`docs/PHYSICS_TODO.md` B); today the ledger reconstructs them from `Channels.gd` (`mol_per_unit`).
 
-## 18. THE GPU LINT RUNS HERE ONLY
+## 20. THE GPU LINT RUNS HERE ONLY
 
 `.github/workflows/gpu-lint.yml` targets a self-hosted macOS runner labelled `gpu`; none is registered.
 
-## 19. THE STAR IS SEEDED WITH TODAY'S RADIUS BESIDE THE EPOCH'S LUMINOSITY
+## 21. THE STAR IS SEEDED WITH TODAY'S RADIUS BESIDE THE EPOCH'S LUMINOSITY
 
 `rg -n 'star\["(radius_m|luminosity_w)"\]' addons/local_agents/gdextensions/localagents/src/LABodySystem.cpp`
 reads the present nominal radius for a star `star_age_at_epoch_gyr()` old, where the standard solar model
