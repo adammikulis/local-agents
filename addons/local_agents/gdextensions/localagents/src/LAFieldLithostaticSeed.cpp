@@ -1,6 +1,7 @@
 #include "LAFieldLithostaticSeed.hpp"
 
 #include "LAFieldMirrors.hpp"
+#include "LAParallel.hpp"
 
 #include "LABodySystem.hpp"
 #include "LAFieldHydrosphereSeed.hpp"
@@ -55,31 +56,6 @@ Vector3 field_centre(Object *p_field) {
 	Array args;
 	args.append(p_field);
 	return la_call_gd(GEOMETRY_GD, "centre", args);
-}
-
-// p_fn(i) for every i in [0, p_count) across the host's cores, claimed in chunks off one counter.
-// p_fn writes only index i's own slots.
-template <typename F>
-void for_each_index_parallel(int p_count, const F &p_fn) {
-	const int workers = int(MAX(std::thread::hardware_concurrency(), 1u));
-	const int chunk = 16;
-	std::atomic<int> next(0);
-	auto run = [&]() {
-		for (int lo = next.fetch_add(chunk); lo < p_count; lo = next.fetch_add(chunk)) {
-			const int hi = MIN(lo + chunk, p_count);
-			for (int i = lo; i < hi; i++) {
-				p_fn(i);
-			}
-		}
-	};
-	std::vector<std::thread> pool;
-	for (int t = 1; t < workers; t++) {
-		pool.emplace_back(run);
-	}
-	run();
-	for (std::thread &t : pool) {
-		t.join();
-	}
 }
 
 // A channel mirror, held by NAME so it can be written back: a godot-cpp Packed array is copy-on-write, so
@@ -377,7 +353,7 @@ PackedFloat32Array LAFieldLithostaticSeed::vertical(Object *p_field,
 }
 
 Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32Array &p_g_rest,
-		const PackedFloat32Array &p_t_rock) {
+		const PackedFloat32Array &p_t_rock, const PackedFloat32Array &p_pore_air) {
 	if (!p_field) {
 		return Dictionary();
 	}
@@ -389,7 +365,7 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 	}
 	const PackedFloat32Array edges = grid->call("cell_edges");
 	const PackedFloat32Array rock_fr = p_field->get("_rock_fraction");
-	const PackedFloat32Array porosity = LAFieldMirrors::of(p_field, "porosity");
+	PackedFloat32Array porosity = LAFieldMirrors::of(p_field, "porosity");
 	ERR_FAIL_COND_V_MSG(p_g_rest.size() != cc * 3 || p_t_rock.size() != cc || edges.size() != cc
 					|| rock_fr.size() != cc || porosity.size() != cc,
 			Dictionary(), "LAFieldLithostaticSeed.compress: the solved gravity, the rock temperature, the cell "
@@ -404,19 +380,17 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 
 	// RESOLUTION FOLLOWS POSITION: a cell's edge, volume and gravity are its own. g_mag is the |g| the derive
 	// weighs an open cell's lattice by; g_step is kernels3d/pressure.glsl's la_load per kg/m^3 along the
-	// vertical the hydrostatic rung stands, zero below it.
-	const PackedFloat32Array vert = vertical(p_field, p_g_rest);
+	// solved gravity, which weighs the rock on every rung that has gravity.
 	std::vector<double> edge(cc, 0.0), vol(cc, 0.0), g_mag(cc, 0.0), g_step(cc, 0.0);
 	bool pulled = false;
 	for (int c = 0; c < cc; c++) {
 		edge[c] = double(edges[c]);
 		vol[c] = edge[c] * edge[c] * edge[c];
-		g_mag[c] = double(Vector3(p_g_rest[c * 3], p_g_rest[c * 3 + 1], p_g_rest[c * 3 + 2]).length());
-		const Vector3 gv(vert[c * 3], vert[c * 3 + 1], vert[c * 3 + 2]);
-		const double gm = double(gv.length());
-		if (gm > 0.0) {
-			const Vector3 up = -gv / float(gm);
-			g_step[c] = gm * edge[c] * double(MAX(MAX(std::abs(up.x), std::abs(up.y)), std::abs(up.z)));
+		const Vector3 gv(p_g_rest[c * 3], p_g_rest[c * 3 + 1], p_g_rest[c * 3 + 2]);
+		g_mag[c] = double(gv.length());
+		if (g_mag[c] > 0.0) {
+			const Vector3 up = -gv / float(g_mag[c]);
+			g_step[c] = g_mag[c] * edge[c] * double(MAX(MAX(std::abs(up.x), std::abs(up.y)), std::abs(up.z)));
 			pulled = true;
 		}
 	}
@@ -659,19 +633,61 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 	for (int c = 0; c < cc; c++) {
 		weigh(c);
 	}
+	// THE PORES CLOSE UNDER THE LOAD THEIR FRAME CARRIES: phi_0 exp(-sigma' / P_c) at sigma' the lattice's
+	// load less its pore fluid's pressure (Terzaghi's effective stress). The water and the air laid in them
+	// stand at densities their porosity does not set, so a cell's pore water and pore air move with it.
+	// LA_APPROX: porosity_at_centre_load
+	const PackedByteArray regolith = p_field->get("_regolith");
+	const bool compacts = p_pore_air.size() == cc && regolith.size() == cc;
+	const double phi_0 = la_physical("CRUST_SURFACE_POROSITY");
+	const double p_close = la_physical("CRUST_POROSITY_CLOSURE_PA");
+	std::vector<double> pore_air(cc, 0.0);
+	for (int c = 0; compacts && c < cc; c++) {
+		pore_air[c] = double(p_pore_air[c]);
+	}
+	bool compacted = false;
+	// One closing step at an effective load: true while the porosity still moves by less each step than the
+	// last, which ends where the float32 amounts no longer resolve the load.
+	auto close = [&](int c, double p_sigma, double &r_last) -> bool {
+		if (!compacts || regolith[c] == 0) {
+			return false;
+		}
+		const double was = double(porosity[c]);
+		const double next = phi_0 * std::exp(-p_sigma / p_close);
+		const double moved = std::abs(next - was) / next;
+		if (!(was > 0.0) || moved <= eps || !(moved < r_last)) {
+			return false;
+		}
+		r_last = moved;
+		const double r = next / was;
+		const double keep = 1.0 - pore_air[c] + pore_air[c] * r;
+		for (size_t i = 0; i < nm; i++) {
+			if (ch[i].kind == PORE) {
+				amt[i][c] = float(double(amt[i][c]) * r);
+			} else if (ch[i].kind == GAS) {
+				amt[i][c] = float(double(amt[i][c]) * keep);
+			}
+		}
+		pore_air[c] = keep > 0.0 ? pore_air[c] * r / keep : 0.0;
+		porosity.set(c, float(next));
+		weigh(c);
+		compacted = true;
+		return true;
+	};
 	// AN OPEN CELL STANDS AT THE PRESSURE ITS OWN MATTER STATES, the derive's own rule.
 	for (int c = 0; c < cc; c++) {
 		if (solid[c] != 0 || !(rho[c] > 0.0)) {
 			continue;
 		}
 		bool settled = false;
+		double last = INFINITY;
 		for (int round = 0; round < HALVINGS && !settled; round++) {
 			p_open[c] = solve(c, false);
 			const double k = std::isnan(p_open[c]) ? NAN : relay(c, rock_at(c, p_open[c]));
 			ERR_FAIL_COND_V_MSG(std::isnan(k), Dictionary(), "LAFieldLithostaticSeed: open cell "
 					+ String::num_int64(c) + " overfilled by incompressible matter, a gas packed past its "
 					"co-volume, or rock beside fluid with no grains, states no pressure.");
-			settled = std::abs(k - 1.0) <= eps;
+			settled = std::abs(k - 1.0) <= eps && !close(c, rock_at(c, p_open[c]) - p_open[c], last);
 		}
 		ERR_FAIL_COND_V_MSG(!settled, Dictionary(), "LAFieldLithostaticSeed: open cell " + String::num_int64(c)
 				+ "'s grains did not settle at the load they stand under.");
@@ -693,67 +709,59 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 		}
 		return top + acc;
 	};
-	// Locked cells down each column, so every load over a cell is final before its own is walked.
-	std::vector<int> depth(cc, -1), chain, order;
-	for (int c = 0; c < cc; c++) {
-		if (solid[c] == 0 || depth[c] >= 0) {
-			continue;
+	// Locked cells down each column, a level at a time, so every load over a cell is final before its own
+	// is walked.
+	std::vector<std::vector<int>> levels;
+	{
+		std::vector<int> up(cc, -1);
+		std::vector<char> in(cc, 0);
+		for (int c = 0; c < cc; c++) {
+			up[c] = column ? up_of[c] : -1;
+			in[c] = solid[c] != 0;
 		}
-		chain.clear();
-		int base = 0;
-		for (int a = c;;) {
-			chain.push_back(a);
-			const int u = column ? up_of[a] : -1;
-			ERR_FAIL_COND_V_MSG(int(chain.size()) > cc, Dictionary(), "LAFieldLithostaticSeed.compress: the "
-					"vertical relation closes on itself, so no column has a top.");
-			if (u < 0 || solid[u] == 0 || depth[u] >= 0) {
-				base = (u >= 0 && solid[u] != 0) ? depth[u] + 1 : 0;
-				break;
-			}
-			a = u;
-		}
-		for (int j = int(chain.size()) - 1; j >= 0; j--) {
-			depth[chain[j]] = base + int(chain.size()) - 1 - j;
-		}
+		ERR_FAIL_COND_V_MSG(!la_column_levels(up, in, levels), Dictionary(), "LAFieldLithostaticSeed.compress: "
+				"the vertical relation closes on itself, so no column has a top.");
 	}
-	for (int c = 0; c < cc; c++) {
-		if (solid[c] != 0) {
-			order.push_back(c);
-		}
-	}
-	std::stable_sort(order.begin(), order.end(), [&depth](int a, int b) { return depth[a] < depth[b]; });
 	// A LOCKED CELL's fluid stands at the pressure its own equation of state gives it in the room the grains
 	// leave: in rock with no free surface that fluid is the pores' own, their water with it; beside a free
-	// surface it is the sea and air there, the pore water the lattice's. Its rock carries the column where the
-	// hydrostatic rung stands one, and below that rung its fluid's pressure and half its own lattice's weight,
-	// as an open cell's does.
-	auto load_of = [&](int c) {
-		return pulled ? walk(c) : p_fl[c] + 0.5 * rho_lat[c] * g_mag[c] * edge[c];
-	};
-	for (int c : order) {
-		const bool fluid = holds_fluid(c);
-		const bool pore_fluid = !(double(rock_fr[c]) < 1.0);
-		bool settled = false;
-		for (int round = 0; round < HALVINGS && !settled; round++) {
-			p_col[c] = load_of(c);
-			const double k = relay(c, p_col[c]);
-			ERR_FAIL_COND_V_MSG(std::isnan(k), Dictionary(), "LAFieldLithostaticSeed: locked cell "
-					+ String::num_int64(c) + " holds rock beside fluid with no grains to size at its load.");
-			settled = std::abs(k - 1.0) <= eps;
-			if (!pulled && fluid && !settled) {
-				p_fl[c] = solve(c, pore_fluid);
-				ERR_FAIL_COND_V_MSG(std::isnan(p_fl[c]), Dictionary(), "LAFieldLithostaticSeed: locked cell "
-						+ String::num_int64(c) + "'s fluid states no pressure in the room its grains leave.");
+	// surface it is the sea and air there, the pore water the lattice's. Its rock carries the column over its
+	// centre on every rung, whether or not the hydrostatic rung steps that column.
+	for (const std::vector<int> &level : levels) {
+		for (const int c : level) {
+			const bool fluid = holds_fluid(c);
+			const bool pore_fluid = !(double(rock_fr[c]) < 1.0);
+			bool closed = false;
+			double last = INFINITY;
+			for (int step = 0; step < HALVINGS && !closed; step++) {
+				bool settled = false;
+				for (int round = 0; round < HALVINGS && !settled; round++) {
+					p_col[c] = walk(c);
+					const double k = relay(c, p_col[c]);
+					ERR_FAIL_COND_V_MSG(std::isnan(k), Dictionary(), "LAFieldLithostaticSeed: locked cell "
+							+ String::num_int64(c) + " holds rock beside fluid with no grains to size at its load.");
+					settled = std::abs(k - 1.0) <= eps;
+				}
+				ERR_FAIL_COND_V_MSG(!settled, Dictionary(), "LAFieldLithostaticSeed: locked cell "
+						+ String::num_int64(c) + "'s grains did not settle at the load they stand under.");
+				p_col[c] = walk(c);
+				if (fluid) {
+					p_fl[c] = solve(c, pore_fluid);
+					ERR_FAIL_COND_V_MSG(std::isnan(p_fl[c]), Dictionary(), "LAFieldLithostaticSeed: locked cell "
+							+ String::num_int64(c) + "'s fluid states no pressure in the room its grains leave.");
+				}
+				closed = !close(c, p_col[c] - p_fl[c], last);
+			}
+			ERR_FAIL_COND_V_MSG(!closed, Dictionary(), "LAFieldLithostaticSeed: locked cell "
+					+ String::num_int64(c) + "'s pores did not close at the load they stand under.");
+		}
+	}
+	if (compacted) {
+		for (size_t i = 0; i < nm; i++) {
+			if (ch[i].kind == PORE || ch[i].kind == GAS) {
+				LAFieldMirrors::store(p_field, mats[i].name, mats[i].arr);
 			}
 		}
-		ERR_FAIL_COND_V_MSG(!settled, Dictionary(), "LAFieldLithostaticSeed: locked cell " + String::num_int64(c)
-				+ "'s grains did not settle at the load they stand under.");
-		p_col[c] = load_of(c);
-		if (fluid) {
-			p_fl[c] = solve(c, pore_fluid);
-			ERR_FAIL_COND_V_MSG(std::isnan(p_fl[c]), Dictionary(), "LAFieldLithostaticSeed: locked cell "
-					+ String::num_int64(c) + "'s fluid states no pressure in the room its grains leave.");
-		}
+		LAFieldMirrors::store(p_field, "porosity", porosity);
 	}
 	if (relaid) {
 		for (size_t i = 0; i < nm; i++) {
@@ -792,6 +800,14 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 	both["rock"] = p_rock;
 	both["room"] = room;
 	return both;
+}
+
+Dictionary LAFieldLithostaticSeed::settle(Object *p_field, double p_temp_c, const PackedFloat32Array &p_g_rest,
+		const PackedFloat64Array &p_phi, const PackedFloat32Array &p_t_rock) {
+	const Dictionary air = shape_atmosphere(p_field, p_temp_c, p_g_rest, p_phi);
+	ERR_FAIL_COND_V_MSG(air.is_empty(), Dictionary(), "LAFieldLithostaticSeed.settle: no air was laid.");
+	LAFieldHydrosphereSeed::seed(p_field, air, p_g_rest);
+	return compress(p_field, p_g_rest, p_t_rock, air.get("pore_share", PackedFloat32Array()));
 }
 
 Dictionary LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c,
@@ -1027,7 +1043,7 @@ Dictionary LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_te
 		}
 	}
 	const double kelvin = la_physical("KELVIN_OFFSET");
-	std::vector<double> shape(cc, 0.0);
+	std::vector<double> shape(cc, 0.0), in_pores(cc, 0.0);
 	auto air_of = [&](int c) -> double {
 		const Vector3 g(p_gravity[c * 3], p_gravity[c * 3 + 1], p_gravity[c * 3 + 2]);
 		const double gmag = double(g.length());
@@ -1068,12 +1084,13 @@ Dictionary LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_te
 		if (dry > 0.0) {
 			const double over_rock = taken > f ? above(f) : over_ground;
 			const double t_gas = f < 1.0 ? p_temp_c : double(t_rock[c]);
-			out += double(porosity[c]) * (above(double(sat[c])) - over_rock) * (p_temp_c + kelvin)
+			in_pores[c] = double(porosity[c]) * (above(double(sat[c])) - over_rock) * (p_temp_c + kelvin)
 					/ (t_gas + kelvin);
+			out += in_pores[c];
 		}
 		return out;
 	};
-	for_each_index_parallel(cc, [&](int c) {
+	la_parallel_for(cc, [&](int c) {
 		if (sky[c] != 0 && std::isfinite(double(p_phi[c]))) {
 			shape[c] = air_of(c);
 		}
@@ -1121,6 +1138,14 @@ Dictionary LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_te
 	air["phi_0"] = phi_0;
 	air["p_0"] = mol_sum / (area * shell) * la_physical("GAS_CONSTANT_J_MOL_K") * (p_temp_c + kelvin);
 	air["rt_over_m"] = rt_over_m;
+	// The share of each cell's air that stands in its dry pores, which scales with its porosity.
+	PackedFloat32Array pore_share;
+	pore_share.resize(cc);
+	float *ps = pore_share.ptrw();
+	for (int c = 0; c < cc; c++) {
+		ps[c] = shape[c] > 0.0 ? float(in_pores[c] / shape[c]) : 0.0f;
+	}
+	air["pore_share"] = pore_share;
 	return air;
 }
 
@@ -1189,8 +1214,10 @@ void LAFieldLithostaticSeed::_bind_methods() {
 			&LAFieldLithostaticSeed::air_extent_m);
 	ClassDB::bind_static_method("LAFieldLithostaticSeed", D_METHOD("vertical", "field", "gravity"),
 			&LAFieldLithostaticSeed::vertical);
-	ClassDB::bind_static_method("LAFieldLithostaticSeed", D_METHOD("compress", "field", "g_rest", "t_rock"),
-			&LAFieldLithostaticSeed::compress);
+	ClassDB::bind_static_method("LAFieldLithostaticSeed", D_METHOD("compress", "field", "g_rest", "t_rock", "pore_air"),
+			&LAFieldLithostaticSeed::compress, DEFVAL(PackedFloat32Array()));
+	ClassDB::bind_static_method("LAFieldLithostaticSeed",
+			D_METHOD("settle", "field", "temp_c", "g_rest", "phi", "t_rock"), &LAFieldLithostaticSeed::settle);
 	ClassDB::bind_static_method("LAFieldLithostaticSeed",
 			D_METHOD("shape_atmosphere", "field", "temp_c", "g_rest", "phi"),
 			&LAFieldLithostaticSeed::shape_atmosphere);

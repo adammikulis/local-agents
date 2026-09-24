@@ -378,6 +378,10 @@ double LAPhaseEosFn::condensed_volume(const LACondensedEos &p_c, double p_t_c, d
 	if (!p_c.valid) {
 		return 0.0;
 	}
+	// Past its critical point water is one fluid, Peng-Robinson's.
+	if (p_c.iapws && p_t_c >= pc("WATER_CRITICAL_T_C")) {
+		return pr_molar_volume(fluid("h2o"), p_t_c + pc("KELVIN_OFFSET"), p_p_pa) / pc("MOLAR_MASS_WATER_KG_MOL");
+	}
 	if (!(p_c.solid.rho > 0.0)) {
 		return phase_volume(p_c.liquid, p_t_c, p_p_pa);
 	}

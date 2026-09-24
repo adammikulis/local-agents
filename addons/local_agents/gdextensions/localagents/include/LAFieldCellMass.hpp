@@ -19,11 +19,11 @@ class LAFieldCellMass3D : public RefCounted {
 public:
 	// Kilograms per LASubstances id in one cell, and the moles of gas in it.
 	static Dictionary masses_at(Object *p_field, int p_c, double p_cell_m3);
-	// The regolith walk's products onto the device: the permeable mask as floats, grain size and Athy
+	// The regolith walk's products onto the device: the permeable mask as floats, grain size and
 	// porosity, each only when the walk produced it.
 	static void upload_regolith(RenderingDevice *p_rd, const Dictionary &p_bufs, Object *p_field);
 	static void upload_solid(RenderingDevice *p_rd, const Dictionary &p_bufs, Object *p_field);
-	// The regolith walk: the permeable mask, Athy porosity and grain size of the rock within the
+	// The regolith walk: the permeable mask, unloaded porosity and grain size of the rock within the
 	// circulation depth of its ground. Writes _regolith, _grain, _porosity.
 	static void regolith(Object *p_field);
 	static double gas_moles_at(Object *p_field, int p_c, double p_cell_m3);

@@ -132,11 +132,10 @@ void LAFieldCellMass3D::regolith(Object *p_field) {
 	const Vector3 centre = la_call_gd("res://addons/local_agents/sim/material/FieldGeometry3D.gd", "centre", cargs);
 	const double sea_r = double(p_field->call("sea_radius"));
 	const double circulation_m = la_physical("GROUNDWATER_CIRCULATION_M");
-	const double phi0 = la_physical("REGOLITH_SURFACE_POROSITY");
+	const double phi0 = la_physical("CRUST_SURFACE_POROSITY");
 	const PackedFloat32Array depth = p_field->get("_surface_depth");
 	const PackedFloat32Array edges = grid->call("cell_edges");
 	const PackedFloat32Array rock_fr = p_field->get("_rock_fraction");
-	const double z_c = la_physical("COMPACTION_LENGTH_M");
 	const double d_low = la_physical("GRAIN_D_LOWLAND_M");
 	const double d_up = la_physical("GRAIN_D_UPLAND_M");
 	PackedByteArray mask;
@@ -147,8 +146,8 @@ void LAFieldCellMass3D::regolith(Object *p_field) {
 	mask.fill(0);
 	grain.fill(0.0f);
 	por.fill(0.0f);
-	// THE AQUIFER IS A DEPTH: rock whose top lies within the circulation depth of its own ground. The
-	// porosity is Athy's law averaged over the rock's depth span in the cell, whatever the cell's size.
+	// THE AQUIFER IS A DEPTH: rock whose top lies within the circulation depth of its own ground. Its
+	// porosity starts at the crust's unloaded value; the seed's compress closes it under its solved load.
 	std::vector<double> radius(cc, 0.0);
 	std::vector<double> z_top(cc, -1.0), z_bot(cc, -1.0);
 	double highest = sea_r;
@@ -177,10 +176,9 @@ void LAFieldCellMass3D::regolith(Object *p_field) {
 			continue;
 		}
 		const double height = std::clamp((radius[c] - sea_r) / relief, 0.0, 1.0);
-		const double span = z_bot[c] - z_top[c];
 		mw[c] = 1;
 		gw[c] = float(d_low * std::pow(d_up / d_low, height));
-		pw[c] = float(phi0 * z_c / span * (std::exp(-z_top[c] / z_c) - std::exp(-z_bot[c] / z_c)));
+		pw[c] = float(phi0);
 	}
 	int marked = 0;
 	int solids = 0;

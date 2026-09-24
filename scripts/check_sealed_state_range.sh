@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# EVERY SEALED CELL IS A STATE, read against its own column: both its temperatures finite and above
-# absolute zero, and its fluid between vacuum and the load its own rock carries. Read at the hydrostatic
-# rung on the whole planet, where cut cells hold rock, sea and pore water in one coarse cell (under a lint
-# capture, that arm), and on the slice, where the column over a fine cell is the sharp test.
+# EVERY SEALED CELL IS A STATE, read against its own column: temperatures finite and above absolute zero,
+# fluid between vacuum and the load its own rock carries, dry pores holding the soil air. Read at the
+# hydrostatic rung on the whole planet (under a lint capture, that arm) and on the slice.
 # EXIT 0 every cell is a state · 1 one is not · 2 the gate could not run.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -10,13 +9,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_capture.sh"
 
 FRAMES="${LA_SEALED_FRAMES:-2}"
-KEYS="nonfinite_cells,solid_cells,pressure_fluid_over_col,pressure_fluid_over_col_pa,pressure_fluid_under_vacuum"
+KEYS="nonfinite_cells,solid_cells,pressure_fluid_over_col,pressure_fluid_over_col_pa,pressure_fluid_under_vacuum,regolith_dry_pore_vacuum_cells"
 
 # $1 the arm's name, $2 its report block, $3 the run's exit. Sets bad on a cell that is no state, unread
 # on an arm that published none.
 judge() {
 	la_rung_require "$2" nonfinite_cells solid_cells pressure_fluid_over_col pressure_fluid_over_col_pa \
-		pressure_fluid_under_vacuum
+		pressure_fluid_under_vacuum regolith_dry_pore_vacuum_cells
 	case $? in
 	0) ;;
 	1)
@@ -31,14 +30,15 @@ judge() {
 		return
 		;;
 	esac
-	local nf sealed over worst under
+	local nf sealed over worst under dry
 	nf="$(la_rung_max "$2" nonfinite_cells)"
 	sealed="$(la_rung_value "$2" solid_cells)"
 	over="$(la_rung_max "$2" pressure_fluid_over_col)"
 	worst="$(la_rung_max "$2" pressure_fluid_over_col_pa)"
 	under="$(la_rung_max "$2" pressure_fluid_under_vacuum)"
-	printf 'SEALED_STATE={"arm":"%s","nonfinite_cells":%s,"sealed_cells":%s,"over_column":%s,"worst_over_pa":%s,"under_vacuum":%s}\n' \
-		"$1" "$nf" "$sealed" "$over" "$worst" "$under"
+	dry="$(la_rung_max "$2" regolith_dry_pore_vacuum_cells)"
+	printf 'SEALED_STATE={"arm":"%s","nonfinite_cells":%s,"sealed_cells":%s,"over_column":%s,"worst_over_pa":%s,"under_vacuum":%s,"dry_pore_vacuum":%s}\n' \
+		"$1" "$nf" "$sealed" "$over" "$worst" "$under" "$dry"
 	if ! awk -v s="$sealed" 'BEGIN{exit !(s > 0)}'; then
 		echo "check_sealed_state_range: the $1 run read no locked cell, so no cell was held to" >&2
 		echo "                          its column." >&2
@@ -57,6 +57,10 @@ judge() {
 	}
 	awk -v n="$under" 'BEGIN{exit !(n == 0)}' || {
 		echo "check_sealed_state_range: $1: $under locked cell(s) hold fluid below vacuum." >&2
+		bad=1
+	}
+	awk -v n="$dry" 'BEGIN{exit !(n == 0)}' || {
+		echo "check_sealed_state_range: $1: $dry regolith cell(s) hold dry pores over the table with no air." >&2
 		bad=1
 	}
 }

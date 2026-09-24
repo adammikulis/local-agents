@@ -94,21 +94,20 @@ func seed_tick() -> bool:
 		return true
 	if LAProcessSet.has_record("pass", GRAVITY_PASS):
 		_seed_under_gravity()
-	# THE WORLD PUT INTO THE BALANCE THE STEPPER HOLDS. Only the hydrostatic rung stands a column;
-	# below it a cell stands at the pressure its own amounts state.
+	# THE WORLD PUT INTO THE BALANCE THE STEPPER HOLDS: a locked cell's rock under the column over it, an
+	# open cell at the pressure its own amounts state.
 	_f._gpu.derive_seeded()   # publishes g_rest as geometry: gravitation and this frame's own spin
 	var g_rest: PackedFloat32Array = _f._gpu.read_raw("g_rest")
 	# The barometric profile is a function of the SOLVED POTENTIAL, so the solve's own phi goes with it,
 	# and the water stands under the air that law lays.
-	if LAProcessSet.has_record("pass", GRAVITY_PASS):
-		var air: Dictionary = LAFieldLithostaticSeed.shape_atmosphere(_f, LABodySeeds.surface_temp_c(), g_rest, _f._gravity.phi_abs())
-		LAFieldHydrosphereSeed.seed(_f, air, g_rest)   # the body's own water, in its sea and its pores
-	var balance: Dictionary = LAFieldLithostaticSeed.compress(_f, g_rest, _f._t_rock)
+	var balance: Dictionary = LAFieldLithostaticSeed.compress(_f, g_rest, _f._t_rock) \
+		if not LAProcessSet.has_record("pass", GRAVITY_PASS) \
+		else LAFieldLithostaticSeed.settle(_f, LABodySeeds.surface_temp_c(), g_rest, _f._gravity.phi_abs(), _f._t_rock)
 	LAFieldCellMass3D.seed_enthalpy(_f, _f._t_rock, balance)
 	# WEIGH THE BODY once the march has compressed the rock it stands on.
 	_f._body_measure.measure(_f, LABodySeeds.spin_axis_of(_f._body_key))
 	if _f._gpu != null:                                # hand the device what those walks produced
-		_f._gpu._seed_regolith()                       # permeability mask, grain size, Athy porosity
+		_f._gpu._seed_regolith()                       # permeability mask, grain size, porosity
 		# The march's own pressure, so the first state derive reads the world at it rather than at zero,
 		# where every condensed phase would be asked to boil.
 		_f._gpu._seed("pressure", balance.get("pressure", PackedFloat32Array()))
@@ -123,7 +122,8 @@ func seed_tick() -> bool:
 		_f._gravity.solve()  # the ocean just landed: relax the potential over the WHOLE seeded mass
 	if _f._gpu != null:
 		_f._gpu.derive_seeded(true)   # the world's own bulk state, before the first step is budgeted on it
-	_store_seeded(bake)
+	if not balance.is_empty():   # a seed that stated no balance is never baked
+		_store_seeded(bake)
 	return true
 
 

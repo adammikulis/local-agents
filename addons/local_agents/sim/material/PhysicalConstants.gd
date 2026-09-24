@@ -128,8 +128,14 @@ const ALBEDO_SNOW_ICE: float = 0.65
 ## Molar density of an ideal gas at STP (0 degC, 1 atm), mol/m^3: p / (R T).
 const STP_MOLAR_DENSITY_MOL_M3: float = STANDARD_PRESSURE_PA / (GAS_CONSTANT_J_MOL_K * KELVIN_OFFSET)
 
-const REGOLITH_SURFACE_POROSITY: float = 0.40
-const COMPACTION_LENGTH_M: float = 2500.0
+## Porosity of impact-fractured igneous crust, phi = phi_0 exp(-sigma' / P_c): the lunar megaregolith's
+## phi_0 exp(-z / K) (Binder & Lange 1980, JGR 85:3194; Clifford 1993, JGR 98:10973, eq. 1) read as the load
+## the lunar crust carries at depth z, P_c = rho g_Moon K.
+const CRUST_SURFACE_POROSITY: float = 0.20   # Binder & Lange 1980; Clifford 1993
+const LUNAR_POROSITY_DECAY_M: float = 6500.0   # Binder & Lange 1980; Clifford 1993
+const LUNAR_GRAVITY_M_S2: float = 1.62   # Clifford 1993
+const LUNAR_CRUST_BULK_DENSITY_KG_M3: float = 2550.0   # Wieczorek et al. 2013, Science 339:671
+const CRUST_POROSITY_CLOSURE_PA: float = LUNAR_CRUST_BULK_DENSITY_KG_M3 * LUNAR_GRAVITY_M_S2 * LUNAR_POROSITY_DECAY_M
 
 const GRAIN_D_UPLAND_M: float = 6.0e-5      # very fine sand / coarse silt
 const GRAIN_D_LOWLAND_M: float = 4.0e-3     # fine gravel

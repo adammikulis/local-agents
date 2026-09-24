@@ -20,7 +20,14 @@ public:
 	// walks over the rock, a porous rock's grains sized at the load they stand under, and a locked cell's
 	// fluid at its own equation of state in the room they leave. `p_g_rest` is the derive's own gravity.
 	// Returns the pressure, the fluid's, the lattice's and the gas's room, per cell.
-	static Dictionary compress(Object *p_field, const PackedFloat32Array &p_g_rest, const PackedFloat32Array &p_t_rock);
+	// Given `p_pore_air`, each cell's share of its air in its dry pores, every regolith cell's porosity is
+	// closed at the effective load its own state carries, and its pore water and pore air with it.
+	static Dictionary compress(Object *p_field, const PackedFloat32Array &p_g_rest, const PackedFloat32Array &p_t_rock,
+			const PackedFloat32Array &p_pore_air = PackedFloat32Array());
+	// THE PORES AT THE LOAD THEY STAND UNDER: the air and the water laid into the room the regolith's porosity
+	// leaves, and the world compressed with that porosity closed at its own load. Empty where no state holds.
+	static Dictionary settle(Object *p_field, double p_temp_c, const PackedFloat32Array &p_g_rest,
+			const PackedFloat64Array &p_phi, const PackedFloat32Array &p_t_rock);
 	// THE VERTICAL A COLUMN STANDS ALONG. Only the hydrostatic rung stands one; below it there is no
 	// vertical at all, and none is zero.
 	static PackedFloat32Array vertical(Object *p_field, const PackedFloat32Array &p_gravity);

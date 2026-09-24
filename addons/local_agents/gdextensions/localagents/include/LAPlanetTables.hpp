@@ -55,9 +55,11 @@ public:
 	static PackedFloat32Array surface_depth(Object *p_grid, Object *p_terrain, const Vector3 &p_centre);
 	static double sea_level_m(double p_r_m, double p_ocean_m3, const PackedFloat64Array &p_area_below, const PackedFloat64Array &p_elevation_m);
 	// THE WATER TABLE, m above the sea: the one equipotential a connected aquifer stands at, solved so the
-	// pore space it saturates over the sea holds p_groundwater_m3. Capped at the ground by its consumer.
+	// pore space it saturates over the sea holds p_groundwater_m3, grains at p_rho_grain under p_g. Capped
+	// at the ground by its consumer. NAN where the crust has no frame to weigh.
 	static double water_table_m(double p_r_m, double p_groundwater_m3, double p_sea_level_m,
-			const PackedFloat64Array &p_area_below, const PackedFloat64Array &p_elevation_m);
+			const PackedFloat64Array &p_area_below, const PackedFloat64Array &p_elevation_m, double p_g,
+			double p_rho_grain, double p_rho_water);
 	// The crust under a square footprint at one direction: highest over the settled level, deepest under
 	// it, and the share of the reading under it. `p_surface` answers surface_radius(dir).
 	static Dictionary footprint_ground(Object *p_surface, const Vector3 &p_dir, double p_body_r_m,
