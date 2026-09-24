@@ -16,8 +16,7 @@
 #   R3  No file under addons/local_agents/sim/ defines `_physics_process` at all, unless it is in
 #       PHYSICS_TICK_ALLOW below. The loop is the ONE entry; everything else subscribes to `stepped`.
 #
-# Both allowlists hold presentation, instrument and engine-physics-body modules only. Every entry carries
-# its reason, and PHYSICS_TICK_ALLOW is a RATCHET: entries come out, never in.
+# Every entry carries its reason, and PHYSICS_TICK_ALLOW is a RATCHET: entries come out, never in.
 #
 # EXIT CODES. 0 pass · 1 violations · 2 the gate could not run (missing tool or missing input).
 # =====================================================================================================
@@ -67,26 +66,18 @@ ADVANCES = ["_orbits.update(", "_sky_ctrl.update("]
 # R2 allowlist: presentation + instrument modules under sim/. One line each, saying why the render clock
 # is the right clock for it.
 PRESENTATION_ALLOW = {
-    f"{SIM}/streamer/SceneEnergyGraph.gd": "overlay graph: samples gauges and redraws, writes no world state",
-    f"{SIM}/streamer/StreamerDirector.gd": "commentary pacing for the LLM/TTS caster, writes no world state",
-    f"{SIM}/streamer/StreamerAvatar.gd": "avatar animation",
-    f"{SIM}/streamer/StreamerOverlay.gd": "overlay layout and animation",
     f"{SIM}/ecology/BandChronicle.gd": "historian: writes dated records to the backstory store, not the field",
-    f"{SIM}/events/LAEventTracker.gd": "instrument: samples the report and emits events, mutates nothing",
-    f"{GAME_WORLD}/VoxelViewControls.gd": "on-screen control bar: button state and layout, writes no world state",
 }
 
 # R3 allowlist. A RATCHET — entries are removed as each module moves onto LASimLoop.stepped, never added.
-# Everything here is a body in the ENGINE's physics world, integrating against the physics server rather
-# than the substrate. They are wrong for the same reason the field was and are not yet converted.
+# Each entry ticks its own integrator, or follows its LABallistics bodies, on the engine's physics tick.
 PHYSICS_TICK_ALLOW = {
-    f"{SIM}/actors/Plant.gd": "engine physics body",
-    f"{SIM}/actors/Tree.gd": "engine physics body",
-    f"{SIM}/actors/Nest.gd": "engine physics body",
+    f"{SIM}/actors/Tree.gd": "advances its own topple swing each engine tick",
+    f"{SIM}/actors/Nest.gd": "counts its own neglect clock each engine tick",
     f"{SIM}/actors/Meteor.gd": "copies its LABallistics free body onto the node each engine tick",
     f"{SIM}/actors/ThrownRock.gd": "steers its own flight each engine tick, not an LABallistics free body",
-    f"{SIM}/material/MaterialEjecta3D.gd": "ballistic ejecta integrated against the physics server",
-    f"{SIM}/material/FieldBox.gd": "demo-scene host for a standalone field box, outside the planet loop",
+    f"{SIM}/material/MaterialEjecta3D.gd": "releases its LABallistics parcels that leave the box each engine tick",
+    f"{SIM}/material/FieldBox.gd": "adds its heat source's watts times the engine delta to its own box",
     f"{SIM}/TrackSystem.gd": "footprint decals laid under bodies moving on the physics tick",
 }
 

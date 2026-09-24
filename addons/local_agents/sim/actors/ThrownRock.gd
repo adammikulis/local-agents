@@ -9,9 +9,7 @@ const ARC_HEIGHT: float = 1.5
 ## The stone reached its target at `at`.
 signal struck(at: Vector3)
 
-var mineral_mass: float = 0.0                   # what the thrower carried, mol/m^3 of the landing cell
 var velocity: Vector3 = Vector3.ZERO            # m/s, over the last physics tick
-var _deposited: bool = false
 
 var _terrain: Object = null
 var _water: Object = null
@@ -25,10 +23,7 @@ func setup(terrain, water = null) -> void:
 	_terrain = terrain
 	_water = water
 
-## `carried_mass` is the mass of the boulder the thrower picked up (LARock.take()'s return); the stone
-## carries nothing else.
-func throw_at(from: Vector3, target: Node3D, speed: float = 22.0, carried_mass: float = 0.0) -> void:
-	mineral_mass = carried_mass
+func throw_at(from: Vector3, target: Node3D, speed: float = 22.0) -> void:
 	global_position = from
 	_target = target
 	_speed = maxf(speed, 0.1)
@@ -91,24 +86,6 @@ func _strike() -> void:
 	_maybe_splash(global_position)
 	struck.emit(global_position)
 	queue_free()
-
-
-# Every path out of this node runs through _exit_tree, which is why the deposit lives here rather than in
-# _strike: a stone culled by its lifetime, dropped through the terrain, or orphaned by a dead target is just
-# as much a rock lying on the ground as one that hit something.
-func _exit_tree() -> void:
-	_deposit_stone()
-
-
-func _deposit_stone() -> void:
-	if _deposited:
-		return
-	_deposited = true
-	if mineral_mass <= 0.0 or _water == null or not ("_inject" in _water) or _water._inject == null:
-		return
-	var inject: Object = _water._inject
-	if inject.has_method("deposit_sediment"):
-		inject.deposit_sediment(global_position, mineral_mass)
 
 
 # Splash accent if the rock came down in water.
