@@ -558,8 +558,9 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 					sb_vap += nv * k.fl->b;
 				}
 			}
+			// The room is the cell less what fills it, so it is known to the cell's volume, not its own.
 			const double next = v - v_lat - b_free;
-			settled = next == room || std::abs(next - room) <= eps * std::abs(room);
+			settled = next == room || std::abs(next - room) <= eps * v;
 			room = next;
 		}
 		s.b = settled ? v_lat + b_free : NAN;
@@ -575,19 +576,20 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 		return std::isnan(s.b) ? NAN
 							   : LAPhaseEosFn::mixture_pressure(vol[c], s.a_rt, s.s_a, s.s_b, s.b, s.c, p);
 	};
-	// The lattice's pressure, state_derive.glsl's p_rock: the column in a locked cell where the hydrostatic
-	// rung stands one, and otherwise the fluid's plus half its own lattice's weight.
+	// The lattice's pressure, state_derive.glsl's p_rock: the load a locked cell's rock carries, and in an
+	// open one the fluid's plus half its own lattice's weight.
 	std::vector<double> p_open(cc, 0.0), p_col(cc, 0.0), p_fl(cc, 0.0);
 	auto rock_at = [&](int c, double p) {
-		return solid[c] != 0 && pulled ? p_col[c] : p + 0.5 * rho_lat[c] * g_mag[c] * edge[c];
+		return solid[c] != 0 ? p_col[c] : p + 0.5 * rho_lat[c] * g_mag[c] * edge[c];
 	};
-	// THE PRESSURE A CELL'S MATTER STATES: the root of p_eos(p) = p, which falls as p rises. Full steps --
-	// Newton on the condensed volume -- until the root is bracketed, then halving wherever a step leaves the
-	// bracket or fails to halve it.
+	// THE PRESSURE A CELL'S MATTER STATES: the root of p_eos(p) = p, which falls as p rises. Secant steps
+	// through the last two readings, within a doubling or a halving of p, and the fixed point's own step
+	// otherwise, until the root is bracketed; then halving wherever a step leaves the bracket or fails to
+	// halve it.
 	auto solve = [&](int c, bool pore_fluid) -> double {
 		double lo = 0.0, hi = 0.0;
 		bool has_lo = false, has_hi = false;
-		double p = p_std;
+		double p = p_std, p_prev = NAN, f_prev = NAN;
 		double width = INFINITY;
 		for (int it = 0; it < 2 * HALVINGS; it++) {
 			const double pe = p_eos(c, p, rock_at(c, p), pore_fluid);
@@ -605,7 +607,10 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 				hi = p;
 				has_hi = true;
 			}
-			double step = pe;
+			const double secant = std::isfinite(f_prev) && f != f_prev ? p - f * (p - p_prev) / (f - f_prev) : NAN;
+			double step = secant >= 0.5 * p && secant <= 2.0 * p ? secant : pe;
+			p_prev = p;
+			f_prev = f;
 			if (has_lo && has_hi) {
 				if (hi - lo <= eps * hi) {
 					return 0.5 * (lo + hi);
@@ -722,19 +727,20 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 	// surface it is the sea and air there, the pore water the lattice's. Its rock carries the column where the
 	// hydrostatic rung stands one, and below that rung its fluid's pressure and half its own lattice's weight,
 	// as an open cell's does.
+	auto load_of = [&](int c) {
+		return pulled ? walk(c) : p_fl[c] + 0.5 * rho_lat[c] * g_mag[c] * edge[c];
+	};
 	for (int c : order) {
 		const bool fluid = holds_fluid(c);
 		const bool pore_fluid = !(double(rock_fr[c]) < 1.0);
 		bool settled = false;
 		for (int round = 0; round < HALVINGS && !settled; round++) {
-			if (pulled) {
-				p_col[c] = walk(c);
-			}
-			const double k = relay(c, rock_at(c, p_fl[c]));
+			p_col[c] = load_of(c);
+			const double k = relay(c, p_col[c]);
 			ERR_FAIL_COND_V_MSG(std::isnan(k), Dictionary(), "LAFieldLithostaticSeed: locked cell "
 					+ String::num_int64(c) + " holds rock beside fluid with no grains to size at its load.");
 			settled = std::abs(k - 1.0) <= eps;
-			if (!pulled && fluid) {
+			if (!pulled && fluid && !settled) {
 				p_fl[c] = solve(c, pore_fluid);
 				ERR_FAIL_COND_V_MSG(std::isnan(p_fl[c]), Dictionary(), "LAFieldLithostaticSeed: locked cell "
 						+ String::num_int64(c) + "'s fluid states no pressure in the room its grains leave.");
@@ -742,16 +748,11 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 		}
 		ERR_FAIL_COND_V_MSG(!settled, Dictionary(), "LAFieldLithostaticSeed: locked cell " + String::num_int64(c)
 				+ "'s grains did not settle at the load they stand under.");
-		if (pulled) {
-			p_col[c] = walk(c);
-		}
+		p_col[c] = load_of(c);
 		if (fluid) {
 			p_fl[c] = solve(c, pore_fluid);
 			ERR_FAIL_COND_V_MSG(std::isnan(p_fl[c]), Dictionary(), "LAFieldLithostaticSeed: locked cell "
 					+ String::num_int64(c) + "'s fluid states no pressure in the room its grains leave.");
-		}
-		if (!pulled) {
-			p_col[c] = rock_at(c, p_fl[c]);
 		}
 	}
 	if (relaid) {
