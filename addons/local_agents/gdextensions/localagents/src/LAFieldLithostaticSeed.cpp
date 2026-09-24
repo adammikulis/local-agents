@@ -804,10 +804,15 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 
 Dictionary LAFieldLithostaticSeed::settle(Object *p_field, double p_temp_c, const PackedFloat32Array &p_g_rest,
 		const PackedFloat64Array &p_phi, const PackedFloat32Array &p_t_rock) {
+	// Below the hydrostatic rung no air is laid, and no pore holds any.
 	const Dictionary air = shape_atmosphere(p_field, p_temp_c, p_g_rest, p_phi);
-	ERR_FAIL_COND_V_MSG(air.is_empty(), Dictionary(), "LAFieldLithostaticSeed.settle: no air was laid.");
 	LAFieldHydrosphereSeed::seed(p_field, air, p_g_rest);
-	return compress(p_field, p_g_rest, p_t_rock, air.get("pore_share", PackedFloat32Array()));
+	PackedFloat32Array share = air.get("pore_share", PackedFloat32Array());
+	if (air.is_empty()) {
+		share.resize(p_field ? int(p_field->get("_cell_count")) : 0);
+		share.fill(0.0f);
+	}
+	return compress(p_field, p_g_rest, p_t_rock, share);
 }
 
 Dictionary LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c,
