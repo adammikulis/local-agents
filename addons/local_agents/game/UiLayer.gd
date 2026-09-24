@@ -47,7 +47,7 @@ func build(world: Node, sim: LASimulation, render: LARenderLayer, input: LAVoxel
 	if _hud.has_signal("music_auto_adapt_changed") and _world.has_method("_on_music_auto_adapt_changed"):
 		_hud.music_auto_adapt_changed.connect(Callable(_world, "_on_music_auto_adapt_changed"))
 
-	_debug.setup(_world, sim.material_field(), terrain, render.sky_controller(), _hud, _input, sim.ecology())
+	_debug.setup(_world, sim.material_field(), terrain, render.sky(), _hud, _input, sim.ecology())
 	# The vector glyphs and the key they are read against: the debug panel's own view toggle drives them.
 	_debug.set_field_vectors(render.field_vectors())
 	_vector_legend.bind_vectors(render.field_vectors())

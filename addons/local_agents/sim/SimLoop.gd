@@ -22,7 +22,7 @@ static func active() -> LASimLoop:
 	return _active
 
 
-func _ready() -> void:
+func _enter_tree() -> void:
 	_active = self
 
 

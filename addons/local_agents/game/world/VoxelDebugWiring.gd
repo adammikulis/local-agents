@@ -29,7 +29,7 @@ const BEHAVIOR_COLORS: Dictionary = {
 var _world: Node = null
 var _material: Node = null
 var _terrain = null
-var _sky: LAVoxelSkyController = null
+var _sky: LASkyView = null
 var _hud: CanvasLayer = null
 var _input: LAVoxelInputController = null
 var _ecology: Node = null               # LAEcologyService — owns the kinship graph the family tree reads
@@ -47,7 +47,7 @@ var _user_shot_counter: int = 0         # numbers the screenshots the DebugPanel
 
 
 ## Build the overlay + panel (as children of `world`) and wire the panel signals to the handlers here.
-func setup(world: Node, material: Node, terrain, sky: LAVoxelSkyController, hud: CanvasLayer, input: LAVoxelInputController, ecology: Node) -> void:
+func setup(world: Node, material: Node, terrain, sky: LASkyView, hud: CanvasLayer, input: LAVoxelInputController, ecology: Node) -> void:
 	_world = world
 	_material = material
 	_terrain = terrain

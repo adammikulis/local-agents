@@ -73,9 +73,10 @@ matter; the ground and the water surface are detectors on it (an isosurface a co
 into mesh buffers per block, which is also the collider); the generator is sampled into the field once
 at seed; a body of water is where the inventory settled under the solved gravity, one liquid in one
 channel. `rg -n "sea_radius|OceanPlane|_open_sea|sea_level_m|resample_terrain" addons/local_agents`
-finds the sea as a declared shell radius and the field sampling the generator after the seal.
-Reading: `build_planet` in `VoxelTerrainService.gd` solves `sea_level_m` against the ocean's volume at
-`WATER_DENSITY_KG_M3`.
+finds the sea as a declared shell radius and the field sampling the generator after the seal. A coast slice
+(`LA_SLICE_BOX=0,site=coast,0,3,24,3,5120,10`, `--rung=2 --ui --shots=1000:-35:0`) draws its sea only over
+the box's finest cells.
+Reading: `LAWaterSurfaceMesh.build` skips every cell whose `level_of` is not `max_level`.
 
 ## 8. THE LEVEL BOUNDARY DRAWS AS A LINE ACROSS THE GROUND
 
@@ -88,9 +89,8 @@ the coarse surface and leaves its `NORMAL` at the fine one's.
 ## 9. THE DEMO SITE HOLDS NO WATER A VIEWER CAN STAND BESIDE
 
 `LA_SHOTS="30:-3:0" scripts/shoot_demo.sh addons/local_agents/examples/SliceRung1Demo.tscn <dir>` shows
-the nearest free water surface a kilometre off and reads as an opaque dark plate with a straight edge;
-`scripts/sim_run.sh --slice --rung 1 --frames 4 --report water_liquid_total,wet_cells` counts what stands
-in the box.
+no free water surface; `scripts/sim_run.sh --slice --rung 1 --frames 4 --report water_liquid_total,wet_cells`
+counts what stands in the box.
 Reading: `coast_site` in `LAPlanetTables.cpp` bisects onto the waterline and then scores the site by
 `land_m + depth_m`, which is largest where the relief is steepest rather than where the box's own
 footprint is half wet.
