@@ -91,6 +91,18 @@ pres="$(cd "$TREE" && bash scripts/check_presentation_in_sim.sh 2>&1 | rg -N '^P
 [ -n "$pres" ] || { echo "write_ceilings: check_presentation_in_sim.sh printed no PRESENTATION_IN_SIM= line." >&2; exit 2; }
 lower PRESENTATION_IN_SIM_CEILING "$(field "$pres" count)"
 
+mp="$(cd "$TREE" && bash scripts/check_model_parameters.sh 2>&1 | rg -N '^MODEL_PARAMETERS=' || true)"
+[ -n "$mp" ] || { echo "write_ceilings: check_model_parameters.sh printed no MODEL_PARAMETERS= line." >&2; exit 2; }
+mp_have="$(field "$mp" declared)"
+mp_cur="$(field "$mp" ceiling)"
+if [ "$mp_have" -gt "$mp_cur" ]; then
+	echo "write_ceilings: MAX_DECLARED would RISE $mp_cur -> $mp_have. Refusing; fix the tree." >&2
+	fail=1
+elif [ "$mp_have" -lt "$mp_cur" ]; then
+	perl -pi -e "s/MAX_DECLARED: $mp_cur\\b/MAX_DECLARED: $mp_have/" "$TREE/docs/MODEL_PARAMETERS.md"
+	echo "write_ceilings: MAX_DECLARED $mp_cur -> $mp_have" >&2
+fi
+
 # Uncited values in the authority files, which check_model_parameters.sh exempts from its own registry.
 # READ THE MACHINE LINES, not a prose message: the gate prints both counts unconditionally, pass or fail.
 cited="$(cd "$TREE" && bash scripts/check_cited_authority.sh 2>&1 || true)"

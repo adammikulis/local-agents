@@ -1,7 +1,7 @@
 # Using Local Agents in your project
 
 This document covers assembling the addon into something that works: what is in
-`addons/local_agents/`, what you can delete, the nodes you drop into a scene, the project settings
+`addons/local_agents/`, the nodes you drop into a scene, the project settings
 that point the addon at a model, and the two duck-typed contracts the creature behaviour talks
 through.
 
@@ -10,10 +10,7 @@ DEMOS.md lists the example scenes.
 
 ## What is in the addon
 
-The addon is one plugin, and the game is deletable. Copy `addons/local_agents/` into your project,
-delete `game/`, and the agent, creature and simulation nodes keep working. The views that draw the
-simulation nodes live under `game/render/`, and five example scenes instance a scene under `game/`;
-"What deleting costs you" below names them.
+The addon is one plugin.
 
 The compiled GDExtension in `gdextensions/localagents/` is a hard dependency. Build it before you run
 anything: `sim/` and the agent nodes name its classes as typed identifiers. INSTALL.md covers the build.
@@ -42,37 +39,11 @@ local-LLM streamer. `LocalAgentSimWorld` in SPHERE mode needs the optional zylan
 from https://github.com/Zylann/godot_voxel, FLAT mode needs nothing beyond this addon.
 `sim/EMERGENCE.md` explains the rule the simulation is built on.
 
-`game/`, `assets/` and `voices/` are the optional Anima game. `audio/` is not: `creatures/creature/
-CreatureThink.gd:158` and four actors under `sim/actors/` call `LAAudioDirector.emit()` to make a
-chomp, an impact or a weather sound. A creature making a noise is a stimulus broadcast like scent, so
-`audio/` is part of the library and deleting it is a parse error.
-
 ## Installing into your own project
 
 1. Copy `addons/local_agents/` into your project's `addons/` directory.
-2. Optionally delete `game/`, `assets/` and `voices/`. Read "What deleting costs you" below first.
-3. Click Project > Project Settings > Plugins and enable Local Agents.
-4. Add a node and fill in the inspector.
-
-### What deleting costs you
-
-Six files outside `game/` name a path inside it. One is soft: `examples/demos/voxel_planet_game.tres`
-is the catalogue entry for the flagship scene, and its `scene_path` is an `@export_file` String rather
-than a `PackedScene`, so the resource still loads and its launcher row reports "Its scene is missing"
-instead of breaking the menu. Five are hard, a `PackedScene` on an `ext_resource` line:
-
-- `examples/BoxFieldDemo.tscn` instances `game/render/FieldBoxSliceView.tscn`.
-- `examples/SimWorldPlanetDemo.tscn` instances `game/render/SimWorldView.tscn`.
-- `examples/LifeDemo.tscn`, `examples/SliceRung0Demo.tscn` and `examples/SliceRung1Demo.tscn` inherit
-  `game/VoxelWorld.tscn`.
-
-Delete those five scenes and their catalogue entries along with `game/`. The simulation nodes run
-without their views.
-
-`sim/` is not deletable. The creature stack names its classes as types, `LAPhysical` and `LAFakes`
-among them. `examples/BoxFieldDemo.tscn` attaches `sim/material/FieldBox.gd` and
-`examples/SimWorldPlanetDemo.tscn` attaches `sim/SimWorld.gd` on an `ext_resource` line, and the views
-under `game/render/` name `LocalAgentFieldBox`, `LocalAgentSimWorld` and `LAStar` as types.
+2. Click Project > Project Settings > Plugins and enable Local Agents.
+3. Add a node and fill in the inspector.
 
 Enabling the plugin registers the `AgentManager` autoload for you, so you do not add it by hand.
 `plugin.gd` writes it in `_enter_tree()`, and on disable it removes the entry only if the plugin was
@@ -91,9 +62,6 @@ Seven are the scripts already attached to a demo scene: `examples/TutorialDemo.g
 `examples/AgentActionsDemo.gd`, `examples/SimWorldPlanetDemo.gd`, `examples/CoreCreatureSmoke.gd`,
 `examples/AgentConversationDemo.gd`, `examples/ThinkingCreatureDemo.gd` and `examples/ChatExample.gd`.
 The other two are game-only: `game/world/VoxelViewControls.gd` and `game/GameMode.gd`.
-
-`project.godot` in this repo also registers `GameMode` and `AppExit`. Both live under `game/` and are
-game-only. Do not register them in a project that deletes `game/`.
 
 ## Project settings
 

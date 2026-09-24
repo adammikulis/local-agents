@@ -31,6 +31,7 @@ set -euo pipefail
 # Pure-bash, no `dirname`: this must still resolve when PATH is broken, or the missing-tool check below
 # never gets a chance to report exit 2.
 ROOT="$(cd "${BASH_SOURCE[0]%/*}/.." && pwd)"
+"$ROOT/scripts/prune_orphan_uid.sh"
 # shellcheck source=lib_import.sh
 source "$ROOT/scripts/lib_import.sh"
 # shellcheck source=lib_require.sh

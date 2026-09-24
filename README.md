@@ -143,10 +143,7 @@ that directory, the demo catalogue and `addons/local_agents/docs/DEMOS.md` in ag
 ## The planet demo
 
 The agent stack ships with one large example built to put it through its paces: a planet that runs
-itself, `addons/local_agents/game/VoxelWorld.tscn`. It's the twelfth example above, and it is
-optional. If you only want the agent library, delete `addons/local_agents/game/`;
-[addons/local_agents/docs/USAGE.md](addons/local_agents/docs/USAGE.md) names the two soft references
-that cross that boundary and what deleting costs.
+itself, `addons/local_agents/game/VoxelWorld.tscn`. It's the twelfth example above.
 
 Underneath the planet is one layer of physics covering heat, water, air, fire and rock, run as GPU
 compute shaders over the voxel grid rather than in GDScript, and only where something is actually

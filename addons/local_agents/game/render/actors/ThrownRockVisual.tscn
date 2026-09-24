@@ -1,0 +1,18 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/game/render/actors/ThrownRockVisual.gd" id="1_visual"]
+[ext_resource type="PackedScene" path="res://addons/local_agents/game/render/actors/ImpactPuff.tscn" id="2_puff"]
+
+[sub_resource type="StandardMaterial3D" id="MatStone"]
+albedo_color = Color(0.4, 0.38, 0.35, 1)
+
+[sub_resource type="BoxMesh" id="MeshStone"]
+material = SubResource("MatStone")
+size = Vector3(0.35, 0.35, 0.35)
+
+[node name="ThrownRockVisual" type="Node3D"]
+script = ExtResource("1_visual")
+puff_scene = ExtResource("2_puff")
+
+[node name="Stone" type="MeshInstance3D" parent="."]
+mesh = SubResource("MeshStone")

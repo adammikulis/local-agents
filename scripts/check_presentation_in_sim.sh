@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # PRESENTATION MAY NOT LIVE ON THE SIM SIDE. Counts, under addons/local_agents/sim/, every construction of
 # a visual type, every read of the effects preset, and every load, by literal or through a String constant,
-# of a game/render or game/ui resource, a rendering shader, a visual .tres, or a scene holding a visual node.
+# of a game/render or game/ui resource, a rendering shader, a visual .tres, or a scene holding a visual node,
+# and every sound played.
 # A view belongs under game/render/ as a scene that reads sim state. May fall, may not rise.
 # EXIT 0 at or under the ceiling · 1 rose, or slack on the dev branch · 2 could not run.
 set -uo pipefail
@@ -21,7 +22,8 @@ VISUAL="\\b($TYPES)\\.new\\("
 LOADS='(pre)?load\("res://addons/local_agents/game/(render|ui)/'
 SHADERS='(pre)?load\("res://[^"]*\.gdshader(inc)?"'
 PRESET='la_effects_scale'
-hits="$(rg -n --glob '!**/thirdparty/**' -g '*.gd' -e "$VISUAL" -e "$LOADS" -e "$SHADERS" -e "$PRESET" "$SIM" \
+SOUND='\bLAAudioDirector\b|\.play_sfx\(|\bAudioStreamPlayer(2D|3D)?\.new\('
+hits="$(rg -n --glob '!**/thirdparty/**' -g '*.gd' -e "$VISUAL" -e "$LOADS" -e "$SHADERS" -e "$PRESET" -e "$SOUND" "$SIM" \
 	2>/dev/null | rg -v ':[0-9]+:[[:space:]]*#' || true)"
 VISUAL_RES='^\[gd_resource type="[A-Za-z0-9]*(Material|Mesh|Texture|Shader|Sky|Environment|Theme|Font|StyleBox)'
 
