@@ -42,7 +42,7 @@ constexpr double BAR_PA = 1.0e5;
 // silicate Earth's nitrogen budget holds the atmosphere inside that bound over the Hadean too
 // (Marty 2012, EPSL 313:56), and today's 0.78 bar stands inside it.
 constexpr double ARCHEAN_PN2_LOW_BAR = 0.5;
-constexpr double ARCHEAN_PN2_HIGH_BAR = 1.1;
+constexpr double ARCHEAN_PN2_HIGH_BAR = 1.1;  // Marty et al. 2013
 constexpr double ARCHEAN_PN2_BAR = 0.5 * (ARCHEAN_PN2_LOW_BAR + ARCHEAN_PN2_HIGH_BAR);
 
 // Obliquity of the planet's spin, degrees: the mean obliquity of the ecliptic at J2000, 23 deg 26 min

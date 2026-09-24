@@ -6,8 +6,8 @@ extends RefCounted
 static func rows() -> Dictionary:
 	var D: GDScript = load("res://addons/local_agents/sim/material/reactions/ReactionDefs.gd")
 	return {
-		"e_j_m3":      {"residency": "hot",         "slot": -1,          "substance": "",           "phase": "",       "unit": "", "kind": "state"},
-		"e_lith_j_m3": {"residency": "hot",         "slot": -1,          "substance": "",           "phase": "",       "unit": "", "kind": "state"},
+		"e_j_m3":      {"residency": "hot",         "slot": -1,          "substance": "",           "phase": "",       "unit": "", "kind": "state", "signed": true},
+		"e_lith_j_m3": {"residency": "hot",         "slot": -1,          "substance": "",           "phase": "",       "unit": "", "kind": "state", "signed": true},
 		"h2o":         {"residency": "hot",         "slot": D.H2O,       "substance": "h2o",        "phase": "",       "unit": "mol_m3", "kind": "state"},
 		"h2o_pore":    {"residency": "slow",        "slot": -1,          "substance": "h2o",        "phase": "",       "unit": "mol_m3", "kind": "state", "lattice": true},
 		"silicate":    {"residency": "slow",        "slot": D.SILICATE,  "substance": "silicate",   "phase": "",       "unit": "mol_m3", "kind": "state", "lithic": true},
@@ -35,10 +35,10 @@ static func rows() -> Dictionary:
 		"org_h":       {"residency": "situational", "slot": D.ORG_H,     "substance": "organic_h",  "phase": "solid",  "unit": "mol_m3", "kind": "state"},
 		"org_o":       {"residency": "situational", "slot": D.ORG_O,     "substance": "organic_o",  "phase": "solid",  "unit": "mol_m3", "kind": "state"},
 		"fert":        {"residency": "slow",        "slot": D.FERT,      "substance": "fixed_n",    "phase": "dissolved", "unit": "mol_m3", "kind": "state"},
-		"charge":      {"residency": "hot",         "slot": -1,          "substance": "",           "phase": "",       "unit": "", "kind": "state"},
-		"mom_x":       {"residency": "hot",         "slot": -1,          "substance": "",           "phase": "",       "unit": "", "kind": "state"},
-		"mom_y":       {"residency": "hot",         "slot": -1,          "substance": "",           "phase": "",       "unit": "", "kind": "state"},
-		"mom_z":       {"residency": "hot",         "slot": -1,          "substance": "",           "phase": "",       "unit": "", "kind": "state"},
+		"charge":      {"residency": "hot",         "slot": -1,          "substance": "",           "phase": "",       "unit": "", "kind": "state", "signed": true},
+		"mom_x":       {"residency": "hot",         "slot": -1,          "substance": "",           "phase": "",       "unit": "", "kind": "state", "signed": true},
+		"mom_y":       {"residency": "hot",         "slot": -1,          "substance": "",           "phase": "",       "unit": "", "kind": "state", "signed": true},
+		"mom_z":       {"residency": "hot",         "slot": -1,          "substance": "",           "phase": "",       "unit": "", "kind": "state", "signed": true},
 		"porosity":    {"residency": "slow",        "slot": -1,          "substance": "",           "phase": "",       "unit": "", "kind": "state"},
 		"regolith":    {"residency": "static",      "slot": -1,          "substance": "",           "phase": "",       "unit": "", "kind": "state"},
 		"grain":       {"residency": "static",      "slot": -1,          "substance": "",           "phase": "",       "unit": "", "kind": "state"},

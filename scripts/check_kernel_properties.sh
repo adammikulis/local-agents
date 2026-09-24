@@ -140,5 +140,7 @@ plant "flux.glsl" 's|float open = min(open_c, 1.0 - clamp(resist\[n\], 0.0, 1.0)
 	"flux_crossings_are_antisymmetric"
 plant "chunk.glsli" 's|return 0xFFFFFFFFu;|return la_group() * gl_WorkGroupSize.x + gl_LocalInvocationID.x;|' \
 	"sparse_edit_chunk_never_wraps"
+plant "sparse_edit.glsl" 's|op == LA_INJECT_ADD ? max(0.0, before + delta) : before + delta|max(0.0, before + delta)|' \
+	"sparse_edit_signed_credit_is_exact"
 
 echo "check_kernel_properties: OK ($red against a ceiling of $CEIL; planted defects come back red)"

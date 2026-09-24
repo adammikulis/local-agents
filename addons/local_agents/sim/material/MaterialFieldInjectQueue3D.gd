@@ -10,6 +10,9 @@ const DEAD_POOL_CARBON: PackedStringArray = ["detritus", "fuel"]
 ## Amount handed to the field as heat, in joules, drawn from a named store. It is the source side of the
 ## enthalpy edits below: a store that stops being debited shows as a rising figure with no matching debit.
 var heat_energy_j: float = 0.0
+## Of that, the joules in batches a drain has delivered: the heat a folded reduce already holds.
+var heat_landed_j: float = 0.0
+var _heat_flushed_j: float = 0.0
 
 ## Per-cell edits handed to the device.
 var flushed_cells: int = 0
@@ -138,8 +141,14 @@ func flush(gpu) -> void:
 	for op in _ops:
 		flushed_cells += (op["src_cells"] as PackedInt32Array).size()
 	gpu.queue_sparse(_ops)
+	_heat_flushed_j = heat_energy_j
 	_ops = []
 	_index.clear()
+
+
+## The device's drain delivered every batch flushed so far.
+func land() -> void:
+	heat_landed_j = _heat_flushed_j
 
 
 ## The ledger, as SIM_REPORT gauges. What each edit APPLIED is the InjectPass's own book.

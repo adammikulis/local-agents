@@ -133,7 +133,7 @@ Open button. They build on each other so it is worth going in order.
    the drop-in case.
 9. ThinkingCreatureDemo.tscn: creatures on flat ground running the full cognition stack, with the
    local model wired in as the sparing slow brain.
-10. BoxFieldDemo.tscn: the material field on a small box grid, for looking at one channel at a time.
+10. BoxFieldDemo.tscn: a sealed box of the planet's surface air at rung 0, warmed by a hotplate at its floor.
 11. SimWorldPlanetDemo.tscn: the whole world behind the one-node `LocalAgentSimWorld` facade.
 12. Play the planet: the game shell itself, launched from the same launcher. See below.
 

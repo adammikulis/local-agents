@@ -6,7 +6,7 @@
 script = ExtResource("1_entry")
 order = 100
 title = "Box-field heat sandbox"
-description = "The simulation substrate in a bare box: inject heat at the floor, watch it diffuse and buoy upward through a tinted slice. One field, no planet wrapped around it."
+description = "A sealed box of the planet's surface air at rung 0: matter, energy and phase, and nothing that moves them. A hotplate on the floor hands its watts to the cells over it on the box's own clock; they warm by what their own heat capacity says, and every other cell stays at the seed temperature, because nothing at this rung carries heat from one cell to another."
 scene_path = "res://addons/local_agents/examples/BoxFieldDemo.tscn"
 requires_model = false
 requires_voxel_backend = false

@@ -37,7 +37,6 @@ var _grid: RefCounted = null
 var _cc: int = 0
 var _ng: int = 0                    # ghost tail cells appended past _cc; 0 = every wall shut
 var _face_count: int = 0            # faces over interior plus ghost tail: LAVoxelGrid.neighbours
-var _bnd_keys: PackedStringArray = PackedStringArray()   # per-step boundary books, cleared before each step
 var _step_index: int = 0            # LASimLoop's step this field step runs at, published as ctx["step_index"]
 var _seed_totals: Dictionary = {}   # per channel: the total the last whole-mirror seed declared
 var _groups: int = 0
@@ -170,7 +169,6 @@ func setup(field) -> void:
 	# The boundary books are per-step rates: cleared before every step, summed by their reduce rows after.
 	for key in _bufs:
 		if String(key).begins_with("bnd_"):
-			_bnd_keys.append(String(key))
 			_bnd_rids.append(_bufs[key])
 	# Every name a drain can ask for is a channel or a derived buffer, so this many slots cannot overflow.
 	_staging_slots = channels().size() + LAChannels.derived_buffers().size()
@@ -349,6 +347,8 @@ func _drain_pending() -> void:
 	LASimReport.gauge("field_sync_ms", float(t_sync - t0) / 1000.0)
 	LASimReport.gauge("field_readback_ms", float(Time.get_ticks_usec() - t_sync) / 1000.0)
 	_drain_passes()
+	if _field._inject != null:
+		_field._inject.queue.land()
 
 
 ## The seeded field's derived state and its maxima, before any time passes. `sealing` marks the LAST

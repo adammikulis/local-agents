@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # check_model_parameters.sh exempts the authority files, so this holds them instead: a number in
 # PhysicalConstants.gd or LABodySystem.cpp claims to be a MEASUREMENT, and one with no source is a value
-# somebody chose. Counts the uncited, as a ratchet that may only fall. A citation names an author and
-# year, a standards body, or a data set, on the constant or in the comment block above it.
+# somebody chose. Counts the uncited, as a ratchet that may only fall. A citation names an author and year,
+# a standards body or a data set; a named constant carries its own, on its line or directly over it.
 #
 # TWO SHAPES. A named declaration (`const NAME = <literal>`), and a bare literal INSIDE a function body or
 # a table in the extension's body/seed sources -- LABodySeeds::spin_axis() returns today's obliquity as
@@ -33,17 +33,21 @@ done
 CEILING="$(rg -N -o '^[0-9]+$' "$CEILING_FILE" | head -1)"
 [ -n "$CEILING" ] || { echo "check_cited_authority: $CEILING_FILE holds no bare integer" >&2; exit 2; }
 
+# WHAT A CITATION LOOKS LIKE, once for both scans: an issuing body or data set, a name and a year, or
+# `exact`. Four digits alone are not one: `1598 kJ/mol` restates a value, it does not source it.
+export LA_CITE_RE="\\b(?:CODATA|IUPAC|IAU|NUBASE|HITRAN|NIST|IAPWS|JANAF|ISA|US Standard|IUGG|CRC)\\b|[A-Z](?:[^\\W\\d_]|['-])+(?:(?:,? (?:&|and) |, | )[A-Z](?:[^\\W\\d_]|['-])+)*(?: et al\\.?)?,? \\(?(?:1[6-9]|20)[0-9]{2}[a-z]?\\b|\\bexact"
+
 CEILING="$CEILING" ROOT="$ROOT" python3 - "${FILES[@]}" <<'PY'
 import os, re, sys
 
 root, ceiling = os.environ["ROOT"], int(os.environ["CEILING"])
-# A source looks like an author-and-year, a standards body, or a named data set.
-CITE = re.compile(r"[0-9]{4}|CODATA|IUPAC|IAU|NUBASE|HITRAN|NIST|ISA |US Standard|IUGG|exact")
+CITE = re.compile(os.environ["LA_CITE_RE"])
 # LITERALS ONLY, in either language. A right-hand side built from other constants is held by its
 # expression, not by a source, and demanding a citation for it was why this gate could not be trusted.
 DECL = [re.compile(r"^const [A-Z_0-9]+: (?:float|int) = -?[0-9][0-9._eE+-]*[ \t]*(?:#.*)?$"),
         re.compile(r"^constexpr (?:double|int) [A-Z_0-9]+ = -?[0-9][0-9._eE+-]*;[ \t]*(?://.*)?$")]
 COMMENT = re.compile(r"(//|#).*")
+COMMENT_LINE = re.compile(r"^\s*(//|#)")
 
 count = 0
 uncited = []
@@ -53,16 +57,13 @@ for path in sys.argv[1:]:
     for n, line in enumerate(lines, 1):
         if not any(rx.match(line) for rx in DECL):
             continue
-        # ONE CITATION COVERS THE PARAGRAPH IT HEADS: the IAPWS saturation coefficients carry Wagner &
-        # Pruss above the first of them, and a search that stopped at the previous line of code called the
-        # other five uncited. A blank line ends the paragraph, so a citation cannot reach past its group.
-        start = n
-        while start > 1 and lines[start - 2].strip() != "":
-            start -= 1
-        # COMMENT TEXT ONLY. Searching the constant's own line let a value cite ITSELF: [0-9]{4} matched
-        # the digits in 1.98847e30, so the gate could barely fail.
-        block = "\n".join(m.group(0) for m in
-                          (COMMENT.search(l) for l in lines[start - 1:n - 1]) if m)
+        # ITS OWN: the comment on its line and the comment-only lines straight over it. COMMENT TEXT ONLY,
+        # or a value would cite itself.
+        above = n - 1
+        while above >= 1 and COMMENT_LINE.match(lines[above - 1]):
+            above -= 1
+        own = COMMENT.search(line)
+        block = "\n".join(lines[above:n - 1] + ([own.group(0)] if own else []))
         if not CITE.search(block):
             count += 1
             uncited.append("%s:%d  %s" % (rel, n, line))
@@ -100,7 +101,7 @@ CEILING="$LIT_CEILING" ROOT="$ROOT" python3 - "${BODY[@]}" > "$OUT_FILE" <<'PY'
 import math, os, re, sys
 
 root, ceiling = os.environ["ROOT"], int(os.environ["CEILING"])
-CITE = re.compile(r"[0-9]{4}|CODATA|IUPAC|IAU|NUBASE|HITRAN|NIST|ISA |US Standard|IUGG|exact")
+CITE = re.compile(os.environ["LA_CITE_RE"])
 LIT = re.compile(r"(?<![\w.])(?:\d+\.\d*(?:[eE][-+]?\d+)?|\.\d+(?:[eE][-+]?\d+)?|\d+[eE][-+]?\d+)")
 # A table's citation heads its rows, and a blank line ends the paragraph it heads.
 

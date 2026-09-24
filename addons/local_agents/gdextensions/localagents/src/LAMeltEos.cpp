@@ -20,73 +20,73 @@ namespace {
 // CaO, Na2O from Lange 1997, CMP 130:1; FeO from Guo, Lange & Ai 2014, EPSL 388:283; dV/dT of SiO2 and
 // Al2O3 from Lange & Carmichael 1987, GCA 51:2931).
 constexpr double V_SIO2_CM3_MOL = 26.86;
-constexpr double V_AL2O3_CM3_MOL = 37.42;
-constexpr double V_FEO_CM3_MOL = 12.68;
-constexpr double V_MGO_CM3_MOL = 12.02;
-constexpr double V_CAO_CM3_MOL = 16.90;
-constexpr double V_NA2O_CM3_MOL = 29.65;
-constexpr double DVDT_SIO2_CM3_MOLK = 0.0;
-constexpr double DVDT_AL2O3_CM3_MOLK = 2.62e-3;
-constexpr double DVDT_FEO_CM3_MOLK = 3.69e-3;
-constexpr double DVDT_MGO_CM3_MOLK = 3.27e-3;
-constexpr double DVDT_CAO_CM3_MOLK = 3.74e-3;
-constexpr double DVDT_NA2O_CM3_MOLK = 7.68e-3;
-constexpr double OXIDE_V_REF_T_K = 1773.0;
-constexpr double FEO_V_REF_T_K = 1723.0;
+constexpr double V_AL2O3_CM3_MOL = 37.42;  // Iacovino & Till 2019, Table 1
+constexpr double V_FEO_CM3_MOL = 12.68;  // Iacovino & Till 2019, Table 1
+constexpr double V_MGO_CM3_MOL = 12.02;  // Iacovino & Till 2019, Table 1
+constexpr double V_CAO_CM3_MOL = 16.90;  // Iacovino & Till 2019, Table 1
+constexpr double V_NA2O_CM3_MOL = 29.65;  // Iacovino & Till 2019, Table 1
+constexpr double DVDT_SIO2_CM3_MOLK = 0.0;  // Iacovino & Till 2019, Table 1
+constexpr double DVDT_AL2O3_CM3_MOLK = 2.62e-3;  // Iacovino & Till 2019, Table 1
+constexpr double DVDT_FEO_CM3_MOLK = 3.69e-3;  // Iacovino & Till 2019, Table 1
+constexpr double DVDT_MGO_CM3_MOLK = 3.27e-3;  // Iacovino & Till 2019, Table 1
+constexpr double DVDT_CAO_CM3_MOLK = 3.74e-3;  // Iacovino & Till 2019, Table 1
+constexpr double DVDT_NA2O_CM3_MOLK = 7.68e-3;  // Iacovino & Till 2019, Table 1
+constexpr double OXIDE_V_REF_T_K = 1773.0;  // Iacovino & Till 2019, Table 1
+constexpr double FEO_V_REF_T_K = 1723.0;  // Iacovino & Till 2019, Table 1
 
 // Third- and fourth-order Birch-Murnaghan/Mie-Grueneisen fits to shocked liquids (Thomas & Asimow 2013, JGR
 // 118:5738): the principal isentrope through rho0 at T0, adiabatic K_S, K_S', K_S'' in 1/Pa, the
 // Grueneisen parameter gamma = gamma0 (rho0/rho)^q, and Cp at T0. Mg2SiO4 BM3 (Table 3); CaMgSi2O6 BM3,
 // Fe2SiO4 BM3 (both from Thomas et al. 2012, JGR 117:B10206), CaAl2Si2O8 BM4 and MgSiO3 BM4 (Table 4).
 constexpr double FO_LIQ_T0_K = 2273.0;
-constexpr double FO_LIQ_RHO0_KG_M3 = 2597.0;
-constexpr double FO_LIQ_GAMMA0 = 0.396;
-constexpr double FO_LIQ_Q = -2.02;
-constexpr double FO_LIQ_KS_PA = 16.41e9;
-constexpr double FO_LIQ_KS_DERIV = 7.37;
-constexpr double FO_LIQ_CP_J_KGK = 1926.18;
-constexpr double FA_LIQ_T0_K = 1573.0;
-constexpr double FA_LIQ_RHO0_KG_M3 = 3699.0;
-constexpr double FA_LIQ_GAMMA0 = 0.412;
-constexpr double FA_LIQ_Q = -0.95;
-constexpr double FA_LIQ_KS_PA = 21.99e9;
-constexpr double FA_LIQ_KS_DERIV = 7.28;
-constexpr double FA_LIQ_CP_J_KGK = 1182.35;
-constexpr double AN_LIQ_T0_K = 1932.0;
-constexpr double AN_LIQ_RHO0_KG_M3 = 2560.0;
-constexpr double AN_LIQ_GAMMA0 = 0.174;
-constexpr double AN_LIQ_Q = -1.86;
-constexpr double AN_LIQ_KS_PA = 19.77e9;
-constexpr double AN_LIQ_KS_DERIV = 3.73;
-constexpr double AN_LIQ_KS_DERIV2_PER_PA = 0.38e-9;
-constexpr double AN_LIQ_CP_J_KGK = 1528.72;
-constexpr double EN_LIQ_T0_K = 1673.0;
-constexpr double EN_LIQ_RHO0_KG_M3 = 2617.0;
-constexpr double EN_LIQ_GAMMA0 = 0.365;
-constexpr double EN_LIQ_Q = -0.88;
-constexpr double EN_LIQ_KS_PA = 24.66e9;
-constexpr double EN_LIQ_KS_DERIV = 10.07;
-constexpr double EN_LIQ_KS_DERIV2_PER_PA = -2.35e-9;
-constexpr double EN_LIQ_CP_J_KGK = 1761.15;
-constexpr double DI_LIQ_T0_K = 1673.0;
-constexpr double DI_LIQ_RHO0_KG_M3 = 2643.0;
-constexpr double DI_LIQ_GAMMA0 = 0.493;
-constexpr double DI_LIQ_Q = -1.28;
-constexpr double DI_LIQ_KS_PA = 24.57e9;
-constexpr double DI_LIQ_KS_DERIV = 6.77;
-constexpr double DI_LIQ_CP_J_KGK = 1612.56;
+constexpr double FO_LIQ_RHO0_KG_M3 = 2597.0;  // Thomas & Asimow 2013, Table 3
+constexpr double FO_LIQ_GAMMA0 = 0.396;  // Thomas & Asimow 2013, Table 3
+constexpr double FO_LIQ_Q = -2.02;  // Thomas & Asimow 2013, Table 3
+constexpr double FO_LIQ_KS_PA = 16.41e9;  // Thomas & Asimow 2013, Table 3
+constexpr double FO_LIQ_KS_DERIV = 7.37;  // Thomas & Asimow 2013, Table 3
+constexpr double FO_LIQ_CP_J_KGK = 1926.18;  // Thomas & Asimow 2013, Table 3
+constexpr double FA_LIQ_T0_K = 1573.0;  // Thomas et al. 2012
+constexpr double FA_LIQ_RHO0_KG_M3 = 3699.0;  // Thomas et al. 2012
+constexpr double FA_LIQ_GAMMA0 = 0.412;  // Thomas et al. 2012
+constexpr double FA_LIQ_Q = -0.95;  // Thomas et al. 2012
+constexpr double FA_LIQ_KS_PA = 21.99e9;  // Thomas et al. 2012
+constexpr double FA_LIQ_KS_DERIV = 7.28;  // Thomas et al. 2012
+constexpr double FA_LIQ_CP_J_KGK = 1182.35;  // Thomas et al. 2012
+constexpr double AN_LIQ_T0_K = 1932.0;  // Thomas & Asimow 2013, Table 4
+constexpr double AN_LIQ_RHO0_KG_M3 = 2560.0;  // Thomas & Asimow 2013, Table 4
+constexpr double AN_LIQ_GAMMA0 = 0.174;  // Thomas & Asimow 2013, Table 4
+constexpr double AN_LIQ_Q = -1.86;  // Thomas & Asimow 2013, Table 4
+constexpr double AN_LIQ_KS_PA = 19.77e9;  // Thomas & Asimow 2013, Table 4
+constexpr double AN_LIQ_KS_DERIV = 3.73;  // Thomas & Asimow 2013, Table 4
+constexpr double AN_LIQ_KS_DERIV2_PER_PA = 0.38e-9;  // Thomas & Asimow 2013, Table 4
+constexpr double AN_LIQ_CP_J_KGK = 1528.72;  // Thomas & Asimow 2013, Table 4
+constexpr double EN_LIQ_T0_K = 1673.0;  // Thomas & Asimow 2013, Table 4
+constexpr double EN_LIQ_RHO0_KG_M3 = 2617.0;  // Thomas & Asimow 2013, Table 4
+constexpr double EN_LIQ_GAMMA0 = 0.365;  // Thomas & Asimow 2013, Table 4
+constexpr double EN_LIQ_Q = -0.88;  // Thomas & Asimow 2013, Table 4
+constexpr double EN_LIQ_KS_PA = 24.66e9;  // Thomas & Asimow 2013, Table 4
+constexpr double EN_LIQ_KS_DERIV = 10.07;  // Thomas & Asimow 2013, Table 4
+constexpr double EN_LIQ_KS_DERIV2_PER_PA = -2.35e-9;  // Thomas & Asimow 2013, Table 4
+constexpr double EN_LIQ_CP_J_KGK = 1761.15;  // Thomas & Asimow 2013, Table 4
+constexpr double DI_LIQ_T0_K = 1673.0;  // Thomas et al. 2012
+constexpr double DI_LIQ_RHO0_KG_M3 = 2643.0;  // Thomas et al. 2012
+constexpr double DI_LIQ_GAMMA0 = 0.493;  // Thomas et al. 2012
+constexpr double DI_LIQ_Q = -1.28;  // Thomas et al. 2012
+constexpr double DI_LIQ_KS_PA = 24.57e9;  // Thomas et al. 2012
+constexpr double DI_LIQ_KS_DERIV = 6.77;  // Thomas et al. 2012
+constexpr double DI_LIQ_CP_J_KGK = 1612.56;  // Thomas et al. 2012
 
 // Molten NaCl at its melting point and the fall of its density with temperature, kg/m^3 and
 // kg/(m^3 K) (Janz 1988, J. Phys. Chem. Ref. Data 17 Suppl. 2; CRC 97th ed. 4-128).
 constexpr double HALITE_LIQUID_DENSITY_KG_M3 = 1556.0;
-constexpr double HALITE_LIQUID_DENSITY_SLOPE_KG_M3K = 0.543;
+constexpr double HALITE_LIQUID_DENSITY_SLOPE_KG_M3K = 0.543;  // Janz 1988
 
 // Molten NaCl's sound speed at 1253 K, m/s (Bockris & Richards 1957, Proc. R. Soc. A 241:44, as quoted by
 // Bryk, Ruocco & Seitsonen 2023, Sci. Rep. 13:18042), and its heat capacity there, J/(mol K), off the
 // liquid's Shomate fit (Chase 1998, NIST-JANAF, via the NIST WebBook).
 constexpr double HALITE_LIQUID_SOUND_T_K = 1253.0;
-constexpr double HALITE_LIQUID_SOUND_M_S = 1586.3;
-constexpr double HALITE_LIQUID_CP_J_MOLK = 67.80;
+constexpr double HALITE_LIQUID_SOUND_M_S = 1586.3;  // Bockris & Richards 1957
+constexpr double HALITE_LIQUID_CP_J_MOLK = 67.80;  // Chase 1998, NIST-JANAF
 // Second-order Birch-Murnaghan K' (Birch 1947), exact.
 constexpr double SECOND_ORDER_BM_DERIV = 4.0;
 

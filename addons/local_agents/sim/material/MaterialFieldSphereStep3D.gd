@@ -16,6 +16,9 @@ const ElementProbeScript: GDScript = preload("res://addons/local_agents/sim/mate
 const PassProbeScript: GDScript = preload("res://addons/local_agents/runtime/FieldPassProbe3D.gd")
 const SnapshotScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSnapshot3D.gd")
 
+## Meta on the field: {"mole_fractions", "pressure_pa"}, one gas mixture in every cell at the surface's temperature.
+const FILL_META: StringName = &"field_fill"
+
 ## The pass that solves the potential. Without it this world has no vertical, so the walks that read one
 ## do not run at all rather than reading a flat field.
 const GRAVITY_PASS: String = "GravityPass.gd"
@@ -87,28 +90,35 @@ func _pick_probe(field):
 func seed_tick() -> bool:
 	if _f._ready_sim:
 		return true
-	if _f._terrain == null or not _f._terrain.has_method("is_solid"):
+	# The world's matter: a gas mixture DECLARED on the field, or walked off its terrain.
+	var fill: Dictionary = _f.get_meta(FILL_META, {})
+	var walked: bool = fill.is_empty()
+	if not (_f._terrain != null and _f._terrain.has_method("is_solid") if walked
+			else LAFieldFill.lay_gas(_f, fill["mole_fractions"], LABodySeeds.surface_temp_c(), fill["pressure_pa"])):
+		LASimLoop.active().failure = "the field has no matter to seed: no terrain to walk, or a fill that did not lay"
 		return false
-	_f.sample_solidity()          # solid mask -> the bedrock silicate + cement the gravity solve weighs
+	if walked:
+		_f.sample_solidity()      # solid mask -> the bedrock silicate + cement the gravity solve weighs
 	_f.activate()                 # builds the GPU driver, which owns the solve the walks below read
 	var g: LAVoxelGrid = _f._grid
 	var bake: String = LAFieldStateCache.state_key(OS.get_environment("LA_SEAL_KEY"),
 			g.nx, g.ny, g.nz, g.cell_size, g.origin)
 	if OS.get_environment("LA_SEAL_RESEED") == "" and _load_seeded(bake):
 		return true
-	if LAProcessSet.has_record("pass", GRAVITY_PASS):
+	if walked and LAProcessSet.has_record("pass", GRAVITY_PASS):
 		_seed_under_gravity()
 	# THE WORLD PUT INTO THE BALANCE THE STEPPER HOLDS. Only the hydrostatic rung stands a column;
 	# below it a cell stands at the pressure its own amounts state.
 	_f._gpu.derive_seeded()   # publishes g_rest as geometry: gravitation and this frame's own spin
 	var g_solved: PackedFloat32Array = LAFieldLithostaticSeed.vertical(_f, _f._gpu.read_raw("g_rest"))
 	# The barometric profile is a function of the SOLVED POTENTIAL, so the solve's own phi goes with it.
-	if LAProcessSet.has_record("pass", GRAVITY_PASS):
+	if walked and LAProcessSet.has_record("pass", GRAVITY_PASS):
 		LAFieldLithostaticSeed.shape_atmosphere(_f, LABodySeeds.surface_temp_c(), g_solved, _f._gravity.phi_abs())
 	var balance: Dictionary = LAFieldLithostaticSeed.compress(_f, g_solved, _f._t_rock)
 	LAFieldEnthalpySeed.seed(_f, _f._t_rock, balance.get("fluid", PackedFloat32Array()), balance.get("rock", PackedFloat32Array()))
-	# WEIGH THE BODY once the march has compressed the rock it stands on.
-	_f._body_measure.measure(_f, LABodySeeds.spin_axis_of(_f._body_key))
+	# WEIGH THE BODY once the march has compressed the rock it stands on. A declared fill is no body.
+	if _f._body_measure != null:
+		_f._body_measure.measure(_f, LABodySeeds.spin_axis_of(_f._body_key))
 	if _f._gpu != null:                                # hand the device what those walks produced
 		_f._gpu._seed_regolith()                       # permeability mask, grain size, Athy porosity
 		# The march's own pressure, so the first state derive reads the world at it rather than at zero,
@@ -147,7 +157,8 @@ func _load_seeded(k: String) -> bool:
 		_f._gravity.solve()
 	_f._gpu.derive_seeded(true)
 	# The body is the matter it is made of, so a world that was LOADED is weighed like one that was walked.
-	_f._body_measure.measure(_f, LABodySeeds.spin_axis_of(_f._body_key))
+	if _f._body_measure != null:
+		_f._body_measure.measure(_f, LABodySeeds.spin_axis_of(_f._body_key))
 	return true
 
 

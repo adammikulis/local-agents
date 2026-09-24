@@ -46,6 +46,8 @@ public:
 	PackedFloat32Array array(const String &p_name) const;
 	PackedByteArray bytes(const String &p_name, int p_from, int p_count) const;
 	double sum(const String &p_name) const;
+	// Every mirror holding a cell that is not finite.
+	PackedStringArray nonfinite() const;
 	// Cells where max(mass, 0) * clamp(phase fraction, 0, 1) >= p_min; empty when either channel is absent.
 	PackedInt32Array cells_with_phase_mass(const String &p_mass, const String &p_frac, double p_min) const;
 

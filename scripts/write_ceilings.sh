@@ -83,6 +83,10 @@ inv="$(cd "$TREE" && bash scripts/check_no_invented_fallback.sh 2>&1 | rg -N '^I
 [ -n "$inv" ] || { echo "write_ceilings: check_no_invented_fallback.sh printed no INVENTED_QUERIES= line." >&2; exit 2; }
 lower INVENTED_QUERY_CEILING "$(field "$inv" count)"
 
+wos="$(cd "$TREE" && bash scripts/check_write_only_state.sh 2>&1 | rg -N '^WRITE_ONLY_STATE=' || true)"
+[ -n "$wos" ] || { echo "write_ceilings: check_write_only_state.sh printed no WRITE_ONLY_STATE= line." >&2; exit 2; }
+lower WRITE_ONLY_STATE_CEILING "$(field "$wos" count)"
+
 blk="$(cd "$TREE" && bash scripts/check_comment_block.sh 2>&1 | rg -N '^COMMENT_BLOCK=' || true)"
 [ -n "$blk" ] || { echo "write_ceilings: check_comment_block.sh printed no COMMENT_BLOCK= line." >&2; exit 2; }
 lower COMMENT_BLOCK_CEILING "$(field "$blk" count)"

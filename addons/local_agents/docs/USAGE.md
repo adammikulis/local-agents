@@ -220,15 +220,18 @@ The ten configs shipped today live in `creatures/species/aquatic/`.
 ground plane, the `LAMaterialField3D` substrate, the ecology, the founding population, and the loop
 that steps them. `LASimWorldView` is its look. See the third quickstart below for its export surface.
 
-`LocalAgentFieldBox` is a `Node3D` that owns an `LAMaterialField3D` in box mode as a child, with a heat
-source at its floor. Its exports come in groups:
+`LocalAgentFieldBox` is a `Node3D` that owns an `LAMaterialField3D` in box mode as a child: a sealed box
+of the planet's surface air, seeded and stepped by its own `LASimLoop`, with a heat source at its floor.
+It needs a compute device, as a SPHERE world does. Its exports come in groups:
 
+- World: Rung, which processes the box contains.
 - Volume: Extent, Cell Size, Origin Offset.
 - Heat Source: Heat Enabled, Heat Source W, Heat Burst S, and Heat Source Cells, which is how many
   cells wide the emitter is.
 
-The box holds no matter: nothing seeds or steps a box-mode field, so the source adds nothing and every
-cell reads NAN. `LAFieldBoxSliceView`, a plane of cubes tinted by temperature, is its look.
+The source hands its watts to the cells over it on the box's own clock once the box is sealed, and the
+field books them as heat from outside. `LAFieldBoxSliceView`, a plane of cubes tinted by temperature
+above the box's seed, is its look.
 
 ### Resources and the harness
 
@@ -605,8 +608,8 @@ that need no window with `scripts/run_demo.sh`, which takes about a second each:
 
 ```bash
 scripts/run_demo.sh --list                  # which scenes honour the contract, and which need a window
-scripts/run_demo.sh BoxFieldDemo            # one demo, 40 frames
-scripts/run_demo.sh BoxFieldDemo 200        # one demo, 200 frames
+scripts/run_demo.sh CoreCreatureSmoke       # one demo, 40 frames
+scripts/run_demo.sh CoreCreatureSmoke 200   # one demo, 200 frames
 scripts/run_demo.sh --all                   # every demo that honours the contract and needs no window
 ```
 
@@ -617,8 +620,8 @@ It refuses a scene with no harness up front instead of hanging on it, because su
 godot --headless --path . addons/local_agents/examples/GraphExample.tscn --quit-after 120
 ```
 
-A planet's field steps on a compute device, and a headless run has none. `game/VoxelWorld.tscn`, every
-scene inheriting it and every scene holding a SPHERE `LocalAgentSimWorld` need a window. Use
+A field steps on a compute device, and a headless run has none. `game/VoxelWorld.tscn`, every scene
+inheriting it and every scene holding a SPHERE `LocalAgentSimWorld` or a `LocalAgentFieldBox` need a window. Use
 `scripts/agent_harness.sh sim` for the voxel world, and `scripts/run_sim_offscreen.sh` for the others and
 for anything taking a screenshot. Neither window can take the keyboard.
 

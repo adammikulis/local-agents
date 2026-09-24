@@ -171,6 +171,16 @@ double LAFieldMirrors::sum(const String &p_name) const {
 	return acc;
 }
 
+PackedStringArray LAFieldMirrors::nonfinite() const {
+	PackedStringArray out;
+	for (int i = 0; i < _names.size(); ++i) {
+		if (!std::isfinite(sum(_names[i]))) {
+			out.append(_names[i]);
+		}
+	}
+	return out;
+}
+
 PackedInt32Array LAFieldMirrors::cells_with_phase_mass(const String &p_mass, const String &p_frac,
 		double p_min) const {
 	PackedInt32Array out;
@@ -276,6 +286,7 @@ void LAFieldMirrors::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("array", "name"), &LAFieldMirrors::array);
 	ClassDB::bind_method(D_METHOD("bytes", "name", "from", "count"), &LAFieldMirrors::bytes);
 	ClassDB::bind_method(D_METHOD("sum", "name"), &LAFieldMirrors::sum);
+	ClassDB::bind_method(D_METHOD("nonfinite"), &LAFieldMirrors::nonfinite);
 	ClassDB::bind_method(D_METHOD("cells_with_phase_mass", "mass", "frac", "min"),
 			&LAFieldMirrors::cells_with_phase_mass);
 	ClassDB::bind_method(D_METHOD("set_array", "name", "values"), &LAFieldMirrors::set_array);

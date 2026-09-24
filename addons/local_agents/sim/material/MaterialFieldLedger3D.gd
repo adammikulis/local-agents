@@ -54,4 +54,4 @@ func _minted() -> float:
 func _injected_j() -> float:
 	if _f._inject == null or _f._inject.queue == null:
 		return 0.0
-	return float(_f._inject.queue.heat_energy_j)
+	return float(_f._inject.queue.heat_landed_j)
