@@ -89,11 +89,13 @@ func total_water() -> float:
 
 # --- Temperature query -------------------------------------------------------
 
-## Temperature °C at a world point. NAN outside the box: a point the field does not hold has no
+## Temperature °C at a world point. NAN outside the box or in a cell that holds no matter: neither has a
 ## temperature to read.
 func temp_at(pos: Vector3) -> float:
 	var c: int = _f.world_to_cell(pos)
-	return _f._mirrors.at("temp", c) if c >= 0 else NAN
+	if c < 0 or not (_f._mirrors.at("rho_bulk", c) > 0.0):
+		return NAN
+	return _f._mirrors.at("temp", c)
 
 
 ## Pressure at a world point, Pa. NAN outside the box or before the first readback.

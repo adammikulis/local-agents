@@ -125,7 +125,7 @@ func _init() -> void:
 		g_field[c * 3 + 2] = gv.z
 		solid[c] = 1 if p.y < 0.0 else 0
 	LABallistics.set_system([])
-	LABallistics.set_field(grid, g_field, solid, [], Basis.IDENTITY, Vector3.ZERO)
+	LABallistics.set_field(grid, g_field, solid, null, [], Basis.IDENTITY, Vector3.ZERO)
 
 	var start: Vector3 = Vector3(0.0, DROP_H, 0.0)
 	# The ground's tangential velocity at the release point: what LATestMasses hands drop().

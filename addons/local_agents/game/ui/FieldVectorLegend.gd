@@ -5,6 +5,11 @@ extends CanvasLayer
 ## is a ramp OF, and the magnitude it saturates at. Absent when no vector source is drawn.
 
 const RampShader: Shader = preload("res://addons/local_agents/game/ui/FieldRampBar.gdshader")
+const HudTheme: Theme = preload("res://addons/local_agents/game/ui/HudTheme.tres")
+
+# HudTheme.tres type variations.
+const STYLE_TITLE: StringName = &"LegendTitle"
+const STYLE_SCALE: StringName = &"LegendScale"
 
 const BAR_SIZE: Vector2 = Vector2(180.0, 12.0)
 const MARGIN: float = 14.0
@@ -20,10 +25,11 @@ func _ready() -> void:
 	layer = 2
 	_root = VBoxContainer.new()
 	_root.name = "VectorLegend"
+	_root.theme = HudTheme
 	_root.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	_root.position = Vector2(MARGIN, -96.0)
 	_root.add_theme_constant_override("separation", 2)
-	_title = _label(LAUiStyle.COL_TEXT)
+	_title = _label(STYLE_TITLE)
 	_root.add_child(_title)
 	var bar: ColorRect = ColorRect.new()
 	bar.custom_minimum_size = BAR_SIZE
@@ -32,11 +38,11 @@ func _ready() -> void:
 	bar.material = mat
 	_root.add_child(bar)
 	var row: HBoxContainer = HBoxContainer.new()
-	var calm: Label = _label(LAUiStyle.COL_TEXT_DIM)
+	var calm: Label = _label(STYLE_SCALE)
 	calm.text = "0"
 	calm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(calm)
-	_top = _label(LAUiStyle.COL_TEXT_DIM)
+	_top = _label(STYLE_SCALE)
 	row.add_child(_top)
 	_root.add_child(row)
 	add_child(_root)
@@ -67,8 +73,7 @@ func _process(_delta: float) -> void:
 		refresh()
 
 
-func _label(col: Color) -> Label:
+func _label(style: StringName) -> Label:
 	var l: Label = Label.new()
-	l.add_theme_color_override("font_color", col)
-	l.add_theme_font_size_override("font_size", 12)
+	l.theme_type_variation = style
 	return l

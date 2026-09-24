@@ -332,36 +332,8 @@ func crater_report() -> Dictionary:
 	}
 
 
-# --- Physical splash droplets (FX) ------------------------------------------
-
-## A few short-lived rigidbody droplets flung from a world point — the splash accent an impact calls.
+## A splash at a world point: the renderer's surface rings on `splashed`.
 func splash(world_pos: Vector3, strength: float) -> void:
-	if not _f.is_inside_tree() or is_nan(world_pos.x):
+	if is_nan(world_pos.x):
 		return
-	var s: float = clampf(strength, 0.1, 4.0)
-	splashed.emit(world_pos, s)                          # ring the fluid surface (renderer listens); droplets below
-	var mesh: SphereMesh = SphereMesh.new()
-	mesh.radius = 0.12
-	mesh.height = 0.24
-	mesh.radial_segments = 6
-	mesh.rings = 3
-	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.albedo_color = Color(0.3, 0.6, 0.9, 0.75)
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mesh.material = mat
-	for n in range(5):
-		var body: RigidBody3D = RigidBody3D.new()
-		body.mass = 0.05
-		body.collision_mask = 1
-		body.collision_layer = 0
-		var mi: MeshInstance3D = MeshInstance3D.new()
-		mi.mesh = mesh
-		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		body.add_child(mi)
-		_f.add_child(body)
-		var rng: LASimRng = LASimRng.shared()
-		body.global_position = world_pos + Vector3(rng.randf_range(-0.15, 0.15), 0.1, rng.randf_range(-0.15, 0.15))
-		var ang: float = rng.randf() * TAU
-		body.linear_velocity = Vector3(cos(ang) * rng.randf_range(1.0, 2.5) * s, rng.randf_range(2.5, 4.5) * s, sin(ang) * rng.randf_range(1.0, 2.5) * s)
-		var tm: SceneTreeTimer = _f.get_tree().create_timer(2.0)
-		tm.timeout.connect(func(): if is_instance_valid(body): body.queue_free())
+	splashed.emit(world_pos, clampf(strength, 0.1, 4.0))

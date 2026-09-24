@@ -9,6 +9,7 @@ layout(local_size_x = 64) in;
 layout(set = 0, binding = LA_BIND_REDUCE_SRC, std430) readonly buffer Src { float src[]; };
 layout(set = 0, binding = LA_BIND_REDUCE_AUX, std430) readonly buffer Aux { float aux[]; };
 layout(set = 0, binding = LA_BIND_SOLID, std430) readonly buffer Solid { float solid[]; };
+layout(set = 0, binding = LA_BIND_RHO_BULK, std430) readonly buffer RhoBulk { float rho_bulk[]; };
 // One partial per workgroup, at a fixed slot. Folded on the CPU in float64: a cross-workgroup atomicAdd
 // on floats reduces in scheduling order and does not reproduce.
 layout(set = 0, binding = LA_BIND_REDUCE_PARTIALS, std430) writeonly buffer Partials { float partials[]; };
@@ -29,7 +30,7 @@ layout(push_constant, std430) uniform Params {
 	float threshold;
 	uint weight;       // 1 weighs each cell by its own volume, m^3; 0 counts it once
 	uint has_aux;      // 0 none, 1 src*aux, 2 src*(aux + aux2)
-	uint has_gate;     // low bits: 0 none, 1 gate, 2 gate*gate_aux; bit 2: gate_lo is strict
+	uint has_gate;     // low bits: 0 none, 1 gate, 2 gate*gate_aux; bit 2: gate_lo is strict; bit 4: held
 	float gate_lo;     // gated cells are those inside [gate_lo, gate_hi)
 	float gate_hi;
 	uint nbr;          // NBR_*: what the cell's value is read against
@@ -145,6 +146,15 @@ bool la_keep(uint i) {
 	// A cell whose vertical neighbour does not exist has no difference to take, so the row skips it.
 	if ((params.nbr == NBR_BELOW || params.nbr == NBR_ABOVE) && la_vertical(i) < 0) {
 		return false;
+	}
+	// A HELD row reads a quantity only matter carries: an empty cell has none to count.
+	if ((params.has_gate & 16u) != 0u) {
+		if (!(rho_bulk[i] > 0.0)) {
+			return false;
+		}
+		if ((params.nbr == NBR_BELOW || params.nbr == NBR_ABOVE) && !(rho_bulk[uint(la_vertical(i))] > 0.0)) {
+			return false;
+		}
 	}
 	uint mode = params.has_gate & 3u;
 	if (mode == 0u) {

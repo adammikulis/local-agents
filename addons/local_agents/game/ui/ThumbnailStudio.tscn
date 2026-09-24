@@ -1,0 +1,24 @@
+[gd_scene load_steps=2 format=3]
+
+[sub_resource type="Environment" id="Environment_thumbnail"]
+ambient_light_source = 2
+ambient_light_color = Color(0.62, 0.64, 0.68, 1)
+
+[node name="ThumbnailStudio" type="SubViewport"]
+own_world_3d = true
+transparent_bg = true
+msaa_3d = 2
+size = Vector2i(64, 64)
+render_target_update_mode = 4
+
+[node name="Camera" type="Camera3D" parent="."]
+editor_description = "Models face -Z; viewed from the -Z side for a 3/4 front portrait, aimed at the origin."
+transform = Transform3D(-0.77193016, -0.29425547, 0.5635047, 0, 0.88642156, 0.46287882, -0.6357073, 0.35731012, -0.68425554, 1.4, 1.15, -1.7)
+environment = SubResource("Environment_thumbnail")
+projection = 1
+current = true
+size = 1.5
+
+[node name="Light" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.76604444, -0.45451945, 0.45451945, 0, 0.70710677, 0.70710677, -0.6427876, -0.5416752, 0.5416752, 0, 0, 0)
+light_energy = 1.3

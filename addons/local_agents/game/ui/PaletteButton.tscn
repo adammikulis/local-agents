@@ -1,0 +1,16 @@
+[gd_scene format=3]
+
+[node name="PaletteButton" type="Button"]
+custom_minimum_size = Vector2(52, 56)
+focus_mode = 0
+theme_type_variation = &"PaletteButton"
+toggle_mode = true
+
+[node name="HotkeyBadge" type="Label" parent="."]
+layout_mode = 0
+offset_left = 4.0
+offset_top = 1.0
+offset_right = 4.0
+offset_bottom = 1.0
+mouse_filter = 2
+theme_type_variation = &"HotkeyBadge"
