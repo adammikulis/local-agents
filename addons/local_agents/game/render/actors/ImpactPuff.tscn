@@ -1,0 +1,26 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/game/render/actors/ImpactPuff.gd" id="1_puff"]
+
+[sub_resource type="ParticleProcessMaterial" id="PuffProcess"]
+resource_local_to_scene = true
+direction = Vector3(0, 1, 0)
+spread = 45.0
+initial_velocity_min = 1.0
+initial_velocity_max = 3.0
+gravity = Vector3(0, 0, 0)
+color = Color(0.4, 0.38, 0.35, 1)
+
+[sub_resource type="SphereMesh" id="PuffGrain"]
+radius = 0.05
+height = 0.1
+
+[node name="ImpactPuff" type="GPUParticles3D"]
+emitting = false
+amount = 12
+lifetime = 0.5
+one_shot = true
+explosiveness = 1.0
+process_material = SubResource("PuffProcess")
+draw_pass_1 = SubResource("PuffGrain")
+script = ExtResource("1_puff")

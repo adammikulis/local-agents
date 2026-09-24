@@ -134,7 +134,7 @@ run_line() {
   local name
   name="$(basename "$scene_rel" .tscn)"
   if demo_needs_window "$ROOT" "$scene_rel"; then
-    printf '`%s --path . %s -- --run-frames=200`. Headless has no compute device for the voxel world'"'"'s field, so the wrapper gives it a real window placed off-screen.\n' \
+    printf '`%s --path . %s -- --run-frames=200`. Headless has no compute device for the planet'"'"'s field, so the wrapper gives it a real window placed off-screen.\n' \
       "$WINDOWED_RUNNER" "$scene_rel"
   elif scene_has_harness "$name"; then
     printf '`scripts/run_demo.sh %s`, or `scripts/run_demo.sh %s 200` for more than the default %s frames.\n' \
@@ -192,18 +192,19 @@ MD
 `scripts/run_demo.sh <name>` runs an example scene with no window in about a second and prints a
 `RUN_DEMO={...}` line carrying the exit code. It only accepts a scene that builds a
 MD
-    printf '`LocalAgentDemoHarness`, and %s of the %s entries have one. An example scene without that harness\n' \
+    printf '`LocalAgentDemoHarness` and needs no window, and %s of the %s entries are one. An example scene\n' \
       "$harnessed" "$total"
     cat <<'MD'
-ignores `--run-frames` and never exits, so it gets `--quit-after` instead. Each demo below carries
-the command that applies to it.
+without that harness ignores `--run-frames` and never exits, so it gets `--quit-after` instead. Each
+demo below carries the command that applies to it.
 MD
     echo ''
-    printf '`scripts/run_demo.sh --all` runs every harnessed demo in turn at %s frames each, then prints a\n' \
+    printf '`scripts/run_demo.sh --all` runs every harnessed demo that needs no window in turn at %s frames\n' \
       "$DEFAULT_FRAMES"
     cat <<'MD'
-`RUN_DEMO_ALL={"ran":N,"failed":N,"frames":N}` line and exits non-zero if any of them failed. Pass a
-frame count to override the default, as in `scripts/run_demo.sh --all 200`.
+each, prints a `RUN_DEMO_SKIPPED={...}` line for each one that needs a window, then prints a
+`RUN_DEMO_ALL={"ran":N,"failed":N,"skipped":N,"frames":N}` line and exits non-zero if any of them
+failed. Pass a frame count to override the default, as in `scripts/run_demo.sh --all 200`.
 MD
     echo ''
     cat <<'MD'

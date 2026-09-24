@@ -69,8 +69,7 @@ func mineral_mass_for(field) -> float:
 	return LASubstances.full_mol_m3("silicate") * rock_m3 / (side * side * side)
 
 
-## Called when a villager picks this rock up. The node goes, the MATTER does not: the caller is handed the
-## boulder's mineral mass so it can carry it (into a LAThrownRock, which deposits it where it lands).
+## Frees this boulder and returns its `mineral_mass`.
 func take() -> float:
 	var carried: float = mineral_mass
 	queue_free()

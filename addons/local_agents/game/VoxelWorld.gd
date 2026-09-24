@@ -244,7 +244,7 @@ func _perf_probe(delta: float) -> void:
 		get_tree().get_node_count_in_group("creature"),
 		int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)),
 		_fps_count])
-	LAAppExit.request(self, 0)
+	LAAppQuit.request(self, 0)
 
 
 ## The LocalAgentDemoHarness contract.

@@ -53,7 +53,6 @@ struct Push {
 	uint32_t act_group;
 	uint32_t act_group2;
 	float phi_datum;
-	float grav_self;
 };
 
 struct Row {
@@ -102,7 +101,6 @@ Push base_push(uint32_t cells) {
 	p.xuv_w_m2 = 1.0e-3f;
 	p.substep_n = 1;
 	p.act_group2 = kActNoGroup;
-	p.grav_self = 1.0f;
 	return p;
 }
 

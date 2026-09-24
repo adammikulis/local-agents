@@ -53,19 +53,17 @@ ADVANCES = ["_orbits.update(", "_sky_ctrl.update("]
 # R2 allowlist: presentation + instrument modules under sim/. One line each, saying why the render clock
 # is the right clock for it.
 PRESENTATION_ALLOW = {
-    f"{SIM}/actors/LightningStrike.gd": "flash fade and node lifetime; it writes no world state",
     f"{SIM}/ecology/BandChronicle.gd": "historian: writes dated records to the backstory store, not the field",
 }
 
 # R3 allowlist. A RATCHET — entries are removed as each module moves onto LASimLoop.stepped, never added.
-# Everything here is a body in the ENGINE's physics world, integrating against the physics server rather
-# than the substrate. They are wrong for the same reason the field was and are not yet converted.
+# Each entry ticks its own integrator, or follows its LABallistics bodies, on the engine's physics tick.
 PHYSICS_TICK_ALLOW = {
-    f"{SIM}/actors/Tree.gd": "engine physics body",
-    f"{SIM}/actors/Nest.gd": "engine physics body",
-    f"{SIM}/actors/Meteor.gd": "engine physics body: ballistic arrival integrated by the physics server",
-    f"{SIM}/actors/ThrownRock.gd": "engine physics body: ballistic flight integrated by the physics server",
-    f"{SIM}/material/FieldBox.gd": "demo-scene host for a standalone field box, outside the planet loop",
+    f"{SIM}/actors/Tree.gd": "advances its own topple swing each engine tick",
+    f"{SIM}/actors/Nest.gd": "counts its own neglect clock each engine tick",
+    f"{SIM}/actors/Meteor.gd": "copies its LABallistics free body onto the node each engine tick",
+    f"{SIM}/actors/ThrownRock.gd": "steers its own flight each engine tick, not an LABallistics free body",
+    f"{SIM}/material/FieldBox.gd": "adds its heat source's watts times the engine delta to its own box",
     f"{SIM}/TrackSystem.gd": "footprint decals laid under bodies moving on the physics tick",
 }
 

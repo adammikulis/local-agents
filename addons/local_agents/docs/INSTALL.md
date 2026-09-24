@@ -41,9 +41,6 @@ Click Project > Project Settings > Plugins > Enable (Local Agents). This registe
 autoload for you, and adds the Local Agents settings under Project Settings > General. You do not
 need to add any autoload by hand.
 
-If you are consuming the library in your own project and have deleted the game, register only
-AgentManager. GameMode and AppExit are game-only.
-
 ## 3. A model
 
 Any .gguf file works. The default is Qwen3-4B-Instruct-2507-Q4_K_M, which wants about 4GB free. If

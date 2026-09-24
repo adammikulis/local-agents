@@ -37,4 +37,4 @@ func _process(_delta: float) -> void:
 		return
 	_done = true
 	LocalAgentDemoHarness.save_viewport_png(_viewport, _shoot_path)
-	LAAppExit.request(self, 0)
+	LAAppQuit.request(self, 0)

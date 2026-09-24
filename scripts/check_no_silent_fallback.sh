@@ -19,11 +19,17 @@ command -v rg >/dev/null 2>&1 || { echo "ERROR: rg not on PATH — a gate that c
 
 hits="$(rg -n --type-add 'gd:*.gd' -tgd '\.get\("[a-z_]+",\s*_f\._[a-z_]+\)' \
   "$REPO_ROOT/addons/local_agents/sim/material" 2>/dev/null || true)"
+# A pass input with a literal default: the step published none, and the pass invented one.
+EMPTY='(0|0\.0|false|""|\[\]|\{\}|null|NAN|INF|-1|-1\.0|Vector[234]i?\.ZERO|Packed[A-Za-z0-9]+Array\(\)|RID\(\))'
+lits="$(rg -n --type-add 'gd:*.gd' -tgd 'ctx\.get\("[a-z_0-9]+",\s*[^)]' \
+  "$REPO_ROOT/addons/local_agents/sim/material" 2>/dev/null | rg -v "ctx\.get\(\"[a-z_0-9]+\",\s*$EMPTY\)" || true)"
+hits="$(printf '%s\n%s\n' "$hits" "$lits" | rg -v '^$' || true)"
 n="$(printf '%s' "$hits" | grep -c . || true)"
 echo "SILENT_FALLBACKS={\"count\":$n}"
 [ "$n" -eq 0 ] && { echo "check_no_silent_fallback: OK"; exit 0; }
 echo "$hits"
 echo
 echo "A missing measurement is missing. Default to an empty array and refuse the total, naming what did not"
-echo "arrive — do not substitute a mirror whose freshness depends on who is watching."
+echo "arrive — do not substitute a mirror whose freshness depends on who is watching. A pass input the step"
+echo "did not publish is absent: default it empty, never to a value somebody chose."
 exit 1
