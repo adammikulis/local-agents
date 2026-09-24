@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # PRESENTATION MAY NOT LIVE ON THE SIM SIDE. Counts, under addons/local_agents/sim/, every construction of a
-# visual type, every load of a game/render or game/ui resource, and every read of the effects preset.
+# visual type, every load of a game/render or game/ui resource, every load of a rendering shader or of a
+# .tres whose header declares a visual type wherever it lives, and every read of the effects preset.
 # A view belongs under game/render/ as a scene that reads sim state. May fall, may not rise.
 # EXIT 0 at or under the ceiling · 1 rose, or slack on the dev branch · 2 could not run.
 set -uo pipefail
@@ -17,8 +18,17 @@ case "$ceil" in "" | *[!0-9]*) echo "check_presentation_in_sim: the ceiling carr
 
 VISUAL='\b(MultiMesh|MultiMeshInstance3D|MeshInstance3D|[A-Z][A-Za-z]*Mesh|[A-Z][A-Za-z0-9]*Material3D|ShaderMaterial|ParticleProcessMaterial|GPUParticles3D|CPUParticles3D|OmniLight3D|SpotLight3D|DirectionalLight3D|Label3D|Sprite3D|Decal|Control|CanvasLayer|Label|Button|Panel|[A-Z][A-Za-z]*Container)\.new\('
 LOADS='(pre)?load\("res://addons/local_agents/game/(render|ui)/'
+SHADERS='(pre)?load\("res://[^"]*\.gdshader(inc)?"'
 PRESET='la_effects_scale'
-hits="$(rg -n --glob '!**/thirdparty/**' -g '*.gd' -e "$VISUAL" -e "$LOADS" -e "$PRESET" "$SIM" 2>/dev/null \
+hits="$(rg -n --glob '!**/thirdparty/**' -g '*.gd' -e "$VISUAL" -e "$LOADS" -e "$SHADERS" -e "$PRESET" "$SIM" \
+	2>/dev/null | rg -v ':[0-9]+:[[:space:]]*#' || true)"
+VISUAL_RES='^\[gd_resource type="[A-Za-z0-9]*(Material|Mesh|Texture|Shader|Sky|Environment|Theme|Font|StyleBox)'
+while IFS= read -r site; do
+	res="$(printf '%s' "$site" | sed -n 's/.*load("res:\/\/\([^"]*\.tres\)").*/\1/p')"
+	[ -n "$res" ] && [ -f "$ROOT/$res" ] || continue
+	printf '%s' "$site" | rg -q -e "$LOADS" && continue
+	head -1 "$ROOT/$res" | rg -q -e "$VISUAL_RES" && hits="${hits:+$hits$'\n'}$site"
+done <<< "$(rg -n --glob '!**/thirdparty/**' -g '*.gd' -e '(pre)?load\("res://[^"]*\.tres"' "$SIM" 2>/dev/null \
 	| rg -v ':[0-9]+:[[:space:]]*#' || true)"
 n=0
 [ -n "$hits" ] && n="$(printf '%s\n' "$hits" | rg -c . || echo 0)"

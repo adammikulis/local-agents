@@ -10,6 +10,10 @@ var _draw_m: float = 0.0                   # the streamed distance last asked fo
 ## The vector field the world this layer draws declares. UNSET defers to the shell's --vectors flag.
 var declared_vectors: String = LAFieldVectors.SOURCE_UNSET
 
+@export_group("Terrain")
+## The planet's surface material.
+@export var terrain_material: ShaderMaterial
+
 # The node TREE is declared in RenderLayer.tscn; this script only wires it.
 @onready var _camera: Camera3D = $CameraRig
 @onready var _sky_ctrl: LAVoxelSkyController = $SkyController
@@ -116,6 +120,10 @@ func _build_world_visuals() -> void:
 
 	_sky_ctrl.bind_scene(material, _water)
 
+	# The ground's look, before any uniform below is written to it.
+	if terrain_material == null:
+		push_error("LARenderLayer: Terrain Material is unset, so the planet draws with godot_voxel's default material.")
+	terrain.set_terrain_material(terrain_material)
 	# The ground's reflectance, from the one place this world declares it.
 	terrain.set_shader_param("albedo_bare_ground", LAPhysical.ALBEDO_BARE_GROUND)
 	terrain.set_shader_param("albedo_snow_ice", LAPhysical.ALBEDO_SNOW_ICE)

@@ -28,7 +28,7 @@ text. Change the `.tres` for content, or the generator for wording.
 
 `scripts/run_demo.sh <name>` runs an example scene with no window in about a second and prints a
 `RUN_DEMO={...}` line carrying the exit code. It only accepts a scene that builds a
-`LocalAgentDemoHarness`, and 5 of the 15 entries have one. An example scene without that harness
+`LocalAgentDemoHarness`, and 4 of the 15 entries have one. An example scene without that harness
 ignores `--run-frames` and never exits, so it gets `--quit-after` instead. Each demo below carries
 the command that applies to it.
 
@@ -134,11 +134,11 @@ The simulation substrate in a bare box: inject heat at the floor, watch it diffu
 
 ## 11. A whole planet from one node
 
-LocalAgentSimWorld in SPHERE mode: the cubed-sphere body, the material field and a living ecology from a single node, framed by a camera. There is no game shell around it, so no HUD, menus, disasters or streamer.
+LocalAgentSimWorld in SPHERE mode: a planet turning under its star, the material field it steps and a living ecology from a single node, framed by a camera. There is no game shell around it, so no HUD, menus, disasters or streamer.
 
 - Scene: `res://addons/local_agents/examples/SimWorldPlanetDemo.tscn`
 - Requires: the godot_voxel GDExtension (addons/zylann.voxel/)
-- Run headless: `scripts/run_demo.sh SimWorldPlanetDemo`, or `scripts/run_demo.sh SimWorldPlanetDemo 200` for more than the default 40 frames.
+- Run: `scripts/run_sim_offscreen.sh --path . addons/local_agents/examples/SimWorldPlanetDemo.tscn -- --run-frames=200`. Headless has no compute device for the planet's field, so the wrapper gives it a real window placed off-screen.
 
 ## 12. Play the planet
 
@@ -146,7 +146,7 @@ The whole game shell around the planet: herds, emergent disasters, a HUD and a l
 
 - Scene: `res://addons/local_agents/game/VoxelWorld.tscn`
 - Requires: the godot_voxel GDExtension (addons/zylann.voxel/)
-- Run: `scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn -- --run-frames=200`. Headless has no compute device for the voxel world's field, so the wrapper gives it a real window placed off-screen.
+- Run: `scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn -- --run-frames=200`. Headless has no compute device for the planet's field, so the wrapper gives it a real window placed off-screen.
 
 ## 13. Slice, rung 0: state
 
@@ -154,7 +154,7 @@ One box of the planet, laid on the real terrain and stepped by the bottom rung a
 
 - Scene: `res://addons/local_agents/examples/SliceRung0Demo.tscn`
 - Requires: the godot_voxel GDExtension (addons/zylann.voxel/)
-- Run: `scripts/run_sim_offscreen.sh --path . addons/local_agents/examples/SliceRung0Demo.tscn -- --run-frames=200`. Headless has no compute device for the voxel world's field, so the wrapper gives it a real window placed off-screen.
+- Run: `scripts/run_sim_offscreen.sh --path . addons/local_agents/examples/SliceRung0Demo.tscn -- --run-frames=200`. Headless has no compute device for the planet's field, so the wrapper gives it a real window placed off-screen.
 
 ## 14. Slice, rung 1: gravity
 
@@ -162,7 +162,7 @@ The same box as rung 0 with one process added: the potential of the mass that is
 
 - Scene: `res://addons/local_agents/examples/SliceRung1Demo.tscn`
 - Requires: the godot_voxel GDExtension (addons/zylann.voxel/)
-- Run: `scripts/run_sim_offscreen.sh --path . addons/local_agents/examples/SliceRung1Demo.tscn -- --run-frames=200`. Headless has no compute device for the voxel world's field, so the wrapper gives it a real window placed off-screen.
+- Run: `scripts/run_sim_offscreen.sh --path . addons/local_agents/examples/SliceRung1Demo.tscn -- --run-frames=200`. Headless has no compute device for the planet's field, so the wrapper gives it a real window placed off-screen.
 
 ## 15. Life on the planet, backdrop faked
 
@@ -170,4 +170,4 @@ The same coastal box the rung-0 demo lays down, run at the highest rung the ladd
 
 - Scene: `res://addons/local_agents/examples/LifeDemo.tscn`
 - Requires: the godot_voxel GDExtension (addons/zylann.voxel/)
-- Run: `scripts/run_sim_offscreen.sh --path . addons/local_agents/examples/LifeDemo.tscn -- --run-frames=200`. Headless has no compute device for the voxel world's field, so the wrapper gives it a real window placed off-screen.
+- Run: `scripts/run_sim_offscreen.sh --path . addons/local_agents/examples/LifeDemo.tscn -- --run-frames=200`. Headless has no compute device for the planet's field, so the wrapper gives it a real window placed off-screen.

@@ -3,4 +3,5 @@
 [ext_resource type="Shader" path="res://addons/local_agents/sim/shaders/VoxelTerrainTriplanar.gdshader" id="1_terrain"]
 
 [resource]
+resource_local_to_scene = true
 shader = ExtResource("1_terrain")

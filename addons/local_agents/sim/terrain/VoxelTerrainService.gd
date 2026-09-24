@@ -3,8 +3,6 @@ extends RefCounted
 
 
 const PlanetGenScript: GDScript = preload("res://addons/local_agents/sim/terrain/SpherePlanetGenerator.gd")
-## The authored look the terrain is built with; a view replaces it through set_terrain_material().
-const TERRAIN_MATERIAL: ShaderMaterial = preload("res://addons/local_agents/sim/shaders/VoxelTerrainMaterial.tres")
 
 const MAX_LOD: int = 23                   # godot_voxel's cap: VoxelLodTerrain rejects lod_count >= 24
 
@@ -73,7 +71,6 @@ func build_planet(parent: Node3D, opts: Dictionary = {}) -> void:
 	terrain.name = "VoxelTerrain"
 	terrain.mesher = mesher
 	terrain.generator = gen
-	terrain.material = TERRAIN_MATERIAL.duplicate()
 	terrain.lod_count = _lod_count_for(terrain.lod_distance)
 	terrain.view_distance = int(opts.get("view_distance", 8000))
 	# NO COLLISION MESH: what stops a body is the field's ground, and a ray is marched through the SDF, so
@@ -108,10 +105,10 @@ func set_shader_param(param: String, value) -> void:
 		(_terrain.material as ShaderMaterial).set_shader_parameter(param, value)
 
 
-## Draw the terrain with its own copy of `mat`, so uniforms set at runtime stay this world's.
+## Draw the terrain with `mat`, which the view that dresses this world owns.
 func set_terrain_material(mat: ShaderMaterial) -> void:
 	if _terrain != null:
-		_terrain.material = mat.duplicate()
+		_terrain.material = mat
 
 
 ## THE LOD PYRAMID SPANS THE BODY OR ITS FAR SIDE IS NEVER MESHED. The coarsest level reaches

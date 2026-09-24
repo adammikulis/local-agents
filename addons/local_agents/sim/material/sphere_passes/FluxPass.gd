@@ -191,7 +191,7 @@ func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: i
 	# No sun in the ctx is no star, which is no XUV — never an assumed one.
 	_xuv_w_m2 = float(ctx.get("xuv_w_m2", 0.0))
 	_phi_datum = float(ctx.get("phi_datum", 0.0))
-	_grav_self = float(ctx.get("gravity_self", 1.0))
+	_grav_self = float(ctx.get("gravity_self", 0.0))
 	# The equation of state, restated after every substep. StateDerivePass owns the kernel, the
 	# bindings and the block; this pass owns when the substep asks for it.
 	_driver.run_transport(cl, _peaks, _pc_rows(cc, dt_s, sun),

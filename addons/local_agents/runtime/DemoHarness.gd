@@ -38,7 +38,7 @@ const DEFAULT_SHOOT_SIZE: Vector2i = Vector2i(1280, 800)
 @export_range(1, 100000, 1, "suffix:frames") var shoot_frames: int = 90
 
 @export_group("Exit")
-## Route the quit through the LAAppExit autoload when it is registered (game installs), otherwise
+## Route the quit through the AppExit autoload when it is registered (game installs), otherwise
 ## `get_tree().quit()`. Keeps the addon usable in projects that do not register that autoload.
 @export var use_app_exit: bool = true
 
@@ -272,10 +272,8 @@ func _quit(code: int) -> void:
 		return
 	print_complete(code)
 	if use_app_exit:
-		var app_exit: Node = tree.root.get_node_or_null("AppExit")
-		if app_exit != null and app_exit.has_method("quit"):
-			app_exit.call("quit", code)
-			return
+		LAAppQuit.request(self, code)
+		return
 	tree.quit(code)
 
 

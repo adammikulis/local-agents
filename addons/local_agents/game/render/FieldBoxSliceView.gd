@@ -6,6 +6,7 @@ extends MultiMeshInstance3D
 
 const AXES: PackedStringArray = ["X", "Y", "Z"]
 
+@export_group("Wiring")
 ## The box whose field this view draws.
 @export var field_box: LocalAgentFieldBox:
 	set(value):
