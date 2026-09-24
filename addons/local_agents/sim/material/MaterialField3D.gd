@@ -3,6 +3,9 @@ extends Node3D
 
 ## LAMaterialField3D: the DENSE 3D material-flow substrate (successor to the 2.5D LAMaterialField).
 
+## Something struck the water at `world_pos`, delivering `joules` of kinetic energy to it; the views draw it.
+signal splashed(world_pos: Vector3, joules: float)
+
 const FieldCacheScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldCache3D.gd")
 const GravityScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldGravity3D.gd")
 const MineralStampScript: GDScript = preload("res://addons/local_agents/sim/material/MineralStamp3D.gd")
@@ -38,7 +41,7 @@ const FOG_MAX_TEMP: float = 12.0
 # Condensate at which a cell counts as covered, mol/m^3.
 const CONDENSE_COVER_MIN: float = 5.0e-5 / LAPhysical.MOLAR_MASS_WATER_KG_MOL
 var _t_rock: PackedFloat32Array = PackedFloat32Array()   # the geotherm's mean over each cell's rock, C, at the seed
-var _sun_light = null                                    # DirectionalLight3D — solar forcing (top cells)
+var _star: LAStar = null                                 # the star whose flux falls on the top cells
 
 var _ecology = null                                      # LAEcologyService back-ref (ash regrowth / actor coupling)
 const SphereGPUScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialSphereGPU3D.gd")
@@ -49,14 +52,14 @@ const OrganicScript: GDScript = preload("res://addons/local_agents/sim/material/
 var _gpu = null                                          # LAMaterialSphereGPU3D or null
 var _use_gpu: bool = false
 var _queries = null                                      # LAMaterialFieldQueries3D
-var _inject = null                                       # LAMaterialFieldInject3D (write-side injection + FX)
+var _inject = null                                       # LAMaterialFieldInject3D (write-side injection)
 var _stamp = null                                        # LAMineralStamp3D — solid-flag -> SDF growth stamp
 var _sphere_step = null                                  # LAMaterialFieldSphereStep3D — the per-frame step loop
 var _organic = null                                      # LAMaterialFieldOrganic3D — the dead pool's C:H:O gauge
 # Substrate-foundation primitive modules (the field only delegates; all logic lives in these). Seams the
 # per-actor dissolution agents fill: charge→bolt (Thunderstorm), ejecta (bombs/debris).
 var _charge_mod = null                                   # LAMaterialCharge3D — charge readback + breakdown→bolt
-var _ejecta = null                                       # LAMaterialEjecta3D — momentum/ejecta parcels (Node3D child)
+var _ejecta = null                                       # LAMaterialEjecta3D — momentum/ejecta parcels (child)
 var _pending_lightning_cb: Callable = Callable()         # lightning visual callback (registered pre-activate)
 const ChargeScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialCharge3D.gd")
 const EjectaScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialEjecta3D.gd")
@@ -91,9 +94,9 @@ func _init() -> void:
 	_biota.setup(self)
 
 
-## Wire the real scene sun (DirectionalLight3D); the heat module reads its energy + angle for solar input.
-func set_sun(light) -> void:
-	_sun_light = light
+## Wire the star: the solar input is its irradiance, along the line from it to the body centre.
+func set_star(star: LAStar) -> void:
+	_star = star
 
 
 var _body = null                                         # LAPlanetBody
@@ -280,7 +283,7 @@ func activate() -> void:
 		_charge_mod.set_visual(_pending_lightning_cb)
 	_ejecta = EjectaScript.new()
 	_ejecta.setup(self)
-	add_child(_ejecta)                            # Node3D: integrates ballistic parcels + owns the GPU ejecta particles
+	add_child(_ejecta)                            # books its parcels' launches and landings
 	_capture = CaptureScript.maybe_make(self)
 	_ready_sim = true
 
@@ -459,10 +462,11 @@ func peak_heat() -> float:
 func hot_cell_count(threshold: float = 60.0) -> int:
 	return _queries.hot_cell_count(threshold)
 
-## A few short-lived rigidbody droplets flung from a world point.
-func splash(world_pos: Vector3, strength: float) -> void:
-	if _inject != null:
-		_inject.splash(world_pos, strength)
+## An impactor delivered `joules` of kinetic energy at a world point: only where the point holds liquid
+## water is there a splash.
+func splash(world_pos: Vector3, joules: float) -> void:
+	if joules > 0.0 and _queries != null and _queries.is_water_at(world_pos):
+		splashed.emit(world_pos, joules)
 
 
 func set_ecology(e) -> void:

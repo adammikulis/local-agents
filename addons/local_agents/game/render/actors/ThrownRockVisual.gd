@@ -23,6 +23,9 @@ func _ready() -> void:
 	_rock = get_parent() as LAThrownRock
 	if _rock != null:
 		_rock.struck.connect(_on_struck)
+	var box: BoxMesh = (_stone as MeshInstance3D).mesh.duplicate() as BoxMesh
+	box.size = Vector3.ONE * LAThrownRock.STONE_SIDE
+	(_stone as MeshInstance3D).mesh = box
 
 
 func _process(delta: float) -> void:

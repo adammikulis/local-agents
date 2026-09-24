@@ -1,7 +1,7 @@
 class_name LAMaterialFieldInject3D
 extends RefCounted
 
-## LAMaterialFieldInject3D: the WRITE-side injection + FX API of the dense 3D MaterialField3D, factored
+## LAMaterialFieldInject3D: the write-side injection API of the dense 3D MaterialField3D.
 
 const QueueScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldInjectQueue3D.gd")
 
@@ -18,8 +18,6 @@ var _crater_mass: float = 0.0            # cumulative mineral volume fraction ex
 var _crater_sea: int = 0                 # cumulative opened cells that were under the water line and flooded
 
 var _flood_unsourced: int = 0            # below-sea crater cells left DRY because no live water was in reach
-
-signal splashed(world_pos: Vector3, strength: float)
 
 
 func setup(field) -> void:
@@ -331,9 +329,3 @@ func crater_report() -> Dictionary:
 		"crater_dry_pockets": _flood_unsourced,
 	}
 
-
-## A splash at a world point: the renderer's surface rings on `splashed`.
-func splash(world_pos: Vector3, strength: float) -> void:
-	if is_nan(world_pos.x):
-		return
-	splashed.emit(world_pos, clampf(strength, 0.1, 4.0))

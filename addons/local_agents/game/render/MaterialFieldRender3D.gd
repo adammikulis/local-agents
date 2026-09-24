@@ -21,13 +21,13 @@ var _center: Vector3 = Vector3.ZERO
 var _builder: RefCounted = null
 var _mesh: ArrayMesh = null
 var _mat: ShaderMaterial = null
-var _ripples: Array = []                   # [{pos:Vector3, age:float, strength:float}]
+var _ripples: Array = []                   # [{pos:Vector3, age:float, cavity_m:float}]
 var _accum: float = REBUILD_PERIOD          # force a build on the first frame
 var _last_radial: Vector3 = Vector3.ZERO
 var _ready: bool = false
 
 
-func setup(field, camera: Node3D, terrain, _sun, center: Vector3, transparent: bool) -> void:
+func setup(field, camera: Node3D, center: Vector3, transparent: bool) -> void:
 	_f = field
 	_camera = camera
 	_center = center
@@ -49,27 +49,27 @@ func setup(field, camera: Node3D, terrain, _sun, center: Vector3, transparent: b
 	_mat.set_shader_parameter("ripple_decay", RIPPLE_DECAY)
 	material_override = _mat
 
-	# Ring the surface whenever anything splashes (meteor / tornado / fish / thrown rock / flood / plant).
-	if field._inject != null and field._inject.has_signal("splashed"):
-		field._inject.splashed.connect(_on_splashed)
+	# Ring the surface where the field announces a splash.
+	field.splashed.connect(_on_splashed)
 	_ready = true
 
 
-func _on_splashed(world_pos: Vector3, strength: float) -> void:
-	add_ripple(world_pos, strength)
+func _on_splashed(world_pos: Vector3, joules: float) -> void:
+	add_ripple(world_pos, LASplashView.cavity_radius_m(joules, LABallistics.g_at(world_pos).length()))
 
 
-## Push an expanding impact ring at a world point. Evicts the weakest entry when the buffer is full.
-func add_ripple(world_pos: Vector3, strength: float) -> void:
-	if is_nan(world_pos.x):
+## Push an expanding impact ring at a world point from a cavity of `cavity_m` radius, m. Evicts the weakest
+## entry when the buffer is full.
+func add_ripple(world_pos: Vector3, cavity_m: float) -> void:
+	if not world_pos.is_finite() or not (cavity_m > 0.0):
 		return
 	if _ripples.size() >= RIPPLE_MAX:
 		var weakest: int = 0
 		for i in range(1, _ripples.size()):
-			if _ripples[i].strength < _ripples[weakest].strength:
+			if _ripples[i].cavity_m < _ripples[weakest].cavity_m:
 				weakest = i
 		_ripples.remove_at(weakest)
-	_ripples.push_back({"pos": world_pos, "age": 0.0, "strength": clampf(strength, 0.1, 4.0)})
+	_ripples.push_back({"pos": world_pos, "age": 0.0, "cavity_m": cavity_m})
 
 
 func _process(delta: float) -> void:
@@ -122,7 +122,7 @@ func _age_ripples(delta: float) -> void:
 	var kept: Array = []
 	for rp in _ripples:
 		rp.age += delta
-		var amp: float = rp.strength * exp(-rp.age * RIPPLE_DECAY)
+		var amp: float = rp.cavity_m * exp(-rp.age * RIPPLE_DECAY)
 		if amp > 0.02 and rp.age * RIPPLE_SPEED < 400.0:
 			kept.push_back(rp)
 	_ripples = kept
@@ -142,13 +142,13 @@ func _push_frame_uniforms(radial: Vector3) -> void:
 	_mat.set_shader_parameter("wind_dir", wdir)
 	_mat.set_shader_parameter("wind_strength",
 		clampf(2.0 * w3.length() / LAFieldVectors.WIND_REF_M_S, 0.0, 2.0))
-	# Impact ripples: pad to RIPPLE_MAX with (centre.x, centre.z, age, strength) in WORLD xz (what the shader reads).
+	# Impact ripples: pad to RIPPLE_MAX with (centre.x, centre.z, age, cavity_m) in WORLD xz (what the shader reads).
 	var packed: Array = []
 	packed.resize(RIPPLE_MAX)
 	for i in RIPPLE_MAX:
 		if i < _ripples.size():
 			var rp: Dictionary = _ripples[i]
-			packed[i] = Vector4(rp.pos.x, rp.pos.z, rp.age, rp.strength)
+			packed[i] = Vector4(rp.pos.x, rp.pos.z, rp.age, rp.cavity_m)
 		else:
 			packed[i] = Vector4.ZERO
 	_mat.set_shader_parameter("ripples", packed)

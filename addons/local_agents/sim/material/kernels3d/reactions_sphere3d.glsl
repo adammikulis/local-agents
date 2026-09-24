@@ -81,6 +81,7 @@ layout(set = 0, binding = LA_BIND_ORG_O, std430) restrict buffer OrgO { float or
 
 // Below the buffer blocks: the slot names collide with the O2/CO2 block names above.
 #include "generated.glsli"
+#include "physical.glsli"
 #include "enthalpy.glsli"
 #include "mixture_enthalpy.glsli"
 

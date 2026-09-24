@@ -115,18 +115,16 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
 - [ ] **`t_k()` floors every temperature at 1 K** in `closures.glsli`, `enthalpy.glsli`, `state_derive.glsl`
       and `reactions_sphere3d.glsl`: a cell whose energy solve lands below absolute zero reads 1 K instead of
       failing. Delete the floor; count such cells in a detector row gated to zero.
-- [ ] **`carbonate` has an expansivity and no bulk modulus, and `cellulose` has neither,** so their
-      cells report an incompressible volume in the equation of state. Cite both moduli in `LASubstances`.
-- [ ] **No phase carries a measured `bulk_modulus_deriv`,** so every one of them compresses on `K0' = 4` —
-      the value at which third-order Birch-Murnaghan collapses to second order. That is the standard
-      treatment where `K0'` is unmeasured rather than an invented number, and it is declared as
-      `second_order_birch_murnaghan`, but a phase whose real `K0'` is larger stiffens faster than the
-      table says. The field is read already; only the cited data per phase is missing.
 - [ ] **Solid polymorphs** — ice I…VII, and olivine → wadsleyite → perovskite with depth. A planet's mantle
       structure IS these transitions, each with its own enthalpy and density jump. Maintainer asked for the
       structure to be built.
 - [ ] **Glass vs crystalline.** Quenched basalt releases different heat than slow-cooled; `latent_rock` is
       one number.
+- [ ] **Apatite never melts.** Its row carries no melting point, latent heat or melt. Reading:
+      `LASubstances.table()["apatite"]` has no `melt_c`.
+- [ ] **Five gases have no solid heat capacity.** N2, O2, CO, CH4 and CO2 carry melting lines but no
+      `specific_heat_solid`, so any state below their melting line is NaN. Reading:
+      `LASubstances.table()["n2"]` has no `specific_heat_solid`.
 - [ ] **Metastability** — supercooled water, superheated liquid. Real, and arguably beyond this granularity.
 
 ## B. The substrate's state
@@ -219,10 +217,9 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
 - [ ] **The core is seeded, and the seeded phases cannot yet move or melt on the GPU.** The planet now
       seeds differentiated — a metal core whose radius follows from the core mass fraction, one silicate
       shell of the registry's own mineral mix (maintainer's decision: differentiation at ~10^13 steps is
-      not computable). What remains for the core to LIVE rather than sit: **the six new phases are
-      sensible-heat entries**, so metal, olivine, pyroxene, plagioclase, halite and apatite never melt in
-      `state_derive.glsl` — no liquid outer core, no mantle melt beyond the wollastonite share — and
-      **none has a transport row**, so none of them erodes, slumps or percolates.
+      not computable). What remains for the core to LIVE rather than sit: metal, olivine, pyroxene,
+      plagioclase, halite and apatite have **no transport row**, so none of them erodes, slumps or
+      percolates.
 - [ ] **Trace elements ride their host phase uniformly, and nothing can ever concentrate them.** Each
       shell mineral carries the registry's traces as fixed kg/kg. Real ore bodies form when partition
       coefficients move trace mass between silicate melt, sulfide melt and aqueous brine; that needs the

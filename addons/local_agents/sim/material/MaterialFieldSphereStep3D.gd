@@ -196,14 +196,12 @@ func step() -> void:
 		_f._gravity.solve_step(_f._gpu._step_index)   # the potential of the mass that moved, converged; the device is idle here
 	LASimReport.gauge("field_begin_ms", float(Time.get_ticks_usec() - t_begin) / 1000.0)
 	# Per-cell solar terminator + marine cooling need the world-space sun direction and the sea shell radius.
-	if _f._sun_light != null and _f._gpu.has_method("set_sun_flux") \
-			and _f._sun_light.has_meta("irradiance_w_m2"):
+	if _f._star != null and _f._gpu.has_method("set_sun_flux"):
 		# The MAGNITUDE of sun_dir is the irradiance in W/m^2, straight off the star's luminosity and the
-		# separation the integrator produced. A light with no irradiance meta is a light nobody has placed
-		# in a system yet, and an unlit field is dark rather than lit by an assumed sun.
-		var irr: float = float(_f._sun_light.get_meta("irradiance_w_m2"))
-		var xuv: float = float(_f._sun_light.get_meta("xuv_w_m2", 0.0))
-		_f._gpu.set_sun_flux(_f.dir_to_field(_f._sun_light.global_transform.basis.z * irr), xuv)
+		# separation the integrator produced. A field with no star is dark rather than lit by an assumed sun.
+		var c: Vector3 = _f.centre()
+		var to_star: Vector3 = (_f._star.global_position - c).normalized()
+		_f._gpu.set_sun_flux(_f.dir_to_field(to_star * _f._star.irradiance_at(c)), _f._star.xuv_irradiance_at(c))
 	if _f._gpu.has_method("set_sea_radius"):
 		_f._gpu.set_sea_radius(_f.sea_radius())
 	if _f._inject != null and not _f._inject.queue.is_empty():

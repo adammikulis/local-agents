@@ -259,6 +259,12 @@ kind = "text"
 marker = "^check_stack_ssot: OK"
 
 [[gate]]
+name = "check_derive_props_layout"
+script = "scripts/check_derive_props_layout.sh"
+kind = "text"
+marker = "^check_derive_props_layout: OK"
+
+[[gate]]
 name = "check_stack_balance"
 script = "scripts/check_stack_balance.sh"
 kind = "gpu"
@@ -537,6 +543,12 @@ name = "check_condensed_moduli"
 script = "scripts/check_condensed_moduli.sh"
 kind = "headless"
 marker = "^check_condensed_moduli: OK"
+
+[[gate]]
+name = "check_melting_lines"
+script = "scripts/check_melting_lines.sh"
+kind = "headless"
+marker = "^check_melting_lines: OK"
 
 [[gate]]
 name = "check_reaction_balance"

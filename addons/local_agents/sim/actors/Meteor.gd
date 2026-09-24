@@ -256,7 +256,7 @@ func _on_impact() -> void:
 	if _ecology != null and _ecology.has_method("material_field"):
 		var water: Object = _ecology.material_field()
 		if water != null and water.has_method("is_water_at") and water.is_water_at(_impact_point):
-			water.splash(_impact_point, r)
+			water.splash(_impact_point, 0.5 * _mass_kg * _impact_velocity.length_squared())
 			into_water = true
 	if _ecology != null and _ecology.has_method("material_field") and r > 0.0:
 		_spend_impact(_ecology.material_field(), r)

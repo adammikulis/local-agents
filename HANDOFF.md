@@ -160,10 +160,8 @@ Branch `native-plans` is unlanded: `scripts/check_lasim_parity.sh` there reads `
 Maintainer's decision, standing: per-cell moles of elements are the state and species are derived
 (`docs/PHYSICS_TODO.md` B); today the ledger reconstructs them from `Channels.gd` (`mol_per_unit`).
 
-## 18. PRESENTATION LIVES ON THE SIM SIDE OF THE EJECTA MODULE, AND THE GPU LINT RUNS HERE ONLY
+## 18. THE GPU LINT RUNS HERE ONLY
 
-`rg -n 'MultiMeshInstance3D|la_effects_scale' addons/local_agents/sim/material/MaterialEjecta3D.gd`
-finds a draw cap read off the graphics preset and a MultiMesh built under `sim/`.
 `.github/workflows/gpu-lint.yml` targets a self-hosted macOS runner labelled `gpu`; none is registered.
 
 ## How to run

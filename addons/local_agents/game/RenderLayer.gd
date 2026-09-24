@@ -19,10 +19,14 @@ var declared_vectors: String = LAFieldVectors.SOURCE_UNSET
 @onready var _sky_ctrl: LAVoxelSkyController = $SkyController
 @onready var _veg_renderer: Node3D = $VegetationRenderer
 @onready var _water: Node = $WaterParticles
-@onready var _water_surface: Node = $WaterSurface
+@onready var _water_surface: LAMaterialFieldRender3D = $WaterSurface
 @onready var _vectors: LAFieldVectors = $FieldVectors
 @onready var _heat_tex: LAHeatFieldTexture = $HeatFieldTexture
 @onready var _test_masses: LATestMassView = $TestMassView
+@onready var _outline: LAFieldBoxOutline = $FieldBoxOutline
+@onready var _ejecta: LAEjectaView = $EjectaView
+@onready var _splash: LASplashView = $SplashView
+@onready var _moon: LAMoonView = $MoonView
 
 
 func build(world: Node, sim: LASimulation, input: LAVoxelInputController) -> void:
@@ -77,9 +81,6 @@ func _build_sky() -> void:
 	# The sky follows THIS camera, never a viewport lookup: a photographed run draws through an
 	# off-screen SubViewport whose parent window holds no camera.
 	_sky_ctrl.bind_camera(_camera, _sim.body().center(), _sim.body().sea_radius())
-	_sky_ctrl.enter_space_mode(_sim.body().center())
-	if _sim.orbits() != null and _sim.orbits().has_method("set_sky_controller"):
-		_sim.orbits().set_sky_controller(_sky_ctrl)
 	# A SLICE has already been framed: the box says where this world is looked at, and nothing re-aims it.
 	if _slice_box().size.length() > 0.0:
 		return
@@ -115,8 +116,7 @@ func _build_world_visuals() -> void:
 
 	# THE FREE SURFACE OF EVERY BODY OF WATER THIS WORLD HOLDS, meshed from the field's own water column:
 	# a stream, a lake and an ocean are the same liquid standing at whatever level it stands at.
-	_water_surface.setup(material, _camera, terrain, _sky_ctrl.sun(), body.center(),
-		bool(_render_opts.get("ocean_transparent", true)))
+	_water_surface.setup(material, _camera, body.center(), bool(_render_opts.get("ocean_transparent", true)))
 
 	_sky_ctrl.bind_scene(material, _water)
 
@@ -134,16 +134,20 @@ func _build_world_visuals() -> void:
 	_heat_tex.setup(material, terrain)
 
 	# The simulated box where it meets the world: ground edges on the relief, corner pillars fading up.
-	var outline: LAFieldBoxOutline = LAFieldBoxOutline.build(material, terrain, _camera, body)
-	add_child(outline)
+	_outline.setup(material, terrain, _camera, body)
+	# The field's ejecta in flight, its splashes, and the moon.
+	_ejecta.setup(material)
+	material.splashed.connect(_splash.play)
+	_moon.setup(_sim.moon())
 
 	for pair in [["terrain", terrain.terrain_node()], ["camera", _camera], ["sky", _sky_ctrl], ["vegetation", _veg_renderer],
 			["water_particles", _water], ["water_surface", _water_surface],
 			["vectors", _vectors], ["heat_texture", _heat_tex], ["test_masses", _test_masses],
-			["box_outline", outline]]:
+			["box_outline", _outline], ["ejecta_view", _ejecta], ["splash_view", _splash],
+			["moon_view", _moon]]:
 		LAAblate.adopt(pair[0], pair[1])
-	# Effects density onto the atmosphere particles.
-	_sim.settings_applier().bind(_world, terrain, _water)
+	# The effects level onto the particle views.
+	_sim.settings_applier().bind(_water, _ejecta)
 	# The screen-ray casts the impact controller accepts but never requires.
 	if _sim.meteor_impacts() != null:
 		_sim.meteor_impacts().set_presentation(_camera)

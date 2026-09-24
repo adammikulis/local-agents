@@ -6,6 +6,7 @@ const SkyCycleScript: GDScript = preload("res://addons/local_agents/game/world/V
 
 var _star: Node3D = null    # LAStar, owned by the simulation — read, never created here
 var _sky: Node = null       # LAVoxelSkyCycle — the scattering atmosphere and the sun that lights it
+var _centre: Vector3 = Vector3.ZERO   # centre of the body the sky stands on
 
 
 ## Build the sky cycle as a child of `world`, lit by the simulation's `star` and `moon`.
@@ -16,17 +17,12 @@ func setup(world: Node, star: Node3D, moon: Node3D, render_opts: Dictionary = {}
 	world.add_child(_sky)
 	_sky.setup(world, render_opts)
 	_sky.bind_bodies(star, moon)
-	# The sky cycle draws the lighting; the star's own light stays hidden so they do not double up. Hiding it
-	# does not affect the field — a hidden DirectionalLight3D still carries its transform and metadata.
-	if _star != null and _star.has_method("light") and _star.light() != null:
-		_star.light().visible = false
 
 
-## THE ORBIT MOVED: re-derive the direction the sunlight travels, star -> body. The simulation's orbit
-## integrator calls this every step; it is the only thing that aims the sun.
-func enter_space_mode(body_center: Vector3) -> void:
+## The sunlight travels star -> body, from wherever the orbit has put the star.
+func _aim_sun() -> void:
 	if _sky != null and _star != null:
-		_sky.set_sun_shine((body_center - _star.global_position).normalized())
+		_sky.set_sun_shine((_centre - _star.global_position).normalized())
 
 
 ## The sky cycle reads the field each frame (cloud-cover dimming) + pushes the day/night colour tint to
@@ -39,12 +35,15 @@ func bind_scene(material, water) -> void:
 ## The camera the frame is drawn through and the body it stands on: the sky's own altitude and its local
 ## vertical.
 func bind_camera(camera: Node3D, planet_centre: Vector3, sea_radius: float) -> void:
+	_centre = planet_centre
 	if _sky != null and _sky.has_method("bind_camera"):
 		_sky.bind_camera(camera, planet_centre, sea_radius)
+	_aim_sun()
 
 
 func update(delta: float) -> void:
 	if _sky != null:
+		_aim_sun()
 		_sky.update(delta)
 
 

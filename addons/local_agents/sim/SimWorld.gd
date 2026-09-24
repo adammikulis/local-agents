@@ -261,8 +261,8 @@ func _build_sphere() -> bool:
 		return false
 	if _material.has_method("sample_solidity"):
 		_material.sample_solidity()
-	# The STAR's light: direction from its basis, irradiance from the orbit that places it.
-	_material.set_sun(star.light())
+	# The star's irradiance along the line from it to the body centre.
+	_material.set_star(star)
 	_material.set_body(_body)
 	# The body IS the field's matter: its mass, inertia and spin are read back off it, never typed.
 	_body.set_field(_material)
