@@ -83,8 +83,6 @@ func build(world: Node, sim: LASimulation, render: LARenderLayer, input: LAVoxel
 	# The stings and the status line these sim controllers accept but never require.
 	if sim.meteor_impacts() != null:
 		sim.meteor_impacts().set_presentation(camera)
-	if sim.phenomena_markers() != null:
-		sim.phenomena_markers().set_presentation(_audio)
 	if sim.spawn_controller() != null and sim.spawn_controller().has_method("set_presentation"):
 		sim.spawn_controller().set_presentation(camera, _hud)
 

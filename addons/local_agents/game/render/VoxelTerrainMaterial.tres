@@ -1,6 +1,6 @@
 [gd_resource type="ShaderMaterial" load_steps=2 format=3]
 
-[ext_resource type="Shader" path="res://addons/local_agents/sim/shaders/VoxelTerrainTriplanar.gdshader" id="1_terrain"]
+[ext_resource type="Shader" path="res://addons/local_agents/game/render/shaders/VoxelTerrainTriplanar.gdshader" id="1_terrain"]
 
 [resource]
 resource_local_to_scene = true

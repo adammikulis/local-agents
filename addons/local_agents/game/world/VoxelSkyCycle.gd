@@ -4,11 +4,12 @@ extends Node
 ## The sky the frame is drawn through: one scattering atmosphere over the body, lit by the star that is
 ## actually in the scene. Presentation only — the field reads the star's irradiance itself.
 
-# Scale height of the Rayleigh atmosphere, m (U.S. Standard Atmosphere); the shader carries the same one.
+# Scale height of the Rayleigh atmosphere, m (U.S. Standard Atmosphere).
 const AIR_SCALE_HEIGHT_M: float = 8000.0
-# Rayleigh volume-scattering coefficient of the standard atmosphere at sea level, 550 nm, 1/m: the
-# vertical optical depth 0.0973 spread over the scale height.
-const RAYLEIGH_BETA_SEA_LEVEL: float = 0.0973 / AIR_SCALE_HEIGHT_M
+# Vertical Rayleigh optical depth of the standard atmosphere at 680 / 550 / 440 nm (Bodhaine 1999).
+const RAYLEIGH_TAU: Vector3 = Vector3(0.0411, 0.0973, 0.2429)
+# Rayleigh volume-scattering coefficient at sea level, 550 nm, 1/m: that depth over the scale height.
+const RAYLEIGH_BETA_SEA_LEVEL: float = RAYLEIGH_TAU.y / AIR_SCALE_HEIGHT_M
 
 var _sun: DirectionalLight3D = null
 var _sun_shine: Vector3 = Vector3(0, -1, 0)  # world direction the sunlight travels (star -> planet)
@@ -36,7 +37,9 @@ func setup(world: Node3D, render_opts: Dictionary = {}) -> void:
 	e.background_mode = Environment.BG_SKY
 	var sky: Sky = Sky.new()
 	var sky_mat: ShaderMaterial = ShaderMaterial.new()
-	sky_mat.shader = load("res://addons/local_agents/sim/shaders/VoxelSky.gdshader")
+	sky_mat.shader = load("res://addons/local_agents/game/render/shaders/VoxelSky.gdshader")
+	sky_mat.set_shader_parameter("rayleigh_tau", RAYLEIGH_TAU)
+	sky_mat.set_shader_parameter("air_scale_height_m", AIR_SCALE_HEIGHT_M)
 	sky.sky_material = sky_mat
 	e.sky = sky
 	# The sky IS the ambient: what fills a shadow is the scattered light drawn overhead, so it darkens
@@ -187,14 +190,16 @@ func _update_sky() -> void:
 		_water.set_sky_tint(Color(1.0, 1.0, 1.0) * beam)
 
 
-## The moon disc: where it stands, how big it looks, and which way the sun lights it. Absent when the
-## system carries no moon — an unaimed disc would be a moon nailed to a world axis.
+## The moon disc: where it stands, how big it looks, which way the sun lights it, and its rock's albedo.
+## Absent when the system carries no moon, or one that cannot say what it reflects.
 func _apply_moon() -> void:
 	var visible: bool = _moon != null and is_instance_valid(_moon) and _star != null \
 		and is_instance_valid(_star) and _camera != null and is_instance_valid(_camera)
-	if not visible:
+	var albedo: float = float(_moon.albedo()) if visible and _moon.has_method("albedo") else -1.0
+	if not (albedo >= 0.0):
 		_sky_shader_mat.set_shader_parameter("moon_cos_radius", 1.0)
 		return
+	_sky_shader_mat.set_shader_parameter("moon_albedo", albedo)
 	var eye: Vector3 = _camera.global_position
 	_sky_shader_mat.set_shader_parameter("moon_dir", (_moon.global_position - eye).normalized())
 	_sky_shader_mat.set_shader_parameter("moon_sun_dir",
