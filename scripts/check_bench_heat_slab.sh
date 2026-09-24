@@ -19,6 +19,14 @@ trap 'rm -rf "$JUDGE_DIR"' EXIT INT TERM
 cat > "$JUDGE" <<'PY'
 import json, math, os, sys
 
+
+def could_not_run(kind, value, tb):
+    sys.__excepthook__(kind, value, tb)
+    sys.stderr.flush()
+    os._exit(2)
+
+
+sys.excepthook = could_not_run
 # The table's silicate row as the rig read it: k W/mK, rho kg/m^3, c J/kgK.
 ROCK = json.loads(os.environ["LA_BENCH_ROCK"])
 ALPHA = ROCK["k"] / (ROCK["rho"] * ROCK["c"])
@@ -40,6 +48,11 @@ if MODE:
          "stress": arm(128, 100.0, 62, a)}
 else:
     d = json.loads(sys.stdin.read().split("=", 1)[1])
+nonfinite = [key for key in ("coarse", "fine", "stress")
+             if not all(isinstance(v, (int, float)) and math.isfinite(v) for v in d[key]["temp"])]
+if nonfinite:
+    print("check_bench_heat_slab: the %s slab reads no finite temperature." % ", ".join(nonfinite), file=sys.stderr)
+    sys.exit(1)
 # max |d4 erfc / d eta4| over eta, which the 3-point Laplacian's dx^2/12 truncation multiplies.
 D4_MAX = 4.40
 

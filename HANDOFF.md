@@ -140,9 +140,12 @@ is an invented threshold. The design: kinematic until thrown; then a Jolt `Rigid
 
 ## 15. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the rows above it and their books
 
-- `scripts/check_bench_heat_slab.sh` (rung 4): a slab held between 20 and 520 °C leaves that range.
+- `scripts/check_bench_heat_slab.sh` (rung 4): every cell of the slab reads a non-finite temperature and
+  a zero `cap_sensible`.
   Reading: `la_row_need` in `flux.glsl` gates the conduction row on `cap_sensible[c] > 0`.
 - `scripts/check_bench_darcy.sh` (rung 5): six regolith columns under a head difference transfer zero.
+- `scripts/check_active_rows.sh` (rung 5): nothing crosses a face on its sealed lines, and its blob never
+  leaves the seed cell.
 - `scripts/check_bench_grey_atmosphere.sh` (rung 7): identical neighbours exchange unevenly past the
   bound; the lit plate settles below the grey Eddington skin temperature.
 - `scripts/sim_run.sh --frames 20 --slice-capture C` then `LA_RUN_TIMEOUT=900 scripts/sim_run.sh --slice
