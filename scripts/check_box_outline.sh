@@ -19,9 +19,9 @@ SCENE="addons/local_agents/examples/SliceRung1Demo.tscn"
 POSE="${LA_BOX_OUTLINE_POSE:-6000:-40:0}"
 SIZE="${LA_BOX_OUTLINE_SIZE:-1280x800}"
 # THE FRAME IS THE WORLD, NOT THE INTERFACE: every panel is dropped, and so is every module that moves
-# on its own -- a marching arrow stripe, a drifting droplet and a falling probe differ between two
+# on its own -- a marching arrow stripe and a falling probe differ between two
 # launches wherever they stand, and the difference this gate reads must be the outline's.
-STILL="vectors,water_particles,test_masses"
+STILL="vectors,test_masses"
 PANELS="hud,game_hud,progression,time_control,audio,debug,brush,interaction,companion,thought_panel"
 PANELS="$PANELS,tutorial,vector_legend"
 

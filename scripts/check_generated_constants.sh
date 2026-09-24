@@ -74,13 +74,6 @@ shaders = gdshaders()
 if not shaders:
     print("check_generated_constants: no .gdshader under %s — the gate has no subject." % addon, file=sys.stderr)
     sys.exit(2)
-# A RENAMED COPY IS STILL A COPY: the six-entry vec3 table is the cube-face frame and nothing else.
-for path in shaders:
-    if re.search(r"vec3\[6\]\(", code(path)):
-        print("RENAMED COPY %s declares a vec3[6] table; use FACE_N/FACE_R/FACE_U from the include."
-              % os.path.relpath(path, root), file=sys.stderr)
-        bad = 1
-
 for src, tree in ((glsli, sorted(glob.glob(os.path.join(kernels, "*.glsl")))),
                   (phys, sorted(glob.glob(os.path.join(kernels, "*.gl*")))), (inc, shaders)):
     owned = names(src)

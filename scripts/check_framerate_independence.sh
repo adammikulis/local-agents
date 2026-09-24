@@ -46,9 +46,9 @@ MUTATORS = [
     "add_water_pooled(", "add_magma_source(", "seed_field(", "apply_impulse(",
     "fire_barrage(", "force_erupt(",
 ]
-# The two integrating advances LAVoxelWorld drives. They consume a delta, so the call site itself is the
-# defect and nothing downstream of them needs naming.
-ADVANCES = ["_orbits.update(", "_sky_ctrl.update("]
+# The integrating advance LAVoxelWorld drives. It consumes a delta, so the call site itself is the
+# defect and nothing downstream of it needs naming.
+ADVANCES = ["_orbits.update("]
 
 # R2 allowlist: presentation + instrument modules under sim/. One line each, saying why the render clock
 # is the right clock for it.

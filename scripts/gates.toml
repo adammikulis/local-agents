@@ -164,7 +164,7 @@ kind = "gpu"
 marker = "^check_life_demo: OK"
 mutation = [
 	"perl -0pi -e 's/LAFakes\\.draw\\(\"plant_carbon\", want_mass\\)/0.0/' addons/local_agents/sim/actors/Plant.gd",
-	"perl -0pi -e 's/(func step\\(delta: float\\) -> void:\\n)/$1\\tvar mutant_t0: int = Time.get_ticks_usec()\\n\\twhile Time.get_ticks_usec() - mutant_t0 < 50000:\\n\\t\\tpass\\n/' addons/local_agents/game/RenderLayer.gd",
+	"perl -0pi -e 's/(func step\\(_delta: float\\) -> void:\\n)/$1\\tvar mutant_t0: int = Time.get_ticks_usec()\\n\\twhile Time.get_ticks_usec() - mutant_t0 < 50000:\\n\\t\\tpass\\n/' addons/local_agents/game/RenderLayer.gd",
 ]
 needs = ["import"]
 
@@ -513,10 +513,10 @@ script = "scripts/check_generated_constants.sh"
 kind = "text"
 marker = "^Generated-constants gate passed"
 mutation = [
-	"perl -pi -e 's/^const RIPPLE_MAX: int = 16/const RIPPLE_MAX: int = 17/' addons/local_agents/game/render/MaterialFieldRender3D.gd",
+	"perl -pi -e 's/^const RIPPLE_MAX: int = 16/const RIPPLE_MAX: int = 17/' addons/local_agents/game/render/WaterSurfaceView.gd",
 	"printf 'const int RIPPLE_MAX = 16;\\n' >> addons/local_agents/game/render/FieldArrow.gdshader",
 	"printf '#include \"res://addons/local_agents/game/render/shaders/generated.gdshaderinc\"\\n' >> addons/local_agents/game/render/FieldArrow.gdshader",
-	"perl -pi -e 's#game/render/shaders/generated#sim/shaders/generated#' addons/local_agents/game/render/shaders/WaterParticles.gdshader",
+	"perl -pi -e 's#game/render/shaders/generated#sim/shaders/generated#' addons/local_agents/game/render/shaders/VoxelWater.gdshader",
 ]
 
 [[gate]]
@@ -724,6 +724,18 @@ kind = "gpu"
 needs = "import"
 marker = "^check_test_mass: OK"
 mutation = "perl -0pi -e 's/GRAVITATIONAL_CONSTANT: float = [0-9.e-]+/GRAVITATIONAL_CONSTANT: float = 0.0/' addons/local_agents/sim/material/PhysicalConstants.gd"
+
+[[gate]]
+name = "check_sky_air"
+script = "scripts/check_sky_air.sh"
+kind = "gpu"
+needs = "import"
+marker = "^check_sky_air: OK"
+mutation = [
+	"perl -0pi -e 's/_sigma \\* per_m3 \\* exp\\(above_ground \\/ scale_h\\)/Vector3(1.0e-5, 2.4e-5, 5.9e-5)/' addons/local_agents/game/render/SkyView.gd",
+	"perl -0pi -e 's/(func _air_over_ground\\(eye: Vector3, up: Vector3, r_ground: float\\) -> Dictionary:\\n)/$1\\treturn {\"beta_ground\": Vector3.ONE * 1.0e-5, \"scale_height\": 8000.0}\\n/' addons/local_agents/game/render/SkyView.gd",
+	"perl -0pi -e 's/if what == NOTIFICATION_PREDELETE and _gpu/if what == NOTIFICATION_EXIT_TREE and _gpu/' addons/local_agents/sim/material/MaterialField3D.gd",
+]
 
 [[gate]]
 name = "check_finite_channels"

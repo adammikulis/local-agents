@@ -1,0 +1,17 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/game/render/WaterSurfaceView.gd" id="1_watersurface"]
+[ext_resource type="Shader" path="res://addons/local_agents/game/render/shaders/VoxelWater.gdshader" id="2_watershader"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_water"]
+resource_local_to_scene = true
+shader = ExtResource("2_watershader")
+
+[sub_resource type="ArrayMesh" id="ArrayMesh_surface"]
+resource_local_to_scene = true
+
+[node name="WaterSurfaceView" type="MeshInstance3D"]
+cast_shadow = 0
+material_override = SubResource("ShaderMaterial_water")
+mesh = SubResource("ArrayMesh_surface")
+script = ExtResource("1_watersurface")

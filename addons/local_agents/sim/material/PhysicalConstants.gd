@@ -581,6 +581,29 @@ const PREBIOTIC_MOLE_FRAC_H2: float = 1.0e-3
 ## N2 carries the remainder, so the mole fractions sum to exactly 1.
 const PREBIOTIC_MOLE_FRAC_N2: float = 1.0 - PREBIOTIC_MOLE_FRAC_CO2 - PREBIOTIC_MOLE_FRAC_H2
 
+# Rayleigh scattering per molecule: 24 pi^3 / (l^4 N^2) ((n^2 - 1) / (n^2 + 2))^2 F_K, n measured at number
+# density N. N2: n^2 - 1 = sum B_i l^2 / (l^2 - C_i), l in um, at 0 C and 1000 hPa (Borzsonyi et al. 2008,
+# Appl. Opt. 47:4856); F_K = 1.034 + 3.17e-4 / l^2 (Bates 1984, Planet. Space Sci. 32:785).
+const N2_SELLMEIER_B: Array[float] = [39209.95e-8, 18806.48e-8]
+const N2_SELLMEIER_C_UM2: Array[float] = [1146.24e-6, 13.476e-3]
+const N2_REFRACTIVITY_REF_P_PA: float = 1.0e5
+const N2_KING_FACTOR: float = 1.034
+const N2_KING_FACTOR_UM2: float = 3.17e-4
+# CO2: n - 1 = sum B_i / (C_i - 1 / l^2), l in um, at 0 C and 1 atm (Bideau-Mehu et al. 1973, Opt. Commun.
+# 9:432); F_K = 1.1364 + 25.3e-12 nu^2, nu in 1/cm (Sneep & Ubachs 2005, JQSRT 92:293).
+const CO2_REFRACTIVITY_B: Array[float] = [6.99100e-2, 1.44720e-3, 6.42941e-5, 5.21306e-5, 1.46847e-6]
+const CO2_REFRACTIVITY_C_PER_UM2: Array[float] = [166.175, 79.609, 56.3064, 46.0196, 0.0584738]
+const CO2_KING_FACTOR: float = 1.1364
+const CO2_KING_FACTOR_CM2: float = 25.3e-12
+# H2: sigma = D1 / l^4 + D2 / l^6 + D3 / l^8 cm^2, l in angstrom (Dalgarno & Williams 1962, ApJ 136:690).
+const H2_RAYLEIGH_D_CM2: Array[float] = [8.14e-13, 1.28e-6, 1.61]
+
+# Liquid water: refractive index at 589 nm, 0 C and 0.1 MPa (IAPWS R9-97 1997, Table 3), and the absorption
+# coefficient of pure water, 1/m, at the wavelengths listed in nm (Pope & Fry 1997, Appl. Opt. 36:8710).
+const WATER_REFRACTIVE_INDEX: float = 1.334344
+const WATER_ABSORPTION_NM: Array[float] = [440.0, 550.0, 680.0]
+const WATER_ABSORPTION_PER_M: Array[float] = [0.00635, 0.0565, 0.465]
+
 # EARTH'S HYPSOGRAPHIC CURVE: the area-by-elevation distribution of the solid surface against sea level.
 # Sverdrup, Johnson & Fleming 1942, The Oceans, ch. II; Eakins & Sharman 2010, NOAA ETOPO1 volumes.
 const HYPSOMETRY_ELEVATION_M: Array[float] = [-10984.0, -6000.0, -5000.0, -4000.0, -3000.0, -2000.0,
