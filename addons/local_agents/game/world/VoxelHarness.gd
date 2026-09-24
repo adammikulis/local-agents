@@ -170,7 +170,8 @@ static func gauge_frame_cost(vp: Viewport, spawned: bool) -> void:
 static func build_report(w) -> Dictionary:
 	_emit_draw_sources(w)
 	LASimReport.gauge("frames", float(w._frame))
-	LASimReport.gauge("time_of_day", w._sky_ctrl.time_of_day() if w._sky_ctrl != null else 0.30)
+	if w._sky != null:
+		LASimReport.gauge("time_of_day", w._sky.time_of_day())
 	LASimReport.gauge("fps", Performance.get_monitor(Performance.TIME_FPS))
 	LASimReport.gauge("process_ms", Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0)
 	LASimReport.gauge("physics_ms", Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0)
@@ -248,9 +249,19 @@ static func _scan_presentation(n: Node, found: PackedStringArray) -> int:
 	return seen
 
 
-## Appended to SHOT_SAVED: where the eye stands, what it aims at, how far the built ground lies down that
-## aim, whether the ground under the eye is drawn, whether the eye stands inside the slice box this world
-## was laid on, how many field glyphs stand in the frame, and what the 3-D half of the picture holds.
+## True while the voxel engine has no generation, streaming, meshing or upload task pending: the blocks it
+## draws now are the ones it keeps drawing for an eye that stands still.
+static func _terrain_idle() -> bool:
+	var tasks: Dictionary = VoxelEngine.get_stats()["tasks"]
+	for kind in tasks:
+		if int(tasks[kind]) > 0:
+			return false
+	return true
+
+
+## Appended to SHOT_SAVED: the eye's place, aim, vertical field of view and horizon dip, the built ground
+## down the aim, whether that ground is drawn, whether the eye stands in the slice box, the field glyphs in
+## the frame, what the 3-D half of the picture holds, and the pixels the HUD covers.
 static func shot_info(w) -> String:
 	var cam: Camera3D = w._camera
 	if cam == null:
@@ -259,12 +270,30 @@ static func shot_info(w) -> String:
 	var fwd: Vector3 = -cam.global_transform.basis.z
 	var mode: String = "fly" if cam.is_fly() else ("solar" if cam.is_solar_view() else "orbit")
 	var aim: float = float(cam.aim_distance()) if cam.has_method("aim_distance") else 0.0
-	return ("cam=%s cam_alt_m=%.0f cam_pitch_deg=%.1f ground_ahead_m=%.0f aim_ahead_m=%.0f "
-		+ "ground_meshed=%s cam_in_slice=%s field_arrows=%d %s") % [
-		mode, w._sim.terrain().altitude_at(cam.global_position),
-		rad_to_deg(asin(clampf(fwd.dot(up), -1.0, 1.0))), _ground_ahead(w, cam, fwd), aim,
+	var alt: float = w._sim.terrain().altitude_at(cam.global_position)
+	var r_eye: float = cam.global_position.distance_to(w._body.center())
+	var loop: LASimLoop = LASimLoop.active()
+	return ("sim_step=%d cam=%s cam_alt_m=%.0f cam_pitch_deg=%.1f cam_fov_deg=%.3f horizon_dip_deg=%.4f "
+		+ "ground_ahead_m=%.0f aim_ahead_m=%.0f ground_meshed=%s cam_in_slice=%s field_arrows=%d %s "
+		+ "hud_px=%s") % [
+		loop.step_index() if loop != null else -1, mode, alt,
+		rad_to_deg(asin(clampf(fwd.dot(up), -1.0, 1.0))), cam.fov,
+		rad_to_deg(acos(clampf((r_eye - alt) / r_eye, -1.0, 1.0))), _ground_ahead(w, cam, fwd), aim,
 		"true" if shot_ready(w) else "false", "true" if _cam_in_slice(w, cam) else "false",
-		_arrow_count(w), _scene_stats(w)]
+		_arrow_count(w), _scene_stats(w), _hud_px(w)]
+
+
+## Every HUD panel's rectangle in image pixels, [x, y, w, h], as JSON with no space in it; `absent` with
+## no picture to cover.
+static func _hud_px(w) -> String:
+	var vp: Viewport = w.shot_viewport()
+	if vp == null:
+		return "absent"
+	var size: Vector2 = vp.get_visible_rect().size
+	var out: Array = []
+	for r in _hud_rects(w, size.x * size.y):
+		out.append([roundi(r.position.x), roundi(r.position.y), roundi(r.size.x), roundi(r.size.y)])
+	return JSON.stringify(out).replace(" ", "")
 
 
 ## Whether the eye stands inside the slice box the field was laid on. False when there is no slice: a
@@ -419,7 +448,9 @@ static func shot_pose(w, alt_m: float, pitch_deg: float, yaw_deg: float) -> void
 
 
 ## THE PICTURE IS WORTH TAKING once the ground under the camera is drawn at least as finely as the camera
-## stands above it; before that the shot is of a body that has not arrived at the detail it is seen from.
+## stands above it, the terrain has no block left to build or upload, and no loading screen covers it.
 static func shot_ready(w) -> bool:
 	var cam: Camera3D = w._camera
-	return cam != null and cam.has_method("ground_resolved") and cam.ground_resolved()
+	return cam != null and cam.has_method("ground_resolved") and cam.ground_resolved() \
+		and _terrain_idle() \
+		and (w._ui == null or not w._ui.loading_shown())

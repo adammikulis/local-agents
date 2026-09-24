@@ -23,8 +23,11 @@ func _init() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 
 
-func _ready() -> void:
+func _enter_tree() -> void:
 	_active = self
+
+
+func _ready() -> void:
 	_apply()
 
 

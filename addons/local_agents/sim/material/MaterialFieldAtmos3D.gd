@@ -6,11 +6,6 @@ extends RefCounted
 # Kessler (1969) q_crit: the cloud-water mixing ratio above which drops start collecting each other.
 const CLOUD_WATER_CRIT_KG_KG: float = 0.5e-3
 
-# Altitudes above the sea surface, model units, at which the renderer places its particle bands.
-const CLOUD_BASE_ALT: float = 62.0
-const FOG_TOP_ALT: float = 16.0
-const FOG_LO_ALT: float = 0.0
-
 var _f = null                                            # back-reference to the owning LAMaterialField3D
 
 
@@ -55,41 +50,18 @@ func fog_at(x: float, z: float) -> float:
 	return _condensed_at(c) if _f._mirrors.at("temp", c) < LAMaterialField3D.FOG_MAX_TEMP else 0.0
 
 
-## Condensate counts and vapour off the device: three thresholds on one reduced quantity, NAN when absent.
+## Condensate counts and vapour off the device: two thresholds on one reduced quantity, NAN when absent.
 func refresh_aggregates() -> void:
 	_f._atmos_dirty = false
 	var q = _f._queries
 	var cell_count: int = _f._cell_count
 	var cloud_n: int = q.row_n("cloud_cells")
 	var fog_n: int = q.row_n("fog_cells")
-	var precip_n: int = q.row_n("precip_cells")
 	var inv: float = 1.0 / float(cell_count) if cell_count > 0 else 0.0
 	_f._cloud_cells_c = cloud_n
 	_f._cloud_cover_c = float(cloud_n) * inv if cloud_n >= 0 else NAN
 	_f._fog_cover_c = float(fog_n) * inv if fog_n >= 0 else NAN
-	_f._precip_c = float(precip_n) * inv if precip_n >= 0 else NAN
 	_f._vapour_total_c = q.row_f("vapour_amount")
-
-
-
-
-## The atmosphere band radii the water-particle renderer places against, measured from the body centre.
-func atmos_cloud_base_r() -> float:
-	return _f.sea_radius() + CLOUD_BASE_ALT
-
-
-func atmos_fog_top_r() -> float:
-	return _f.sea_radius() + FOG_TOP_ALT
-
-
-func atmos_fog_lo_r() -> float:
-	return _f.sea_radius() + FOG_LO_ALT
-
-
-## The outermost radius the grid holds: half the box, so no particle is placed where there are no cells.
-func atmos_outer_r() -> float:
-	var grid: LAVoxelGrid = _f._grid
-	return 0.5 * float(grid.max_span()) * grid.cell_size if grid != null else 0.0
 
 
 func avg_cloud_cover() -> float:
@@ -102,13 +74,6 @@ func avg_fog_cover() -> float:
 	if _f._atmos_dirty:
 		refresh_aggregates()
 	return _f._fog_cover_c
-
-
-## Share of cells precipitating.
-func precipitation() -> float:
-	if _f._atmos_dirty:
-		refresh_aggregates()
-	return _f._precip_c
 
 
 ## Airborne H2O over every cell, no residency mask, in moles.
@@ -125,7 +90,6 @@ func cloud_cell_count() -> int:
 	return _f._cloud_cells_c
 
 
-# CloudLayer sheets — the water-particle renderer samples the baked cover texture instead.
 func cloud_base_y() -> float:
 	return _f.sea_radius() + 62.0
 
