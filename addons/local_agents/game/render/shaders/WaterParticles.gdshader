@@ -1,18 +1,14 @@
 shader_type particles;
 render_mode disable_velocity;
 
-#include "res://addons/local_agents/sim/shaders/generated.gdshaderinc"
+#include "res://addons/local_agents/game/render/shaders/generated.gdshaderinc"
 
-// PROCESS shader for LAWaterParticles — ONE particle system that renders whichever PHASE the field's
-// water is in. Per particle it samples the field-cover texture (6-layer RGBA, one texel per SphereGrid
-// surface cell) by normalize(pos - planet_center), classifies its phase from the sampled channels + its
-// own radius band, gates itself invisible where the field is clear, and drifts SLOWLY (lazy clouds).
-// The device split (field on a local RenderingDevice) means the field summary is baked to this texture on
-// the CPU at ~10Hz; ALL per-particle placement/advection/classification stays on the GPU here.
+// PROCESS shader for LAWaterParticles: each particle samples field_tex (six cube-face layers, RGBA =
+// cloud, fog, precipitation, cold) along its direction from planet_center and takes the phase its band
+// reads there; where the texture reads clear it is invisible.
 
 uniform sampler2DArray field_tex : filter_nearest;
 uniform vec3 planet_center;
-uniform vec3 cam_pos;
 uniform vec3 cam_dir;      // normalize(cam_pos - planet_center)
 uniform vec3 sun_dir;      // world dir toward the star (basis.z of the sun light)
 uniform float cap_cos;     // cos(cap half-angle) — emit only in the camera-facing dome
@@ -20,7 +16,6 @@ uniform float sea_radius;
 uniform float cloud_base_r;
 uniform float fog_top_r;
 uniform float fog_lo_r;
-uniform float outer_r;
 
 const float CLOUD_MIN = 0.12;   // cloud phase threshold (distinct FORMATIONS need sim-side condensation clumping)
 const float FOG_MIN = 0.08;
