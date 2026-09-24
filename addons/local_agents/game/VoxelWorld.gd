@@ -45,7 +45,7 @@ var _ecology: Node = null
 var _body: Node3D = null
 var _actors_root: Node3D = null
 var _spawn: LAVoxelSpawnController = null
-var _sky_ctrl: LAVoxelSkyController = null
+var _sky: LASkyView = null
 var _progression: LAGameProgression = null
 var _camera: Camera3D = null
 var _hud: CanvasLayer = null
@@ -112,7 +112,7 @@ func _ready() -> void:
 		add_child(_render)
 		_render.build(self, _sim, _input)
 		_camera = _render.camera()
-		_sky_ctrl = _render.sky_controller()
+		_sky = _render.sky()
 
 	if _input.ui():
 		_ui = UiLayerScene.instantiate()
@@ -323,7 +323,7 @@ func _update_music_mood() -> void:
 		return
 	_audio.set_music_mood({
 		"population": get_tree().get_node_count_in_group("creature"),
-		"time_of_day": _sky_ctrl.time_of_day() if _sky_ctrl != null else 0.30,
+		"time_of_day": _sky.time_of_day(),
 		"destruction_intensity": _music_destruction,
 		"threat": _music_destruction,
 	})
