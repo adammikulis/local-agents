@@ -45,7 +45,7 @@ const FLUSH_EVERY: int = 0
 const PC_LEVEL: int = 92
 const PC_K: int = 96
 const PC_N: int = 100
-const PC_BYTES: int = 120
+const PC_BYTES: int = 116
 
 ## Records that advance together on one time axis; a solitary record is its own group.
 var _row_groups: Array = []
@@ -180,7 +180,6 @@ func _plan() -> Dictionary:
 ## XUV irradiance at this body, W/m^2, taken once per dispatch off the ctx the star publishes into.
 var _xuv_w_m2: float = 0.0
 var _phi_datum: float = 0.0             # J/kg, la_phi's zero against infinity
-var _grav_self: float = 1.0
 
 
 func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:
@@ -191,7 +190,6 @@ func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: i
 	# No sun in the ctx is no star, which is no XUV — never an assumed one.
 	_xuv_w_m2 = float(ctx.get("xuv_w_m2", 0.0))
 	_phi_datum = float(ctx.get("phi_datum", 0.0))
-	_grav_self = float(ctx.get("gravity_self", 0.0))
 	# The equation of state, restated after every substep. StateDerivePass owns the kernel, the
 	# bindings and the block; this pass owns when the substep asks for it.
 	_driver.run_transport(cl, _peaks, _pc_rows(cc, dt_s, sun),
@@ -536,7 +534,6 @@ func _pc(row: Dictionary, cc: int, pass_id: int, dt_s: float,
 	# A record carrying silicate also wakes the prologue that derives where that mineral sits.
 	pc.encode_u32(108, group_count() - 1 if String(row["channel"]) == "silicate" else NO_GROUP)
 	pc.encode_float(112, _phi_datum)
-	pc.encode_float(116, _grav_self)
 	return pc
 
 

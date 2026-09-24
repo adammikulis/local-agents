@@ -1,7 +1,7 @@
 [gd_scene load_steps=5 format=3 uid="uid://bsimworldplanet1"]
 
 [ext_resource type="Script" path="res://addons/local_agents/examples/SimWorldPlanetDemo.gd" id="1_sw"]
-[ext_resource type="Script" path="res://addons/local_agents/sim/SimWorld.gd" id="2_simworld"]
+[ext_resource type="Script" uid="uid://binv03fo80hrd" path="res://addons/local_agents/sim/SimWorld.gd" id="2_simworld"]
 [ext_resource type="Script" path="res://addons/local_agents/runtime/DemoHarness.gd" id="3_harness"]
 [ext_resource type="PackedScene" path="res://addons/local_agents/game/render/SimWorldView.tscn" id="4_view"]
 

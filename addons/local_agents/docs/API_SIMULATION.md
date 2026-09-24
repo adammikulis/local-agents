@@ -223,9 +223,8 @@ prints one summary line naming how the escalations were actually resolved. This 
 
 The one-node facade for a self-contained world. Pick a `world_type`, set its bounds, and call `spawn_world()`, or let it run on
 `_ready()`. It composes the controllers the game's simulation composes behind a small export surface, and drives them with its own
-`LASimLoop`. It builds no light, mesh or material: instance `LASimWorldView` under it for its look. `@tool` is only for the
-configuration warnings: every lifecycle callback returns early in the editor, so dropping the node in a scene never starts building a
-planet.
+`LASimLoop`. Instance `LASimWorldView` under it for its look. `@tool` is only for the configuration warnings: every lifecycle
+callback returns early in the editor, so dropping the node in a scene never starts building a planet.
 
 A SPHERE world is a planet body, its star, a field box around the body, the orbit and the ecology. The loop holds simulated time while
 the field seeds, then each step turns the body on its measured spin, advances the orbit, which places the star and publishes its
@@ -326,6 +325,7 @@ before it is laid down, and `field_cell_size_m()` is the root cell edge in metre
 - Flat Cell Size is 0 or less.
 - Flat Extent has a zero or negative component.
 - Auto Spawn is on but Build On Ready is off.
+- Star is set but World Type is Flat.
 - The settings ask for more than `SLOW_BUILD_CELLS` (250000) field cells, naming the count.
 
 ### LocalAgentFieldBox
@@ -333,9 +333,9 @@ before it is laid down, and `field_cell_size_m()` is the root cell edge in metre
 `addons/local_agents/sim/material/FieldBox.gd`, extends `Node3D`.
 
 The material field in box mode as a node. It owns a material field as a child rather than extending it, so the inspector surface lives
-out here and the field hub stays untouched. It builds nothing you can see: instance `LAFieldBoxSliceView` under it to draw a plane of
-its cells. The box is laid once, when the node starts, axis-aligned and centred on the node's global position in X and Z with its
-floor at the node's height. Moving the node later does not move the box.
+out here and the field hub stays untouched. Instance `LAFieldBoxSliceView` under it to draw a plane of its cells. The box is laid
+once, when the node starts, axis-aligned and centred on the node's global position in X and Z with its floor at the node's height.
+Moving the node later does not move the box.
 
 The box holds no matter. Nothing seeds, activates or steps a box-mode field, so `add_heat_energy()` adds nothing and returns 0, and
 `temp_at()` reads NAN in every cell. Pair the node with a `LocalAgentDemoHarness` whose `report_source` is this node for the standard
@@ -383,8 +383,7 @@ carries `frames` and `cells` only. This node has no configuration warnings.
 
 ## Views
 
-A view is a scene under `game/render/` that reads a simulation node's state and draws it. The simulation nodes build no light, mesh
-or material of their own.
+A view is a scene under `game/render/` that reads a simulation node's state and draws it.
 
 ### LASimWorldView
 

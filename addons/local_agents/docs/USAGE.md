@@ -67,12 +67,11 @@ instead of breaking the menu. Five are hard, a `PackedScene` on an `ext_resource
   `game/VoxelWorld.tscn`.
 
 Delete those five scenes and their catalogue entries along with `game/`. The simulation nodes run
-without their views, and nothing draws them.
+without their views.
 
-`sim/` is not deletable. The creature stack names its classes as types: `LAPhysical`, `LAFakes` and
-`LAEcologyService` among them, in `creatures/Creature.gd` and the modules under `creatures/creature/`.
-The two library demos attach `sim/` scripts on an `ext_resource` line, `examples/BoxFieldDemo.tscn:3`
-`sim/material/FieldBox.gd` and `examples/SimWorldPlanetDemo.tscn:4` `sim/SimWorld.gd`, and the views
+`sim/` is not deletable. The creature stack names its classes as types, `LAPhysical` and `LAFakes`
+among them. `examples/BoxFieldDemo.tscn` attaches `sim/material/FieldBox.gd` and
+`examples/SimWorldPlanetDemo.tscn` attaches `sim/SimWorld.gd` on an `ext_resource` line, and the views
 under `game/render/` name `LocalAgentFieldBox`, `LocalAgentSimWorld` and `LAStar` as types.
 
 Enabling the plugin registers the `AgentManager` autoload for you, so you do not add it by hand.
@@ -251,8 +250,7 @@ The ten configs shipped today live in `creatures/species/aquatic/`.
 
 `LocalAgentSimWorld` is a `Node3D` that composes a whole world: a planet body under its star or a
 ground plane, the `LAMaterialField3D` substrate, the ecology, the founding population, and the loop
-that steps them. It draws nothing; `LASimWorldView` is its look. See the third quickstart below for
-its export surface.
+that steps them. `LASimWorldView` is its look. See the third quickstart below for its export surface.
 
 `LocalAgentFieldBox` is a `Node3D` that owns an `LAMaterialField3D` in box mode as a child, with a heat
 source at its floor. Its exports come in groups:
@@ -441,9 +439,7 @@ and a harness, and its script contains no world-building code at all.
 | `auto_spawn`, `initial_counts` | both | founding population |
 | `forest_clusters` | SPHERE | forest seed clusters scattered at start, default 6 |
 
-`forest_clusters` is read only inside the `world_type == WorldType.SPHERE` arm of `spawn_life()` at
-`sim/SimWorld.gd:314`. The FLAT arm calls `_scatter_flat(counts)` and never touches it, so setting it
-on a FLAT world does nothing. Put plants in `initial_counts` instead.
+`forest_clusters` does nothing on a FLAT world. Put plants in `initial_counts` instead.
 
 SPHERE needs zylann.voxel and a RenderingDevice, because its field steps on a compute device. Asking
 for it without either is a hard, named failure: `spawn_world()` pushes `VOXEL_BACKEND_REQUIRED` or
@@ -636,30 +632,27 @@ machine can open. `scripts/check_demo_catalog.sh` answers the static half of the
 
 ## Running a scene headless
 
-Scenes carrying a `LocalAgentDemoHarness` honour `--run-frames=N` and exit on their own. Run them
-with `scripts/run_demo.sh`, which takes about a second each:
+Scenes carrying a `LocalAgentDemoHarness` honour `--run-frames=N` and exit on their own. Run the ones
+that need no window with `scripts/run_demo.sh`, which takes about a second each:
 
 ```bash
-scripts/run_demo.sh --list                  # which scenes honour the contract, and which do not
+scripts/run_demo.sh --list                  # which scenes honour the contract, and which need a window
 scripts/run_demo.sh BoxFieldDemo            # one demo, 40 frames
 scripts/run_demo.sh BoxFieldDemo 200        # one demo, 200 frames
-scripts/run_demo.sh --all                   # every demo that honours the contract
+scripts/run_demo.sh --all                   # every demo that honours the contract and needs no window
 ```
 
-`BoxFieldDemo`, `CoreCreatureSmoke`, `SimWorldPlanetDemo`, `ThinkingCreatureDemo` and `TutorialDemo`
-carry the harness today. The script detects that per scene by grep rather than from a hardcoded list,
-and refuses the others up front instead of hanging on them, because a scene with no harness ignores
+It refuses a scene with no harness up front instead of hanging on it, because such a scene ignores
 `--run-frames` and runs forever. Run those with the engine's own flag:
 
 ```bash
 godot --headless --path . addons/local_agents/examples/GraphExample.tscn --quit-after 120
 ```
 
-One scene genuinely needs a window. `addons/local_agents/game/VoxelWorld.tscn` runs its field as a
-compute shader, and a headless run has no compute device, so it boots and exits 0 with every field
-gauge empty. It fails silently rather than loudly, which makes a headless run of it a green light that
-measured nothing. Use `scripts/agent_harness.sh sim` for that scene, and `scripts/run_sim_offscreen.sh`
-for anything taking a screenshot. Both place the window off-screen and neither can take the keyboard.
+A planet's field steps on a compute device, and a headless run has none. `game/VoxelWorld.tscn`, every
+scene inheriting it and every scene holding a SPHERE `LocalAgentSimWorld` need a window. Use
+`scripts/agent_harness.sh sim` for the voxel world, and `scripts/run_sim_offscreen.sh` for the others and
+for anything taking a screenshot. Neither window can take the keyboard.
 
 A new `class_name` or `.gdextension` only registers after an editor scan. If Godot reports a class as
 missing, run `scripts/editor_scan.sh` once and try again.

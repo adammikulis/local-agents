@@ -28,13 +28,14 @@ text. Change the `.tres` for content, or the generator for wording.
 
 `scripts/run_demo.sh <name>` runs an example scene with no window in about a second and prints a
 `RUN_DEMO={...}` line carrying the exit code. It only accepts a scene that builds a
-`LocalAgentDemoHarness`, and 4 of the 15 entries have one. An example scene without that harness
-ignores `--run-frames` and never exits, so it gets `--quit-after` instead. Each demo below carries
-the command that applies to it.
+`LocalAgentDemoHarness` and needs no window, and 4 of the 15 entries are one. An example scene
+without that harness ignores `--run-frames` and never exits, so it gets `--quit-after` instead. Each
+demo below carries the command that applies to it.
 
-`scripts/run_demo.sh --all` runs every harnessed demo in turn at 40 frames each, then prints a
-`RUN_DEMO_ALL={"ran":N,"failed":N,"frames":N}` line and exits non-zero if any of them failed. Pass a
-frame count to override the default, as in `scripts/run_demo.sh --all 200`.
+`scripts/run_demo.sh --all` runs every harnessed demo that needs no window in turn at 40 frames
+each, prints a `RUN_DEMO_SKIPPED={...}` line for each one that needs a window, then prints a
+`RUN_DEMO_ALL={"ran":N,"failed":N,"skipped":N,"frames":N}` line and exits non-zero if any of them
+failed. Pass a frame count to override the default, as in `scripts/run_demo.sh --all 200`.
 
 `scripts/run_demo.sh --list` prints which is which. It walks the scenes in
 `addons/local_agents/examples/` rather than the catalogue, so it also lists `DemoLauncher.tscn`,
