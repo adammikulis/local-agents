@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="LAEventViewRegistry" format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/game/render/events/EventViewRegistry.gd" id="1_registry"]
+[ext_resource type="PackedScene" path="res://addons/local_agents/game/render/events/EruptionView.tscn" id="2_eruption"]
+[ext_resource type="PackedScene" path="res://addons/local_agents/game/render/events/CycloneView.tscn" id="3_cyclone"]
+[ext_resource type="PackedScene" path="res://addons/local_agents/game/render/events/SplashView.tscn" id="4_splash"]
+[ext_resource type="PackedScene" path="res://addons/local_agents/game/render/events/LightningView.tscn" id="5_lightning"]
+[ext_resource type="PackedScene" path="res://addons/local_agents/game/render/events/MeteorImpactView.tscn" id="6_impact"]
+
+[resource]
+script = ExtResource("1_registry")
+views = Dictionary[StringName, PackedScene]({
+&"cyclones": ExtResource("3_cyclone"),
+&"eruptions": ExtResource("2_eruption"),
+&"impacts": ExtResource("6_impact"),
+&"splashes": ExtResource("4_splash"),
+&"strikes": ExtResource("5_lightning")
+})

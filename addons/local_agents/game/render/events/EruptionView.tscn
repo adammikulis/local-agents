@@ -1,0 +1,13 @@
+[gd_scene format=3]
+
+[ext_resource type="PackedScene" path="res://addons/local_agents/game/render/events/EventView.tscn" id="1_eventview"]
+[ext_resource type="Script" path="res://addons/local_agents/game/render/events/EruptionView.gd" id="2_eruptionview"]
+
+[node name="EruptionView" instance=ExtResource("1_eventview")]
+script = ExtResource("2_eruptionview")
+ablation_name = "eruption_view"
+
+[node name="Light" parent="." index="0"]
+visible = true
+light_color = Color(1, 0.5, 0.15, 1)
+light_energy = 18.0

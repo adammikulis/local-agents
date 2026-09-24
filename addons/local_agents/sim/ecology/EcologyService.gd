@@ -340,8 +340,6 @@ func _instance_actor(kind: String, placed: Vector3, genome = null, family_id: in
 		actors_root.add_child(rock)
 		rock.global_position = placed
 		rock.setup(terrain)
-		if rock.has_method("set_material_field"):
-			rock.set_material_field(_material)          # so a thrown rock lands as a real amount of sediment
 		node = rock
 	elif kind == "tree":
 		var tree: TreeScript = TreeScript.new()
