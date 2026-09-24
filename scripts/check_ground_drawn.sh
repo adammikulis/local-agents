@@ -104,12 +104,17 @@ awk -v c="$contrast" -v s="$spread" 'BEGIN { exit (c > 0.0 && c > s) ? 0 : 1 }' 
 	echo "  wobble: there is no sky/ground horizon in the frame, only one brightness." >&2
 	fail=1
 }
-# AND NEITHER SIDE OF THAT SPLIT IS A FLAT SHEET. Sky carries its scatter gradient and the sun's glow
-# across a row; ground carries relief and shading across one. A frame that drew nothing reads zero on
-# whichever side it failed, whatever brightness it failed at.
-awk -v a="$var_sky" -v b="$var_ground" 'BEGIN { exit (a > 0.0 && b > 0.0) ? 0 : 1 }' || {
-	echo "FAIL  above the split the scene varies ${var_sky} along its rows and below it ${var_ground}:" >&2
-	echo "  a side reading zero drew one flat colour, not sky or ground." >&2
+# Ground varies along its rows. An aired sky carries its scatter gradient; an airless one is black but for the discs.
+air_line="$(rg -N '^SKY_AIR=' "$LOG" | tail -1)"
+case "$air_line" in
+	*'"air":true'*) sky_air=1 ;;
+	*'"air":false'*) sky_air=0 ;;
+	*) echo "check_ground_drawn: the shot published no SKY_AIR, so the sky has nothing to be held to." >&2; exit 2 ;;
+esac
+awk -v a="$var_sky" -v b="$var_ground" -v air="$sky_air" \
+	'BEGIN { exit (b > 0.0 && (air == 0 || a > 0.0)) ? 0 : 1 }' || {
+	echo "FAIL  above the split the scene varies ${var_sky} along its rows and below it ${var_ground}," >&2
+	echo "  under a sky with air=${sky_air}: ground must vary, and a sky with air must too." >&2
 	fail=1
 }
 
