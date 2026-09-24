@@ -7,6 +7,7 @@ const ARG_RUN_FRAMES: String = "--run-frames="
 const ARG_SHOOT: String = "--shoot="
 const ARG_SHOOT_FRAMES: String = "--shoot-frames="
 const ARG_SHOOT_SIZE: String = "--shoot-size="
+const ARG_SHOOT_STEP: String = "--shoot-step="
 const ARG_SHOTS: String = "--shots="
 const DEFAULT_SHOOT_SIZE: Vector2i = Vector2i(1280, 800)
 
@@ -36,6 +37,9 @@ const DEFAULT_SHOOT_SIZE: Vector2i = Vector2i(1280, 800)
 ## Frame the screenshot is taken on. Give the scene enough frames to settle before it shoots.
 ## The command line overrides this: `-- --shoot-frames=N`.
 @export_range(1, 100000, 1, "suffix:frames") var shoot_frames: int = 90
+## Simulated step every picture is of: the loop halts there and the shot waits for it. -1 shoots whatever
+## step the frame lands on. The command line overrides this: `-- --shoot-step=N`.
+@export_range(-1, 100000, 1, "suffix:steps") var shoot_step: int = -1
 
 @export_group("Exit")
 ## Route the quit through the AppExit autoload when it is registered (game installs), otherwise
@@ -112,7 +116,7 @@ func _physics_process(_delta: float) -> void:
 func _process(_delta: float) -> void:
 	_render_frame += 1
 	# Screenshot first: a scene given both flags is being photographed, not measured.
-	if _done or shoot_path == "" or _render_frame < shoot_frames:
+	if _done or shoot_path == "" or not _at_shoot_step() or _render_frame < shoot_frames:
 		return
 	if _poses.is_empty():
 		if not _settled():
@@ -139,6 +143,22 @@ func _process(_delta: float) -> void:
 	if _pose_index >= _poses.size():
 		_done = true
 		_quit(0)
+
+
+## The loop stands at `shoot_step`, halted there from the first frame. True with no step declared. A loop
+## already past it cannot be photographed at it, and the run fails.
+func _at_shoot_step() -> bool:
+	if shoot_step < 0:
+		return true
+	var loop: LASimLoop = LASimLoop.active()
+	if loop == null:
+		return false
+	loop.halt_at(shoot_step)
+	if loop.step_index() > shoot_step:
+		_done = true
+		print("SHOT_STEP_PASSED=%d" % loop.step_index())
+		_quit(2)
+	return loop.step_index() == shoot_step
 
 
 ## Ready for SHOT_SETTLE_FRAMES running, or out of the time this pose was given.
@@ -314,6 +334,8 @@ func _parse_cli() -> void:
 		var arg: String = String(arg_v)
 		if arg.begins_with(ARG_SHOOT_FRAMES):
 			shoot_frames = maxi(1, int(arg.substr(ARG_SHOOT_FRAMES.length())))
+		elif arg.begins_with(ARG_SHOOT_STEP):
+			shoot_step = maxi(0, int(arg.substr(ARG_SHOOT_STEP.length())))
 		elif arg.begins_with(ARG_SHOTS):
 			_shots_spec = arg.substr(ARG_SHOTS.length())
 			_poses = parse_shots(_shots_spec)
