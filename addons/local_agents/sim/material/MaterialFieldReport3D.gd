@@ -126,14 +126,15 @@ func _open_temp_stats() -> Dictionary:
 			if gn != null and int(gn) > 0 and gsum != null else null}
 
 
-## Per-step ledger folds on the field clock, and the audit of the books each one leaves; report() only
-## publishes what these accumulated.
+## Per-step ledger folds on the field clock, and the audit of the books each fold leaves; report() only
+## publishes what these accumulated. A step that folded no drain moved no book, so nothing is audited.
 func sample_ledgers() -> void:
 	_momentum.sample()
 	if _f._ledger == null:
 		return
-	_f._ledger.sample()
-	_conservation.check(_f._ledger.report(_f._gpu._step_index if _f._gpu != null else 0))
+	var books: int = _f._ledger.sample()
+	if books >= 0:
+		_conservation.check(_f._ledger.report(books), books)
 
 
 func report() -> Dictionary:

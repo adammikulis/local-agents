@@ -36,8 +36,9 @@ Reading: `state_derive.glsl` ends the (T, p) solve on `abs(f) <= LA_STATE_TOL * 
 ## 3. THE BOUNDARY GATES CANNOT RECORD THEIR OWN CAPTURE, AND A GHOST'S REST GRAVITY IS READ PAST ITS BUFFER
 
 `scripts/check_boundary_books.sh` with no `LA_LINT_CAPTURE` exits 2: its capture run,
-`scripts/sim_run.sh --body --frames 20 --rung 3 --slice-capture C`, ends `RUN FAILED, exit 122` with
-`PRESSURE_BROKEN: pressure fell going down.` `rg -n 'g_rest.*cc \* 3' addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd`
+`scripts/sim_run.sh --body --frames 20 --rung 8 --slice-capture C`, logs `LASubstances gives "fixed_n"
+no specific heat`, is killed at the run timeout and publishes no capture; at `--rung 3` it is killed at
+the timeout. `rg -n 'g_rest.*cc \* 3' addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd`
 Reading: `_allocate_declared` in `MaterialSphereGPU3D.gd` adds `_ng` once to a declared length, so a
 three-vector declared `{"n": cc * 3, "ghosts": true}` is `cc * 3 + ng` long.
 
@@ -131,6 +132,8 @@ Reading: `_drain` in `InjectPass.gd` tallies `inject_created_<channel>` in cell 
   above its bar on a land column; its vent arm reads an energy residual near a tenth of the turnover.
 - `scripts/sim_run.sh --rung 3 --frames 3 --report nonfinite_cells,mach_max` refuses a water record at
   light speed by the second frame; `LA_PASS_PROBE=mach LA_PASS_PROBE_STEPS=1` names the cell.
+- `scripts/check_boundary_momentum_book.sh`, with or without `LA_RUNG=3`, fails its device rig: an open
+  face under a higher exterior pressure books no momentum and no nitrogen, and the REPLAY rim no nudge.
 - Maintainer's decision, standing: the acoustic part of the momentum equation goes implicit (one
   Helmholtz solve per field step on `gravity_poisson.glsl`'s operator shape), the step is derived from
   the advective CFL, `SIM_SECONDS_PER_STEP` and the acoustic temporal levels are deleted; declared in

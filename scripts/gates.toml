@@ -54,6 +54,16 @@ marker = "^check_gate_shapes: OK"
 mutation = "git update-index --chmod=-x scripts/check_conservation.sh"
 
 [[gate]]
+name = "check_capture_publication"
+script = "scripts/check_capture_publication.sh"
+kind = "text"
+marker = "^check_capture_publication: OK"
+mutation = [
+	"perl -0pi -e 's/0\\|122\\|123\\|126\\) mv/0|4|122|123|126) mv/' scripts/lib_slice_capture.sh",
+	"perl -0pi -e 's/LA_SLICE_CAPTURE=\"\\$\\(la_slice_capture_partial \"\\$SLICE_CAPTURE\"\\)\"/LA_SLICE_CAPTURE=\"\\$SLICE_CAPTURE\"/' scripts/sim_run.sh",
+]
+
+[[gate]]
 name = "check_boundary_buffers"
 script = "scripts/check_boundary_buffers.sh"
 kind = "text"
@@ -728,6 +738,9 @@ mutation = [
 	"perl -0pi -e 's/\\t_f\\._gpu\\._step_index = sim_step\\n//' addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd",
 	"perl -0pi -e 's/sim_step % REST_AUDIT_EVERY != 0/true/' addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd",
 	"perl -0pi -e 's/\"energy_residual_stock_rel\"/\"energy_residual_stock_rel_absent\"/' addons/local_agents/sim/material/MaterialFieldConservation3D.gd",
+	"perl -0pi -e 's/if books >= 0:/if true:/' addons/local_agents/sim/material/MaterialFieldReport3D.gd",
+	"perl -0pi -e 's/report\\(books\\), books\\)/report(books), int(_f._gpu._step_index))/' addons/local_agents/sim/material/MaterialFieldReport3D.gd",
+	"perl -0pi -e 's/ or \\(books_step < 0 and _clock_since_seal\\(\\) >= REFERENCE_STEPS\\)//' addons/local_agents/sim/material/MaterialFieldConservation3D.gd",
 ]
 needs = ["import"]
 
@@ -800,6 +813,17 @@ name = "check_boundary_books"
 script = "scripts/check_boundary_books.sh"
 kind = "gpu"
 marker = "^check_boundary_books: OK"
+
+[[gate]]
+name = "check_boundary_replay"
+script = "scripts/check_boundary_replay.sh"
+kind = "gpu"
+marker = "^check_boundary_replay: OK"
+mutation = [
+	"perl -0pi -e 's/var idx: int = \\(step - first\\) \\/ cadence/var idx: int = step \\/ cadence/' addons/local_agents/sim/material/FieldBoundaryCapture3D.gd",
+	"perl -0pi -e 's/_fold\\(step, legs\\)/_fold(step + 1, legs)/' addons/local_agents/sim/material/FieldBoundaryCapture3D.gd",
+]
+needs = ["import"]
 
 [[gate]]
 name = "check_escape_law"

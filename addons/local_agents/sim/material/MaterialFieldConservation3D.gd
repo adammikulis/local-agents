@@ -53,18 +53,21 @@ func setup(field) -> void:
 
 ## The last audit. A world whose books never folded is audited on nothing, so every row reads unmeasured.
 func block() -> Dictionary:
-	return _block if not _block.is_empty() else check({})
+	return _block if not _block.is_empty() else check({}, -1)
 
 
-## Check every gated quantity against its sealed baseline, once per folded drain. Prints
-## CONSERVATION_VIOLATION on a breach and CONSERVATION_UNMEASURED when one past the horizon had no number.
-func check(d: Dictionary) -> Dictionary:
+## Check every gated quantity against its sealed baseline, on the books a drain reduced at `books_step`
+## folded this step. Prints CONSERVATION_VIOLATION on a breach and CONSERVATION_UNMEASURED when one past
+## the horizon had no number.
+func check(d: Dictionary, books_step: int) -> Dictionary:
 	var out: Dictionary = {}
 	_block = out
 	if _f == null or _f._seal == null or not _f._seal.sealed():
 		out["conservation"] = "seeding"
 		return out
-	var elapsed: int = _steps_since_seal()
+	var elapsed: int = _span(d, books_step)
+	# A world that never folded books is due its audit on the loop's clock: the absence is the finding.
+	var due: bool = elapsed >= REFERENCE_STEPS or (books_step < 0 and _clock_since_seal() >= REFERENCE_STEPS)
 	# The round-off of a single float32 sum over this grid, already a FRACTION.
 	var floor_rel: float = noise_floor(_f._cell_count if _f != null else 0)
 	var rows: Dictionary = {}
@@ -87,7 +90,7 @@ func check(d: Dictionary) -> Dictionary:
 		var mag: float = absf(float(rel))
 		_worst[key] = maxf(mag, float(_worst.get(key, 0.0)))
 		rows[key] = snappedf(float(rel), 1e-12)
-		if elapsed < REFERENCE_STEPS:
+		if not due:
 			continue
 		# The PEAK, not the reading of the moment: a quantity that swings out and returns has still broken
 		# conservation, and the peak is never smaller than the current drift.
@@ -101,9 +104,9 @@ func check(d: Dictionary) -> Dictionary:
 				"seal_step": _f._seal.seal_step(),
 			}))
 	# A gate that cannot run must not pass: the audit latches only when every row produced a number.
-	if elapsed >= REFERENCE_STEPS and unmeasured.is_empty():
+	if due and unmeasured.is_empty():
 		_audited = true
-	if elapsed >= REFERENCE_STEPS and not unmeasured.is_empty() and not _unmeasured_announced:
+	if due and not unmeasured.is_empty() and not _unmeasured_announced:
 		_unmeasured_announced = true
 		print("CONSERVATION_UNMEASURED=", JSON.stringify({
 			"substances": unmeasured, "at_steps": elapsed, "seal_step": _f._seal.seal_step()}))
@@ -117,13 +120,22 @@ func check(d: Dictionary) -> Dictionary:
 	# TWO CAUSES, TWO KEYS. A breach and a gate that could not run are different findings, so neither hides
 	# inside the other. `conservation_failed` is their union.
 	out["conservation_violated"] = not _violations.is_empty()
-	out["conservation_starved"] = elapsed >= REFERENCE_STEPS and not unmeasured.is_empty()
+	out["conservation_starved"] = due and not unmeasured.is_empty()
 	out["conservation_failed"] = bool(out["conservation_violated"]) or bool(out["conservation_starved"])
 	return out
 
 
-## Steps elapsed since the books closed.
-func _steps_since_seal() -> int:
-	if _f == null or _f._gpu == null or _f._seal == null:
+## Steps the books span: from the drain every baseline latched on to the one audited. 0 with either absent.
+func _span(d: Dictionary, books_step: int) -> int:
+	var base: int = int(d.get("world_baseline_step", -1))
+	if books_step < 0 or base < 0:
 		return 0
-	return int(_f._gpu._step_index) - _f._seal.seal_step()
+	return books_step - base
+
+
+## Loop steps since the seal.
+func _clock_since_seal() -> int:
+	var loop: LASimLoop = LASimLoop.active()
+	if loop == null or _f._seal == null:
+		return 0
+	return loop.step_index() - _f._seal.seal_step()

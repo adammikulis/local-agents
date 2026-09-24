@@ -199,7 +199,7 @@ func step(sim_step: int) -> void:
 	var t_begin: int = t0
 	_f._gpu.begin_frame()                    # drains prev step (sync + readback into the mirrors) + uploads
 	if LAProcessSet.has_record("pass", GRAVITY_PASS):
-		_f._gravity.solve_step(_f._gpu._step_index)   # the potential of the mass that moved, converged; the device is idle here
+		_f._gravity.solve_step(sim_step)   # the potential of the mass that moved, converged; the device is idle here
 	LASimReport.gauge("field_begin_ms", float(Time.get_ticks_usec() - t_begin) / 1000.0)
 	# Per-cell solar terminator + marine cooling need the world-space sun direction and the sea shell radius.
 	if _f._star != null and _f._gpu.has_method("set_sun_flux"):
@@ -212,9 +212,9 @@ func step(sim_step: int) -> void:
 		_f._gpu.set_sea_radius(_f.sea_radius())
 	if _f._inject != null and not _f._inject.queue.is_empty():
 		_f._inject.queue.flush(_f._gpu)
-	# Boundary face-state record/replay: samples at the drain, feeds REPLAY tails before the dispatch.
+	# Boundary face-state record/replay on the loop's step: reads or feeds the state this step starts from.
 	if _f._capture != null:
-		_f._capture.pre_step()
+		_f._capture.pre_step(sim_step)
 	var t_step: int = Time.get_ticks_usec()
 	if _probe != null:
 		_probe.pre_step()             # arm/disarm the driver's between-pass probe for THIS step
