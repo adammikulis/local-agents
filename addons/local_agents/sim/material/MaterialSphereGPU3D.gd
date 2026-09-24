@@ -83,6 +83,7 @@ func setup(field) -> void:
 		push_error("LAMaterialSphereGPU3D: no RenderingDevice")
 		return
 	_driver = LAFieldDriver.on(_rd)
+	LASimReport.register(_driver.report)
 	_mirrors = field._mirrors
 	_mirrors.set_device(_rd)
 	_groups = int(ceil(float(_cc) / 64.0))
@@ -277,8 +278,18 @@ func step() -> void:
 	_driver.clear_buffers(_bnd_rids, _cc * 4)
 	# Every submit of the step is waited on inside it; an empty tail stays in flight for the drain's sync.
 	_driver.step(_passes, _pass_names, _ctx, _cc, _groups, _step_probe)
+	if _refused("field step %d" % _step_index):
+		return
 	_pending = true
 	_step_index += 1
+
+
+## A REFUSED PIECE ENDS THE RUN: the step it fell in is neither drained nor counted, and the loop stops.
+func _refused(what: String) -> bool:
+	var loop: LASimLoop = LASimLoop.active()
+	if _driver.aborted() != "" and loop != null and loop.failure == "":
+		loop.failure = "%s aborted: the driver refused \"%s\"" % [what, _driver.aborted()]
+	return _driver.aborted() != ""
 
 
 ## Signature: `probe.call(pass_index: int, pass_name: String)`, pass_index -1 = before any pass ran.
@@ -363,6 +374,8 @@ func derive_seeded(sealing: bool = false) -> void:
 		_driver.open()
 		_passes[i].dispatch(_rd, _ctx, _cc, _groups)
 		_driver.close()
+		if _refused("the seeded derive"):
+			break
 		_passes[i]._drain(_rd)
 	_ctx.erase("seeding")
 

@@ -42,16 +42,15 @@ const uint PASS_LIST_RESET = 3u;
 const uint PASS_LIST_APPEND = 4u;
 const uint PASS_LIST_ARGS = 5u;
 const uint PASS_LEVEL_SEED = 9u;
-const uint PASS_LEVEL_RELAX = 10u;
-const uint PASS_LEVEL_RESET = 11u;
-const uint PASS_LEVEL_SCAN = 12u;
-const uint PASS_LEVEL_SORT = 13u;
-const uint PASS_LEVEL_PEAK = 14u;
-const uint PASS_ACT_AGE = 15u;
-const uint PASS_ACT_WAKE = 16u;
-const uint PASS_ACT_MARK = 17u;
-const uint PASS_ACT_WAKE_RESET = 18u;
-const uint PASS_ACT_SEED = 19u;
+const uint PASS_LEVEL_RESET = 10u;
+const uint PASS_LEVEL_SCAN = 11u;
+const uint PASS_LEVEL_SORT = 12u;
+const uint PASS_LEVEL_PEAK = 13u;
+const uint PASS_ACT_AGE = 14u;
+const uint PASS_ACT_WAKE = 15u;
+const uint PASS_ACT_MARK = 16u;
+const uint PASS_ACT_WAKE_RESET = 17u;
+const uint PASS_ACT_SEED = 18u;
 
 // Where this dispatch's group starts in the per-cell activity counter and in the per-level args.
 uint act_base() { return params.act_group * params.total_count; }
@@ -255,27 +254,21 @@ bool la_active_levels(uint gidx) {
 		}
 		return true;
 	}
-	// EACH CELL'S OWN CLOCK, and every face's clock fine enough for both its cells: a cell takes the
-	// level its own state asks for, then hands it to each neighbour, so a face on the coarser of the
-	// pair's clocks still stays inside the finer cell's bound. A ring cell inherits its awake neighbour's.
+	// EACH CELL'S OWN CLOCK, and every face's clock fine enough for both its cells: a cell takes the level
+	// its own state asks for and hands that same level, never one read back, to each neighbour. A ring
+	// cell inherits its awake neighbour's.
 	if (params.pass_id == PASS_LEVEL_SEED) {
 		if (gidx < act_listed()) {
 			uint c = level_idx[act_base() + gidx];
 			if (c < params.cell_count) {
-				tlevel[c] = max(tlevel[c], la_row_level(c));
-			}
-		}
-		return true;
-	}
-	if (params.pass_id == PASS_LEVEL_RELAX) {
-		if (gidx < act_listed()) {
-			uint c = level_idx[act_base() + gidx];
-			uint lv = tlevel[c];
-			for (uint f = la_face_lo(c); f < la_face_hi(c); ++f) {
-				int rnb = nbr[f];
-				if (rnb < 0) { rnb = ghost[f]; }
-				if (rnb >= 0 && rnb < int(params.cell_count)) {
-					atomicMax(tlevel[uint(rnb)], lv);
+				uint lv = la_row_level(c);
+				atomicMax(tlevel[c], lv);
+				for (uint f = la_face_lo(c); f < la_face_hi(c); ++f) {
+					int rnb = nbr[f];
+					if (rnb < 0) { rnb = ghost[f]; }
+					if (rnb >= 0 && rnb < int(params.cell_count)) {
+						atomicMax(tlevel[uint(rnb)], lv);
+					}
 				}
 			}
 		}

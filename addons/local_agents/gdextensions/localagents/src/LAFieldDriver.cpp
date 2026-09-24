@@ -85,8 +85,8 @@ void LAFieldDriver::set_wait_usec(double p_usec) {
 	_wait_usec = p_usec;
 }
 
-double LAFieldDriver::wait_usec() const {
-	return _wait_usec;
+String LAFieldDriver::aborted() const {
+	return String(_abort.c_str());
 }
 
 bool LAFieldDriver::_bounded() const {
@@ -94,13 +94,13 @@ bool LAFieldDriver::_bounded() const {
 }
 
 double LAFieldDriver::_target(const Cost &p_cost) const {
-	return std::sqrt(p_cost.latency_usec * _wait_usec);
+	return std::sqrt(p_cost.floor_usec * _wait_usec);
 }
 
 // No piece of a dispatch finishes sooner than its latency floor; past it, it costs what the last submit that
 // carried it alone cost per workgroup.
 double LAFieldDriver::_pred(const Cost &p_cost, double p_groups) const {
-	return std::max(p_cost.latency_usec, p_cost.last_usec * p_groups / p_cost.last_groups);
+	return std::max(p_cost.floor_usec, p_cost.last_usec * p_groups / p_cost.last_groups);
 }
 
 void LAFieldDriver::_load(const std::string &p_key, double p_more, double &r_pred, double &r_target) const {
@@ -171,13 +171,16 @@ void LAFieldDriver::_submit() {
 		const auto it = _costs.find(c.key);
 		probe = probe || it == _costs.end() || !it->second.known;
 	}
-	const bool unit = _carried.size() == 1 && (_carried[0].groups == 1.0 || _costs[_carried[0].key].indirect);
+	const bool unit = _carried.size() == 1 && _carried[0].groups == 1.0;
 	const Clock::time_point t0 = Clock::now();
 	_rd->submit();
 	_rd->sync();
 	const double usec = std::chrono::duration<double, std::micro>(Clock::now() - t0).count();
 	++_submits;
 	_worst_usec = std::max(_worst_usec, usec);
+	if (!_carried.empty()) {
+		_last_usec = usec;
+	}
 	if (_bounded() && !probe && !unit && predicted > target) {
 		++_over_target;
 	}
@@ -204,50 +207,81 @@ void LAFieldDriver::_learn(double p_usec) {
 		groups += c.groups;
 	}
 	Cost &cost = _costs[key];
-	// An indirect dispatch is its whole list every time, so a shorter list never lowers what it is priced at.
-	if (cost.indirect) {
-		cost.last_usec = cost.known ? std::max(cost.last_usec, p_usec) : p_usec;
-		cost.latency_usec = cost.last_usec;
-	} else {
-		cost.last_usec = p_usec;
-		if (groups == 1.0) {
-			cost.latency_usec = cost.known ? std::max(cost.latency_usec, p_usec) : p_usec;
-		}
+	// THE FLOOR IS A LOWER BOUND: a lone workgroup's submit is the floor plus whatever else the device and
+	// the host spent on it, so the least of them is the nearest to it.
+	if (groups == 1.0) {
+		cost.floor_usec = cost.floored ? std::min(cost.floor_usec, p_usec) : p_usec;
+		cost.floored = true;
 	}
+	cost.last_usec = p_usec;
 	cost.last_groups = groups;
 	cost.known = true;
 }
 
 // A piece of a dispatch joins the open submit while the submit stays inside its target, else the submit goes
-// first. An unmeasured dispatch goes alone. A piece that cannot split and is predicted past the wait on its
-// own is refused before it is submitted.
-bool LAFieldDriver::_admit(const std::string &p_key, double p_groups, bool p_indirect) {
-	Cost &cost = _costs[p_key];
-	cost.indirect = p_indirect;
-	if (_bounded()) {
-		if (!cost.known) {
-			if (!_carried.empty()) {
-				_flush();
-			}
-		} else {
-			const double alone = _pred(cost, p_groups);
-			if ((p_indirect || p_groups == 1.0) && alone > _wait_usec) {
-				++_refused;
-				UtilityFunctions::push_error(vformat("LAFieldDriver: \"%s\" is predicted at %.1f ms in the smallest "
-						"submit it splits into, past the device's %.1f ms fence wait, so it was NOT submitted.",
-						String(p_key.c_str()), alone / 1000.0, _wait_usec / 1000.0));
-				return false;
-			}
-			double pred = 0.0;
-			double target = 0.0;
-			_load(p_key, p_groups, pred, target);
-			if (!_carried.empty() && pred > target) {
-				_flush();
-			}
-		}
+// first; an unmeasured dispatch always goes alone. True when the submit went.
+bool LAFieldDriver::_room(const std::string &p_key, double p_groups) {
+	if (_carried.empty()) {
+		return false;
+	}
+	const auto it = _costs.find(p_key);
+	bool full = it == _costs.end() || !it->second.known;
+	if (!full) {
+		double pred = 0.0;
+		double target = 0.0;
+		_load(p_key, p_groups, pred, target);
+		full = pred > target;
+	}
+	if (full) {
+		_flush();
+	}
+	return full;
+}
+
+// A piece that cannot split and is predicted past the wait on its own is refused before it is submitted,
+// and the step is aborted: nothing after it is recorded.
+bool LAFieldDriver::_admit(const std::string &p_key, double p_groups) {
+	const Cost &cost = _costs[p_key];
+	const double alone = cost.known ? _pred(cost, p_groups) : 0.0;
+	if (p_groups == 1.0 && alone > _wait_usec) {
+		++_refused;
+		_abort = p_key;
+		UtilityFunctions::push_error(vformat("LAFieldDriver: \"%s\" is predicted at %.1f ms in the smallest "
+				"submit it splits into, past the device's %.1f ms fence wait, so it was NOT submitted and the "
+				"step is aborted.",
+				String(p_key.c_str()), alone / 1000.0, _wait_usec / 1000.0));
+		return false;
 	}
 	_carried.push_back(Carried{ p_key, p_groups });
 	return true;
+}
+
+// Only a direct dispatch writes a count, so one read serves every indirect dispatch until the next direct
+// one. What was recorded before the read is submitted first: it may be what writes the count.
+int64_t LAFieldDriver::_count(const RID &p_args, int p_offset) {
+	const int64_t id = (int64_t)p_args.get_id();
+	auto it = _counts.find(id);
+	if (it == _counts.end()) {
+		if (_open) {
+			if (_carried.empty()) {
+				_rd->compute_list_end();
+			} else {
+				_submit();
+			}
+		}
+		it = _counts.emplace(id, _rd->buffer_get_data(p_args, 0, 0)).first;
+		++_reads;
+		if (_open) {
+			_cl = _rd->compute_list_begin();
+		}
+	}
+	const PackedByteArray &raw = it->second;
+	ERR_FAIL_COND_V_MSG(p_offset < 0 || p_offset + 4 > raw.size(), 0,
+			vformat("LAFieldDriver: an indirect dispatch reads its count at byte %d of a %d-byte args buffer.",
+					p_offset, raw.size()));
+	uint32_t v = 0;
+	std::memcpy(&v, raw.ptr() + p_offset, sizeof(v));
+	return (int64_t)v;
 }
 
 PackedByteArray LAFieldDriver::dispatched_block(const PackedByteArray &p_pc, int64_t p_stride, int64_t p_phase) {
@@ -277,27 +311,48 @@ void LAFieldDriver::_emit(const RID &p_pipe, const RID &p_uset, const PackedByte
 	_rd->compute_list_set_push_constant(_cl, _out, _out.size());
 	if (p_args.is_valid()) {
 		_rd->compute_list_dispatch_indirect(_cl, p_args, (uint32_t)p_offset);
+		++_indirect_classes;
 	} else {
 		_rd->compute_list_dispatch(_cl, (uint32_t)p_groups, 1, 1);
+		_counts.clear();
 	}
 	++_classes;
 }
 
-// ONE DIRECT DISPATCH, in residue classes of its workgroups: a class that does not fit its target alone splits
+// ONE DISPATCH, in residue classes of its workgroups: a class that does not fit its target alone splits
 // into its two halves at twice the stride, so every submit is an even sample of the grid. An unmeasured
-// dispatch first sends its middle workgroup alone, then the rest from one workgroup up, doubling.
+// dispatch first sends its middle workgroup alone, then the rest from one workgroup up, doubling. An
+// indirect dispatch is planned over the count its args hold, and every piece of it launches that whole
+// count: the kernel walks its list through the piece's stride and phase.
 void LAFieldDriver::_plan(const std::string &p_key, const RID &p_pipe, const RID &p_uset,
-		const PackedByteArray &p_pc, int64_t p_groups, bool p_barrier) {
-	if (!p_pipe.is_valid() || !p_uset.is_valid() || p_pc.is_empty() || p_groups <= 0) {
+		const PackedByteArray &p_pc, int64_t p_groups, const RID &p_args, int p_offset, bool p_barrier) {
+	if (!_abort.empty() || !p_pipe.is_valid() || !p_uset.is_valid() || p_pc.is_empty()) {
+		return;
+	}
+	const bool indirect = p_args.is_valid();
+	if (!_bounded()) {
+		if (indirect || p_groups > 0) {
+			++_dispatches;
+			_indirect_dispatches += indirect ? 1 : 0;
+			_emit(p_pipe, p_uset, p_pc, 1, 0, p_groups, p_args, p_offset);
+			if (p_barrier) {
+				_rd->compute_list_add_barrier(_cl);
+			}
+		}
+		return;
+	}
+	const int64_t groups = indirect ? _count(p_args, p_offset) : p_groups;
+	if (groups <= 0) {
 		return;
 	}
 	++_dispatches;
+	_indirect_dispatches += indirect ? 1 : 0;
 	std::deque<std::pair<int64_t, int64_t>> todo;
 	int64_t span = 1;
-	while (span < p_groups) {
+	while (span < groups) {
 		span <<= 1;
 	}
-	if (_bounded() && !_costs[p_key].known && span > 1) {
+	if (!_costs[p_key].known && span > 1) {
 		todo.emplace_back(span, span / 2);
 		for (int64_t s = span; s >= 2; s >>= 1) {
 			todo.emplace_back(s, s == span ? 0 : s / 2);
@@ -310,20 +365,25 @@ void LAFieldDriver::_plan(const std::string &p_key, const RID &p_pipe, const RID
 		const int64_t stride = todo.front().first;
 		const int64_t phase = todo.front().second;
 		todo.pop_front();
-		const int64_t n = class_groups(p_groups, stride, phase);
+		const int64_t n = class_groups(groups, stride, phase);
 		if (n <= 0) {
 			continue;
 		}
-		if (_bounded() && n > 1 && !_fits(p_key, double(n))) {
+		bool fits = n == 1 || _fits(p_key, double(n));
+		// What the submit that made room for it measured may reprice the piece, so it is asked again.
+		if (fits && _room(p_key, double(n)) && n > 1) {
+			fits = _fits(p_key, double(n));
+		}
+		if (!fits) {
 			todo.emplace_front(stride * 2, phase + stride);
 			todo.emplace_front(stride * 2, phase);
 			continue;
 		}
-		const bool probe = _bounded() && !_costs[p_key].known;
-		if (!_admit(p_key, double(n), false)) {
-			continue;
+		const bool probe = !_costs[p_key].known;
+		if (!_admit(p_key, double(n))) {
+			return;
 		}
-		_emit(p_pipe, p_uset, p_pc, stride, phase, n, RID(), 0);
+		_emit(p_pipe, p_uset, p_pc, stride, phase, n, p_args, p_offset);
 		emitted = true;
 		if (probe) {
 			_flush();
@@ -334,30 +394,8 @@ void LAFieldDriver::_plan(const std::string &p_key, const RID &p_pipe, const RID
 	}
 }
 
-// ONE INDIRECT DISPATCH: the device holds its count, so it goes whole, priced at the longest it has taken.
-void LAFieldDriver::_plan_indirect(const std::string &p_key, const RID &p_pipe, const RID &p_uset,
-		const PackedByteArray &p_pc, const RID &p_args, int p_offset, int64_t p_capacity, bool p_barrier) {
-	if (!p_pipe.is_valid() || !p_uset.is_valid() || p_pc.is_empty() || !p_args.is_valid()) {
-		return;
-	}
-	ERR_FAIL_COND_MSG(p_capacity <= 0, vformat("LAFieldDriver: indirect \"%s\" names no capacity.",
-			String(p_key.c_str())));
-	++_dispatches;
-	const bool probe = _bounded() && !_costs[p_key].known;
-	if (!_admit(p_key, double(p_capacity), true)) {
-		return;
-	}
-	_emit(p_pipe, p_uset, p_pc, 1, 0, 0, p_args, p_offset);
-	if (probe) {
-		_flush();
-	}
-	if (p_barrier) {
-		_rd->compute_list_add_barrier(_cl);
-	}
-}
-
 void LAFieldDriver::clear_buffers(const Array &p_bufs, int p_bytes) {
-	if (_rd == nullptr || p_bytes <= 0) {
+	if (_rd == nullptr || p_bytes <= 0 || !_abort.empty()) {
 		return;
 	}
 	bool any = false;
@@ -383,7 +421,7 @@ void LAFieldDriver::run(const RID &p_pipe, const Array &p_usets, const Array &p_
 	const bool one_key = p_keys.size() == 1;
 	ERR_FAIL_COND_MSG(!one_key && p_keys.size() != p_pcs.size(),
 			"LAFieldDriver: run() takes one cost key, or one per block.");
-	if (_rd == nullptr || !p_pipe.is_valid() || p_pcs.is_empty()) {
+	if (_rd == nullptr || !p_pipe.is_valid() || p_pcs.is_empty() || !_abort.empty()) {
 		return;
 	}
 	const bool one_set = p_usets.size() == 1;
@@ -395,12 +433,8 @@ void LAFieldDriver::run(const RID &p_pipe, const Array &p_usets, const Array &p_
 		const PackedByteArray pc = p_pcs[i];
 		const std::string key = key_of(p_keys[one_key ? 0 : i]);
 		const int64_t groups = i < p_workgroups.size() ? p_workgroups[i] : 0;
-		const RID args = rid_at(p_args, i);
-		if (args.is_valid()) {
-			_plan_indirect(key, p_pipe, uset, pc, args, i < p_offsets.size() ? p_offsets[i] : 0, groups, p_barrier);
-		} else {
-			_plan(key, p_pipe, uset, pc, groups, p_barrier);
-		}
+		_plan(key, p_pipe, uset, pc, groups, rid_at(p_args, i), i < p_offsets.size() ? p_offsets[i] : 0,
+				p_barrier);
 	}
 }
 
@@ -415,7 +449,7 @@ static bool pass_live(Object *p_pass) {
 }
 
 void LAFieldDriver::pre_step(const Array &p_passes, const Dictionary &p_ctx, int p_cc, int p_groups) {
-	for (int i = 0; i < p_passes.size(); ++i) {
+	for (int i = 0; i < p_passes.size() && _abort.empty(); ++i) {
 		Object *p = p_passes[i];
 		if (p != nullptr && p->has_method("pre_step") && pass_live(p)) {
 			p->call("pre_step", _rd, p_ctx, p_cc, p_groups);
@@ -435,14 +469,14 @@ bool LAFieldDriver::moves_state(const Array &p_passes) const {
 
 void LAFieldDriver::step(const Array &p_passes, const PackedStringArray &p_names,
 		const Dictionary &p_ctx, int p_cc, int p_groups, const Callable &p_probe) {
-	if (_rd == nullptr) {
+	if (_rd == nullptr || !_abort.empty()) {
 		return;
 	}
 	const bool probed = p_probe.is_valid();
 	if (probed) {
 		p_probe.call(-1, String("start"));
 	}
-	for (int i = 0; i < p_passes.size(); ++i) {
+	for (int i = 0; i < p_passes.size() && _abort.empty(); ++i) {
 		Object *p = p_passes[i];
 		if (p == nullptr) {
 			continue;
@@ -464,9 +498,12 @@ void LAFieldDriver::step(const Array &p_passes, const PackedStringArray &p_names
 		open();
 		p->call("dispatch", _rd, p_ctx, p_cc, p_groups);
 		close();
-		if (probed) {
+		if (probed && _abort.empty()) {
 			p_probe.call(i, i < p_names.size() ? p_names[i] : String());
 		}
+	}
+	if (!_abort.empty()) {
+		return;
 	}
 	// Leave an in-flight submit so the drain's contract is unchanged. An empty list is a legal no-op.
 	_rd->compute_list_begin();
@@ -488,7 +525,6 @@ void LAFieldDriver::setup_transport(const Dictionary &p_plan) {
 	_queue_bin = plan_int(p_plan, "queue_bin", 0);
 	_slots = plan_int(p_plan, "slots", 0);
 	_group_count = plan_int(p_plan, "group_count", 1);
-	_capacity = plan_int(p_plan, "capacity", 0);
 	_level_off = plan_int(p_plan, "level_off", 0);
 	_k_off = plan_int(p_plan, "k_off", 0);
 	_n_off = plan_int(p_plan, "n_off", 0);
@@ -559,30 +595,31 @@ void LAFieldDriver::_restate(int p_group, int p_level) {
 	uint8_t *w = _eos_pc.ptrw();
 	put_u32(w, _eos_slot_off, (uint32_t)(offset / 4));
 	put_u32(w, _eos_base_off, (uint32_t)(p_group * _eos_total));
-	_plan_indirect(RESTATE_KEY, _eos_pipe, _eos_set, _eos_pc, _args, offset, _capacity, true);
+	_plan(RESTATE_KEY, _eos_pipe, _eos_set, _eos_pc, 0, _args, offset, true);
 }
 
 void LAFieldDriver::_act(int p_owner, const RID &p_uset, const Array &p_table, int p_slot, int p_group,
 		int p_level, int p_bin) {
-	_plan_indirect(_key(p_owner, p_slot), _pipe, p_uset, _block(p_table, p_slot, p_level, 0, 1), _args,
-			_args_offset(p_group, p_bin), _capacity, true);
+	_plan(_key(p_owner, p_slot), _pipe, p_uset, _block(p_table, p_slot, p_level, 0, 1), 0, _args,
+			_args_offset(p_group, p_bin), true);
 }
 
 void LAFieldDriver::_rebuild_active(int p_owner, const RID &p_uset, const Array &p_table, int p_group,
 		int p_level, bool p_take_wake) {
 	_act(p_owner, p_uset, p_table, SLOT_ACT_AGE, p_group, p_level, 0);
 	if (p_take_wake) {
-		_plan_indirect(_key(p_owner, SLOT_ACT_WAKE), _pipe, p_uset, _block(p_table, SLOT_ACT_WAKE, p_level, 0, 1),
-				_wake_args, 0, _capacity, true);
+		_plan(_key(p_owner, SLOT_ACT_WAKE), _pipe, p_uset, _block(p_table, SLOT_ACT_WAKE, p_level, 0, 1), 0,
+				_wake_args, 0, true);
 	}
 	_act(p_owner, p_uset, p_table, SLOT_ACT_MARK, p_group, p_level, 0);
-	_plan(_key(p_owner, SLOT_LEVEL_SCAN), _pipe, p_uset, _block(p_table, SLOT_LEVEL_SCAN, p_level, 0, 1), 1, true);
+	_plan(_key(p_owner, SLOT_LEVEL_SCAN), _pipe, p_uset, _block(p_table, SLOT_LEVEL_SCAN, p_level, 0, 1), 1,
+			RID(), 0, true);
 	_act(p_owner, p_uset, p_table, SLOT_LEVEL_SORT, p_group, p_level, _queue_bin);
 }
 
 void LAFieldDriver::build_levels(int p_group, const Array &p_pc_rows, int p_levels) {
 	ERR_FAIL_COND_MSG(!_open, "LAFieldDriver: build_levels() outside open() and close().");
-	if (_rd == nullptr || p_group < 0 || p_group >= _groups.size()) {
+	if (_rd == nullptr || p_group < 0 || p_group >= _groups.size() || !_abort.empty()) {
 		return;
 	}
 	const PackedInt32Array group = _groups[p_group];
@@ -600,8 +637,6 @@ void LAFieldDriver::build_levels(int p_group, const Array &p_pc_rows, int p_leve
 		const int gi = group[i];
 		_act(gi, rid_at(_row_sets, gi), p_pc_rows[gi], SLOT_LEVEL_SEED, p_group, 0, 0);
 	}
-	// One outward sweep: every neighbour of a listed cell takes at least that cell's level.
-	_act(first, head, head_pc, SLOT_LEVEL_RELAX, p_group, 0, 0);
 }
 
 // ONE SLOT OF ONE RECORD, over its group's active cells at this level: what it costs is what moves.
@@ -611,8 +646,8 @@ void LAFieldDriver::_run_slot(int p_row, const Array &p_pc_rows, int p_slot, int
 		return;
 	}
 	const int group = p_row < _row_group.size() ? _row_group[p_row] : 0;
-	_plan_indirect(_key(p_row, p_slot), _pipe, uset, _block(p_pc_rows[p_row], p_slot, p_level, p_k, p_n), _args,
-			_args_offset(group, p_level), _capacity, true);
+	_plan(_key(p_row, p_slot), _pipe, uset, _block(p_pc_rows[p_row], p_slot, p_level, p_k, p_n), 0, _args,
+			_args_offset(group, p_level), true);
 }
 
 // THE FLUX AND THE APPLY: the record writes what crosses each of its cells' own faces, then reads
@@ -632,7 +667,7 @@ void LAFieldDriver::run_transport(const PackedInt32Array &p_peaks, const Array &
 		const Array &p_pc_grain, const Array &p_pc_lists, int p_seed_workgroups, int p_list_workgroups,
 		const Dictionary &p_restate) {
 	ERR_FAIL_COND_MSG(!_open, "LAFieldDriver: run_transport() outside open() and close().");
-	if (_rd == nullptr || !_pipe.is_valid()) {
+	if (_rd == nullptr || !_pipe.is_valid() || !_abort.empty()) {
 		return;
 	}
 	_row_live.resize(_rows.size());
@@ -659,7 +694,7 @@ void LAFieldDriver::run_transport(const PackedInt32Array &p_peaks, const Array &
 	// THE LISTS, before anything reads one: every cell of a world nobody has stepped yet.
 	if (p_seed_workgroups > 0) {
 		_plan(_key(grain, SLOT_ACT_SEED), _pipe, _grain_set, _block(p_pc_grain, SLOT_ACT_SEED, 0, 0, 1),
-				p_seed_workgroups, true);
+				p_seed_workgroups, RID(), 0, true);
 	}
 	// THE DETECTOR LISTS: a detector looks everywhere, because a value it has never seen can sit anywhere.
 	for (int r = 0; r < _list_sets.size(); ++r) {
@@ -671,7 +706,8 @@ void LAFieldDriver::run_transport(const PackedInt32Array &p_peaks, const Array &
 		const int slots[3] = { SLOT_LIST_RESET, SLOT_LIST_APPEND, SLOT_LIST_ARGS };
 		const int64_t wgs[3] = { 1, p_list_workgroups, 1 };
 		for (int i = 0; i < 3; ++i) {
-			_plan(_key(grain + 1 + r, slots[i]), _pipe, lset, _block(table, slots[i], 0, 0, 1), wgs[i], true);
+			_plan(_key(grain + 1 + r, slots[i]), _pipe, lset, _block(table, slots[i], 0, 0, 1), wgs[i], RID(), 0,
+					true);
 		}
 	}
 	// PROLOGUE: the suspension shares its silicate rows before anything donates.
@@ -708,6 +744,7 @@ void LAFieldDriver::run_transport(const PackedInt32Array &p_peaks, const Array &
 			// the records then move carries its share of the momentum and leaves none behind.
 			if (_live(last)) {
 				_run_slot(last, p_pc_rows, SLOT_MOMENTUM, lk, k, steps);
+				_run_slot(last, p_pc_rows, SLOT_MOMENTUM_APPLY, lk, k, steps);
 			}
 			for (int i = 0; i < group.size(); ++i) {
 				_run_row(group[i], p_pc_rows, lk, k, steps);
@@ -718,7 +755,7 @@ void LAFieldDriver::run_transport(const PackedInt32Array &p_peaks, const Array &
 	// The wake queue is consumed; what the reactions write after this pass is next step's business.
 	if (_grain_set.is_valid()) {
 		_plan(_key(grain, SLOT_ACT_WAKE_RESET), _pipe, _grain_set,
-				_block(p_pc_grain, SLOT_ACT_WAKE_RESET, 0, 0, 1), 1, true);
+				_block(p_pc_grain, SLOT_ACT_WAKE_RESET, 0, 0, 1), 1, RID(), 0, true);
 	}
 }
 
@@ -727,10 +764,32 @@ Dictionary LAFieldDriver::ledger() const {
 	out["submits"] = _submits;
 	out["dispatches"] = _dispatches;
 	out["classes"] = _classes;
+	out["indirect_dispatches"] = _indirect_dispatches;
+	out["indirect_classes"] = _indirect_classes;
+	out["reads"] = _reads;
 	out["refused"] = _refused;
+	out["aborted"] = aborted();
 	out["over_target"] = _over_target;
 	out["worst_usec"] = _worst_usec;
+	out["last_usec"] = _last_usec;
+	Dictionary floors;
+	for (const std::pair<const std::string, Cost> &e : _costs) {
+		if (e.second.floored) {
+			floors[String(e.first.c_str())] = e.second.floor_usec;
+		}
+	}
+	out["floors"] = floors;
 	out["wait_usec"] = _wait_usec;
+	return out;
+}
+
+Dictionary LAFieldDriver::report() const {
+	Dictionary out;
+	out["submit_refused"] = double(_refused);
+	out["submit_worst_ms"] = _worst_usec / 1000.0;
+	if (_bounded()) {
+		out["submit_wait_ms"] = _wait_usec / 1000.0;
+	}
 	return out;
 }
 
@@ -781,7 +840,7 @@ Dictionary LAFieldDriver::fold_reduce(const RID &p_partials, const PackedInt32Ar
 void LAFieldDriver::_bind_methods() {
 	ClassDB::bind_static_method("LAFieldDriver", D_METHOD("on", "rd"), &LAFieldDriver::on);
 	ClassDB::bind_method(D_METHOD("set_wait_usec", "usec"), &LAFieldDriver::set_wait_usec);
-	ClassDB::bind_method(D_METHOD("wait_usec"), &LAFieldDriver::wait_usec);
+	ClassDB::bind_method(D_METHOD("aborted"), &LAFieldDriver::aborted);
 	ClassDB::bind_method(D_METHOD("open"), &LAFieldDriver::open);
 	ClassDB::bind_method(D_METHOD("close"), &LAFieldDriver::close);
 	ClassDB::bind_method(D_METHOD("restart"), &LAFieldDriver::restart);
@@ -803,6 +862,7 @@ void LAFieldDriver::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("fold_reduce", "partials", "folds", "keys", "groups"),
 			&LAFieldDriver::fold_reduce);
 	ClassDB::bind_method(D_METHOD("ledger"), &LAFieldDriver::ledger);
+	ClassDB::bind_method(D_METHOD("report"), &LAFieldDriver::report);
 	ClassDB::bind_static_method("LAFieldDriver", D_METHOD("dispatched_block", "pc", "stride", "phase"),
 			&LAFieldDriver::dispatched_block);
 
@@ -818,13 +878,13 @@ void LAFieldDriver::_bind_methods() {
 	BIND_ENUM_CONSTANT(SLOT_LEVEL_SORT);
 	BIND_ENUM_CONSTANT(SLOT_LEVEL_RESET);
 	BIND_ENUM_CONSTANT(SLOT_LEVEL_SEED);
-	BIND_ENUM_CONSTANT(SLOT_LEVEL_RELAX);
 	BIND_ENUM_CONSTANT(SLOT_GRAIN);
 	BIND_ENUM_CONSTANT(SLOT_ACT_SEED);
 	BIND_ENUM_CONSTANT(SLOT_ACT_WAKE_RESET);
 	BIND_ENUM_CONSTANT(SLOT_LIST_RESET);
 	BIND_ENUM_CONSTANT(SLOT_LIST_APPEND);
 	BIND_ENUM_CONSTANT(SLOT_LIST_ARGS);
+	BIND_ENUM_CONSTANT(SLOT_MOMENTUM_APPLY);
 	BIND_ENUM_CONSTANT(SLOT_COUNT);
 	BIND_ENUM_CONSTANT(FOLD_SUM);
 	BIND_ENUM_CONSTANT(FOLD_MIN);

@@ -19,6 +19,7 @@ var _failed_announced: bool = false
 var _last: Dictionary = {}              # the last drain, for the query modules that read rows directly
 var _folds: PackedInt32Array = PackedInt32Array()   # per row: how its workgroup partials combine
 var _keys: PackedStringArray = PackedStringArray()  # per row: the key its reading publishes under
+var _costs: PackedStringArray = PackedStringArray() # per row: the driver's cost key for its kind
 
 
 ## One partial per workgroup per row, plus one reference buffer per `ref` the rows name.
@@ -76,6 +77,7 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 		_rows.append(row)
 		_folds.append(_fold_mode(int(row["op"])))
 		_keys.append(String(row["key"]))
+		_costs.append(_kind(_pc(cc, row, 0)))
 
 
 func dispatch(rd: RenderingDevice, ctx: Dictionary, cc: int, _groups_in: int) -> void:
@@ -96,8 +98,7 @@ func _run(_rd: RenderingDevice, ctx: Dictionary, cc: int, latch_ok: bool) -> voi
 	var usets: Array = []
 	var pcs: Array = []
 	var wgs: PackedInt32Array = PackedInt32Array()
-	var args: Array = []
-	var offs: PackedInt32Array = PackedInt32Array()
+	var costs: PackedStringArray = PackedStringArray()
 	for r in _rows.size():
 		var row: Dictionary = _rows[r]
 		var ref: String = String(row.get("ref", ""))
@@ -107,11 +108,16 @@ func _run(_rd: RenderingDevice, ctx: Dictionary, cc: int, latch_ok: bool) -> voi
 		usets.append(_sets[r])
 		pcs.append(_pc(cc, row, r * _groups))
 		wgs.append(_groups)
-		args.append(RID())
-		offs.append(0)
+		costs.append(_costs[r])
 		if latch:
 			_latch_step[ref] = _step
-	_driver.run(_pipe, usets, pcs, wgs, args, offs, true, PackedStringArray([_label() + "/rows"]))
+	_driver.run(_pipe, usets, pcs, wgs, [], PackedInt32Array(), true, costs)
+
+
+## A row's cost key: its op, mask, weight, aux and gate words and its nbr, which choose what a cell's lane
+## does. Rows apart only in source, threshold, gate bounds or slot share one measurement.
+func _kind(pc: PackedByteArray) -> String:
+	return _label() + "/" + (pc.slice(4, 12) + pc.slice(20, 32) + pc.slice(40, 44)).hex_encode()
 
 
 ## A reduce taken BETWEEN passes: this pass runs last, so a row cannot say WHICH pass moved a total.

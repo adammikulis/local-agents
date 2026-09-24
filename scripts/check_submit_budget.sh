@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # NO SUBMIT OUTRUNS THE DEVICE'S FENCE WAIT (LAFieldDriver::METAL_FENCE_WAIT_MS).
-# Arm 1  derive and reduce, whole and split into many submits, leave every buffer bit-identical; under a wait
-#        no workgroup fits in, every one after the measured first is refused before it is submitted, aloud.
-# Arm 2  the seeded world refused nothing and no submit reached the wait. Arm 3  only a rig sets a wait, and
-#        every pass kernel reads its workgroup through chunk.glsli. EXIT 0 clean · 1 a claim is false · 2 could not run.
+# Arm 1  derive, reduce and active-list dispatches leave every buffer bit-identical whole and split; a floor is
+#        the least lone submit; reduce kinds price apart; a refused piece is said aloud and nothing after it runs.
+# Arm 2  the seeded world's report carries the ledger: nothing refused, no submit reached the wait. Arm 3  only
+#        a rig sets a wait; every pass kernel reads chunk.glsli. EXIT 0 clean · 1 a claim is false · 2 could not run.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh"
@@ -87,8 +87,8 @@ got = {}
 for k in ("submit_refused", "submit_worst_ms", "submit_wait_ms"):
     raw = vals.get(k, "<ABSENT>")
     if raw == "<ABSENT>":
-        print("check_submit_budget: the seeded world published no %s." % k, file=sys.stderr)
-        sys.exit(2)
+        print("check_submit_budget: the seeded world's report carries no %s." % k, file=sys.stderr)
+        sys.exit(1)
     v = ast.literal_eval(raw)
     got[k] = float(v["max"]) if isinstance(v, dict) else float(v)
 print("SUBMIT_WORLD=" + str(got))

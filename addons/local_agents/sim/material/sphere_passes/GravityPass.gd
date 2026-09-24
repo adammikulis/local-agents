@@ -146,6 +146,9 @@ func solve_converged(rd: RenderingDevice, grid, cc: int, groups: int) -> float:
 	_driver.open()
 	dispatch(rd, ctx, cc, groups)
 	_driver.close()
+	# A refused piece left the density partial, and nothing is solved on it.
+	if _driver.aborted() != "":
+		return INF
 	var r: Dictionary = LAGravitySolve.solve_device(rd, grid, _density_rid, _phi_rid, _flags_rid,
 		_moments, LAPhysical.GRAVITATIONAL_CONSTANT, RESIDUAL_TOLERANCE, MAX_ITERATIONS)
 	if r.is_empty():
@@ -189,16 +192,12 @@ func dispatch_slab(_rd: RenderingDevice, cc: int, groups: int) -> void:
 func _issue(plan: Array, cc: int) -> void:
 	var pcs: Array = []
 	var wgs: PackedInt32Array = PackedInt32Array()
-	var args: Array = []
-	var offs: PackedInt32Array = PackedInt32Array()
 	var keys: PackedStringArray = PackedStringArray()
 	for e: Array in plan:
 		pcs.append(_push(int(e[0]), int(e[1]), cc))
 		wgs.append(int(e[2]))
-		args.append(RID())
-		offs.append(0)
 		keys.append("%s/mode%d" % [_label(), int(e[0])])
-	_driver.run(_pipe, [_set], pcs, wgs, args, offs, true, keys)
+	_driver.run(_pipe, [_set], pcs, wgs, [], PackedInt32Array(), true, keys)
 
 
 func _push(mode: int, colour: int, cc: int) -> PackedByteArray:

@@ -41,13 +41,13 @@ public:
 		SLOT_LEVEL_SORT = 9,
 		SLOT_LEVEL_RESET = 10,
 		SLOT_LEVEL_SEED = 11,
-		SLOT_LEVEL_RELAX = 12,
-		SLOT_GRAIN = 13,
-		SLOT_ACT_SEED = 14,
-		SLOT_ACT_WAKE_RESET = 15,
-		SLOT_LIST_RESET = 16,
-		SLOT_LIST_APPEND = 17,
-		SLOT_LIST_ARGS = 18,
+		SLOT_GRAIN = 12,
+		SLOT_ACT_SEED = 13,
+		SLOT_ACT_WAKE_RESET = 14,
+		SLOT_LIST_RESET = 15,
+		SLOT_LIST_APPEND = 16,
+		SLOT_LIST_ARGS = 17,
+		SLOT_MOMENTUM_APPLY = 18,
 		SLOT_COUNT = 19,
 	};
 
@@ -69,14 +69,15 @@ public:
 	static Ref<LAFieldDriver> on(RenderingDevice *p_rd);
 	// The wait a rig plans against in place of the backend's.
 	void set_wait_usec(double p_usec);
-	double wait_usec() const;
+	// The dispatch whose refusal aborted the step, or empty. Once aborted, nothing more is recorded.
+	String aborted() const;
 
 	void open();
 	void close();
 	// The field now holds a state no kernel produced, so no cost measured on another state predicts it.
 	void restart();
-	// A direct dispatch covers p_workgroups; an indirect one's p_workgroups is the most its args can ask.
-	// One set, or one cost key, serves every block.
+	// A block with no valid args entry is direct and covers its p_workgroups; an indirect one launches the
+	// count its args hold. One set, or one cost key, serves every block.
 	void run(const RID &p_pipe, const Array &p_usets, const Array &p_pcs, const PackedInt32Array &p_workgroups,
 			const Array &p_args, const PackedInt32Array &p_offsets, bool p_barrier, const PackedStringArray &p_keys);
 	void clear_buffers(const Array &p_bufs, int p_bytes);
@@ -97,9 +98,12 @@ public:
 	Dictionary fold_reduce(const RID &p_partials, const PackedInt32Array &p_folds,
 			const PackedStringArray &p_keys, int p_groups);
 
-	// Submits and the dispatches and classes they carried, refusals, submits planned past their target, the
-	// longest submit (usec), and the wait.
+	// Submits and the dispatches and classes they carried (indirect ones apart), the counts read back,
+	// refusals and the dispatch that aborted, submits planned past their target, the longest submit and
+	// the last one that carried work (usec), each measured dispatch's floor (usec), and the wait.
 	Dictionary ledger() const;
+	// The report's own readings of the ledger: submit_refused, submit_worst_ms and submit_wait_ms.
+	Dictionary report() const;
 	// A pass's block with the chunk words appended: the Params block its kernel declares.
 	static PackedByteArray dispatched_block(const PackedByteArray &p_pc, int64_t p_stride, int64_t p_phase);
 
@@ -107,12 +111,12 @@ protected:
 	static void _bind_methods();
 
 private:
-	// One dispatch's measured cost: its latency floor, the longest one workgroup took alone (an indirect
-	// dispatch's whole list is its smallest piece), and the last submit that carried it alone.
+	// One dispatch's measured cost: its latency floor, the least a lone single-workgroup submit of it took,
+	// and the last submit that carried it alone.
 	struct Cost {
 		bool known = false;
-		bool indirect = false;
-		double latency_usec = 0.0;
+		bool floored = false;
+		double floor_usec = 0.0;
 		double last_usec = 0.0;
 		double last_groups = 0.0;
 	};
@@ -127,12 +131,19 @@ private:
 	double _wait_usec = 0.0;
 	std::unordered_map<std::string, Cost> _costs;
 	std::vector<Carried> _carried;
+	// Per args buffer, as last read back; a direct dispatch is the only writer of a count.
+	std::unordered_map<int64_t, PackedByteArray> _counts;
+	std::string _abort;
 	int64_t _submits = 0;
 	int64_t _dispatches = 0;
 	int64_t _classes = 0;
+	int64_t _indirect_dispatches = 0;
+	int64_t _indirect_classes = 0;
+	int64_t _reads = 0;
 	int64_t _refused = 0;
 	int64_t _over_target = 0;
 	double _worst_usec = 0.0;
+	double _last_usec = 0.0;
 	PackedByteArray _out;
 
 	RID _pipe;
@@ -150,7 +161,6 @@ private:
 	int _queue_bin = 0;
 	int _slots = 0;
 	int _group_count = 1;
-	int64_t _capacity = 0;        // workgroups over every cell a list can hold
 	int _level_off = 0;
 	int _k_off = 0;
 	int _n_off = 0;
@@ -177,13 +187,14 @@ private:
 	void _submit();
 	void _flush();
 	void _learn(double p_usec);
-	bool _admit(const std::string &p_key, double p_groups, bool p_indirect);
+	bool _room(const std::string &p_key, double p_groups);
+	bool _admit(const std::string &p_key, double p_groups);
+	// The workgroups an indirect dispatch's args ask the device to launch, as the device holds them.
+	int64_t _count(const RID &p_args, int p_offset);
 	void _emit(const RID &p_pipe, const RID &p_uset, const PackedByteArray &p_pc, int64_t p_stride,
 			int64_t p_phase, int64_t p_groups, const RID &p_args, int p_offset);
 	void _plan(const std::string &p_key, const RID &p_pipe, const RID &p_uset, const PackedByteArray &p_pc,
-			int64_t p_groups, bool p_barrier);
-	void _plan_indirect(const std::string &p_key, const RID &p_pipe, const RID &p_uset,
-			const PackedByteArray &p_pc, const RID &p_args, int p_offset, int64_t p_capacity, bool p_barrier);
+			int64_t p_groups, const RID &p_args, int p_offset, bool p_barrier);
 
 	int _args_offset(int p_group, int p_bin) const;
 	bool _live(int p_row) const;

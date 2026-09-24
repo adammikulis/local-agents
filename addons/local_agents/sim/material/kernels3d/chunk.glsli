@@ -9,7 +9,13 @@ uint la_group() {
 	return gl_WorkGroupID.x * params.chunk_stride + params.chunk_phase;
 }
 
+// An indirect piece launches its dispatch's whole device-held count and walks its list through the same
+// two words; a workgroup whose cells would lie past the last uint reads 0xFFFFFFFF, past every bound.
 uint la_cell() {
+	uint top = 0xFFFFFFFFu / gl_WorkGroupSize.x;
+	if (params.chunk_phase > top || gl_WorkGroupID.x > (top - params.chunk_phase) / params.chunk_stride) {
+		return 0xFFFFFFFFu;
+	}
 	return la_group() * gl_WorkGroupSize.x + gl_LocalInvocationID.x;
 }
 

@@ -179,12 +179,6 @@ func step() -> void:
 	_f.sync_body_frame()
 	LASimReport.event("field_step")   # telemetry: field steps per run, moving or at rest
 	LASimReport.gauge("field_cells", float(_f._gpu._cc))
-	# THE DEVICE'S OWN SUBMITS: what the driver refused, and the longest the fence ever waited.
-	var led: Dictionary = _f._gpu._driver.ledger()
-	LASimReport.gauge("submit_refused", float(led["refused"]))
-	LASimReport.gauge("submit_worst_ms", float(led["worst_usec"]) / 1000.0)
-	if is_finite(float(led["wait_usec"])):
-		LASimReport.gauge("submit_wait_ms", float(led["wait_usec"]) / 1000.0)
 	if _at_rest():
 		var t_rest: int = Time.get_ticks_usec()
 		LASimReport.event("field_rest")
@@ -223,6 +217,8 @@ func step() -> void:
 	else:
 		_f._gpu.step()
 	LASimReport.gauge("field_dispatch_ms", float(Time.get_ticks_usec() - t_step) / 1000.0)
+	if _f._gpu._driver.aborted() != "":
+		return
 	var t_post: int = Time.get_ticks_usec()
 	# Seal on the field clock, never the report clock. The seal takes only its own legs.
 	if _f._seal != null and _f._gpu.has_method("take_probe"):

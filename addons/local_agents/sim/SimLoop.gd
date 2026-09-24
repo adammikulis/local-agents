@@ -16,6 +16,8 @@ var _step: int = 0
 var _tick: int = 0
 var _holds: int = 0
 var _steps_per_tick: int = 1
+## Why the run stopped, or "" while it runs: a step that could not complete ends it.
+var failure: String = ""
 
 
 static func active() -> LASimLoop:
@@ -69,6 +71,8 @@ func restore_elapsed_s(seconds: float) -> void:
 
 
 func _physics_process(_delta: float) -> void:
+	if failure != "":
+		return
 	if _holds > 0:
 		_tick += 1
 		seeding.emit(_tick)
@@ -79,3 +83,5 @@ func _physics_process(_delta: float) -> void:
 		LASimReport.gauge("sim_steps", float(_step))
 		LASimReport.gauge("field_sim_s", elapsed_s())
 		stepped.emit(_step)
+		if failure != "":
+			return

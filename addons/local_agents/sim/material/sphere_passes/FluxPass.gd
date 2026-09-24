@@ -14,9 +14,9 @@ const ActiveScript: GDScript = preload("res://addons/local_agents/sim/material/s
 ## reflected-shortwave march, the face solve, the momentum close, the temporal levels and the list.
 enum { PASS_FLUX, PASS_APPLY, PASS_GRAIN, PASS_LIST_RESET, PASS_LIST_APPEND, PASS_LIST_ARGS,
 	PASS_SW, PASS_FACE, PASS_MOMENTUM,
-	PASS_LEVEL_SEED, PASS_LEVEL_RELAX, PASS_LEVEL_RESET, PASS_LEVEL_SCAN,
+	PASS_LEVEL_SEED, PASS_LEVEL_RESET, PASS_LEVEL_SCAN,
 	PASS_LEVEL_SORT, PASS_LEVEL_PEAK,
-	PASS_ACT_AGE, PASS_ACT_WAKE, PASS_ACT_MARK, PASS_ACT_WAKE_RESET, PASS_ACT_SEED }
+	PASS_ACT_AGE, PASS_ACT_WAKE, PASS_ACT_MARK, PASS_ACT_WAKE_RESET, PASS_ACT_SEED, PASS_MOMENTUM_APPLY }
 
 ## flux.glsl's ACT_NO_GROUP: this record's crossings wake no second group.
 const NO_GROUP: int = 0xffffffff
@@ -169,13 +169,8 @@ func _plan() -> Dictionary:
 		"row_radiate": radiate, "groups": _row_groups, "args": _args_rid,
 		"wake_args": _wake_args_rid, "grain_set": _grain_set, "list_sets": _list_sets,
 		"queue_bin": ActiveScript.QUEUE_BIN, "slots": LevelsScript.SLOTS,
-		"group_count": group_count(), "capacity": _capacity(),
+		"group_count": group_count(),
 		"level_off": PC_LEVEL, "k_off": PC_K, "n_off": PC_N}
-
-
-## Workgroups over every cell a list can hold: what an indirect dispatch is priced at.
-func _capacity() -> int:
-	return int(ceil(float(_total) / 64.0))
 
 
 ## XUV irradiance at this body, W/m^2, taken once per dispatch off the ctx the star publishes into.
@@ -229,31 +224,25 @@ func pre_step(rd: RenderingDevice, ctx: Dictionary, cc: int, _groups: int) -> vo
 	rd.buffer_clear(_peak_rid, 0, _row_groups.size() * 4)
 	var usets: Array = []
 	var pcs: Array = []
-	var wgs: PackedInt32Array = PackedInt32Array()
 	var args: Array = []
 	var offs: PackedInt32Array = PackedInt32Array()
 	var keys: PackedStringArray = PackedStringArray()
-	var seed: int = _seed_workgroups()
-	if seed > 0:
-		usets.append(_grain_set)
-		pcs.append(_pc(GRAIN_ROW, cc, PASS_ACT_SEED, dt_s, Vector3.ZERO, 0, 0, 1,
-			group_count()))
-		wgs.append(seed)
-		args.append(RID())
-		offs.append(0)
-		keys.append(_label() + "/act_seed")
 	for g in _row_groups.size():
 		for gi in _row_groups[g]:
 			if not LAProcessSet.is_active("transport", String(_rows[gi].get("label", ""))):
 				continue
 			usets.append(_sets[gi])
 			pcs.append(_pc(_rows[gi], cc, PASS_LEVEL_PEAK, dt_s, Vector3.ZERO, g, 0, 1, g))
-			wgs.append(_capacity())
 			args.append(_args_rid)
 			offs.append(ActiveScript.args_offset(g, 0))
 			keys.append("%s/level_peak/%d" % [_label(), gi])
+	var seed: int = _seed_workgroups()
 	_driver.open()
-	_driver.run(_pipe, usets, pcs, wgs, args, offs, true, keys)
+	if seed > 0:
+		_driver.run(_pipe, [_grain_set], [_pc(GRAIN_ROW, cc, PASS_ACT_SEED, dt_s, Vector3.ZERO, 0, 0, 1,
+			group_count())], PackedInt32Array([seed]), [], PackedInt32Array(), true,
+			PackedStringArray([_label() + "/act_seed"]))
+	_driver.run(_pipe, usets, pcs, PackedInt32Array(), args, offs, true, keys)
 	_driver.close()
 	_peaks = rd.buffer_get_data(_peak_rid, 0, _row_groups.size() * 4).to_int32_array()
 	# A CELL ASKING FOR A STEP SHORTER THAN LIGHT TAKES TO CROSS IT IS NOT ASKING FOR RESOLUTION.
@@ -313,7 +302,8 @@ func _active_cells(rd: RenderingDevice) -> float:
 ## Pass-owned scratch: the first FACE_SCRATCH ride a face, the rest are per cell.
 const SCRATCH: PackedStringArray = ["flux_face_u", "flux_fp_star", "flux_face_uw", "flux_fpw_star",
 	"flux_send", "flux_x_amt", "flux_x_h", "flux_x_q",
-	"flux_lw_emis", "flux_sw_absorbed", "flux_sw_keep", "flux_sw_src", "flux_nu_t", "flux_w_top"]
+	"flux_lw_emis", "flux_sw_absorbed", "flux_sw_keep", "flux_sw_src", "flux_nu_t", "flux_w_top",
+	"flux_dm_x", "flux_dm_y", "flux_dm_z"]
 const FACE_SCRATCH: int = 8
 
 
@@ -411,7 +401,6 @@ func _pc_rows(cc: int, dt_s: float, sun: Vector3) -> Array:
 		var head: Dictionary = _rows[group[0]]
 		var ht: Array = out[group[0]]
 		ht[LAFieldDriver.SLOT_LEVEL_RESET] = _pc(head, cc, PASS_LEVEL_RESET, dt_s, sun, 0, 0, 1, g)
-		ht[LAFieldDriver.SLOT_LEVEL_RELAX] = _pc(head, cc, PASS_LEVEL_RELAX, dt_s, sun, 0, 0, 1, g)
 		ht[LAFieldDriver.SLOT_ACT_AGE] = _pc(head, cc, PASS_ACT_AGE, dt_s, sun, 0, 0, 1, g)
 		ht[LAFieldDriver.SLOT_ACT_WAKE] = _pc(head, cc, PASS_ACT_WAKE, dt_s, sun, 0, 0, 1, g)
 		ht[LAFieldDriver.SLOT_ACT_MARK] = _pc(head, cc, PASS_ACT_MARK, dt_s, sun, 0, 0, 1, g)
@@ -433,6 +422,8 @@ func _pc_rows(cc: int, dt_s: float, sun: Vector3) -> Array:
 		var last: int = group[group.size() - 1]
 		if _vel_row(_rows[last]):
 			out[last][LAFieldDriver.SLOT_MOMENTUM] = _pc(_rows[last], cc, PASS_MOMENTUM,
+				dt_s, sun, 0, 0, 1, g)
+			out[last][LAFieldDriver.SLOT_MOMENTUM_APPLY] = _pc(_rows[last], cc, PASS_MOMENTUM_APPLY,
 				dt_s, sun, 0, 0, 1, g)
 	return out
 

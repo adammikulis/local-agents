@@ -200,6 +200,12 @@ func _tick_run() -> void:
 	if _done:
 		return
 	var loop: LASimLoop = LASimLoop.active()
+	if loop != null and loop.failure != "":
+		_done = true
+		emit_report()
+		print("RUN_FAILED=" + JSON.stringify({"step": loop.step_index(), "reason": loop.failure}))
+		_quit(EXIT_RUN_FAILED)
+		return
 	_frame = loop.step_index() if loop != null else _frame + 1
 	if run_frames > 0 and _frame >= run_frames:
 		_done = true
@@ -208,6 +214,8 @@ func _tick_run() -> void:
 
 
 const COMPLETE_MARKER: String = "LA_RUN_COMPLETE"
+## The exit of a run whose loop stopped on a step that could not complete.
+const EXIT_RUN_FAILED: int = 1
 
 
 ## Print the report line now, without quitting. Public so a host can force a report at any moment.

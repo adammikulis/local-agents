@@ -137,11 +137,9 @@ double run_row(Rig &rig, const Field &f, const Row &row) {
 	return fold_partials(rig, rig.groups_for(n), row.op);
 }
 
-// The tree's depth for this dispatch: six halvings of the workgroup, plus the grid-stride terms one
-// lane accumulates in sequence.
-double fold_bound(uint32_t cells, uint32_t groups, double sum_abs) {
-	const double serial = double((cells + groups * 64u - 1u) / (groups * 64u));
-	return 2.0 * (6.0 + serial) * kU * sum_abs;
+// The tree's depth: six halvings of the workgroup's 64 lanes, each lane holding one cell.
+double fold_bound(double sum_abs) {
+	return 2.0 * 6.0 * kU * sum_abs;
 }
 
 // SUM, SUM_ABS, MIN, MAX and the COUNT rows are the float64 fold of the same buffer.
@@ -173,9 +171,7 @@ bool prop_fold_matches_cpu(Case &c) {
 			const double want = shifted(float(cpu_fold(row, f.src, f.solid, kEdgeM, sum_abs)),
 					c.mutate);
 			const bool exact = row.op != OP_SUM && row.op != OP_SUM_ABS;
-			const double bound = exact ? 0.0
-									   : fold_bound(f.lat.cells(), rig.groups_for(f.lat.cells()),
-												 sum_abs);
+			const double bound = exact ? 0.0 : fold_bound(sum_abs);
 			c.examined += 1;
 			if (!std::isfinite(got) && !std::isfinite(want)) { continue; }
 			if (!(std::fabs(got - want) <= bound)) {
@@ -210,7 +206,7 @@ bool prop_mask_partition(Case &c) {
 		const double solid = run_row(rig, f, { OP_SUM, MASK_SOLID, 1u, 0.0f });
 		double sum_abs = 0.0;
 		cpu_fold({ OP_SUM, MASK_ALL, 1u, 0.0f }, f.src, f.solid, kEdgeM, sum_abs);
-		const double bound = 3.0 * fold_bound(f.lat.cells(), rig.groups_for(f.lat.cells()), sum_abs);
+		const double bound = 3.0 * fold_bound(sum_abs);
 		c.examined += 1;
 		if (!(std::fabs(double(shifted(float(open + solid), c.mutate)) - all) <= bound)) {
 			c.why = "the open row plus the solid row is not the row over the whole box";
