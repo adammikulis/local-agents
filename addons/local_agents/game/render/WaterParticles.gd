@@ -3,8 +3,8 @@ extends GPUParticles3D
 
 ## LAWaterParticles: the ONE atmosphere visual for the planet, a single GPUParticles3D.
 
-const PROC_SHADER: String = "res://addons/local_agents/sim/shaders/WaterParticles.gdshader"
-const DRAW_SHADER: String = "res://addons/local_agents/sim/shaders/WaterParticlesDraw.gdshader"
+const PROC_SHADER: String = "res://addons/local_agents/game/render/shaders/WaterParticles.gdshader"
+const DRAW_SHADER: String = "res://addons/local_agents/game/render/shaders/WaterParticlesDraw.gdshader"
 const MAX_PARTICLES: int = 12000
 const LIFETIME: float = 7.0
 const CAP_ANGLE: float = 1.4               # emit within this half-angle of the camera's radial (visible dome)
@@ -56,7 +56,6 @@ func setup(field, camera: Node3D, sun: DirectionalLight3D, center: Vector3, sea_
 	_pm.set_shader_parameter("cloud_base_r", _field.atmos_cloud_base_r())
 	_pm.set_shader_parameter("fog_top_r", _field.atmos_fog_top_r())
 	_pm.set_shader_parameter("fog_lo_r", _field.atmos_fog_lo_r())
-	_pm.set_shader_parameter("outer_r", outer)
 	emitting = true
 
 
@@ -79,7 +78,6 @@ func _process(_delta: float) -> void:
 		return
 	var cp: Vector3 = _camera.global_position
 	var cdir: Vector3 = (cp - _center).normalized()
-	_pm.set_shader_parameter("cam_pos", cp)
 	_pm.set_shader_parameter("cam_dir", cdir)
 	if _sun != null and is_instance_valid(_sun):
 		var sd: Vector3 = _sun.global_transform.basis.z

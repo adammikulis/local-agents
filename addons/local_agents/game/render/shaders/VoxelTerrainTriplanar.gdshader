@@ -2,8 +2,6 @@
 shader_type spatial;
 render_mode cull_back, diffuse_burley, specular_schlick_ggx;
 
-#include "res://addons/local_agents/sim/shaders/generated.gdshaderinc"
-
 // Reflectance of the two surfaces this body has at the bottom rung. Set from LAPhysical by the render
 // layer; there is no third one until something in the field makes one.
 uniform float albedo_bare_ground = 0.15;
