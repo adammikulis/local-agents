@@ -342,8 +342,7 @@ double cell_air_share(const CubeColumn &p_col, double p_cut, double p_phi_c, dou
 PackedFloat32Array LAFieldLithostaticSeed::vertical(Object *p_field,
 		const PackedFloat32Array &p_gravity) {
 	const int cc = p_field ? int(p_field->get("_cell_count")) : 0;
-	if (LAProcessSet::has_record("pass", "PressurePass.gd", LAProcessSet::ANY)
-			&& p_gravity.size() == cc * 3) {
+	if (LAProcessSet::has_record("pass", "PressurePass.gd", LAProcessSet::ANY)) {
 		return p_gravity;
 	}
 	PackedFloat32Array z;
@@ -366,11 +365,13 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 	const PackedFloat32Array edges = grid->call("cell_edges");
 	const PackedFloat32Array rock_fr = p_field->get("_rock_fraction");
 	PackedFloat32Array porosity = LAFieldMirrors::of(p_field, "porosity");
-	ERR_FAIL_COND_V_MSG(p_g_rest.size() != cc * 3 || p_t_rock.size() != cc || edges.size() != cc
+	ERR_FAIL_COND_V_MSG(p_g_rest.size() != cc * 3 || p_t_rock.size() != cc || edges.size() < cc
 					|| rock_fr.size() != cc || porosity.size() != cc,
-			Dictionary(), "LAFieldLithostaticSeed.compress: the solved gravity, the rock temperature, the cell "
-			"edges, the rock fractions or the porosity do not cover the " + String::num_int64(cc)
-			+ " cells, so no cell has a state to be sized at.");
+			Dictionary(), "LAFieldLithostaticSeed.compress: the solved gravity (" + String::num_int64(p_g_rest.size())
+			+ "), the rock temperature (" + String::num_int64(p_t_rock.size()) + "), the cell edges ("
+			+ String::num_int64(edges.size()) + "), the rock fractions (" + String::num_int64(rock_fr.size())
+			+ ") or the porosity (" + String::num_int64(porosity.size()) + ") do not cover the "
+			+ String::num_int64(cc) + " cells, so no cell has a state to be sized at.");
 	const double t_c = LABodySeeds::surface_temp_c();
 	const double kelvin = la_physical("KELVIN_OFFSET");
 	const double r_gas = la_physical("GAS_CONSTANT_J_MOL_K");

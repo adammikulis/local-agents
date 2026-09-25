@@ -101,7 +101,7 @@ func seed_tick() -> bool:
 	# THE WORLD PUT INTO THE BALANCE THE STEPPER HOLDS: a locked cell's rock under the column over it, an
 	# open cell at the pressure its own amounts state.
 	_f._gpu.derive_seeded()   # publishes g_rest as geometry: gravitation and this frame's own spin
-	var g_rest: PackedFloat32Array = _f._gpu.read_raw("g_rest")
+	var g_rest: PackedFloat32Array = _f._gpu.read_raw("g_rest").slice(0, _f._cell_count * 3)   # cells, not ghosts
 	# The barometric profile is a function of the SOLVED POTENTIAL, so the solve's own phi goes with it,
 	# and the water stands under the air that law lays.
 	var balance: Dictionary = LAFieldLithostaticSeed.compress(_f, g_rest, _f._t_rock) \
