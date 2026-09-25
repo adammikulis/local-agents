@@ -2,7 +2,7 @@
 # NO SKY THROUGH THE GROUND WHERE TWO VOXEL BLOCKS MEET. The rung-1 slice is photographed from each protocol
 # pose under a kilometre with every block its own flat colour, then with the terrain off. Below the horizon
 # every ray ends on the ground, so a pixel there between two blocks that holds the second frame's backdrop
-# is a seam. What draws over the ground is switched off; the HUD is dropped.
+# is a seam. What draws over the ground is switched off; the protocol drops the HUD.
 # EXIT 0 no seam · 1 a seam, or no ground below the horizon · 2 could not run.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -50,13 +50,8 @@ for line in open(sys.argv[1], errors="replace"):
         continue
     f = dict(kv.split("=", 1) for kv in line.split()[1:] if "=" in kv)
     path = line.split()[0][len("SHOT_SAVED="):]
-    try:
-        hud = json.loads(f["hud_px"])
-    except (KeyError, ValueError):
-        print("check_block_seams: a shot did not say where its HUD stood.", file=sys.stderr)
-        sys.exit(2)
     eye = [f.get(k, "") for k in ("cam_pitch_deg", "cam_fov_deg", "horizon_dip_deg")]
-    rec = shots.setdefault(f["shot_index"], {"pose": f["shot_pose"], "hud": hud, "eye": eye})
+    rec = shots.setdefault(f["shot_index"], {"pose": f["shot_pose"], "eye": eye})
     rec["S" if f.get("shot_without") == "terrain" else "B"] = path
 
 
@@ -100,10 +95,6 @@ for key in sorted(shots, key=int):
               file=sys.stderr)
         sys.exit(2)
     off = [[not v for v in row] for row in below]
-    for x0, y0, rw, rh in rec["hud"]:
-        for y in range(max(y0 - REACH, 0), min(y0 + rh + REACH, h)):
-            for x in range(max(x0 - REACH, 0), min(x0 + rw + REACH, w)):
-                off[y][x] = True
     ground = [[not off[y][x] and far(B[x, y], S[x, y]) > GROUND for x in range(w)] for y in range(h)]
     seams, border = [], 0
     for y in range(REACH, h - REACH):

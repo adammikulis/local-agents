@@ -61,6 +61,8 @@ var _pose_deadline_ms: int = 0
 # --shot-without: each pose photographed again with each named LAAblate module switched off.
 var _without: PackedStringArray = PackedStringArray()
 var _without_at: int = -1             # the module this pose is being photographed without; -1 = none
+var _without_was_on: bool = true      # that module's switch before this pose was photographed without it
+var _panels_off: PackedStringArray = PackedStringArray()   # the panels the protocol switched off
 var _hold: int = 0                    # frames left before a switched-off module is out of the picture
 
 # The image read out is the one drawn BEFORE this frame, so readiness must have held through that draw.
@@ -132,6 +134,7 @@ func _process(_delta: float) -> void:
 		return
 	# ONE LAUNCH, MANY PICTURES: move to the pose, let the ground arrive under it, photograph, next.
 	if _pose_applied != _pose_index:
+		_drop_panels()
 		report_source.call("demo_shot_pose", _poses[_pose_index].x, _poses[_pose_index].y,
 			_poses[_pose_index].z)
 		_pose_applied = _pose_index
@@ -145,7 +148,7 @@ func _process(_delta: float) -> void:
 		return
 	var pose: Vector3 = _poses[_pose_index]
 	_capture(pose_path(shoot_path, _pose_index, pose),
-		" shot_index=%d shot_pose=%s" % [_pose_index, pose_tag(pose)])
+		" shot_index=%d shot_pose=%s panels_off=%s" % [_pose_index, pose_tag(pose), JSON.stringify(_panels_off)])
 	_ready_frames = 0
 	if _without.is_empty():
 		_next_pose()
@@ -172,7 +175,16 @@ func _photograph_without() -> void:
 	_next_pose()
 
 
+## THE PROTOCOL PHOTOGRAPHS THE WORLD: every module that draws over the frame is switched off.
+func _drop_panels() -> void:
+	for panel in LAAblate.panels():
+		if LAAblate.is_on(panel):
+			LAAblate.set_on(panel, false)
+			_panels_off.append(panel)
+
+
 ## A name LAAblate does not hold would photograph the pose unchanged under a label saying otherwise.
+## Switched back, the module is put as it was before this pose went without it.
 func _switch_without(on: bool) -> void:
 	var module: String = _without[_without_at]
 	if LAAblate.kind_of(module) == "":
@@ -180,7 +192,9 @@ func _switch_without(on: bool) -> void:
 		print("SHOT_WITHOUT_UNKNOWN=%s" % module)
 		_quit(2)
 		return
-	LAAblate.set_on(module, on)
+	if not on:
+		_without_was_on = LAAblate.is_on(module)
+	LAAblate.set_on(module, on and _without_was_on)
 	_hold = SHOT_SETTLE_FRAMES
 
 

@@ -49,7 +49,7 @@ var _active_field_view: String = ""     # the single field-channel heatmap curre
 var _user_shot_counter: int = 0         # numbers the screenshots the DebugPanel's save button writes
 
 
-## Build the overlay + panel (as children of `world`) and wire the panel signals to the handlers here.
+## Build the panels under this node and the world-space overlay under `world`, and wire the panel signals.
 func setup(world: Node, material: Node, terrain, sky: LASkyView, hud: CanvasLayer, input: LAVoxelInputController, ecology: Node) -> void:
 	_world = world
 	_material = material
@@ -65,7 +65,7 @@ func setup(world: Node, material: Node, terrain, sky: LASkyView, hud: CanvasLaye
 	_debug_overlay.setup(_material, _terrain)
 	_debug_panel = DebugPanelScene.instantiate() as CanvasLayer
 	_debug_panel.name = "DebugPanel"
-	world.add_child(_debug_panel)
+	add_child(_debug_panel)
 	_debug_panel.view_toggled.connect(_on_debug_view)
 	_debug_panel.highlight_toggled.connect(_on_debug_highlight)
 	_debug_panel.behavior_toggled.connect(_on_debug_behavior)
@@ -79,7 +79,7 @@ func setup(world: Node, material: Node, terrain, sky: LASkyView, hud: CanvasLaye
 	# Family-tree inspector (right dock): a pure reader over the kinship graph, re-rooted on each selection.
 	_family_tree = FamilyTreePanelScript.new()
 	_family_tree.name = "FamilyTreePanel"
-	world.add_child(_family_tree)
+	add_child(_family_tree)
 	if _ecology != null and _ecology.has_method("kinship"):
 		_family_tree.set_kinship(_ecology.kinship())
 	if _input != null and _input.debug_demo():
@@ -103,6 +103,9 @@ func setup(world: Node, material: Node, terrain, sky: LASkyView, hud: CanvasLaye
 	var boot_vp: Viewport = world.get_viewport()
 	if boot_vp != null:
 		boot_vp.msaa_3d = Viewport.MSAA_4X
+
+
+func overlay() -> Node3D: return _debug_overlay
 
 
 ## The per-cell vector glyphs the "wind" view drives, and the legend they are read against. Both are

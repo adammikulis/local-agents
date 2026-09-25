@@ -13,6 +13,7 @@ namespace godot {
 // the rung contains (LAProcessSet's live mask), and the stand-ins LAFakes declares, under one `set_on`,
 // one `set_state`, one `names`, one `--ablate=` and one sweep. A process the rung lacks has no entry and
 // asking for one is refused. A module and a process answer on/off; a stand-in answers off/fake/real.
+// A module is its node's whole subtree.
 class LAAblate : public RefCounted {
 	GDCLASS(LAAblate, RefCounted);
 
@@ -37,6 +38,8 @@ public:
 	static String kind_of(const String &p_name);
 	// Processes in ladder order, then the adopted modules, then the stand-ins.
 	static PackedStringArray names();
+	// The modules that draw over the frame: every adopted module whose subtree holds a CanvasLayer.
+	static PackedStringArray panels();
 	// The switches this run's flags are due to throw by `step`, on the sim clock.
 	static void apply_schedule(int p_step);
 	// One field step's switches: note the clock, throw what is due, and say whether anything moved --

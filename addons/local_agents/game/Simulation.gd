@@ -85,7 +85,7 @@ func _wire_loop() -> void:
 	_loop.seeding.connect(_on_seeding)
 	_loop.stepped.connect(_on_step)
 	_loop.stepped.connect(Callable(_material.step_driver(), "step"))
-	_subscribe("test_mass", _test_masses)
+	_subscribe("test_masses", _test_masses)
 	_subscribe("ecology", _ecology)
 	_subscribe("events", _events)
 	_subscribe("timeline", _timeline)
