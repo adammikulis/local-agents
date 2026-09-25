@@ -3,19 +3,22 @@
 
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
+#include <godot_cpp/variant/packed_float32_array.hpp>
 
 namespace godot {
 
-// THE BODY'S OWN WATER, laid into the basins the terrain gives it and the pore space the regolith walk
-// marks. A priority-flood depression fill (Barnes et al. 2014) finds, in true 3D, the level any escape
-// route out of a basin has to climb over; the ocean is the basin whose escape is the sea surface. At this
-// cell size the body's water is a film on a basin floor, which the free-surface reconstruction carries.
+// THE BODY'S OWN WATER, laid into the sea the terrain's shape holds and the pores the regolith walk opens
+// below the water table, each at the density its own state gives it.
 class LAFieldHydrosphereSeed : public RefCounted {
 	GDCLASS(LAFieldHydrosphereSeed, RefCounted);
 
 public:
-	static void seed(Object *p_field);
-	// Regolith cells, and how many of them carry pore water: where the table stands in this box.
+	// `p_air` is shape_atmosphere's {"phi_0", "p_0", "rt_over_m"}, the air the water stands under, and
+	// `p_g_rest` the derive's gravity.
+	static void seed(Object *p_field, const Dictionary &p_air, const PackedFloat32Array &p_g_rest);
+	// The volume share of each cell that is rock below the water table.
+	static PackedFloat32Array saturated_share(Object *p_field);
+	// Regolith cells, how many carry pore water, and how many hold dry pores with no gas in them.
 	static Dictionary wetness(Object *p_field);
 
 protected:

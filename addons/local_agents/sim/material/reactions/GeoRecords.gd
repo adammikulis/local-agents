@@ -34,7 +34,7 @@ static func _frost_k_per_k() -> float:
 	var dz: float = cell_height_m()
 	if dz <= 0.0:
 		return 0.0
-	var phi: float = LAPhysical.REGOLITH_SURFACE_POROSITY
+	var phi: float = LAPhysical.CRUST_SURFACE_POROSITY
 	var kappa_m2: float = phi * phi * phi * LAPhysical.GRAIN_D_UPLAND_M * LAPhysical.GRAIN_D_UPLAND_M \
 		/ (LAPhysical.KOZENY_CARMAN_C * (1.0 - phi) * (1.0 - phi))
 	var q_m_s_per_k: float = kappa_m2 * _segregation_pa_per_k() \

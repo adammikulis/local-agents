@@ -465,8 +465,13 @@ float la_lattice_volume(float p_rock, float t_l, bool pinned_l, float progress_l
 }
 
 // m^3/kg of the water channel at (t, p): liquid on the IAPWS curve or ice, each squeezed on its own
-// isotherm, split by the melting point the way the free water is.
+// isotherm, split by the melting point the way the free water is; past the critical point the one
+// Peng-Robinson fluid. Native twin LAPhaseEosFn::condensed_volume.
 float la_water_v_m3_kg(int wc, SubstanceTh w, float t, float p_pa, bool pinned, float progress) {
+	if (t >= w.crit_t_c) {
+		float t_k = t + LA_KELVIN_OFFSET;
+		return la_pr_vapour_z(w, t_k, p_pa) * LA_R_J_MOL_K * t_k / (p_pa * props[wc * PROP_STRIDE + PROP_M]);
+	}
 	float dp = p_pa - LA_P_STD;
 	float melt_t = la_melt_c_at(w, p_pa, 0.0);
 	float molten = (pinned && t == melt_t) ? progress : (t < melt_t ? 0.0 : 1.0);
@@ -1303,13 +1308,14 @@ void main() {
 		}
 	}
 	if (params.restate == 0u) {
-		// The derived state, which breaks before the momentum does; a temperature at or below absolute
-		// zero is no state.
-		float dv[5] = float[5](pressure[g], k_cond[g], rho, p_fluid[g], t_c);
-		for (int i = 0; i < 5; ++i) {
+		// The derived state, which breaks before the momentum does; a temperature of either reservoir at or
+		// below absolute zero is no state.
+		float dv[6] = float[6](pressure[g], k_cond[g], rho, p_fluid[g], t_c, t_l);
+		for (int i = 0; i < 6; ++i) {
 			nf += (isnan(dv[i]) || isinf(dv[i])) ? 1.0 : 0.0;
 		}
 		nf += (t_c + LA_KELVIN_OFFSET <= 0.0) ? 1.0 : 0.0;
+		nf += (t_l + LA_KELVIN_OFFSET <= 0.0) ? 1.0 : 0.0;
 		nonfinite[g] = nf;
 		unconverged[g] = converged ? 0.0 : 1.0;
 	}

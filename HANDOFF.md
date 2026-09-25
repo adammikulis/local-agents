@@ -33,7 +33,12 @@ Godot's fast math and lasim's `MTLMathModeSafe`; its `once`/`twice` arms replay 
 through `lasim --passes derive`. `docs/DERIVE_SAFE_MATH_CEILING` ratchets the count to zero.
 Reading: `state_derive.glsl` ends the (T, p) solve on `abs(f) <= LA_STATE_TOL * max(p_pa, 1.0)`.
 
-## 3. THE BOUNDARY GATES CANNOT RECORD THEIR OWN CAPTURE, AND A GHOST'S REST GRAVITY IS READ PAST ITS BUFFER
+## 3. A SATURATED ROCK CELL'S PORE WATER HAS NO PRESSURE, SO AN OVERFILLED PORE PASSES
+
+`scripts/check_sealed_state_range.sh` stays green with `pore_m3 = 1.5 * pore_kg * ...` in `state_derive.glsl`.
+Reading: `state_derive.glsl` clamps `room_f` and takes `total_f <= 0.0` for a cell whose only fluid is pore water.
+
+## 4. THE BOUNDARY GATES CANNOT RECORD THEIR OWN CAPTURE, AND A GHOST'S REST GRAVITY IS READ PAST ITS BUFFER
 
 `scripts/check_boundary_books.sh` with no `LA_LINT_CAPTURE` exits 2: its capture run,
 `scripts/sim_run.sh --body --frames 20 --rung 8 --slice-capture C`, logs `LASubstances gives "fixed_n"
@@ -42,7 +47,7 @@ the timeout. `rg -n 'g_rest.*cc \* 3' addons/local_agents/sim/material/sphere_pa
 Reading: `_allocate_declared` in `MaterialSphereGPU3D.gd` adds `_ng` once to a declared length, so a
 three-vector declared `{"n": cc * 3, "ghosts": true}` is `cc * 3 + ng` long.
 
-## 4. AN EARTH-MASS BODY SOLVES LARGER THAN EARTH, SO BASALT'S GRAIN DENSITY CANNOT LAND
+## 5. AN EARTH-MASS BODY SOLVES LARGER THAN EARTH, SO BASALT'S GRAIN DENSITY CANNOT LAND
 
 The shell carries its high-pressure phases (`docs/PHYSICS_TODO.md` A, solid polymorphs); then
 `ROCK_DENSITY_KG_M3` in `PhysicalConstants.gd` takes basalt's grain density, 2949.0 kg/m^3 (Hyndman &
@@ -51,12 +56,6 @@ follows it. With that density alone `scripts/check_hypsometry.sh` reads its land
 as `scripts/check_hypsometry.gd` does on this tree with `SAMPLES` at 65536.
 Reading: `shell_minerals` in `LAPlanetTables.cpp` fills every shell with olivine, pyroxene, plagioclase,
 silicate, apatite and halite at every pressure.
-
-## 5. THE BODY RECORD OMITS THE PORE WATER BELOW THE SEA FLOOR, AND ONE POROSITY LAW SERVES EVERY ROCK
-
-`scripts/check_hydrosphere_mass.sh --body` is red: the declared `hydrosphere_kg`/`groundwater_kg` in
-`LABodySystem.cpp` (Gleick 1996) count the surface ocean and continental groundwater only, and
-`REGOLITH_SURFACE_POROSITY`/`COMPACTION_LENGTH_M` (Athy 1930, shales) are applied to basalt and basement.
 
 ## 6. THE PLANET CARRIES LESS AIR THAN IT WAS GIVEN, AND A BOX CANNOT WEIGH ITS OWN SHARE
 

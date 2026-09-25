@@ -105,7 +105,7 @@ func _run(p_ghost: float, mode: int = LAFieldBoundary3D.CONSTANT, vel: Vector3 =
 		var spec: Variant = derived[key]
 		var dn: int = int(spec["n"]) if spec is Dictionary else int(spec)
 		if spec is Dictionary and bool(spec.get("ghosts", false)):
-			dn += ng
+			dn = (dn + ng) * int(spec.get("stride", 1))
 		bufs[String(key)] = _f32(_filled(dn, 0.0), owned)
 	bufs["ground_d"] = _f32(_filled(tc, 0.0), owned)   # flux.glsl binding 99: the driver's own
 	bufs["gravity"] = _f32(_filled(tc * 3, 0.0), owned)

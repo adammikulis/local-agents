@@ -37,18 +37,28 @@ la_rung_max() {
 	return 0
 }
 
-# $1 the report block, then key names. Exits 2 naming the first key that carries no number.
+# $1 the report block, $2 a key: true when the run published the key and a reading of it is inf or nan.
+la_rung_nonfinite() {
+	printf '%s\n' "$1" | sed -n "s/^$2  *= *//p" | head -1 | grep -Eiq '(^|[^a-z])[+-]?(inf|nan)([^a-z]|$)'
+}
+
+# $1 the report block, then key names. Returns 1 naming the first key published as no number, a state
+# that is not finite, and 2 naming the first key never published.
 la_rung_require() {
 	local block="$1"
 	shift
 	local k v
 	for k in "$@"; do
 		v="$(la_rung_value "$block" "$k")"
-		if ! la_rung_numeric "$v"; then
-			echo "ERROR: the run published no numeric $k, so the claim went unmeasured." >&2
-			printf '%s\n' "$block" | tail -20 >&2
-			return 2
+		la_rung_numeric "$v" && continue
+		if la_rung_nonfinite "$block" "$k"; then
+			echo "FAIL: the run published $k as no number, so the state it reads is not finite." >&2
+			printf '%s\n' "$block" | grep -E "^$k " >&2
+			return 1
 		fi
+		echo "ERROR: the run published no numeric $k, so the claim went unmeasured." >&2
+		printf '%s\n' "$block" | tail -20 >&2
+		return 2
 	done
 	return 0
 }

@@ -219,7 +219,7 @@ func _write(cadence: int) -> void:
 		return
 	fh.store_string(JSON.stringify({"version": VERSION, "cadence": cadence,
 		"cell_size": _f._grid.cell_size, "up_slot": _up_slot, "unresolved": _unresolved,
-		"samples": _samples}))
+		"samples": _samples}, "", true, true))   # full precision: Godot's parser drops a long fixed decimal
 	fh.close()
 
 
