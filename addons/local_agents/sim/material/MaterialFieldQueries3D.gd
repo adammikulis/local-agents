@@ -82,6 +82,24 @@ func is_water_at(pos: Vector3) -> bool:
 	return c >= 0 and liquid_at(c) >= _f.MIN_MASS
 
 
+## Radius of the free surface of the liquid standing over the ground along world direction `dir`: up the wet
+## cells from the ground to the last, its liquid laid over its rock linearly across its vertical extent. NAN
+## where the ground there is dry or outside the box.
+func water_surface_along(dir: Vector3) -> float:
+	var r_g: float = _f._terrain.surface_radius(dir) if _f._terrain != null else NAN
+	var c: int = -1 if is_nan(r_g) else _f.world_to_cell(_f.centre() + dir.normalized() * r_g)
+	if c < 0 or liquid_at(c) < _f.MIN_MASS:
+		return NAN
+	var nxt: int = LAFieldGeometry.above(_f, c)
+	while nxt >= 0 and liquid_at(nxt) >= _f.MIN_MASS:
+		c = nxt
+		nxt = LAFieldGeometry.above(_f, c)
+	var u: Vector3 = LAFieldGeometry.up(_f, c)
+	var reach: float = 0.5 * _f._grid.cell_edge(c) * (absf(u.x) + absf(u.y) + absf(u.z))
+	var fill: float = clampf(_f._rock_fraction[c] + liquid_at(c) / _f.MAX_MASS, 0.0, 1.0)
+	return (_f.cell_world_pos_linear(c) - _f.centre()).length() + (2.0 * fill - 1.0) * reach
+
+
 ## Liquid h2o over every cell, mask-free, in the channel's own amount unit.
 func total_water() -> float:
 	return row_f("water_liquid_total")

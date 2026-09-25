@@ -16,8 +16,7 @@ signal render_debug_toggled(mode: String, on: bool)  # "wireframe" | "overdraw"
 # [display label, view_toggled key, the field channel it samples] — the DebugOverlay samples that
 # channel, so a world that never moves it has nothing to show and the toggle is not offered.
 const FIELD_VIEWS: Array = [
-	["Biomass", "biomass", "biomass"], ["Water phase", "water_phase", "h2o"],
-	["Snow / ice", "snow", "h2o"], ["Melt", "melt", "silicate_melt"],
+	["Biomass", "biomass", "biomass"], ["Snow / ice", "snow", "h2o"], ["Melt", "melt", "silicate_melt"],
 	["Mineral", "silicate", "silicate"], ["CO₂", "co2", "co2"], ["O₂", "o2", "o2"],
 	["Charge", "charge", "charge"], ["Fertility", "fertility", "fertility"],
 ]

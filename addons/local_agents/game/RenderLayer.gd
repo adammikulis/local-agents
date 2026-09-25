@@ -86,12 +86,12 @@ func _build_sky() -> void:
 		return
 	if _camera != null and _camera.has_method("face_sun_on_start"):
 		_camera.face_sun_on_start(_sky.sun())
-	# OPEN ON THE COAST, in the world frame the rig steers in: most bearings on this body are open water.
+	# OPEN ON THE SITE THE BOX STANDS ON, in the world frame the rig steers in.
 	var terrain = _sim.terrain()
-	if terrain == null or not terrain.has_method("coast_site_world_dir") \
+	if terrain == null or not terrain.has_method("site_world_dir") \
 			or not _camera.has_method("orient_toward"):
 		return
-	var site: Vector3 = terrain.coast_site_world_dir()
+	var site: Vector3 = terrain.site_world_dir()
 	if site != Vector3.ZERO:
 		_camera.orient_toward(site)
 
@@ -107,7 +107,7 @@ func _build_world_visuals() -> void:
 
 	# One arrow glyph per open cell, at every altitude, over the chosen vector field. The scene's own
 	# declaration outranks the shell's flag; only an undeclared scene defers to it.
-	_vectors.setup(material, _camera, body.center(), body.sea_radius())
+	_vectors.setup(material, _camera, body)
 	_vectors.set_source(_input.vectors() if declared_vectors == LAFieldVectors.SOURCE_UNSET
 		else declared_vectors)
 

@@ -48,7 +48,7 @@ func _arm(n: int, rho_r: float, p_r: float) -> Dictionary:
 
 	var dt: float = _t_end() / float(STEPS)
 	var ctx: Dictionary = {"cell_size": cell, "centre": Vector3.ZERO, "spin": Vector3.ZERO,
-		"spin_rate_rad_s": 0.0, "sea_radius": 0.0, "gravity_self": 0.0, "dt_s": dt,
+		"spin_rate_rad_s": 0.0, "body_radius": 0.0, "gravity_self": 0.0, "dt_s": dt,
 		"sun_dir": Vector3.ZERO, "cell_size_min": cell}
 	var n2: PackedFloat32Array = rig.filled(n, 0.0)
 	var want_p: PackedFloat32Array = rig.filled(n, 0.0)

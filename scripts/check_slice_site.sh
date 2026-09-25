@@ -39,7 +39,7 @@ if "land_m" not in f:
 land = float(f["land_m"])
 depth = float(f["depth_m"])
 fine = float(f["fine_m"])
-share = float(f["sea_share"])
+share = float(f["wet_share"])
 # A LINE CROSSING A SQUARE LEAVES A ROW OF THE GRID ON EACH SIDE; one that clips a corner does not. The
 # bar is the sampling the reading was taken at, published beside it, so nothing here names a share.
 edge = 1.0 / float(f["samples"])

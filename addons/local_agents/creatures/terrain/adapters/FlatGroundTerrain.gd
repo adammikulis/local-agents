@@ -23,11 +23,6 @@ func planet_radius() -> float:
 	return far_below
 
 
-## No sea on a bare flat world. -INF so the walker coast-avoidance (`sea_r > 0.0`) is always skipped.
-func sea_radius() -> float:
-	return -INF
-
-
 ## Not a radial planet — flat +Y-up world.
 func is_planet() -> bool:
 	return false

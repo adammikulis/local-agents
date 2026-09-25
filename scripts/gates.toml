@@ -35,6 +35,16 @@ marker = "^check_no_inferred_typing: OK"
 mutation = "printf 'var mutant := 1\\n' >> addons/local_agents/sim/material/MaterialField3D.gd"
 
 [[gate]]
+name = "check_no_sea_datum"
+script = "scripts/check_no_sea_datum.sh"
+kind = "text"
+marker = "^check_no_sea_datum: OK"
+mutation = [
+	'''printf 'func sea_radius() -> float:\n\treturn 0.0\n' >> addons/local_agents/creatures/terrain/adapters/FlatGroundTerrain.gd''',
+	'''printf '// free_surface_r()\n' >> addons/local_agents/gdextensions/localagents/src/LAFieldCellMass.cpp''',
+]
+
+[[gate]]
 name = "check_tool_safety"
 script = "scripts/check_tool_safety.sh"
 kind = "text"
@@ -916,6 +926,25 @@ script = "scripts/check_slice_site.sh"
 kind = "gpu"
 marker = "^check_slice_site: OK"
 mutation = "python3 -c \"p='scripts/sim_run.sh'; s=open(p).read(); open(p,'w').write(s.replace('0,site=coast,0','0,surface,0'))\""
+
+[[gate]]
+name = "check_seal_cache"
+script = "scripts/check_seal_cache.sh"
+kind = "gpu"
+needs = ["import"]
+marker = "^check_seal_cache: OK"
+mutation = '''python3 -c "p='addons/local_agents/sim/material/MaterialFieldSeal3D.gd'; s=open(p).read(); open(p,'w').write(s.replace('_origin = \"restored\"', '_origin = \"seeded\"'))"'''
+
+[[gate]]
+name = "check_ocean_cloud"
+script = "scripts/check_ocean_cloud.sh"
+kind = "gpu"
+needs = ["import"]
+marker = "^check_ocean_cloud: OK"
+mutation = [
+	'''python3 -c "p='addons/local_agents/sim/material/reduce/AirRows.gd'; s=open(p).read(); open(p,'w').write(s.replace(', \"gate\": \"air_class\"}', '}'))"''',
+	'''python3 -c "p='addons/local_agents/sim/material/kernels3d/state_derive.glsl'; s=open(p).read(); open(p,'w').write(s.replace('air_class[g] = la_air_class(g);', 'air_class[g] = 0.0;'))"''',
+]
 
 [[gate]]
 name = "check_box_outline"

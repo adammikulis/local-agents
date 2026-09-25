@@ -30,7 +30,7 @@ layout(set = 0, binding = LA_BIND_E_LITH_J_M3, std430) restrict buffer EnergyLit
 layout(set = 0, binding = LA_BIND_TEMP_LITH, std430) restrict buffer TempLith { float temp_lith[]; };
 layout(set = 0, binding = LA_BIND_CONDUCTIVITY_LITH, std430) restrict writeonly buffer CondLith { float conductivity_lith[]; };
 layout(set = 0, binding = LA_BIND_CAP_LITH, std430) restrict writeonly buffer CapLith { float cap_lith[]; };
-layout(set = 0, binding = LA_BIND_LATTICE_FRAC, std430) restrict writeonly buffer LatticeFrac { float lattice_frac[]; };
+layout(set = 0, binding = LA_BIND_LATTICE_FRAC, std430) restrict buffer LatticeFrac { float lattice_frac[]; };
 layout(set = 0, binding = LA_BIND_H_H2O_VAP, std430) restrict writeonly buffer HH2OVap { float h_h2o_vap[]; };
 // THE FLUID'S OWN PRESSURE in every cell: the published pressure of an open cell, and the state a
 // locked cell's band and air stand at under whatever column its rock carries.
@@ -63,7 +63,7 @@ layout(set = 0, binding = LA_BIND_GRAV_PHI, std430) restrict readonly buffer Gra
 layout(set = 0, binding = LA_BIND_GRAV_REF, std430) restrict readonly buffer GravRef { float grav_ref[]; };   // J/kg, the monopole reference  // J/kg
 layout(set = 0, binding = LA_BIND_PE_J_M3, std430) restrict writeonly buffer PotBuf { float pe_j_m3[]; };
 // The cell's condensed matter other than water: volume fraction and kg/m^3, every lithic channel summed.
-layout(set = 0, binding = LA_BIND_LITHIC_FRAC, std430) restrict writeonly buffer LithicFrac { float lithic_frac[]; };
+layout(set = 0, binding = LA_BIND_LITHIC_FRAC, std430) restrict buffer LithicFrac { float lithic_frac[]; };
 layout(set = 0, binding = LA_BIND_LITHIC_KG, std430) restrict writeonly buffer LithicKg { float lithic_kg[]; };
 // Radiogenic power of this cell's own matter, W/m^3: sum over channels of amount * M * W/kg(mix, epoch).
 // flux.glsl's RADIOGENIC leg deposits it into the enthalpy.
@@ -105,16 +105,18 @@ layout(set = 0, binding = LA_BIND_ORG_OC, std430) restrict writeonly buffer OrgO
 layout(set = 0, binding = LA_BIND_ORG_FRESH, std430) restrict writeonly buffer OrgFresh { float org_fresh[]; };
 
 // WHERE AND HOW FAST, so a band of latitude or altitude is an ordinary reduce gate rather than a CPU walk.
-// speed is |v|, m/s; alt is the height of the cell above the sea shell, m; lat is the angle of its radius
+// speed is |v|, m/s; alt is the height of the cell over the body's radius, m; lat is the angle of its radius
 // out of the equatorial plane, degrees.
 layout(set = 0, binding = LA_BIND_SPEED, std430) restrict writeonly buffer Speed { float speed[]; };
 layout(set = 0, binding = LA_BIND_LAT, std430) restrict writeonly buffer Lat { float lat[]; };
 layout(set = 0, binding = LA_BIND_ALT, std430) restrict writeonly buffer Alt { float alt[]; };
 
-// |r| over the sea shell's radius, NaN where the body carries none.
+// |r| over the body's radius, NaN where the field is part of no body.
 layout(set = 0, binding = LA_BIND_R_FRAC, std430) restrict writeonly buffer RFrac { float r_frac[]; };
-// 0 buried, 1 open sea surface, 2 frozen sea surface, 3 the outermost rock of a column.
+// 0 buried, 1 open water surface, 2 frozen water surface, 3 the outermost rock of a column.
 layout(set = 0, binding = LA_BIND_SURFACE_CLASS, std430) restrict writeonly buffer SurfClass { float surface_class[]; };
+// 0 the cell's liquid and ice rest on a floor or fill it, 1 they hang in its gas over the surface layer, 2 higher.
+layout(set = 0, binding = LA_BIND_AIR_CLASS, std430) restrict writeonly buffer AirClass { float air_class[]; };
 // 0 outside the melt body, 1 its rind, 2 its interior.
 layout(set = 0, binding = LA_BIND_MELT_BODY, std430) restrict writeonly buffer MeltBody { float melt_body[]; };
 // 1 at a cell the detect phase names one.
@@ -156,7 +158,7 @@ layout(push_constant, std430) uniform Params {
 	float rad_w_kg_2;
 	float rad_w_kg_3;
 	float rad_w_kg_4;
-	float sea_radius_m;     // the sea shell's radius from the body centre; 0 = the body carries no shell
+	float body_radius_m;    // the radius of the body the field is part of; 0 = none
 	float grav_self;        // 1/2 where the box's own mass sources the potential, 1 for a declared body
 	uint lithify;           // 1 where the ladder holds the "lithify" derive record
 	uint detect;            // 1 = the detect phase: only the neighbour classes, off settled state
@@ -549,7 +551,7 @@ void lithify(uint g, float melt, float v_lithic) {
 // THE DETECT PHASE: a class about the cells AROUND one, dispatched after a barrier so every
 // neighbour it reads is settled. Thresholds sit after the channel rows of `props`.
 const int DET_WET = 0;        // mol/m^3 of liquid h2o that makes a cell wet
-const int DET_ICE = 1;        // mol/m^3 of frozen h2o that makes a sea-surface cell frozen
+const int DET_ICE = 1;        // mol/m^3 of frozen h2o that makes a water-surface cell frozen
 const int DET_BODY = 2;       // mol/m^3 of melt an open cell holds to be part of the melt body
 const int DET_DRAINED = 3;    // mol/m^3 under which a neighbour counts as drained of that melt
 const int DET_MOLTEN = 4;     // mol/m^3 of melt the readback resolves above zero
@@ -634,6 +636,54 @@ float la_surface_class(uint g) {
 	return (ice > det(DET_ICE)) ? 2.0 : 1.0;
 }
 
+// mol/m^3 of water that fills a cell: the water row's full amount.
+float la_water_full() {
+	float full = 0.0;
+	for (int i = 0; i < LA_CHANNEL_SLOTS; ++i) {
+		full = (int(props[i * PROP_STRIDE + PROP_ENTRY]) == E_H2O && full <= 0.0) ? props[i * PROP_STRIDE + PROP_FULL] : full;
+	}
+	return full;
+}
+
+// Liquid and frozen water in a cell, mol/m^3.
+float la_condensed_h2o(uint c) {
+	return max(h2o[c], 0.0) * (clamp(h2o_liquid[c], 0.0, 1.0) + clamp(h2o_solid[c], 0.0, 1.0));
+}
+
+// Share of a cell's volume that is condensed: its rock and grains, and its water and ice at `full` mol/m^3.
+float la_condensed_share(uint c, float full) {
+	if (solid[c] != 0.0) {
+		return 1.0;
+	}
+	return clamp(max(lithic_frac[c], 0.0) + (full > 0.0 ? la_condensed_h2o(c) / full : 0.0), 0.0, 1.0);
+}
+
+// A cell's water stands on a floor: cemented rock of its own, the box's edge, rock under it, or a cell under it
+// whose volume is mostly condensed.
+bool la_floor_held(uint c, float full) {
+	int lo = vert_down[c];
+	return lattice_frac[c] > 0.0 || lo < 0 || solid[uint(lo)] != 0.0 || la_condensed_share(uint(lo), full) >= 0.5;
+}
+
+// CONDENSATE HANGING IN GAS: liquid or ice in a cell mostly gas that no floor holds, over the surface layer (1) or
+// above it (2). With no vertical nothing settles, so it hangs.
+float la_air_class(uint g) {
+	if (solid[g] != 0.0 || !(la_condensed_h2o(g) > 0.0)) {
+		return 0.0;
+	}
+	float full = la_water_full();
+	if (la_condensed_share(g, full) >= 0.5) {
+		return 0.0;
+	}
+	if (la_up(g) == vec3(0.0)) {
+		return 2.0;
+	}
+	if (la_floor_held(g, full)) {
+		return 0.0;
+	}
+	return la_floor_held(uint(vert_down[g]), full) ? 1.0 : 2.0;
+}
+
 // Melt in the open: its INTERIOR is walled by rock or by more of itself, its RIND is not.
 float la_melt_body(uint g) {
 	if (solid[g] != 0.0 || silicate_melt[g] <= 0.0 || la_melt_at(g) < det(DET_BODY)) {
@@ -716,6 +766,7 @@ void main() {
 	if (params.detect != 0u) {
 		if (g < params.cell_count) {
 			surface_class[g] = la_surface_class(g);
+			air_class[g] = la_air_class(g);
 			melt_body[g] = la_melt_body(g);
 			erupt[g] = la_erupt(g);
 			cyclone[g] = la_cyclone(g);
@@ -736,8 +787,8 @@ void main() {
 
 	float vol = cell_volume(g);
 
-	// GEOMETRY, which does not depend on what the cell holds. No spin axis is no latitude and no sea shell
-	// is no altitude, so both read NaN there and every gate then admits the cell nowhere.
+	// GEOMETRY, which does not depend on what the cell holds. No spin axis is no latitude and no body is no
+	// altitude, so both read NaN there and every gate then admits the cell nowhere.
 	vec3 omega = vec3(params.omega_x, params.omega_y, params.omega_z);
 	vec3 r_vec = vec3(pos[g * 3u], pos[g * 3u + 1u], pos[g * 3u + 2u])
 		- vec3(params.centre_x, params.centre_y, params.centre_z);
@@ -750,9 +801,9 @@ void main() {
 	float nf = 0.0;
 	// GEOMETRY AND THE PER-STEP BOOKS: neither moves inside a step.
 	if (params.restate == 0u) {
-		alt[g] = (params.sea_radius_m > 0.0) ? r_len - params.sea_radius_m
+		alt[g] = (params.body_radius_m > 0.0) ? r_len - params.body_radius_m
 			: uintBitsToFloat(0x7FC00000u);
-		r_frac[g] = (params.sea_radius_m > 0.0) ? r_len / params.sea_radius_m
+		r_frac[g] = (params.body_radius_m > 0.0) ? r_len / params.body_radius_m
 			: uintBitsToFloat(0x7FC00000u);
 		g_rest[g * 3u] = g_eff.x;
 		g_rest[g * 3u + 1u] = g_eff.y;

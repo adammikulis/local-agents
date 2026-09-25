@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # THE ALTITUDE BANDS MUST BE ABLE TO DISAGREE. clim_alt<b>_min is the coldest open cell in one band of
-# height above the SEA SHELL, and those edges only mean anything while state_derive.glsl measures `alt`
-# from that shell. Write one value into `alt`, or push no sea radius, and every band admits the same
+# height over the BODY'S RADIUS, and those edges only mean anything while state_derive.glsl measures `alt`
+# from that radius. Write one value into `alt`, or push no body radius, and every band admits the same
 # cells or none, while each row still prints a number.
 
 #   1. every band declared in HeatRows.ALT_BAND_FLOORS_M publishes its cell count
@@ -69,14 +69,14 @@ if [ "$populated" -lt 2 ]; then
 	echo
 	echo "Fewer than two altitude bands hold an open cell, so the gate on \`alt\` is not separating the"
 	echo "field: every cell is landing in one band, or in none at all. Either state_derive.glsl is writing"
-	echo "one value into \`alt\`, or no sea radius reached the push constant and every alt is NaN."
+	echo "one value into \`alt\`, or no body radius reached the push constant and every alt is NaN."
 	exit 1
 fi
 distinct="$(printf '%s\n' $mins | sort -u | wc -l | tr -d ' ')"
 if [ "$distinct" -lt 2 ]; then
 	echo
 	echo "$populated altitude bands hold cells and every one of them reads the SAME minimum temperature."
-	echo "Distinct heights above the sea shell cannot all be equally cold: the bands are reading one"
+	echo "Distinct heights over the body's radius cannot all be equally cold: the bands are reading one"
 	echo "population, so the gate on \`alt\` is admitting the same cells to every band."
 	exit 1
 fi

@@ -4,7 +4,7 @@ render_mode unshaded, cull_back, shadows_disabled;
 #include "res://addons/local_agents/game/render/FieldRamp.gdshaderinc"
 
 // INSTANCE_CUSTOM per glyph: x = magnitude (m/s, or m/s^2), y = stripe phase 0..1,
-// z = altitude above the sea shell (m), w = the glyph's own world length (m).
+// z = height over the ground under the glyph (m), w = the glyph's own world length (m).
 uniform float v_ref = 1.0;          // magnitude the ramp saturates at, in the source's own unit
 uniform float alt_fade_m = 1.0;     // altitude over which a glyph darkens, so a deep stack reads in depth
 uniform int stripes = 6;            // stripes along one glyph

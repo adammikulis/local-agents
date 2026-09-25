@@ -50,26 +50,27 @@ public:
 	static Dictionary shell_minerals();
 	static double shell_density(double p_t_c, double p_p_pa);
 	static double core_radius_frac(double p_t_c, double p_p_pa);
-	static Dictionary surface_fractions(Object *p_grid, Object *p_terrain, const Vector3 &p_centre, double p_sea_r);
+	static Dictionary surface_fractions(Object *p_grid, Object *p_terrain, const Vector3 &p_centre);
 	static PackedByteArray solid_of(const PackedFloat32Array &p_fraction);
 	static PackedFloat32Array surface_depth(Object *p_grid, Object *p_terrain, const Vector3 &p_centre);
-	static double sea_level_m(double p_r_m, double p_ocean_m3, const PackedFloat64Array &p_area_below, const PackedFloat64Array &p_elevation_m);
-	// THE WATER TABLE, m above the sea: the one equipotential a connected aquifer stands at, solved so the
-	// pore space it saturates over the sea holds p_groundwater_m3. Capped at the ground by its consumer.
-	static double water_table_m(double p_r_m, double p_groundwater_m3, double p_sea_level_m,
+	// THE WATER TABLE, m above the settled water: the one equipotential a connected aquifer stands at, solved
+	// so the pore space it saturates over the water, p_level_m over the curve's zero, holds p_groundwater_m3.
+	// Capped at the ground by its consumer.
+	static double water_table_m(double p_r_m, double p_groundwater_m3, double p_level_m,
 			const PackedFloat64Array &p_area_below, const PackedFloat64Array &p_elevation_m);
-	// The crust under a square footprint at one direction: highest over the settled level, deepest under
-	// it, and the share of the reading under it. `p_surface` answers surface_radius(dir).
+	// The crust under a square footprint at one direction: highest over the settled water, deepest under
+	// it, and the share of the reading under it. `p_surface` answers hydrosphere().
 	static Dictionary footprint_ground(Object *p_surface, const Vector3 &p_dir, double p_body_r_m,
-			double p_sea_r_m, double p_footprint_m);
-	// Where to stand a box so it holds a shore, as a direction plus that footprint reading.
-	static Dictionary coast_site(Object *p_surface, double p_body_r_m, double p_sea_r_m,
 			double p_footprint_m);
+	// Where to stand a box so it holds a shore, or stands wholly under water, as a direction plus that
+	// footprint reading.
+	static Dictionary coast_site(Object *p_surface, double p_body_r_m, double p_footprint_m);
+	static Dictionary sea_site(Object *p_surface, double p_body_r_m, double p_footprint_m);
 	// WHERE A SLICE BOX STANDS AND HOW IT SITS THERE: the body-frame direction, the cell counts with the
-	// box's long axis on its local vertical, and the crust reading under its footprint. A coast box asks
-	// the terrain where the shore is; any other stands on the axis its offset already names. {"error"}
-	// when the terrain cannot answer. `p_terrain` answers coast_site_dir and footprint_ground.
-	static Dictionary site_box(Object *p_terrain, bool p_coast, const Vector3 &p_offset,
+	// box's long axis on its local vertical, and the crust reading under its footprint. A `p_site` box asks
+	// the terrain where that site is; any other stands on the axis its offset already names. {"error"}
+	// when the terrain cannot answer. `p_terrain` answers site_dir and footprint_ground.
+	static Dictionary site_box(Object *p_terrain, const String &p_site, const Vector3 &p_offset,
 			const Vector3i &p_dims, double p_cell_m, int p_surface_axis);
 	static double radius_for_mass(double p_mass_kg, double p_t_c);
 	static double core_radius_m(double p_radius_m, double p_t_c);

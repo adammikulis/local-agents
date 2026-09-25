@@ -8,7 +8,7 @@ const SPECIES_GROUP: String = "aquatic"    # shared "all aquatic life" group (sc
 # that collides with the per-species group of the species literally named "fish".
 
 const DEFAULT_SUBMERGE: float = 0.35  # how far below the surface a swimmer rides (config: "submerge")
-const GILL_SUBMERGE_MARGIN: float = 0.15  # keep a gill-breather's top this far under the sea shell so it stays submerged
+const GILL_SUBMERGE_MARGIN: float = 0.15  # keep a gill-breather's top this far under the free surface so it stays submerged
 const SCHOOL_RADIUS: float = 6.0
 const SCHOOL_WEIGHT: float = 0.8
 const BASK_DURATION: float = 6.0      # seconds a basking species rests hauled out on the beach
@@ -781,7 +781,6 @@ func _eff_submerge() -> float:
 
 func _swim_planet(pos: Vector3, candidate: Vector3, step_len: float, up: Vector3) -> bool:
 	var center: Vector3 = terrain.planet_center()
-	var sea: float = terrain.sea_radius()
 	var next_pos: Vector3 = pos + candidate * step_len
 	var next_dir: Vector3 = (next_pos - center).normalized()
 	if not _habitable_dir(next_dir):
@@ -805,34 +804,32 @@ func _swim_planet(pos: Vector3, candidate: Vector3, step_len: float, up: Vector3
 
 	_heading = candidate if candidate.length() > 0.001 else _heading
 
-	# Ride `eff_submerge` below the spherical sea shell; never sink below the solid sea floor (Rule 5).
+	# Ride `eff_submerge` below the water's free surface; never sink below the solid floor (Rule 5).
+	var surf: float = _material.water_surface_along(next_dir) if _material != null else NAN
+	if is_nan(surf):
+		return false                                       # no water stands along the step: hold here
 	var eff_submerge: float = _eff_submerge()
-	var target_r: float = sea - eff_submerge
+	var target_r: float = surf - eff_submerge
 	var sr: float = terrain.surface_radius(next_dir)
 	if not is_nan(sr):
 		target_r = maxf(target_r, sr + size)               # never sink through the solid floor
 	if breathes == "water":
-		target_r = minf(target_r, sea - size - GILL_SUBMERGE_MARGIN)
+		target_r = minf(target_r, surf - size - GILL_SUBMERGE_MARGIN)
 	global_position = center + next_dir * target_r
 	return false
 
 
-# PLANET: true where a WATER SHELL exists along `dir` — the solid surface radius sits below the sea shell.
-# (The planet substrate has no 2.5D salinity/depth band, so shell presence is the habitability rule here.)
+# PLANET: true where the field holds water over the ground along `dir`, deep enough for a gill-breather.
 func _habitable_dir(dir: Vector3) -> bool:
 	var sr: float = terrain.surface_radius(dir)
-	if is_nan(sr):
-		return false                     # unmeshed patch: treat as non-habitable so the fish turns back
-	var sea: float = terrain.sea_radius()
-	if sr >= sea:
-		return false                     # dry land above the waterline
-	if breathes == "water" and (sea - sr) < size * 2.0:
-		return false
-	return true
+	var surf: float = _material.water_surface_along(dir) if _material != null else NAN
+	if is_nan(sr) or is_nan(surf):
+		return false                     # unmeshed, or dry land: the fish turns back
+	return breathes != "water" or surf - sr >= size * 2.0
 
 
-# PLANET: probe tangent directions (rings, like the flat version) for the nearest column that still has a
-# water shell; return a tangent unit heading toward it. Pulls a strayed fish back over open sea.
+# PLANET: probe tangent directions (rings, like the flat version) for the nearest column that still holds
+# water over its ground; return a tangent unit heading toward it. Pulls a strayed fish back over open water.
 func _find_habitable_dir_planet(pos: Vector3, up: Vector3) -> Vector3:
 	var center: Vector3 = terrain.planet_center()
 	var fwd: Vector3 = _heading - up * _heading.dot(up)
@@ -854,14 +851,14 @@ func _find_habitable_dir_planet(pos: Vector3, up: Vector3) -> Vector3:
 	return Vector3.ZERO
 
 
-# PLANET: haul out onto the narrow dry beach band just above the waterline (surface_radius within 2 m of
-# sea_radius). Mirrors the flat _try_bask, in radii instead of world-Y. Returns true if basking started.
+# PLANET: haul out onto the narrow dry beach band just above the water the fish swims in (dry ground within
+# 2 m of its free surface). Mirrors the flat _try_bask, in radii instead of world-Y. True if basking started.
 func _try_bask_planet(dir: Vector3) -> bool:
 	var sr: float = terrain.surface_radius(dir)
-	if is_nan(sr):
+	if is_nan(sr) or _material == null or not is_nan(_material.water_surface_along(dir)):
 		return false
-	var sea: float = terrain.sea_radius()
-	if sr < sea or sr > sea + 2.0:
+	var here: float = _material.water_surface_along(global_position - terrain.planet_center())
+	if is_nan(here) or sr > here + 2.0:
 		return false
 	global_position = terrain.planet_center() + dir.normalized() * sr
 	_bask_timer = BASK_DURATION

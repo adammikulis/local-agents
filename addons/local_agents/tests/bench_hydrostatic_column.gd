@@ -64,7 +64,7 @@ func _arm(exponential: bool) -> Dictionary:
 	rig.upload("n2", n2)
 
 	var ctx: Dictionary = {"cell_size": CELL, "centre": Vector3.ZERO, "spin": Vector3.ZERO,
-		"spin_rate_rad_s": 0.0, "sea_radius": 0.0, "gravity_self": 0.0, "dt_s": DT_S,
+		"spin_rate_rad_s": 0.0, "body_radius": 0.0, "gravity_self": 0.0, "dt_s": DT_S,
 		"sun_dir": Vector3.ZERO, "cell_size_min": CELL}
 	_seed_pressure(rig, derive, ctx, want_p)
 	var p_seeded: Array = _list(rig.read("pressure"))

@@ -15,9 +15,6 @@ var _crater_watch: PackedInt32Array = PackedInt32Array()
 var _crater_seen: Dictionary = {}        # cell -> true, so overlapping craters do not watch a cell twice
 var _crater_opened: int = 0              # cumulative cells this run whose derived solidity went rock -> void
 var _crater_mass: float = 0.0            # cumulative mineral volume fraction excavation uncemented
-var _crater_sea: int = 0                 # cumulative opened cells that were under the water line and flooded
-
-var _flood_unsourced: int = 0            # below-sea crater cells left DRY because no live water was in reach
 
 
 func setup(field) -> void:
@@ -203,10 +200,6 @@ func resample_terrain(world_pos: Vector3, radius: float) -> void:
 	var solid: PackedByteArray = _f._solid
 	var src: PackedInt32Array = PackedInt32Array()
 	var was_rock: PackedInt32Array = PackedInt32Array()   # cells the field held as derived-solid bedrock
-	var sea_cells: PackedInt32Array = PackedInt32Array()
-	var sea_r: float = 0.0
-	if _f._terrain.has_method("sea_radius"):
-		sea_r = float(_f._terrain.sea_radius())
 	for c in cells:
 		if _f._terrain.is_solid(_f.cell_world_pos_linear(c)):
 			continue                                   # still rock — the edit did not reach this cell
@@ -219,12 +212,6 @@ func resample_terrain(world_pos: Vector3, radius: float) -> void:
 		# the cell keeps its mineral and loses its cement, and the loose grains leave by transport.
 		src.append(c)
 		_crater_mass += rf
-		if sea_r > 0.0 \
-				and (_f.cell_world_pos_linear(c) - _f.centre()).length() < sea_r:
-			sea_cells.append(c)
-	if sea_cells.size() > 0:
-		_flood_from_sea(sea_cells)
-		_crater_sea += sea_cells.size()
 	if src.size() == 0:
 		return
 	_uncement(src)
@@ -238,69 +225,17 @@ func resample_terrain(world_pos: Vector3, radius: float) -> void:
 		_crater_watch.append(c)
 
 
-
-## SINK: water_sphere3d.glsl skips any cell whose `static` flag is set when it gathers outflow, so a static sea
-func _flood_from_sea(cells: PackedInt32Array) -> void:
-	if _f._grid == null or not _f._mirrors.has("h2o"):
-		return
-	var solid: PackedByteArray = _f._solid
-	var srcs: PackedInt32Array = PackedInt32Array()
-	var dsts: PackedInt32Array = PackedInt32Array()
-	var amounts: PackedFloat32Array = PackedFloat32Array()
-	var unsourced: int = 0
-	for c in cells:
-		var src: int = _nearest_water(c, 2)
-		if src >= 0:
-			srcs.append(src)
-			dsts.append(c)
-			amounts.append(_f.MAX_MASS)
-		else:
-			unsourced += 1
-	if srcs.size() > 0:
-		queue.transfer("h2o", srcs, amounts, "h2o", dsts, _f.MAX_MASS)
-	if unsourced > 0:
-		_flood_unsourced += unsourced
-
-
-func _nearest_water(from: int, rings: int) -> int:
-	var grid: LAVoxelGrid = _f._grid
-	var solid: PackedByteArray = _f._solid
-	var seen: Dictionary = {from: true}
-	var frontier: PackedInt32Array = PackedInt32Array([from])
-	for _ring in range(rings):
-		var next: PackedInt32Array = PackedInt32Array()
-		for c in frontier:
-			for f in range(grid.slot_begin(c, 0), grid.slot_begin(c, LAVoxelGrid.SLOTS)):
-				var nb: int = grid.neighbours[f]
-				if nb < 0 or nb >= _f._cell_count or seen.has(nb):
-					continue
-				seen[nb] = true
-				if solid[nb] != 0:
-					continue
-				if _f._queries.liquid_at(nb) >= _f.MAX_MASS * 0.5:
-					return nb
-				next.append(nb)
-		frontier = next
-	return -1
-
-
 func crater_report() -> Dictionary:
 	var open_now: int = 0
-	var below_sea: int = 0
 	var rock_now: float = 0.0
 	var water: float = 0.0
 	var watch: int = _crater_watch.size()
 	if _f != null and watch > 0 and _f._mirrors.has("cement"):
-		var sea_r: float = 0.0
-		if _f._terrain != null and _f._terrain.has_method("sea_radius"):
-			sea_r = float(_f._terrain.sea_radius())
 		var has_water: bool = _f._mirrors.has("h2o")
 		for c in _crater_watch:
 			rock_now += _f._mirrors.at("cement", c)
 			if _f._solid.size() == _f._cell_count and _f._solid[c] == 0:
 				open_now += 1
-			if sea_r > 0.0 and (_f.cell_world_pos_linear(c) - _f.centre()).length() < sea_r:
-				below_sea += 1
 			if has_water:
 				water += _f._queries.liquid_at(c)
 	return {
@@ -309,12 +244,6 @@ func crater_report() -> Dictionary:
 		"crater_watch": watch,
 		"crater_open_now": open_now,
 		"crater_rock_now": snappedf(rock_now, 0.01),
-		"crater_below_sea": below_sea,
-		"crater_sea": _crater_sea,
 		"crater_water": snappedf(water, 0.01),
-		# Below-sea cells a strike opened that the surrounding sea could not reach within two rings, and which
-		# are therefore left DRY rather than filled from nothing. A rising number here is a real gap in the
-		# water kernel's ability to flow into a fresh hole, and it is now visible instead of being papered over.
-		"crater_dry_pockets": _flood_unsourced,
 	}
 

@@ -5,7 +5,7 @@
 #
 # Four arms at the rung the sandbox declares, so this reads a run that completes:
 #   K  the key covers the seed's own source: edit a line of it and the content address moves
-#   A  a guaranteed miss: seeds the world and writes the bake
+#   A  reseeds the world and writes the bake under the gate's own key
 #   B  a hit: loads it. Every compared row must equal A's, and world_seal_origin must say "restored"
 #   C  the positive control: one channel of the bake is scaled, and B's comparison must SEE it
 # EXIT 0 the bake is the seeded world · 1 it is not, or the comparison is blind · 2 could not run.
@@ -23,16 +23,20 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/la_seal_cache.XXXXXX")" || {
 	echo "check_seal_cache: no writable temp directory." >&2; exit 2; }
 trap 'rm -rf "$WORK"' EXIT
 
+# The store is every lane's: this gate clears and corrupts only the bakes carrying its own key.
+KEY="seal-cache-gate"
 probe() {  # probe <mode> [channel]
-	LA_GODOT_TIMEOUT=60 la_godot --headless --path "$ROOT" -s "res://scripts/seal_cache_probe.gd" -- "$@"
+	LA_GODOT_TIMEOUT=60 la_godot --headless --path "$ROOT" -s "res://scripts/seal_cache_probe.gd" -- "$@" "$KEY"
 }
 
 # A PHYSICS VERDICT IS NOT A FAILED RUN. 122/123/126 are run_sim_offscreen's readings off a run that
 # completed and published its report; this gate compares two such reports and owns none of those rows.
 # A run that published nothing is caught where the reports are parsed.
-arm() {  # arm <name>
-	LA_SEAL_KEY="seal-cache-gate" "$SCRIPT_DIR/sim_run.sh" --path "$ROOT" --frames "$FRAMES" \
-		--seed "$SEED" --rung "$RUNG" --raw > "$WORK/$1.json" 2> "$WORK/$1.err"
+arm() {  # arm <name> [sim_run args]
+	local name="$1"
+	shift
+	LA_SEAL_KEY="$KEY" "$SCRIPT_DIR/sim_run.sh" --path "$ROOT" --frames "$FRAMES" \
+		--seed "$SEED" --rung "$RUNG" --raw "$@" > "$WORK/$name.json" 2> "$WORK/$name.err"
 	case "$?" in
 		0|122|123|126) return 0 ;;
 		*) return 1 ;;
@@ -70,7 +74,7 @@ KEY_BACK="$(key_now)"
 probe --clear > "$WORK/clear.log" 2>&1 || { echo "check_seal_cache: the bake store could not be cleared." >&2
 	tail -5 "$WORK/clear.log" >&2; exit 2; }
 
-arm seeded || { echo "check_seal_cache: the seeding arm did not report (exit $?). Nothing to compare." >&2
+arm seeded --reseed || { echo "check_seal_cache: the seeding arm did not report (exit $?). Nothing to compare." >&2
 	tail -5 "$WORK/seeded.err" >&2; exit 2; }
 arm restored || { echo "check_seal_cache: the loading arm did not report (exit $?)." >&2
 	tail -5 "$WORK/restored.err" >&2; exit 2; }

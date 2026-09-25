@@ -57,7 +57,7 @@ if awk -v r="$OVER" -v t="$TOL" 'BEGIN{exit !(r <= t)}'; then
 fi
 echo >&2
 echo "The seeded atmosphere is heavier than the body's own by more than docs/ATMOSPHERE_SEED_REL. The" >&2
-echo "law is anchored at sea level in the solved potential and integrated over each cell's own room; a" >&2
-echo "departure past the ratchet is a datum, quadrature or room defect, never a budget to scale the" >&2
-echo "air to." >&2
+echo "law is anchored at the body's radius in the solved potential, filled over the ground and the settled" >&2
+echo "water, and integrated over each cell's own room; a departure past the ratchet is a datum," >&2
+echo "quadrature or room defect, never a budget to scale the air to." >&2
 exit 1

@@ -4,6 +4,7 @@
 
 #include "LABodySystem.hpp"
 #include "LAGridGeometry.hpp"
+#include "LAHydrosphereFill.hpp"
 #include "LAPhysicalRead.hpp"
 #include "LAPlanetTables.hpp"
 #include "LAScriptCall.hpp"
@@ -47,7 +48,7 @@ void LAFieldHydrosphereSeed::seed(Object *p_field) {
 	PackedFloat32Array h2o = LAFieldMirrors::of(p_field, "h2o");
 	const PackedByteArray regolith = p_field->get("_regolith");
 	const PackedFloat32Array porosity = LAFieldMirrors::of(p_field, "porosity");
-	// The share of each cell below the sea shell and above its ground: the terrain's own ocean.
+	// The share of each cell the settled water fills over its ground.
 	const PackedFloat32Array water = p_field->get("_water_fraction");
 	const PackedFloat32Array rock = p_field->get("_rock_fraction");
 	if (!grid || cc <= 0 || h2o.size() != cc || regolith.size() != cc || porosity.size() != cc
@@ -73,15 +74,16 @@ void LAFieldHydrosphereSeed::seed(Object *p_field) {
 		return;
 	}
 	const double body_r = LABodySeeds::seed_radius_m("planet");
-	const double sea_r = double(p_field->call("sea_radius"));
-	if (!(body_r > 0.0) || !(sea_r > 0.0) || depth.size() != cc || cw.size() < cc * 3
+	const LAHydrosphereFill *settled = LAHydrosphereFill::of(Object::cast_to<Object>(p_field->get("_terrain")));
+	const double r_free = settled ? settled->free_surface_r() : NAN;
+	if (!(body_r > 0.0) || !(r_free > 0.0) || depth.size() != cc || cw.size() < cc * 3
 			|| edges.size() < cc) {
-		UtilityFunctions::push_error("LAFieldHydrosphereSeed: no sea shell, ground depth or cell centres, "
+		UtilityFunctions::push_error("LAFieldHydrosphereSeed: no settled water, ground depth or cell centres, "
 				"so there is no surface for the water table to be measured from.");
 		return;
 	}
 	// LA_APPROX: seed_water_table_equipotential
-	const double h_wt = LAPlanetComposition::water_table_m(body_r, ground_kg / kg_m3, sea_r - body_r,
+	const double h_wt = LAPlanetComposition::water_table_m(body_r, ground_kg / kg_m3, r_free - body_r,
 			la_physical_array("HYPSOMETRY_AREA_BELOW"), la_physical_array("HYPSOMETRY_ELEVATION_M"));
 	if (!std::isfinite(h_wt)) {
 		return;
@@ -91,8 +93,8 @@ void LAFieldHydrosphereSeed::seed(Object *p_field) {
 	pore_w.resize(cc);
 	float *w = h2o.ptrw();
 	float *pw = pore_w.ptrw();
-	// THE SEA STANDS WHERE THE SHAPE PUTS IT, and the pore water under the water table: two channels, the
-	// sea in its own volume and the pore water in the rock's, wherever the rock is below the table.
+	// THE SETTLED WATER STANDS WHERE THE FILL PUT IT, and the pore water under the water table: two channels,
+	// the free water in its own volume and the pore water in the rock's, wherever the rock is below the table.
 	for (int c = 0; c < cc; c++) {
 		w[c] = float(MIN(double(MAX(water[c], 0.0f)), 1.0) * full_mol);
 		pw[c] = 0.0f;
@@ -101,9 +103,9 @@ void LAFieldHydrosphereSeed::seed(Object *p_field) {
 		}
 		const double r = std::hypot(cw[c * 3] - double(centre.x), cw[c * 3 + 1] - double(centre.y),
 				cw[c * 3 + 2] - double(centre.z));
-		// The table is one equipotential CAPPED AT THE GROUND: under the sea the ground is the sea floor,
-		// so the pore beneath it stands at the sea's own head; on land the cap is a spring.
-		const double r_wt = MIN(r + double(depth[c]), sea_r + h_wt);
+		// The table is one equipotential CAPPED AT THE GROUND: under the water the ground is its bed, so the
+		// pore beneath it stands at the water's own head; on land the cap is a spring.
+		const double r_wt = MIN(r + double(depth[c]), r_free + h_wt);
 		const double e = double(edges[c]);
 		const double below = e > 0.0 ? (r_wt - (r - 0.5 * e)) / e : 0.0;
 		const double fill = MIN(MAX(below, 0.0), 1.0);

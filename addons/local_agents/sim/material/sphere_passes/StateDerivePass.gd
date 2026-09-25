@@ -71,7 +71,7 @@ func _buffers(cc: int) -> Dictionary:
 		"water_rho": {"n": cc, "ghosts": true}, "k_cond": {"n": cc, "ghosts": true}, "gas_r": {"n": cc, "ghosts": true},
 		"gas_gamma": {"n": cc, "ghosts": true}, "mach": cc, "g_rest": {"n": cc * 3, "ghosts": true}, "cap_lith": {"n": cc, "ghosts": true}, "lattice_frac": {"n": cc, "ghosts": true},
 		"rad_w_m3": {"n": cc, "ghosts": true}, "ke_j_m3": cc, "pe_j_m3": cc, "grav_phi": {"n": cc, "ghosts": true}, "grav_ref": {"n": cc, "ghosts": true}, "lithic_frac": {"n": cc, "ghosts": true}, "lithic_kg": {"n": cc, "ghosts": true},
-		"r_frac": cc, "surface_class": cc, "melt_body": cc, "erupt": cc, "cyclone": cc,
+		"r_frac": cc, "surface_class": cc, "melt_body": cc, "erupt": cc, "cyclone": cc, "air_class": cc,
 		"vert_up": cc, "vert_down": cc})
 
 
@@ -126,7 +126,7 @@ func dispatch(_rd: RenderingDevice, ctx: Dictionary, cc: int, groups: int) -> vo
 			var mix: Array = _rad_mixes[i]
 			w_kg = LARadiogenicDecay.heat_w_kg_of({"U": mix[0], "Th": mix[1], "K": mix[2]}, epoch)
 		pc.encode_float(52 + i * 4, w_kg)
-	pc.encode_float(68, float(ctx.get("sea_radius", 0.0)))
+	pc.encode_float(68, float(ctx.get("body_radius", 0.0)))
 	# NO SOLVER, NO POTENTIAL: a world with no gravity pass has a zero potential field, and the weight it
 	# would be read at is never guessed. GravityPass publishes which of its two sources wrote it.
 	pc.encode_float(72, float(ctx.get("gravity_self", 0.0)))

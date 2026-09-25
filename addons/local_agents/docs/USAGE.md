@@ -462,7 +462,6 @@ they differ only in geometry.
 up_at(pos) -> Vector3                          # local "up" at a world point
 planet_center() -> Vector3                     # the centre all radial math is measured from
 planet_radius() -> float                       # distance from that centre to the ground datum
-sea_radius() -> float                          # radius of the sea shell (<= 0 or -INF means no sea)
 surface_point(dir) -> Vector3                  # where the ray centre->dir meets the ground (NAN-vec if none)
 surface_radius(dir) -> float                   # distance centre->that point (NAN if none)
 ground_point(pos) -> Vector3                   # the ground point directly below a world point

@@ -68,14 +68,13 @@ reads a box whose long axis is the world axis nearest the local vertical, not th
 Reading: `solid_of` in `LAPlanetTables.cpp` calls a cell solid at half rock, and `shape_atmosphere`
 floods `sky` only through cells whose `solid[c] == 0`.
 
-## 7. THE CRUST HAS TWO REPRESENTATIONS, AND THE SEA IS A SPHERE AT ONE RADIUS
+## 7. THE CRUST HAS TWO REPRESENTATIONS, AND A COAST SLICE DRAWS ITS WATER ONLY OVER ITS FINEST CELLS
 
 Maintainer's decision, standing: the field is the only representation of matter; ground and water
 surface are isosurfaces a kernel extracts per block (also the collider); the generator is sampled once at
-seed; a body of water is where the inventory settled under the solved gravity. `rg -n "sea_radius|OceanPlane|_open_sea|sea_level_m|resample_terrain" addons/local_agents`
-finds the sea as a declared shell radius and the field sampling the generator after the seal. A coast slice
-(`LA_SLICE_BOX=0,site=coast,0,3,24,3,5120,10`, `--rung=2 --ui --shots=1000:-35:0`) draws its sea only over
-the box's finest cells.
+seed. `rg -n "resample_terrain" addons/local_agents` finds the field sampling the generator after the seal.
+A coast slice (`LA_SLICE_BOX=0,site=coast,0,3,24,3,5120,10`, `--rung=2 --ui --shots=1000:-35:0`) draws its
+water only over the box's finest cells.
 Reading: `LAWaterSurfaceMesh.build` skips every cell whose `level_of` is not `max_level`.
 
 ## 8. THE GROUND NEAR THE EYE IS TERRACED, AND THE LEVEL BOUNDARY SHADES AS A CREASE

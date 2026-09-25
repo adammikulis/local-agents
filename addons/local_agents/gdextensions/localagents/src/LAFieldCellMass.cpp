@@ -2,6 +2,7 @@
 #include "LAGridGeometry.hpp"
 #include "LAFieldCellMass.hpp"
 
+#include "LABodySystem.hpp"
 #include "LAFieldMirrors.hpp"
 #include "LAScriptCall.hpp"
 #include "LASubstances.hpp"
@@ -128,7 +129,8 @@ void LAFieldCellMass3D::regolith(Object *p_field) {
 	Array cargs;
 	cargs.append(p_field);
 	const Vector3 centre = la_call_gd("res://addons/local_agents/sim/material/FieldGeometry3D.gd", "centre", cargs);
-	const double sea_r = double(p_field->call("sea_radius"));
+	// Elevation is read over the sphere the body's relief rides on.
+	const double body_r = LABodySeeds::seed_radius_m(String(p_field->get("_body_key")));
 	const double circulation_m = la_physical("GROUNDWATER_CIRCULATION_M");
 	const double phi0 = la_physical("REGOLITH_SURFACE_POROSITY");
 	const PackedFloat32Array depth = p_field->get("_surface_depth");
@@ -149,7 +151,7 @@ void LAFieldCellMass3D::regolith(Object *p_field) {
 	// porosity is Athy's law averaged over the rock's depth span in the cell, whatever the cell's size.
 	std::vector<double> radius(cc, 0.0);
 	std::vector<double> z_top(cc, -1.0), z_bot(cc, -1.0);
-	double highest = sea_r;
+	double highest = body_r;
 	const bool walkable = up.size() >= cc && cw.size() >= cc * 3 && depth.size() == cc && edges.size() >= cc
 			&& rock_fr.size() == cc;
 	for (int c = 0; c < cc && walkable; c++) {
@@ -166,7 +168,7 @@ void LAFieldCellMass3D::regolith(Object *p_field) {
 			highest = std::max(highest, radius[c]);
 		}
 	}
-	const double relief = std::max(highest - sea_r, double(grid->get("cell_size")));
+	const double relief = std::max(highest - body_r, double(grid->get("cell_size")));
 	uint8_t *mw = mask.ptrw();
 	float *gw = grain.ptrw();
 	float *pw = por.ptrw();
@@ -174,7 +176,7 @@ void LAFieldCellMass3D::regolith(Object *p_field) {
 		if (z_bot[c] <= z_top[c] || z_top[c] >= circulation_m) {
 			continue;
 		}
-		const double height = std::clamp((radius[c] - sea_r) / relief, 0.0, 1.0);
+		const double height = std::clamp((radius[c] - body_r) / relief, 0.0, 1.0);
 		const double span = z_bot[c] - z_top[c];
 		mw[c] = 1;
 		gw[c] = float(d_low * std::pow(d_up / d_low, height));

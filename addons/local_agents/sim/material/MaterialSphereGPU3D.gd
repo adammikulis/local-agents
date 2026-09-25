@@ -236,6 +236,7 @@ func begin_frame() -> void:
 	# March bound: a column cannot be longer than the box.
 	_ctx["depth"] = _grid.max_span()
 	_ctx["centre"] = _field.centre()     # the body centre — the spin axis passes through it
+	_ctx["body_radius"] = float(_field._body.radius()) if _field._body != null and _field._body.has_method("radius") else 0.0
 	_ctx["spin"] = LAFieldGeometry.spin_axis(_field)
 	# Rate as well as axis: seeded angular momentum over measured inertia. Zero while unmeasured,
 	# which is no rotating frame rather than a guessed one.
@@ -247,12 +248,6 @@ func begin_frame() -> void:
 func set_sun_flux(v: Vector3, xuv_w_m2: float) -> void:
 	_ctx["sun_dir"] = v
 	_ctx["xuv_w_m2"] = xuv_w_m2 if is_finite(xuv_w_m2) else 0.0
-
-
-## Radius of the sea shell from the body centre, metres — the datum the derived `alt` is measured from.
-## Absent or zero = the body carries no shell, which is no altitude, not an altitude of zero.
-func set_sea_radius(m: float) -> void:
-	_ctx["sea_radius"] = m
 
 
 ## Whether anything can write matter or energy this step: a LIVE writer pass, or a CPU mirror marked

@@ -1,7 +1,8 @@
 extends SceneTree
 
-## The bake store, from outside a run. `--clear` empties it so an arm is a guaranteed miss; `--corrupt`
-## scales one channel of the seeded entry's LAFieldSnapshot, which is the positive control every identity
+## The bake store, from outside a run, over the seeded bakes the last argument's LA_SEAL_KEY wrote: every
+## lane shares the store. `--clear <key>` removes them so an arm is a guaranteed miss; `--corrupt <channel>
+## <key>` scales one channel of the one such LAFieldSnapshot, which is the positive control every identity
 ## gate needs: a comparison that cannot see a changed channel is not a comparison.
 
 const STATE_DIR: String = "user://la_field_cache"
@@ -10,10 +11,15 @@ const STATE_DIR: String = "user://la_field_cache"
 func _init() -> void:
 	var args: PackedStringArray = OS.get_cmdline_user_args()
 	var mode: String = args[0] if args.size() > 0 else ""
-	var channel: String = args[1] if args.size() > 1 else "h2o"
+	var channel: String = args[1] if args.size() > 2 else "h2o"
+	var key: String = args[args.size() - 1] if args.size() > 1 else ""
 	var dir_path: String = STATE_DIR
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(dir_path))
-	var files: PackedStringArray = _bins(dir_path)
+	var files: PackedStringArray = _bins(dir_path, key)
+	if key == "":
+		printerr("seal_cache_probe: no LA_SEAL_KEY named, so no bake is this caller's.")
+		quit(2)
+		return
 	if mode == "--clear":
 		for f in files:
 			DirAccess.remove_absolute(ProjectSettings.globalize_path("%s/%s" % [dir_path, f]))
@@ -21,7 +27,7 @@ func _init() -> void:
 		quit(0)
 		return
 	if mode != "--corrupt":
-		printerr("seal_cache_probe: expected --clear or --corrupt <channel>.")
+		printerr("seal_cache_probe: expected --clear <key> or --corrupt <channel> <key>.")
 		quit(2)
 		return
 	# The store also holds the grid's own blob, so the seeded field is the entry carrying a snapshot.
@@ -66,6 +72,22 @@ func _init() -> void:
 	quit(0)
 
 
+## The store's seeded bakes whose LA_SEAL_KEY was `key`.
+func _bins(dir_path: String, key: String) -> PackedStringArray:
+	var out: PackedStringArray = PackedStringArray()
+	var d: DirAccess = DirAccess.open(dir_path)
+	if d == null:
+		return out
+	for name in d.get_files():
+		if not String(name).ends_with(".bin"):
+			continue
+		var f: FileAccess = FileAccess.open("%s/%s" % [dir_path, name], FileAccess.READ)
+		var held: Variant = f.get_var() if f != null else null
+		if held is Dictionary and String((held as Dictionary).get("tree_key", "")) == key:
+			out.append(String(name))
+	return out
+
+
 ## Byte offset of a channel's cells inside LAFieldSnapshot's save layout, or -1 where it carries none.
 func _channel_at(snapshot: PackedByteArray, channel: String) -> int:
 	if snapshot.size() < 16 or snapshot.decode_u32(0) != 0x5346414C or snapshot.decode_u32(4) != 1:
@@ -82,13 +104,3 @@ func _channel_at(snapshot: PackedByteArray, channel: String) -> int:
 	var which: int = names.find(channel)
 	return -1 if which < 0 else at + which * cells * 4
 
-
-func _bins(dir_path: String) -> PackedStringArray:
-	var out: PackedStringArray = PackedStringArray()
-	var d: DirAccess = DirAccess.open(dir_path)
-	if d == null:
-		return out
-	for name in d.get_files():
-		if String(name).ends_with(".bin"):
-			out.append(String(name))
-	return out

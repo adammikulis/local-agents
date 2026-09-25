@@ -65,7 +65,7 @@ func set_paths(on: bool) -> void:
 
 
 ## Select the active field-channel heatmap ("" = off). One channel at a time — enabling a new channel
-## replaces the previous. Keys match LADebugPanel VIEWS (biomass/water_phase/snow/lava/rock_fill/co2/o2/
+## replaces the previous. Keys match LADebugPanel VIEWS (biomass/snow/lava/rock_fill/co2/o2/
 ## charge/fertility).
 func set_field_channel(channel: String) -> void:
 	_field_channel = channel
@@ -223,8 +223,6 @@ func _field_sample(p: Vector3) -> Array:
 			val = _field.snow_depth_at(p)
 			ref = 1.0
 			base = Color(0.92, 0.95, 1.0)
-		"water_phase":
-			return _sample_water_phase(p)
 		_:
 			return [false, base, 0.0]
 	if val <= 0.0001:
@@ -232,27 +230,4 @@ func _field_sample(p: Vector3) -> Array:
 	var t: float = clampf(val / ref, 0.06, 1.0)
 	# Darken low values toward black so structure reads (dim = little, bright = a lot).
 	var col: Color = Color(base.r * (0.35 + 0.65 * t), base.g * (0.35 + 0.65 * t), base.b * (0.35 + 0.65 * t), 0.9)
-	return [true, col, t]
-
-
-# Water-phase composite: whichever of snow (white), cloud (light blue), fog (grey) dominates the column
-# tints the spike, so the frozen/aloft/near-ground H2O phases read at a glance in one view.
-func _sample_water_phase(p: Vector3) -> Array:
-	var snow: float = _field.snow_depth_at(p) if _field.has_method("snow_depth_at") else 0.0
-	var cloud: float = _field.cloud_at(p.x, p.z) if _field.has_method("cloud_at") else 0.0
-	var fog: float = _field.fog_at(p.x, p.z) if _field.has_method("fog_at") else 0.0
-	var best: float = snow
-	var col: Color = Color(0.92, 0.95, 1.0, 0.9)                # snow/ice = white
-	var ref: float = 1.0
-	if cloud > best:
-		best = cloud
-		col = Color(0.7, 0.82, 1.0, 0.9)                        # cloud = light blue
-		ref = 0.8
-	if fog > best:
-		best = fog
-		col = Color(0.6, 0.62, 0.66, 0.9)                       # fog = grey
-		ref = 0.8
-	if best <= 0.0001:
-		return [false, col, 0.0]
-	var t: float = clampf(best / ref, 0.06, 1.0)
 	return [true, col, t]

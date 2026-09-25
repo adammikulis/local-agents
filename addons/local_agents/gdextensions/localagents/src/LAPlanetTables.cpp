@@ -1,6 +1,7 @@
 #include "LAGridGeometry.hpp"
 #include <godot_cpp/variant/utility_functions.hpp>
 #include "LAPlanetTables.hpp"
+#include "LAHydrosphereFill.hpp"
 
 #include "LAFieldMirrors.hpp"
 
@@ -983,17 +984,19 @@ void LAPlanetComposition::seed(Object *p_field, double p_t_c, const PackedFloat3
 
 // THE ROCK FRACTION, one walk: the share of each cell's volume inside the terrain's signed distance.
 // THE CUT CELL'S GEOMETRY, BY RADIAL CHORDS. The terrain is a height field over the sphere, so along a
-// line through the cell in the local vertical the ground is one crossing and the sea a second: the rock
-// is the chord below the ground, the water the chord between the ground and the sea shell, the rest is
-// air. SUB^2 such lines cover the cell's projection; every fraction is a ratio of chords, so a cell wholly
-// inside rock reads exactly one. "rock" and "water" are each the cell's volume share.
+// line through the cell in the local vertical the ground is one crossing and the settled water's free
+// surface a second: the rock is the chord below the ground, the water the chord between the ground and the
+// free surface, the rest is air. SUB^2 such lines cover the cell's projection; every fraction is a ratio of
+// chords, so a cell wholly inside rock reads exactly one. "rock" and "water" are each the cell's volume share.
 // LA_APPROX: chord_quadrature_lattice
-Dictionary LAPlanetComposition::surface_fractions(Object *p_grid, Object *p_terrain, const Vector3 &p_centre,
-		double p_sea_r) {
+Dictionary LAPlanetComposition::surface_fractions(Object *p_grid, Object *p_terrain, const Vector3 &p_centre) {
 	Dictionary out;
+	const LAHydrosphereFill *fill = LAHydrosphereFill::of(p_terrain);
 	if (!p_grid || !p_terrain) {
 		return out;
 	}
+	ERR_FAIL_COND_V_MSG(!fill, out, "LAPlanetComposition: the terrain settled no water, so no cell's share of it "
+			"is known.");
 	const int cc = int(p_grid->get("cell_count"));
 	const PackedVector3Array cw = p_grid->get("centres");
 	// The RADIUS in double: float32 spacing at a body's radius is half a metre, a whole fine cell.
@@ -1028,9 +1031,11 @@ Dictionary LAPlanetComposition::surface_fractions(Object *p_grid, Object *p_terr
 			const double e = c < edge.size() ? double(edge[c]) : 0.0;
 			gw[c] = float(0.5 * e * (std::abs(up.x) + std::abs(up.y) + std::abs(up.z)));
 		}
+		const Vector3 rel_c = cw[c] - p_centre;
+		const bool over_water = rel_c.length() > 0.0 && fill->leaves_water_at(rel_c, rel_c / rel_c.length()) < -pad;
 		if (lo > 0.0 && hi > 0.0 && r + pad < lo) {
 			rw[c] = 1.0f;
-		} else if (lo > 0.0 && hi > 0.0 && r - pad > hi && r - pad > p_sea_r) {
+		} else if (lo > 0.0 && hi > 0.0 && r - pad > hi && over_water) {
 			rw[c] = 0.0f;
 		} else {
 			rw[c] = 0.0f;
@@ -1123,18 +1128,11 @@ Dictionary LAPlanetComposition::surface_fractions(Object *p_grid, Object *p_terr
 				// The ground's depth below the centre along this line: the rock top, or the cube's bottom.
 				ground_sum += -x_ground;
 				ground_n += 1;
-				// The sea shell along this line: r(x) = |q - centre + x up|.
-				const Vector3 qr = q - p_centre;
-				const double par = double(qr.dot(up));
-				const double perp2 = std::max(double(qr.length_squared()) - par * par, 0.0);
-				const double inside = p_sea_r * p_sea_r - perp2;
-				if (p_sea_r > 0.0 && inside > 0.0) {
-					const double x_sea = std::sqrt(inside) - par;
-					const double w_lo = std::max(x_ground, x_in);
-					const double w_hi = std::min(x_sea, x_out);
-					if (w_hi > w_lo) {
-						chord_water += w_hi - w_lo;
-					}
+				// The settled water along this line, from the ground up to where the line leaves it.
+				const double w_lo = std::max(x_ground, x_in);
+				const double w_hi = std::min(fill->leaves_water_at(q - p_centre, up), x_out);
+				if (w_hi > w_lo) {
+					chord_water += w_hi - w_lo;
 				}
 			}
 		}
@@ -1152,43 +1150,6 @@ Dictionary LAPlanetComposition::surface_fractions(Object *p_grid, Object *p_terr
 	return out;
 }
 
-// SEA LEVEL IS WHERE THE WATER REACHES: the elevation against the hypsographic curve's zero at which
-// the curve holds `p_ocean_m3` on a body of radius `p_r_m`, bisected over the curve's own range. The
-// curve is piecewise linear in cumulative area, so each segment's wet volume is exact.
-double LAPlanetComposition::sea_level_m(double p_r_m, double p_ocean_m3, const PackedFloat64Array &p_area_below,
-		const PackedFloat64Array &p_elevation_m) {
-	const int n = std::min(p_area_below.size(), p_elevation_m.size());
-	if (n < 2 || !(p_r_m > 0.0)) {
-		return 0.0;
-	}
-	auto volume = [&](double e_sea) {
-		double acc = 0.0;
-		for (int i = 1; i < n; i++) {
-			const double d0 = std::max(e_sea - p_elevation_m[i - 1], 0.0);
-			const double d1 = std::max(e_sea - p_elevation_m[i], 0.0);
-			const double span = p_area_below[i] - p_area_below[i - 1];
-			if (d0 > 0.0 && d1 > 0.0) {
-				acc += 0.5 * (d0 + d1) * span;
-			} else if (d0 > 0.0 || d1 > 0.0) {
-				const double rise = std::abs(p_elevation_m[i] - p_elevation_m[i - 1]);
-				const double wet = rise > 0.0 ? span * std::max(d0, d1) / rise : 0.0;
-				acc += 0.5 * std::max(d0, d1) * wet;
-			}
-		}
-		return 4.0 * kPi * p_r_m * p_r_m * acc;
-	};
-	double lo = p_elevation_m[0], hi = p_elevation_m[n - 1];
-	for (int i = 0; i < 64; i++) {
-		const double mid = 0.5 * (lo + hi);
-		if (volume(mid) < p_ocean_m3) {
-			lo = mid;
-		} else {
-			hi = mid;
-		}
-	}
-	return 0.5 * (lo + hi);
-}
-
 // Directions swept over the body, lands whose shores are examined, halvings onto a waterline, and
 // samples per side of a footprint reading.
 static const int kSweepSamples = 128;
@@ -1196,23 +1157,11 @@ static const int kSiteCandidates = 16;
 static const int kCoastBisect = 24;
 static const int kFootprintSamples = 7;
 
-// The body's OWN frame: a place on the planet, not a direction the rotating world sweeps past.
-static double la_surface_radius(Object *p_surface, const Vector3 &p_dir) {
-	return double(p_surface->call("body_surface_radius", p_dir));
-}
-
-// A Fibonacci lattice direction: even coverage, no clustering at the poles.
-static Vector3 la_sweep_dir(int p_i, int p_n) {
-	const double golden = kPi * (3.0 - std::sqrt(5.0));
-	const double y = 1.0 - 2.0 * (double(p_i) + 0.5) / double(p_n);
-	const double s = std::sqrt(std::max(0.0, 1.0 - y * y));
-	return Vector3(std::cos(golden * p_i) * s, y, std::sin(golden * p_i) * s).normalized();
-}
-
 Dictionary LAPlanetComposition::footprint_ground(Object *p_surface, const Vector3 &p_dir, double p_body_r_m,
-		double p_sea_r_m, double p_footprint_m) {
+		double p_footprint_m) {
 	Dictionary out;
-	if (!p_surface) {
+	const LAHydrosphereFill *fill = LAHydrosphereFill::of(p_surface);
+	if (!fill) {
 		return out;
 	}
 	const Vector3 d = p_dir.normalized();
@@ -1228,7 +1177,7 @@ Dictionary LAPlanetComposition::footprint_ground(Object *p_surface, const Vector
 		const double a = span * (double(i) / double(kFootprintSamples - 1) - 0.5);
 		for (int j = 0; j < kFootprintSamples; j++) {
 			const double b = span * (double(j) / double(kFootprintSamples - 1) - 0.5);
-			const double h = la_surface_radius(p_surface, (d + u * a + v * b).normalized()) - p_sea_r_m;
+			const double h = fill->ground_over_water((d + u * a + v * b).normalized());
 			land = std::max(land, h);
 			deep = std::max(deep, -h);
 			wet += h <= 0.0 ? 1 : 0;
@@ -1237,27 +1186,34 @@ Dictionary LAPlanetComposition::footprint_ground(Object *p_surface, const Vector
 	out["foot_m"] = p_footprint_m;
 	out["land_m"] = land;
 	out["depth_m"] = deep;
-	out["sea_share"] = double(wet) / double(kFootprintSamples * kFootprintSamples);
+	out["wet_share"] = double(wet) / double(kFootprintSamples * kFootprintSamples);
 	out["samples"] = kFootprintSamples;
 	return out;
 }
 
+// The sweep read against the settled water: directions whose ground stands over it, and under it, each
+// with the ground's height over the water.
+static void la_sweep_split(const LAHydrosphereFill *p_fill, std::vector<std::pair<double, Vector3>> &r_high,
+		std::vector<std::pair<double, Vector3>> &r_low) {
+	for (int i = 0; i < kSweepSamples; i++) {
+		const Vector3 d = LAHydrosphereFill::sweep_dir(i, kSweepSamples);
+		const double h = p_fill->ground_over_water(d);
+		(h > 0.0 ? r_high : r_low).push_back({ h, d });
+	}
+}
+
 // WHERE TO STAND A BOX SO IT HOLDS A SHORE: of the waterlines between the body's highest lands and its
 // deepest water, the one whose shoreline runs nearest the middle of the footprint, and among footprints
-// split alike the one carrying the most relief across the line.
-// LA_APPROX: site_from_settled_level
-Dictionary LAPlanetComposition::coast_site(Object *p_surface, double p_body_r_m, double p_sea_r_m,
-		double p_footprint_m) {
+// split alike the one carrying the most relief across the line. The water is where the body's inventory
+// settled over the solved surface.
+Dictionary LAPlanetComposition::coast_site(Object *p_surface, double p_body_r_m, double p_footprint_m) {
 	Dictionary out;
-	if (!p_surface || !(p_footprint_m > 0.0)) {
+	const LAHydrosphereFill *fill = LAHydrosphereFill::of(p_surface);
+	if (!fill || !(p_footprint_m > 0.0)) {
 		return out;
 	}
 	std::vector<std::pair<double, Vector3>> high, low;
-	for (int i = 0; i < kSweepSamples; i++) {
-		const Vector3 d = la_sweep_dir(i, kSweepSamples);
-		const double r = la_surface_radius(p_surface, d);
-		(r - p_sea_r_m > 0.0 ? high : low).push_back({ r, d });
-	}
+	la_sweep_split(fill, high, low);
 	if (high.empty() || low.empty()) {
 		return out;
 	}
@@ -1280,18 +1236,18 @@ Dictionary LAPlanetComposition::coast_site(Object *p_surface, double p_body_r_m,
 		}
 		for (int i = 0; i < kCoastBisect; i++) {
 			const Vector3 m = (a + b).normalized();
-			if (la_surface_radius(p_surface, m) - p_sea_r_m > 0.0) {
+			if (fill->ground_over_water(m) > 0.0) {
 				a = m;
 			} else {
 				b = m;
 			}
 		}
 		const Vector3 site = (a + b).normalized();
-		const Dictionary g = footprint_ground(p_surface, site, p_body_r_m, p_sea_r_m, p_footprint_m);
+		const Dictionary g = footprint_ground(p_surface, site, p_body_r_m, p_footprint_m);
 		// A SHORE IS WHERE LAND MEETS WATER, and the shoreline of a coast runs across the footprint
 		// rather than clipping its corner: how evenly the footprint is split is the first measure, zero
 		// where it is all dry or all wet and greatest where half of it stands under the line.
-		const double share = double(g["sea_share"]);
+		const double share = double(g["wet_share"]);
 		const double even = 0.5 - std::abs(share - 0.5);
 		const double relief = double(g["land_m"]) + double(g["depth_m"]);
 		if (!(even > 0.0) || even < best_even || (even == best_even && relief <= best_relief)) {
@@ -1305,21 +1261,47 @@ Dictionary LAPlanetComposition::coast_site(Object *p_surface, double p_body_r_m,
 	return out;
 }
 
-Dictionary LAPlanetComposition::site_box(Object *p_terrain, bool p_coast, const Vector3 &p_offset,
+// WHERE TO STAND A BOX WHOLLY UNDER WATER: of the body's deepest water, the footprint every sample of which
+// stands under the settled water, and among those the one whose shallowest ground stands deepest.
+Dictionary LAPlanetComposition::sea_site(Object *p_surface, double p_body_r_m, double p_footprint_m) {
+	Dictionary out;
+	const LAHydrosphereFill *fill = LAHydrosphereFill::of(p_surface);
+	if (!fill || !(p_footprint_m > 0.0)) {
+		return out;
+	}
+	std::vector<std::pair<double, Vector3>> high, low;
+	la_sweep_split(fill, high, low);
+	std::sort(low.begin(), low.end(), [](const std::pair<double, Vector3> &x,
+					const std::pair<double, Vector3> &y) { return x.first < y.first; });
+	double best = INFINITY;
+	for (int k = 0; k < std::min(kSiteCandidates, int(low.size())); k++) {
+		const Dictionary g = footprint_ground(p_surface, low[k].second, p_body_r_m, p_footprint_m);
+		const double shallowest = double(g["land_m"]);
+		if (double(g["wet_share"]) < 1.0 || !(shallowest < best)) {
+			continue;
+		}
+		best = shallowest;
+		out = g;
+		out["dir"] = low[k].second;
+	}
+	return out;
+}
+
+Dictionary LAPlanetComposition::site_box(Object *p_terrain, const String &p_site, const Vector3 &p_offset,
 		const Vector3i &p_dims, double p_cell_m, int p_surface_axis) {
 	Dictionary out;
 	Vector3i dims = p_dims;
 	// The smallest span across the box is the footprint a surface site stands in.
 	const double foot = double(std::min(dims.x, std::min(dims.y, dims.z))) * p_cell_m;
 	Vector3 dir = p_offset;
-	if (p_coast) {
-		if (!p_terrain || !p_terrain->has_method("coast_site_dir")) {
-			out["error"] = "a coast site is read off the terrain, and none was supplied to this box";
+	if (!p_site.is_empty()) {
+		if (!p_terrain || !p_terrain->has_method("site_dir")) {
+			out["error"] = "a site is read off the terrain, and none was supplied to this box";
 			return out;
 		}
-		dir = Vector3(p_terrain->call("coast_site_dir", foot));
+		dir = Vector3(p_terrain->call("site_dir", p_site, foot));
 		if (dir == Vector3()) {
-			out["error"] = "this body's surface holds no shore inside the box's footprint";
+			out["error"] = "this body's surface holds no " + p_site + " site inside the box's footprint";
 			return out;
 		}
 		// The box's long axis is its local vertical, so the count on the spec's `surface` axis moves to
@@ -1332,15 +1314,15 @@ Dictionary LAPlanetComposition::site_box(Object *p_terrain, bool p_coast, const 
 	if (p_terrain && p_terrain->has_method("footprint_ground")) {
 		out = Dictionary(p_terrain->call("footprint_ground", dir, foot));
 	}
-	out["coast"] = p_coast;
+	out["site"] = p_site;
 	out["dir"] = dir;
 	out["dims"] = dims;
 	out["foot_m"] = foot;
 	return out;
 }
 
-// Saturated pore column standing ABOVE the sea under ground at elevation p_e_m, m of water per m^2, with
-// the table p_h_m over the sea: Athy porosity integrated from the table down to sea level.
+// Saturated pore column standing ABOVE the settled water under ground at elevation p_e_m over it, m of water
+// per m^2, with the table p_h_m over the water: Athy porosity integrated from the table down to the water.
 static double pore_above_sea(double p_e_m, double p_h_m, double p_phi0, double p_zc, double p_aquifer_m) {
 	const double z_hi = std::min(std::max(p_e_m, 0.0), p_aquifer_m);
 	const double z_wt = std::max(p_e_m - p_h_m, 0.0);
@@ -1350,7 +1332,7 @@ static double pore_above_sea(double p_e_m, double p_h_m, double p_phi0, double p
 	return p_phi0 * p_zc * (std::exp(-z_wt / p_zc) - std::exp(-z_hi / p_zc));
 }
 
-double LAPlanetComposition::water_table_m(double p_r_m, double p_groundwater_m3, double p_sea_level_m,
+double LAPlanetComposition::water_table_m(double p_r_m, double p_groundwater_m3, double p_level_m,
 		const PackedFloat64Array &p_area_below, const PackedFloat64Array &p_elevation_m) {
 	const int n = std::min(p_area_below.size(), p_elevation_m.size());
 	const double phi0 = la_physical("REGOLITH_SURFACE_POROSITY");
@@ -1362,14 +1344,14 @@ double LAPlanetComposition::water_table_m(double p_r_m, double p_groundwater_m3,
 	auto volume = [&](double h) {
 		double acc = 0.0;
 		for (int i = 1; i < n; i++) {
-			const double a = pore_above_sea(p_elevation_m[i - 1] - p_sea_level_m, h, phi0, zc, aq);
-			const double b = pore_above_sea(p_elevation_m[i] - p_sea_level_m, h, phi0, zc, aq);
+			const double a = pore_above_sea(p_elevation_m[i - 1] - p_level_m, h, phi0, zc, aq);
+			const double b = pore_above_sea(p_elevation_m[i] - p_level_m, h, phi0, zc, aq);
 			acc += 0.5 * (a + b) * (p_area_below[i] - p_area_below[i - 1]);
 		}
 		return 4.0 * kPi * p_r_m * p_r_m * acc;
 	};
 	// The table cannot stand above the highest ground, and there it saturates every pore over the sea.
-	double hi = std::max(p_elevation_m[n - 1] - p_sea_level_m, 0.0);
+	double hi = std::max(p_elevation_m[n - 1] - p_level_m, 0.0);
 	if (volume(hi) < p_groundwater_m3) {
 		UtilityFunctions::push_error("LAPlanetComposition: the body declares more groundwater than the pore "
 				"space standing over its sea can hold, so the table would stand above the ground everywhere.");
@@ -1447,14 +1429,14 @@ PackedByteArray LAPlanetComposition::solid_of(const PackedFloat32Array &p_fracti
 
 void LAPlanetComposition::_bind_methods() {
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("shell_channels"), &shell_channels);
-	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("surface_fractions", "grid", "terrain", "centre", "sea_r"), &surface_fractions);
+	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("surface_fractions", "grid", "terrain", "centre"), &surface_fractions);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("solid_of", "fraction"), &solid_of);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("surface_depth", "grid", "terrain", "centre"), &surface_depth);
-	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("sea_level_m", "r_m", "ocean_m3", "area_below", "elevation_m"), &sea_level_m);
-	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("footprint_ground", "surface", "dir", "body_r_m", "sea_r_m", "footprint_m"), &footprint_ground);
-	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("site_box", "terrain", "coast", "offset", "dims", "cell_m", "surface_axis"), &site_box);
-	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("coast_site", "surface", "body_r_m", "sea_r_m", "footprint_m"), &coast_site);
-	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("water_table_m", "r_m", "groundwater_m3", "sea_level_m", "area_below", "elevation_m"), &water_table_m);
+	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("footprint_ground", "surface", "dir", "body_r_m", "footprint_m"), &footprint_ground);
+	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("site_box", "terrain", "site", "offset", "dims", "cell_m", "surface_axis"), &site_box);
+	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("coast_site", "surface", "body_r_m", "footprint_m"), &coast_site);
+	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("sea_site", "surface", "body_r_m", "footprint_m"), &sea_site);
+	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("water_table_m", "r_m", "groundwater_m3", "level_m", "area_below", "elevation_m"), &water_table_m);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("mg_number"), &mg_number);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("an_fraction"), &an_fraction);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("apatite_f_fraction"), &apatite_f_fraction);

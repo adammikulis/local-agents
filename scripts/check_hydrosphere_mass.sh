@@ -56,8 +56,8 @@ if awk -v r="$REL" -v t="$TOL" 'BEGIN{exit !(r <= t)}'; then
 	exit 0
 fi
 echo >&2
-echo "The seeded hydrosphere departs from the body's by more than docs/HYDROSPHERE_SEED_REL. The sea" >&2
-echo "level is solved from the water on the declared shape (LAPlanetShape.sea_level_m) and the field" >&2
-echo "reads that shape by chords over the terrain lattice; a departure past the ratchet is a lattice or" >&2
-echo "chord defect, never a budget to scale the water to." >&2
+echo "The seeded hydrosphere departs from the body's by more than docs/HYDROSPHERE_SEED_REL. The water" >&2
+echo "settles over the solved surface (LAHydrosphereFill) and the field reads it by chords over the" >&2
+echo "terrain lattice; a departure past the ratchet is a lattice or chord defect, never a budget to scale" >&2
+echo "the water to." >&2
 exit 1

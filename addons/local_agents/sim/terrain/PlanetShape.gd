@@ -70,13 +70,12 @@ static func hypsometric_curve(values: PackedFloat32Array) -> Curve:
 
 ## THE ONE DECLARATION OF THE BODY'S STARTING SHAPE: wavelengths follow the radius, relief follows the
 ## hypsographic curve.
-static func opts(r_m: float, seed_val: int, caves: bool, sea_level_m: float) -> Dictionary:
+static func opts(r_m: float, seed_val: int, caves: bool) -> Dictionary:
 	# Wavelength of the continent-ocean pattern on this body.
 	var lambda0: float = TAU * maxf(r_m, 1.0) / float(LAPhysical.TOPOGRAPHY_DOMINANT_HARMONIC_DEGREE)
 	var cross: float = LAPhysical.TOPOGRAPHY_SELF_AFFINE_CROSSOVER_M
 	return {
 		"radius": r_m,
-		"sea_radius": r_m + sea_level_m,
 		"seed": seed_val,
 		"continental_size": lambda0,
 		"continental_octaves": octaves_between(lambda0, cross),

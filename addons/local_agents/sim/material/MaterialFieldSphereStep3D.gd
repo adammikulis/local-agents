@@ -159,6 +159,7 @@ func _store_seeded(k: String) -> void:
 		return
 	data["regolith"] = _f._regolith
 	data["created"] = _f._seal.report().get("world_created", {}) if _f._seal != null else {}
+	data["tree_key"] = OS.get_environment("LA_SEAL_KEY")
 	LAFieldStateCache.save_state(k, data)
 
 
@@ -201,15 +202,13 @@ func step(sim_step: int) -> void:
 	if LAProcessSet.has_record("pass", GRAVITY_PASS):
 		_f._gravity.solve_step(sim_step)   # the potential of the mass that moved, converged; the device is idle here
 	LASimReport.gauge("field_begin_ms", float(Time.get_ticks_usec() - t_begin) / 1000.0)
-	# Per-cell solar terminator + marine cooling need the world-space sun direction and the sea shell radius.
+	# The per-cell solar terminator needs the world-space sun direction.
 	if _f._star != null and _f._gpu.has_method("set_sun_flux"):
 		# The MAGNITUDE of sun_dir is the irradiance in W/m^2, straight off the star's luminosity and the
 		# separation the integrator produced. A field with no star is dark rather than lit by an assumed sun.
 		var c: Vector3 = _f.centre()
 		var to_star: Vector3 = (_f._star.global_position - c).normalized()
 		_f._gpu.set_sun_flux(_f.dir_to_field(to_star * _f._star.irradiance_at(c)), _f._star.xuv_irradiance_at(c))
-	if _f._gpu.has_method("set_sea_radius"):
-		_f._gpu.set_sea_radius(_f.sea_radius())
 	if _f._inject != null and not _f._inject.queue.is_empty():
 		_f._inject.queue.flush(_f._gpu)
 	# Boundary face-state record/replay on the loop's step: reads or feeds the state this step starts from.

@@ -16,8 +16,9 @@ const REPLAY_ENV: String = "LA_SLICE_REPLAY"
 ## A torus needs only two cells across it, or a cell faces itself on both sides.
 const MIN_REPLAY_CELLS: int = 2 * LAFieldBoundary3D.RIM_CELLS
 const MIN_WRAP_CELLS: int = 2
-## `site=coast` in an offset field stands the box on a shore the terrain picks, in place of `surface`.
-const SITE_COAST: String = "site=coast"
+## `site=<kind>` in an offset field stands the box where the terrain finds that kind of site, in place of
+## `surface`: `coast` on a shore, `sea` wholly under water.
+const SITE_PREFIX: String = "site="
 
 var error: String = ""
 var offset: Vector3 = Vector3.ZERO
@@ -27,8 +28,8 @@ var cell_size: float = 0.0
 var fine_size: float = 0.0
 ## Offset axis given as `surface`, resolved against the body in apply(); -1 when the spec was all numbers.
 var surface_axis: int = -1
-## Whether the offset axis was spelt SITE_COAST rather than a bare `surface`, which stands on the pole.
-var coast: bool = false
+## The site kind the offset axis named after SITE_PREFIX; empty for a bare `surface`, which stands on the pole.
+var site: String = ""
 var _terrain = null                   # set by apply(), the only caller that has one
 ## Face slot -> Array of per-sample states, fed through replay(); empty outside replay mode.
 var replay_series: Dictionary = {}
@@ -66,13 +67,14 @@ func _parse(spec: String) -> bool:
 	return true
 
 
-## Read a `site=coast` offset field off the spec and hand the numeric grammar `surface` in its place.
+## Read a `site=<kind>` offset field off the spec and hand the numeric grammar `surface` in its place.
 func _strip_site(spec: String) -> String:
 	var f: PackedStringArray = spec.split(",")
 	for i in mini(f.size(), 3):
-		if f[i].strip_edges().to_lower() != SITE_COAST:
+		var field: String = f[i].strip_edges().to_lower()
+		if not field.begins_with(SITE_PREFIX):
 			continue
-		coast = true
+		site = field.substr(SITE_PREFIX.length())
 		f[i] = "surface"
 		return ",".join(f)
 	return spec
@@ -93,7 +95,7 @@ func _resolve_offset(body) -> bool:
 	offset[surface_axis] = 1.0
 	# WHERE THE BOX STANDS AND WHAT THE GROUND UNDER IT IS: the site rule is held to this reading, never
 	# to the name the site was asked for by. Body-frame directions throughout, not world displacements.
-	var g: Dictionary = LAPlanetComposition.site_box(_terrain, coast, offset, dims, cell_size, surface_axis)
+	var g: Dictionary = LAPlanetComposition.site_box(_terrain, site, offset, dims, cell_size, surface_axis)
 	if g.has("error"):
 		return _fail(String(g["error"]))
 	offset = Vector3(g["dir"]) * r

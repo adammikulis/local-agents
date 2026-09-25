@@ -12,8 +12,9 @@ var _viewer: VoxelViewer = null
 var _gen_opts: Dictionary = {}             # the dict build_planet handed LASpherePlanetGenerator.build()
 var _center: Vector3 = Vector3.ZERO
 var _planet_radius: float = 0.0
-var _sea_radius: float = 0.0
-var _coast_dir: Vector3 = Vector3.ZERO   # the coast site the last box asked for
+var _body_key: String = "planet"
+var _hydrosphere: LAHydrosphereFill = null
+var _site_dir: Vector3 = Vector3.ZERO    # the site the last box asked for
 
 ## Planet centre in world space (origin by default). Only meaningful in planet mode.
 func planet_center() -> Vector3:
@@ -23,16 +24,12 @@ func planet_center() -> Vector3:
 func planet_radius() -> float:
 	return _planet_radius
 
-## Radius of the spherical sea shell (world units from centre). 0 in island mode.
-func sea_radius() -> float:
-	return _sea_radius
-
-## Highest radius the terrain reaches: the sea shell plus the highest elevation the declared hypsographic
-## curve carries. Nothing solid stands above it.
+## Highest radius the terrain reaches: the relief's sphere plus the highest elevation the declared
+## hypsographic curve carries. Nothing solid stands above it.
 func max_surface_radius() -> float:
 	return _planet_radius + LAPhysical.HYPSOMETRY_HIGHEST_M
 
-## Lowest radius the terrain reaches: the sea shell plus the deepest elevation the curve carries.
+## Lowest radius the terrain reaches: the relief's sphere plus the deepest elevation the curve carries.
 func min_surface_radius() -> float:
 	return _planet_radius + LAPhysical.HYPSOMETRY_DEEPEST_M
 
@@ -46,20 +43,19 @@ func build_planet(parent: Node3D, opts: Dictionary = {}) -> void:
 	if _terrain != null:
 		return
 	_center = opts.get("center", Vector3.ZERO)
+	_body_key = String(opts.get("seed_key", "planet"))
 	var pg: RefCounted = PlanetGenScript.new()
 	# THE SHAPE IS LAPlanetShape'S, WHOLE. A default written here would be a second declaration of the
 	# body, and the one nobody reads.
-	var body: Dictionary = LABodySeeds.of(String(opts.get("seed_key", "planet")))
-	var rho_w: float = float(LASubstances.table().get("h2o", {}).get("density", 0.0))
-	if rho_w <= 0.0 or not body.has("hydrosphere_kg") or not body.has("groundwater_kg"):
-		push_error("VoxelTerrainService: no hydrosphere declared or no water density, so the sea has no level.")
-		return
-	var sea_level: float = LAPlanetComposition.sea_level_m(float(opts.get("radius", 0.0)), (float(body["hydrosphere_kg"]) - float(body["groundwater_kg"])) / rho_w,
-		PackedFloat64Array(LAPhysical.HYPSOMETRY_AREA_BELOW), PackedFloat64Array(LAPhysical.HYPSOMETRY_ELEVATION_M))
-	var gen_opts: Dictionary = LAPlanetShape.opts(float(opts.get("radius", 0.0)), int(opts.get("seed", 1337)), bool(opts.get("caves_enabled", true)), sea_level)
+	var gen_opts: Dictionary = LAPlanetShape.opts(float(opts.get("radius", 0.0)), int(opts.get("seed", 1337)), bool(opts.get("caves_enabled", true)))
+	# KARST FORMS ABOVE BASE LEVEL: the caves open over where the water settles on the uncarved crust.
+	if bool(gen_opts["caves_enabled"]):
+		_generator = pg.build(gen_opts.merged({"caves_enabled": false}, true))
+		_planet_radius = pg.radius()
+		gen_opts["karst_base_r"] = hydrosphere().free_surface_r()
+		_hydrosphere = null
 	var gen: VoxelGeneratorGraph = pg.build(gen_opts)
 	_planet_radius = pg.radius()
-	_sea_radius = pg.sea_radius()
 	_generator = gen
 
 	var mesher: VoxelMesherTransvoxel = VoxelMesherTransvoxel.new()
@@ -209,29 +205,37 @@ func to_world_dir(body_dir: Vector3) -> Vector3:
 		else (_terrain.global_transform.basis.orthonormalized() * body_dir)
 
 
-## WHERE TO STAND A DEMO BOX SO IT HOLDS A SHORE, solved in LAPlanetComposition over a few hundred
-## directions at seed time. Vector3.ZERO when this body's surface holds none; asked with no footprint,
-## the site the last box chose.
-func coast_site_dir(footprint_m: float) -> Vector3:
+## The body's declared surface water settled over this surface once, where the seed lays it.
+func hydrosphere() -> LAHydrosphereFill:
+	if _hydrosphere == null and _generator != null:
+		_hydrosphere = LAHydrosphereFill.new()
+		_hydrosphere.settle(self, _body_key, LAPlanetShape.CDF_SAMPLES)
+	return _hydrosphere
+
+
+## WHERE TO STAND A DEMO BOX: `kind` "coast" holds a shore, "sea" stands wholly under water, both read off
+## where the body's surface water settles. Vector3.ZERO when the body holds no such site; asked with no
+## footprint, the site the last box chose.
+func site_dir(kind: String, footprint_m: float) -> Vector3:
 	if footprint_m <= 0.0:
-		return _coast_dir
-	print("SITE_CHOOSER_STANDIN=%s" % JSON.stringify({
-		"file": "addons/local_agents/gdextensions/localagents/src/LAPlanetTables.cpp",
-		"expr": "LAPlanetComposition::coast_site: la_surface_radius(dir) - p_sea_r_m",
-		"replaced_by": "the hydrosphere fill's own liquid-at-surface columns"}))
-	var g: Dictionary = LAPlanetComposition.coast_site(self, _planet_radius, _sea_radius, footprint_m)
-	_coast_dir = g.get("dir", Vector3.ZERO)
-	return _coast_dir
+		return _site_dir
+	var g: Dictionary = {}
+	if kind == "coast":
+		g = LAPlanetComposition.coast_site(self, _planet_radius, footprint_m)
+	elif kind == "sea":
+		g = LAPlanetComposition.sea_site(self, _planet_radius, footprint_m)
+	_site_dir = g.get("dir", Vector3.ZERO)
+	return _site_dir
 
 
-## The coast site as a WORLD direction now: the body-frame site turned by the body's own rotation.
-func coast_site_world_dir() -> Vector3:
-	return Vector3.ZERO if _coast_dir == Vector3.ZERO else to_world_dir(_coast_dir)
+## The site as a WORLD direction now: the body-frame site turned by the body's own rotation.
+func site_world_dir() -> Vector3:
+	return Vector3.ZERO if _site_dir == Vector3.ZERO else to_world_dir(_site_dir)
 
 
-## What the crust under a footprint at `d` is: the site rule is read off this reading.
+## What the crust under a footprint at `d` is against the water settled over it: the site rule reads this.
 func footprint_ground(d: Vector3, footprint_m: float) -> Dictionary:
-	return LAPlanetComposition.footprint_ground(self, d, _planet_radius, _sea_radius, footprint_m)
+	return LAPlanetComposition.footprint_ground(self, d, _planet_radius, footprint_m)
 
 
 # Bracket the SDF crossing coarsely over the whole relief band, then twice across the bracket it found.
@@ -254,14 +258,18 @@ func _generated_surface_radius(dir: Vector3) -> float:
 	var r_b: float = maxf(r_hit - GEN_RAY_COARSE, r_bot)
 	# The generator is sampled in the terrain's OWN space; every caller here speaks world.
 	for stride in [GEN_RAY_STRIDE, GEN_RAY_REFINE]:
-		var hit: float = _generator.raycast_sdf_approx(
-			_terrain.to_local(_center + d * r_a), _terrain.to_local(_center + d * r_b), stride)
+		var hit: float = _generator.raycast_sdf_approx(_to_gen(_center + d * r_a), _to_gen(_center + d * r_b), stride)
 		if hit < 0.0:
 			return r_hit
 		r_hit = r_a - hit
 		r_a = minf(r_hit + stride, r_top)
 		r_b = maxf(r_hit - stride, r_bot)
 	return r_hit
+
+
+## A world point in the generator's own space: the terrain node's, and before the node exists, the world's.
+func _to_gen(p: Vector3) -> Vector3:
+	return p if _terrain == null else _terrain.to_local(p)
 
 
 # The shortest stretch of ray the generator's range analysis is split down to, m.
@@ -278,8 +286,8 @@ func _coarse_crossing(d: Vector3, r_top: float, r_bot: float) -> float:
 	var span: float = length
 	while span >= GEN_RANGE_MIN and safe < length:
 		var t_end: float = minf(safe + span, length)
-		var a: Vector3 = _terrain.to_local(_center + d * (r_top - safe))
-		var b: Vector3 = _terrain.to_local(_center + d * (r_top - t_end))
+		var a: Vector3 = _to_gen(_center + d * (r_top - safe))
+		var b: Vector3 = _to_gen(_center + d * (r_top - t_end))
 		if _generator.debug_analyze_range(a.min(b), a.max(b)).x > 0.0:
 			safe = t_end
 		else:
@@ -288,8 +296,8 @@ func _coarse_crossing(d: Vector3, r_top: float, r_bot: float) -> float:
 	var t: float = float(k) * GEN_RAY_COARSE
 	while t < length:
 		var t_end2: float = minf(t + GEN_RAY_CHUNK, length)
-		var hit: float = _generator.raycast_sdf_approx(_terrain.to_local(_center + d * (r_top - t)),
-			_terrain.to_local(_center + d * (r_top - t_end2)), GEN_RAY_COARSE)
+		var hit: float = _generator.raycast_sdf_approx(_to_gen(_center + d * (r_top - t)),
+			_to_gen(_center + d * (r_top - t_end2)), GEN_RAY_COARSE)
 		if hit >= 0.0:
 			return r_top - (t + hit)
 		if t_end2 >= length:

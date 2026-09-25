@@ -12,7 +12,7 @@ const TERRAIN_VIEWS: Dictionary = {"temp": "heat_debug", "blocks": "block_view"}
 
 # The active field-channel keys (a heatmap in the DebugOverlay), distinct from the terrain views, wind,
 # and scent (own overlays). One is drawn at a time; enabling a new one replaces the last.
-const FIELD_CHANNELS: Array = ["biomass", "water_phase", "snow", "melt", "silicate", "co2", "o2", "charge", "fertility"]
+const FIELD_CHANNELS: Array = ["biomass", "snow", "melt", "silicate", "co2", "o2", "charge", "fertility"]
 
 # Behavior-state highlight tints: category -> colour a matching creature is dyed. Foraging green +
 # Hunting red are user-specified; the rest round out the state machine (flee/drink/sleep/nest).

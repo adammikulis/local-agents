@@ -134,7 +134,6 @@ func _take_sample() -> void:
 	if tree == null:
 		return
 	var mat = _world.get("_material") if _world != null else null
-	var sea: float = float(mat.sea_radius()) if mat != null and mat.has_method("sea_radius") else 0.0
 	var species_counts: Dictionary = {}
 	var states: Dictionary = {}
 	var species_states: Dictionary = {}   # species -> {state -> count}
@@ -161,7 +160,7 @@ func _take_sample() -> void:
 			var po = n.get("preys_on")
 			if po is PackedStringArray and (po as PackedStringArray).size() > 0:
 				prey = String((po as PackedStringArray)[0])
-			hot[hkey] = {"loc": _loc_phrase(near_water, pos.y, sea), "prey": prey}
+			hot[hkey] = {"loc": " right down at the water's edge" if near_water else "", "prey": prey}
 	var corpses: int = tree.get_node_count_in_group("carrion")
 	var destruction: float = float(_world.get("_music_destruction")) if _world.get("_music_destruction") != null else 0.0
 	var tod: float = float(_world.get("_time_of_day")) if _world.get("_time_of_day") != null else 0.5
@@ -301,16 +300,6 @@ func _animal_phrase(sp: String, count: int) -> String:
 	if count <= 1:
 		return "a " + sp
 	return "the " + _species_label(sp)
-
-
-## Where the beat is unfolding, cheap to read from the shared field: at the shore, up high, or (blank)
-## just out in the open. Blank stays out of the sentence so the caster isn't forced to name a place.
-func _loc_phrase(near_water: bool, y: float, sea: float) -> String:
-	if near_water:
-		return " right down at the water's edge"
-	if y > sea + 24.0:
-		return " up on the high ground"
-	return ""
 
 
 ## A running-narrative aside: only the INTERESTING part — whether the overall population is swinging up or

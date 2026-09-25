@@ -88,7 +88,7 @@ var _view_controls = null                # the on-screen [Planet|Solar] · [Free
 var _trailer_shot: String = ""           # --trailer-shot=NAME: LATrailerDirector drives a scripted capture
 var _face_sun: bool = false              # --face-sun: aim the camera at the star before the screenshot (sun-visibility proof)
 var _face_sun_done: bool = false
-var _water_cam: bool = false             # --water-cam: hover just above the sea looking across it (fluid-render proof)
+var _water_cam: bool = false             # --water-cam: hover over the coast site looking across it (fluid-render proof)
 var _water_cam_done: bool = false
 var _menu_shot: bool = false             # --menu-shot: show the pause menu overlay before the screenshot (menu proof)
 var _menu_shot_done: bool = false
@@ -391,9 +391,8 @@ func _apply_fly_view() -> void:
 		return
 	set_fly(true)
 	var center: Vector3 = _body.center()
-	# THE COAST, NOT THE +Y POLE: most bearings on this body are open water. World frame, as `surface_point`
-	# and the rig both are.
-	var toward: Vector3 = _terrain.coast_site_world_dir() if _terrain.has_method("coast_site_world_dir") \
+	# THE BOX'S SITE, NOT THE +Y POLE. World frame, as `surface_point` and the rig both are.
+	var toward: Vector3 = _terrain.site_world_dir() if _terrain.has_method("site_world_dir") \
 		else Vector3.UP
 	if toward == Vector3.ZERO:
 		toward = Vector3.UP
@@ -586,19 +585,18 @@ func _fire_schedule(frame: int, spawned: bool) -> void:
 			_camera.look_at(star_pos, Vector3.UP)
 			_face_sun_done = true
 
-	# --water-cam: hover the camera over the water looking ACROSS it toward a nearby shore, so the free
-	# fluid surface fills the frame.
-	if _water_cam and not _water_cam_done and _shoot_path != "" and _camera != null and _body != null \
-			and _body.has_method("sea_radius"):
+	# --water-cam: hover the camera over the site the box stands on, looking ACROSS it, so the free fluid
+	# surface fills the frame.
+	if _water_cam and not _water_cam_done and _shoot_path != "" and _camera != null and _terrain != null \
+			and _terrain.has_method("site_world_dir"):
 		if frame >= _shoot_frames - 60:
-			var wc_center: Vector3 = _body.center()
-			var sea_r: float = _body.sea_radius()
-			var wdir: Vector3 = Vector3(0.42, 0.36, 0.83).normalized()      # a fixed spot on the planet
-			var wtan: Vector3 = wdir.cross(Vector3.UP).normalized()
-			# Low aerial oblique, gazing down and across onto the ground below.
-			_camera.global_position = wc_center + wdir * (sea_r + 115.0)
-			var look_dir: Vector3 = (wdir * 0.45 + wtan * 0.7).normalized()  # steeper downward gaze onto the ground
-			_camera.look_at(wc_center + look_dir * (sea_r + 5.0), wdir)      # up = local radial
+			var wdir: Vector3 = _terrain.site_world_dir()
+			var shore: Vector3 = _terrain.surface_point(wdir) if wdir != Vector3.ZERO else Vector3(NAN, NAN, NAN)
+			if not is_nan(shore.x):
+				var wtan: Vector3 = wdir.cross(Vector3.UP).normalized()
+				# Low aerial oblique, gazing down and across onto the ground below; up = local radial.
+				_camera.global_position = shore + wdir * 115.0
+				_camera.look_at(shore + wtan * 400.0, wdir)
 			_water_cam_done = true
 
 	# --menu-shot: show the pause menu OVERLAY (without pausing, so the capture loop keeps ticking) just before

@@ -1,10 +1,7 @@
 class_name LAMaterialFieldAtmos3D
 extends RefCounted
 
-## Atmosphere queries derived from the one `moisture` channel of LAMaterialField3D.
-
-# Kessler (1969) q_crit: the cloud-water mixing ratio above which drops start collecting each other.
-const CLOUD_WATER_CRIT_KG_KG: float = 0.5e-3
+## The field's cloud, fog and vapour, read off the device's reduce rows.
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
 
@@ -13,44 +10,7 @@ func setup(field) -> void:
 	_f = field
 
 
-## The autoconversion threshold in the field's own unit, mol/m^3: the critical mixing ratio times air's
-## density gives kg of cloud water per m^3, over water's molar mass.
-static func rain_threshold() -> float:
-	return CLOUD_WATER_CRIT_KG_KG * LAPhysical.AIR_DENSITY_KG_M3 / LAPhysical.MOLAR_MASS_WATER_KG_MOL
-
-
-## SATURATION AMOUNT at `t` °C and `p` Pa, in the h2o channel's own unit: e_sat / RT, mol/m^3.
-func _sat(t: float, p_pa: float) -> float:
-	var e: float = LAMixtureEnthalpy.vapour_p_at("h2o", t, p_pa)
-	if e <= 0.0:
-		return 0.0
-	return e / (LAPhysical.GAS_CONSTANT_J_MOL_K * maxf(t + LAPhysical.KELVIN_OFFSET, 1.0))
-
-
-## Suspended condensate (liquid + ice) at a linear cell, from the shares the ladder derived. 0 in rock.
-func _condensed_at(cell: int) -> float:
-	if cell < 0 or cell >= _f._cell_count or _f._solid[cell] != 0:
-		return 0.0
-	return _f._queries.liquid_at(cell) + _f._queries.ice_at(cell)
-
-
-## Cloud density at a world XZ column (0 if unresolved). Cloud = the condensate that is NOT ground fog.
-func cloud_at(x: float, z: float) -> float:
-	var c: int = _f.world_to_cell(Vector3(x, cloud_base_y(), z))
-	if c < 0:
-		return 0.0
-	return 0.0 if _f._mirrors.at("temp", c) < LAMaterialField3D.FOG_MAX_TEMP else _condensed_at(c)
-
-
-## Fog density at a world XZ column (0 if unresolved). Fog = cool near-ground condensate.
-func fog_at(x: float, z: float) -> float:
-	var c: int = _f.world_to_cell(Vector3(x, fog_base_y(), z))
-	if c < 0:
-		return 0.0
-	return _condensed_at(c) if _f._mirrors.at("temp", c) < LAMaterialField3D.FOG_MAX_TEMP else 0.0
-
-
-## Condensate counts and vapour off the device: two thresholds on one reduced quantity, NAN when absent.
+## Cloud and fog cell counts and the vapour off the device, NAN when absent.
 func refresh_aggregates() -> void:
 	_f._atmos_dirty = false
 	var q = _f._queries
@@ -83,46 +43,8 @@ func vapour_total() -> float:
 	return _f._vapour_total_c
 
 
-## Count of cells whose derived condensate is at or above CONDENSE_COVER_MIN.
+## Cells whose condensate hangs above the surface layer.
 func cloud_cell_count() -> int:
 	if _f._atmos_dirty:
 		refresh_aggregates()
 	return _f._cloud_cells_c
-
-
-func cloud_base_y() -> float:
-	return _f.sea_radius() + 62.0
-
-
-func fog_base_y() -> float:
-	return _f.sea_radius() + 6.0
-
-
-## Relative humidity 0..1 near the ground at a world XZ column = vapor / sat(T) = min(moisture, sat)/sat.
-func relative_humidity_at(x: float, z: float) -> float:
-	var c: int = _f.world_to_cell(Vector3(x, fog_base_y(), z))
-	if c < 0 or _f._solid[c] != 0:
-		return 0.0
-	var s: float = _sat(_f._mirrors.at("temp", c), _cell_p(c))
-	if s <= 0.0:
-		return 0.0
-	return clampf(_f._queries.vapour_at(c) / s, 0.0, 1.0)
-
-
-## Dewpoint °C near the ground at a world XZ column.
-func dewpoint_at(x: float, z: float) -> float:
-	var c: int = _f.world_to_cell(Vector3(x, fog_base_y(), z))
-	if c < 0 or _f._solid[c] != 0 or _f._queries.vapour_at(c) <= 0.0:
-		return NAN
-	# Partial pressure of the vapour the cell holds: e = (n/V) R T, the amount already mol/m^3.
-	var e: float = _f._queries.vapour_at(c) * LAPhysical.GAS_CONSTANT_J_MOL_K \
-		* (_f._mirrors.at("temp", c) + LAPhysical.KELVIN_OFFSET)
-	# The dewpoint is the boiling point at the vapour's own partial pressure: one curve, inverted.
-	return LASubstances.boil_c_at("h2o", e)
-
-
-## The cell's own air pressure, Pa. Missing means unresolved, and the caller gets zero rather than a guess.
-func _cell_p(c: int) -> float:
-	if c < 0:
-		return 0.0
-	return maxf(_f._mirrors.at("pressure", c), 0.0)

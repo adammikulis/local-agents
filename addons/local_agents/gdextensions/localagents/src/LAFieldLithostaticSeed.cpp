@@ -4,6 +4,7 @@
 
 #include "LABodySystem.hpp"
 #include "LAFieldCellMass.hpp"
+#include "LAHydrosphereFill.hpp"
 #include "LAPhaseEos.hpp"
 #include "LAPhysicalRead.hpp"
 #include "LAProcessSet.hpp"
@@ -659,15 +660,17 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c,
 	const Dictionary body = LABodySeeds::of("planet");
 	const double n2_kg = double(body.get("atmosphere_n2_kg", 0.0));
 	const double body_kg = double(body.get("mass_kg", 0.0));
-	const double r_sea = double(p_field->call("sea_radius"));
+	// The body's radius anchors the potential, and the settled water and the ground are where the air ends.
+	const double r_ref = LABodySeeds::seed_radius_m("planet");
+	const LAHydrosphereFill *fill = LAHydrosphereFill::of(Object::cast_to<Object>(p_field->get("_terrain")));
 	if (!(n2_kg > 0.0) || !(body_kg > 0.0)) {
 		UtilityFunctions::push_error("LAFieldLithostaticSeed.shape_atmosphere: the body record declares no "
 				"atmosphere_n2_kg or no mass_kg, so the planet would seed airless.");
 		return;
 	}
-	if (!(r_sea > 0.0)) {
-		UtilityFunctions::push_error("LAFieldLithostaticSeed.shape_atmosphere: the terrain states no sea "
-				"radius, so the barometric law has no datum.");
+	if (!(r_ref > 0.0) || !fill || fill->sweep_count() < 2) {
+		UtilityFunctions::push_error("LAFieldLithostaticSeed.shape_atmosphere: the body states no radius or "
+				"the terrain settled no water, so the barometric law has no datum and no floor.");
 		return;
 	}
 	std::vector<Mirror> gases = channel_mirrors(p_field, "phase", "gas");
@@ -726,54 +729,57 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c,
 	// THE EXACT ISOTHERMAL HYDROSTATIC SOLUTION, IN THE POTENTIAL THE SOLVE PRODUCED. dp/dz = -rho g
 	// with p = rho R T / M integrates to p = p0 exp(-M (phi - phi0) / (R T)) in ANY field, so the
 	// profile is a function of the POTENTIAL and not of a height times a local scale height.
-	// THE DATUM IS SEA LEVEL, in this field's own potential: every cell straddling the sea radius states
-	// it there along its own g, so a slab and the planet anchor the same law at the same place.
+	// THE DATUM IS THE BODY'S RADIUS, in this field's own potential: every cell straddling it states it
+	// there along its own g, so a slab and the planet anchor the same law at the same place.
 	const Vector3 centre = field_centre(p_field);
 	double phi_0 = 0.0;
-	int at_sea = 0;
+	int at_ref = 0;
 	for (int c = 0; c < cc; c++) {
 		if (!std::isfinite(double(p_phi[c]))) {
 			continue;
 		}
 		const double r_c = double((centres[c] - centre).length());
 		const double e = double(edges[c]);
-		if (std::abs(r_c - r_sea) > 0.5 * e) {
+		if (std::abs(r_c - r_ref) > 0.5 * e) {
 			continue;
 		}
 		const Vector3 g(p_gravity[c * 3], p_gravity[c * 3 + 1], p_gravity[c * 3 + 2]);
-		phi_0 += double(p_phi[c]) + double(g.length()) * r_c * r_c * (1.0 / r_c - 1.0 / r_sea);
-		at_sea++;
+		phi_0 += double(p_phi[c]) + double(g.length()) * r_c * r_c * (1.0 / r_c - 1.0 / r_ref);
+		at_ref++;
 	}
-	if (at_sea == 0) {
-		UtilityFunctions::push_error("LAFieldLithostaticSeed.shape_atmosphere: no cell straddles the sea "
+	if (at_ref == 0) {
+		UtilityFunctions::push_error("LAFieldLithostaticSeed.shape_atmosphere: no cell straddles the body's "
 				"radius, so the barometric law has no datum in this box.");
 		return;
 	}
-	phi_0 /= double(at_sea);
-	// THE DENSITY AT THE DATUM IS THE INVENTORY OVER THE SHELL THE LAW FILLS: n0 = N / (4 pi r_sea^2 H),
-	// H the radial integral of the profile in the body's own 1/r potential, from the datum to the EXOBASE:
-	// where a molecule's mean free path reaches the scale height, the gas stops being a fluid and the
-	// column ends. In a 1/r potential the isothermal integrand does not vanish, so nothing else bounds it.
+	phi_0 /= double(at_ref);
+	// THE DENSITY AT THE DATUM IS THE INVENTORY OVER THE VOLUME THE LAW FILLS: over every direction of the
+	// fill's sweep, the radial integral of the profile in the body's own 1/r potential from where the ground
+	// or the settled water ends up to the EXOBASE: where a molecule's mean free path reaches the scale
+	// height, the gas stops being a fluid and the column ends. In a 1/r potential the isothermal integrand
+	// does not vanish, so nothing else bounds it.
 	const double gm = la_physical("GRAVITATIONAL_CONSTANT") * body_kg;
 	const double eps32 = double(std::numeric_limits<float>::epsilon());
 	const double sigma = std::sqrt(2.0) * Math::PI * la_physical("N2_KINETIC_DIAMETER_M")
 			* la_physical("N2_KINETIC_DIAMETER_M");
 	const double avogadro = la_physical("AVOGADRO_PER_MOL");
-	const double area = 4.0 * Math::PI * r_sea * r_sea;
-	const double h_sea = rt_over_m * r_sea * r_sea / gm;
-	// The midpoint shell integral, halved until it holds to float precision.
-	auto shell_to = [&](double r_top) -> double {
-		if (!(r_top > r_sea)) {
+	const double h_ref = rt_over_m * r_ref * r_ref / gm;
+	// The profile against the datum's, times the shell's area against the datum's.
+	auto profile = [&](double r) {
+		return std::exp(-(gm / r_ref - gm / r) / rt_over_m) * (r / r_ref) * (r / r_ref);
+	};
+	// The midpoint shell integral from `r_lo`, halved until it holds to float precision.
+	auto shell_between = [&](double r_lo, double r_top) -> double {
+		if (!(r_top > r_lo)) {
 			return NAN;
 		}
-		int n = int(std::ceil((r_top - r_sea) / h_sea));
+		int n = int(std::ceil((r_top - r_lo) / h_ref));
 		double prev = -1.0;
 		for (int it = 0; it < 40; it++) {
-			const double h = (r_top - r_sea) / double(n);
+			const double h = (r_top - r_lo) / double(n);
 			double sum = 0.0;
 			for (int i = 0; i < n; i++) {
-				const double r = r_sea + (double(i) + 0.5) * h;
-				sum += std::exp(-(gm / r_sea - gm / r) / rt_over_m) * (r / r_sea) * (r / r_sea) * h;
+				sum += profile(r_lo + (double(i) + 0.5) * h) * h;
 			}
 			if (prev > 0.0 && std::abs(sum - prev) <= eps32 * sum) {
 				return sum;
@@ -783,13 +789,37 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c,
 		}
 		return NAN;
 	};
+	// Where the air ends below along each direction, lowest first. The volume it fills is every direction's
+	// shell from the lowest floor, less each one's own stretch from that floor up to its floor: Simpson's
+	// between consecutive floors, a stretch far shorter than the scale height.
+	// LA_APPROX: air_floor_sweep
+	std::vector<double> floors(fill->sweep_count());
+	for (int i = 0; i < fill->sweep_count(); i++) {
+		floors[i] = fill->sweep_condensed_top_r(i);
+	}
+	std::sort(floors.begin(), floors.end());
+	const double solid_angle = 4.0 * Math::PI / double(floors.size());
+	double under_floors = 0.0;
+	{
+		double from_lowest = 0.0;
+		for (size_t k = 1; k < floors.size(); k++) {
+			const double a = floors[k - 1], b = floors[k];
+			from_lowest += (b - a) * (profile(a) + 4.0 * profile(0.5 * (a + b)) + profile(b)) / 6.0;
+			under_floors += from_lowest;
+		}
+	}
+	// The volume the law fills up to `r_top`, over the datum's own r^2.
+	auto filled_to = [&](double r_top) -> double {
+		const double s = shell_between(floors.front(), r_top);
+		return std::isfinite(s) ? solid_angle * (double(floors.size()) * s - under_floors) : NAN;
+	};
 	// lambda(r) = 1 / (sigma n(r)) against H(r) = (R T / M) r^2 / G M, in logs so neither side overflows.
 	auto exobase_of = [&](double n0_mol) -> double {
 		auto excess = [&](double r) {
-			return std::log(n0_mol * avogadro) - (gm / r_sea - gm / r) / rt_over_m
+			return std::log(n0_mol * avogadro) - (gm / r_ref - gm / r) / rt_over_m
 					+ std::log(sigma * rt_over_m * r * r / gm);
 		};
-		double lo = r_sea, hi = r_sea + h_sea, step = h_sea;
+		double lo = r_ref, hi = r_ref + h_ref, step = h_ref;
 		for (int i = 0; i < 200 && excess(hi) > 0.0; i++) {
 			lo = hi;
 			step *= 2.0;
@@ -808,26 +838,26 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c,
 		}
 		return 0.5 * (lo + hi);
 	};
-	// The exobase stands on the datum density and the datum density on the shell under it: one fixed point.
-	double shell = 0.0;
+	// The exobase stands on the datum density and the datum density on the volume under it: one fixed point.
+	double volume = 0.0;
 	{
-		double n0 = mol_sum / (area * h_sea);
+		double n0 = mol_sum / (4.0 * Math::PI * r_ref * r_ref * h_ref);
 		double r_exo = 0.0;
 		bool settled = false;
 		for (int it = 0; it < 12 && !settled; it++) {
 			const double r_next = exobase_of(n0);
-			const double s = std::isfinite(r_next) ? shell_to(r_next) : NAN;
-			if (!std::isfinite(s) || !(s > 0.0)) {
+			const double v = std::isfinite(r_next) ? filled_to(r_next) : NAN;
+			if (!std::isfinite(v) || !(v > 0.0)) {
 				break;
 			}
 			settled = r_exo > 0.0 && std::abs(r_next - r_exo) <= eps32 * r_next;
 			r_exo = r_next;
-			shell = s;
-			n0 = mol_sum / (area * s);
+			volume = v;
+			n0 = mol_sum / (r_ref * r_ref * v);
 		}
 		if (!settled) {
 			UtilityFunctions::push_error("LAFieldLithostaticSeed.shape_atmosphere: the barometric column "
-					"reached no exobase, so the datum density has no shell to stand on.");
+					"reached no exobase, so the datum density has no volume to stand on.");
 			return;
 		}
 	}
@@ -877,7 +907,7 @@ void LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_temp_c,
 	}
 	for (size_t i = 0; i < gases.size(); i++) {
 		Mirror &m = gases[i];
-		const double n0 = moles[i] / (area * shell);
+		const double n0 = moles[i] / (r_ref * r_ref * volume);
 		float *w = m.arr.ptrw();
 		for (int c = 0; c < cc; c++) {
 			w[c] = float(n0 * shape[c]);

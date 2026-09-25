@@ -100,8 +100,6 @@ func _seed_founder_age(node) -> void:
 		node.age = LASimRng.for_domain("life").randf_range(0.0, span)
 
 
-# Metres above the sea shell a direction's surface must clear to count as DRY LAND (not tidal shallows).
-const LAND_MARGIN: float = 2.0
 # Directions tried before giving up on dry land.
 const LAND_TRIES: int = 32
 
@@ -111,7 +109,6 @@ const LAND_TRIES: int = 32
 func _random_spawn_point() -> Vector3:
 	var center: Vector3 = _eco.terrain.planet_center()
 	var above: float = _eco.terrain.planet_radius() + 1.0
-	var sea_r: float = _eco.terrain.sea_radius() if _eco.terrain.has_method("sea_radius") else 0.0
 	# Drawn up front: the draw count must not depend on what the terrain answers.
 	var dirs: Array[Vector3] = []
 	for i in range(LAND_TRIES):
@@ -122,7 +119,7 @@ func _random_spawn_point() -> Vector3:
 		if is_nan(sr) or not _eco.holds(_surface_point(d)):
 			continue
 		held = d if held == Vector3.ZERO else held
-		if sr >= sea_r + LAND_MARGIN:
+		if _eco._material == null or is_nan(_eco._material.water_surface_along(d)):
 			return center + d * above                  # dry land the field steps
 	return center + held * above if held != Vector3.ZERO else Vector3(NAN, NAN, NAN)
 

@@ -195,7 +195,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/ecology/EcologySpawner.gd` | `FOREST_CLUSTER_TRIES` | 5 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/ecology/EcologySpawner.gd` | `FOREST_CLUSTER_SPREAD` | 15.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/ecology/EcologySpawner.gd` | `FOREST_BIOMASS_WEIGHT` | 12.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/ecology/EcologySpawner.gd` | `LAND_MARGIN` | 2.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/ecology/EcologySpawner.gd` | `LAND_TRIES` | 32 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/events/LAEventTracker.gd` | `SAMPLE_INTERVAL` | 1.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/events/LAEventTracker.gd` | `RECENT_MAX` | 32 | presentation or diagnostic buffer length, not physics | not owed: presentation may choose numbers, but it may not write the field |
@@ -253,7 +252,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/reactions/BioRecords.gd` | `SOIL_MICROBIAL_C_KG_PER_M2` | 0.128 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/CombustionRecords.gd` | `PYROLYSIS_REF_TEMP_K` | 600.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/reactions/ReactionBalance.gd` | `TOL` | 1.0e-6 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialFieldAtmos3D.gd` | `CLOUD_WATER_CRIT_KG_KG` | 0.5e-3 | Kessler (1969) q_crit | deleted when condensation is a reaction record and the detector reads the record |
 | `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `ALOFT_CELLS` | 2.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `UPDRAFT_SAMPLE_M` | 40.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldBiota3D.gd` | `GROUND_SEARCH` | 6 | a march bound, not a physical quantity | Stage 2 substrate rewrite |
@@ -266,7 +264,6 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MaterialFieldReport3D.gd` | `CLIMATE_BANDS` | 6 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/gdextensions/localagents/src/LABodySystem.cpp` | `PLANET_OBLIQUITY_DEG` | 23.439279 | the angle between the spin axis and the orbital normal at the epoch is not measured; the present value (IERS Conventions 2010) is the declared initial condition | a giant-impact or obliquity-evolution solve that hands the epoch its own tilt |
 | `addons/local_agents/sim/material/MaterialField3D.gd` | `O2_AMBIENT` | 0.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialField3D.gd` | `FOG_MAX_TEMP` | 12.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/runtime/FieldPassProbe3D.gd` | `DEFAULT_STEPS` | 3 | how many steps `LA_PASS_PROBE` samples before it disarms; a diagnostic default, not a property of the world | delete when the probe is cheap enough to leave armed for a whole run |
 | `addons/local_agents/sim/material/sphere_passes/GravityPass.gd` | `SOLVE_EVERY` | 2 | how often the Poisson solve re-runs; mass moves slowly next to a step and the solve warm-starts | the residual between solves is published and stops being reported as small |
 | `addons/local_agents/sim/material/sphere_passes/GravityPass.gd` | `RESIDUAL_TOLERANCE` | 1.0e-4 | how well every solve must satisfy the discrete Poisson equation, as a fraction of its own source, before any walk reads `down` | a direct solve, which has no residual to tolerate |

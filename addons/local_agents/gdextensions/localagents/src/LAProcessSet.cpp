@@ -41,7 +41,7 @@ const char *const STATE_REDUCE[] = { "@amounts", "energy_stock", "energy_stock_l
 	"energy_stock_open_lith", "energy_kinetic", "energy_potential", nullptr };
 
 const char *const GRAVITY_GATES[] = { "check_gravity_solve.sh", "check_hydrosphere_mass.sh",
-	"check_live_toggles.sh", nullptr };
+	"check_live_toggles.sh", "check_ocean_cloud.sh", nullptr };
 const char *const GRAVITY_PASSES[] = { "GravityPass.gd", nullptr };
 const char *const GRAVITY_REDUCE[] = { "energy_pv_solid", "energy_pv_fluid",
 	"solid_cells", "carbonate_cells",
@@ -53,7 +53,7 @@ const char *const GRAVITY_REDUCE[] = { "energy_pv_solid", "energy_pv_fluid",
 	"rock_*", "sea_ice_*", "open_sea_*",
 	"water_liquid_total", "wet_cells", "vapour_amount", "hotspring_*", "clim_water_*",
 	"melt_total", "magma_cells", "lava_*", "enclosed_void*",
-	"o2_open_*", "co2_open_*", "precip_cells", "cloud_cells", "fog_cells",
+	"o2_open_*", "co2_open_*", "cloud_cells", "fog_cells",
 	"fert_peak", "fungus_peak", "fungus_cells", "detritus_peak", "detritus_cells",
 	"solid_detritus", "solid_fuel", "solid_org_h", "solid_org_o",
 	"organic_hc_min", "organic_oc_min", "organic_coalified", nullptr };

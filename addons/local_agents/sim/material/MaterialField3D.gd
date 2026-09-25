@@ -29,7 +29,7 @@ var _cell_count: int = 0
 var _solid: PackedByteArray = PackedByteArray()          # 1 = rock (holds no fluid), 0 = void (air/water)
 var _rock_fraction: PackedFloat32Array = PackedFloat32Array()   # share of the cell's volume inside the terrain
 var _surface_depth: PackedFloat32Array = PackedFloat32Array()   # m below the local ground, negative above it
-var _water_fraction: PackedFloat32Array = PackedFloat32Array()  # share of the cell's volume under the sea shell and over its ground
+var _water_fraction: PackedFloat32Array = PackedFloat32Array()  # share of the cell's volume the settled water fills over its ground
 var _ground_d: PackedFloat32Array = PackedFloat32Array()        # depth of the ground under the cell's fluid below its centre, m
 ## THE ONE CPU-SIDE DECLARATION of every per-cell channel: LAFieldMirrors, native storage the drain
 ## lands the device's channels in. Nothing here holds a cell-sized array.
@@ -39,7 +39,6 @@ var _mirrors: LAFieldMirrors = null
 const O2_AMBIENT: float = 0.0
 const SNOW_PRESENT: float = 1.9e-4 * MAX_MASS
 const ICE_DEPTH: float = 0.5 * MAX_MASS
-const FOG_MAX_TEMP: float = 12.0
 # Condensate at which a cell counts as covered, mol/m^3.
 const CONDENSE_COVER_MIN: float = 5.0e-5 / LAPhysical.MOLAR_MASS_WATER_KG_MOL
 var _t_rock: PackedFloat32Array = PackedFloat32Array()   # the geotherm's mean over each cell's rock, C, at the seed
@@ -145,13 +144,6 @@ func field_to_point(field_pos: Vector3) -> Vector3:
 	return pivot + _body_basis * (field_pos - pivot)
 
 
-## Radius of the sea shell, model units, measured from `centre()`.
-func sea_radius() -> float:
-	if _terrain != null and _terrain.has_method("sea_radius"):
-		return float(_terrain.sea_radius())
-	return 0.0
-
-
 var _ready_sim: bool = false
 var _seal = null
 
@@ -194,7 +186,7 @@ func _adopt(grid: LAVoxelGrid) -> void:
 	_sphere_step = SphereStepScript.new()
 	_sphere_step.setup(self)
 
-## The body centre — the pivot the grid's rotation turns about, and the origin `sea_radius` is measured from.
+## The body centre — the pivot the grid's rotation turns about.
 func centre() -> Vector3:
 	return LAFieldGeometry.centre(self)
 
@@ -247,9 +239,13 @@ func total_water() -> float:
 
 
 
-# Water in the point's own cell, or the sea/lake shell over the ground beneath it.
+# Liquid water in the point's own cell.
 func is_water_at(pos: Vector3) -> bool:
 	return _queries.is_water_at(pos)
+
+## Radius of the free water surface over the ground along a world direction; NAN where it is dry.
+func water_surface_along(dir: Vector3) -> float:
+	return _queries.water_surface_along(dir)
 
 
 # World-space WATER CURRENT (sweep) force at a point — downhill × depth × slope; ZERO in still/dry ground.
@@ -260,7 +256,7 @@ func water_force_at(pos: Vector3) -> Vector3:
 
 
 
-## Begin simulating + rendering (called after setup + sample_solidity + seed_sea).
+## Begin simulating + rendering (called after setup + sample_solidity + the seed).
 func activate() -> void:
 	_boundary = BoundaryScript.new()
 	_boundary.setup(self)                 # appends ghost rows before the driver reads grid.ghost_rows
@@ -294,7 +290,7 @@ func sample_solidity() -> void:
 	var k: String = "" if _terrain_opts.is_empty() else FieldCacheScript.key(_terrain_opts, _grid)
 	var fr: Dictionary = FieldCacheScript.load_fractions(k, _cell_count)
 	if fr.is_empty():
-		fr = LAPlanetComposition.surface_fractions(_grid, _terrain, centre(), sea_radius())
+		fr = LAPlanetComposition.surface_fractions(_grid, _terrain, centre())
 		fr["surface_depth"] = LAPlanetComposition.surface_depth(_grid, _terrain, centre())
 		LAFieldStateCache.save_blob(k, fr)
 	_rock_fraction = fr.get("rock_fraction", PackedFloat32Array())
@@ -344,24 +340,11 @@ func pressure_at(pos: Vector3) -> float:
 
 
 
-## True where the ground beneath a world point is below the sea shell (open salt ocean / a sea basin).
-func is_ocean_at(pos: Vector3) -> bool:
-	return _queries.is_ocean_at(pos)
-
-
 var _atmos_dirty: bool = true
 var _cloud_cover_c: float = 0.0
 var _fog_cover_c: float = 0.0
 var _cloud_cells_c: int = 0
 var _vapour_total_c: float = 0.0
-
-## Cloud density at a world XZ column (0 if unresolved). Cloud = the condensate that is NOT ground fog.
-func cloud_at(x: float, z: float) -> float:
-	return _atmos.cloud_at(x, z)
-
-## Fog density at a world XZ column (0 if unresolved). Fog = cool near-ground condensate.
-func fog_at(x: float, z: float) -> float:
-	return _atmos.fog_at(x, z)
 
 func avg_cloud_cover() -> float:
 	return _atmos.avg_cloud_cover()
@@ -376,14 +359,6 @@ func avg_fog_cover() -> float:
 func vapour_total() -> float:
 	return _atmos.vapour_total()
 
-
-## Relative humidity 0..1 near the ground at a world XZ column = vapor / sat(T) = min(moisture, sat)/sat.
-func relative_humidity_at(x: float, z: float) -> float:
-	return _atmos.relative_humidity_at(x, z)
-
-## Dewpoint °C near the ground at a world XZ column — the temperature at which the cell's moisture would saturate.
-func dewpoint_at(x: float, z: float) -> float:
-	return _atmos.dewpoint_at(x, z)
 
 ## The fastest air in the box, m/s. A direction is a local question; wind3_at is where it is asked.
 func wind_speed_max() -> float:
@@ -432,8 +407,8 @@ func resample_terrain(world_pos: Vector3, radius: float) -> void:
 		if _gpu != null: _gpu.mark_solid_dirty()   # the solid mask changed → re-seed the GPU solid/static buffers
 
 
-## Count of open cells whose derived condensate is at or above CONDENSE_COVER_MIN.
-func cloud_cell_count(min_density: float = 0.05) -> int:
+## Cells whose condensate hangs above the surface layer.
+func cloud_cell_count() -> int:
 	return _atmos.cloud_cell_count()
 
 

@@ -119,7 +119,7 @@ func _bufs(rig: RefCounted, skip: PackedStringArray) -> Dictionary:
 
 func _ctx(step: int) -> Dictionary:
 	return {"cell_size": CELL, "centre": Vector3.ZERO, "spin": Vector3.ZERO, "spin_rate_rad_s": 0.0,
-		"sea_radius": 0.0, "gravity_self": 0.0, "step_index": float(step), "dt_s": 1.0, "seeding": false}
+		"body_radius": 0.0, "gravity_self": 0.0, "step_index": float(step), "dt_s": 1.0, "seeding": false}
 
 
 ## A column of air over rock along the cell index, at pressures and enthalpies the substance table
@@ -247,7 +247,7 @@ func _transport(wait_usec: float) -> Dictionary:
 	rig.add_levels(flux.group_count())
 	var cc: int = int(rig.cell_count)
 	var ctx: Dictionary = {"cell_size": T_CELL, "centre": Vector3.ZERO, "spin": Vector3.ZERO,
-		"spin_rate_rad_s": 0.0, "sea_radius": 0.0, "gravity_self": 0.0, "dt_s": T_DT,
+		"spin_rate_rad_s": 0.0, "body_radius": 0.0, "gravity_self": 0.0, "dt_s": T_DT,
 		"sun_dir": Vector3.ZERO, "cell_size_min": T_CELL, "step_index": 0.0, "seeding": false}
 	var n2: PackedFloat32Array = rig.filled(cc, 0.0)
 	var want: PackedFloat32Array = rig.filled(cc, 0.0)

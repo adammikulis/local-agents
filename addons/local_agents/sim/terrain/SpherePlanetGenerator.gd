@@ -6,15 +6,10 @@ extends RefCounted
 # SdfSphere input ports: 0=x 1=y 2=z 3=radius (x/y/z autoconnect to world coords when left unwired).
 
 var _radius: float = 0.0
-var _sea_radius: float = 0.0
 
-## Planet solid radius (the sea-level sphere the relief rides on).
+## Planet solid radius (the sphere the relief rides on).
 func radius() -> float:
 	return _radius
-
-## Radius of the spherical sea shell (where the ocean surface sits).
-func sea_radius() -> float:
-	return _sea_radius
 
 
 func _cascade(p_period: float, p_octaves: int, p_gain: float, p_seed: int) -> ZN_FastNoiseLite:
@@ -31,7 +26,6 @@ func _cascade(p_period: float, p_octaves: int, p_gain: float, p_seed: int) -> ZN
 
 func build(opts: Dictionary = {}) -> VoxelGeneratorGraph:
 	_radius = float(opts.get("radius", 0.0))
-	_sea_radius = float(opts.get("sea_radius", _radius))
 	var seed_val: int = int(opts.get("seed", 1337))
 	var det_weight: float = float(opts.get("detail_weight", 0.0))
 	var caves_enabled: bool = bool(opts.get("caves_enabled", true))
@@ -89,7 +83,7 @@ func build(opts: Dictionary = {}) -> VoxelGeneratorGraph:
 	fn.add_connection(norm_mul, 0, norm, 0)
 	fn.set_node_default_input(norm, 1, -lo * inv_span)
 
-	# elevation, metres above the sea shell
+	# elevation, metres over the sphere the relief rides on
 	var elev: int = fn.create_node(VoxelGraphFunction.NODE_CURVE, Vector2(860, 300), 0)
 	fn.set_node_param_by_name(elev, "curve", curve)
 	fn.add_connection(norm, 0, elev, 0)
@@ -125,16 +119,21 @@ func build(opts: Dictionary = {}) -> VoxelGeneratorGraph:
 		fn.add_connection(copen, 0, cvoid, 0)
 		fn.set_node_default_input(cvoid, 1, cave_strength)
 
-		# Karst gates: open in the top cave_depth_fade metres, and only above base level (the sea).
+		# Karst gates: open in the top cave_depth_fade metres, and only over base level, where the water
+		# settled on the uncarved crust.
+		var base_r: float = float(opts.get("karst_base_r", NAN))
+		if not is_finite(base_r):
+			push_error("LASpherePlanetGenerator: caves asked for with no base level to open over.")
+			return null
 		var dplus: int = fn.create_node(VoxelGraphFunction.NODE_ADD, Vector2(900, 60), 0)
 		fn.add_connection(surface, 0, dplus, 0)
 		fn.set_node_default_input(dplus, 1, cave_depth_fade)
-		var above_sea: int = fn.create_node(VoxelGraphFunction.NODE_ADD, Vector2(900, 160), 0)
-		fn.add_connection(sphere, 0, above_sea, 0)
-		fn.set_node_default_input(above_sea, 1, _radius - _sea_radius)
+		var above_base: int = fn.create_node(VoxelGraphFunction.NODE_ADD, Vector2(900, 160), 0)
+		fn.add_connection(sphere, 0, above_base, 0)
+		fn.set_node_default_input(above_base, 1, _radius - base_r)
 		var pair: int = fn.create_node(VoxelGraphFunction.NODE_MIN, Vector2(1080, 110), 0)
 		fn.add_connection(dplus, 0, pair, 0)
-		fn.add_connection(above_sea, 0, pair, 1)
+		fn.add_connection(above_base, 0, pair, 1)
 		var gate: int = fn.create_node(VoxelGraphFunction.NODE_MIN, Vector2(1180, 60), 0)
 		fn.add_connection(pair, 0, gate, 0)
 		fn.set_node_default_input(gate, 1, 0.0)

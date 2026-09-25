@@ -26,7 +26,7 @@ const WIND_REF_M_S: float = 70.0
 ## and cell-sized arrows are a wall of fill from anywhere inside the box.
 const GLYPH_SUBTEND_RAD: float = 0.05
 ## THE SAMPLE IS A LATTICE ABOUT THE EYE, this many points on a side, spaced at a fraction of the eye's
-## own height over the body. Every cell of a graded box is millions of glyphs and a walk nobody affords;
+## own height over the ground. Every cell of a graded box is millions of glyphs and a walk nobody affords;
 ## what is asked for instead is the field where the viewer is standing, at the density it reads at.
 const LATTICE_SIDE: int = 15
 const LATTICE_SPACING_FRAC: float = 0.25
@@ -42,7 +42,7 @@ var source: String = SOURCE_OFF
 var _f = null
 var _camera: Node3D = null
 var _centre: Vector3 = Vector3.ZERO
-var _sea_radius: float = 0.0
+var _body: Node3D = null
 var _mm: MultiMesh = null
 var _mat: ShaderMaterial = null
 var _accum: float = REBUILD_PERIOD
@@ -52,11 +52,11 @@ var _drawn: int = 0
 var _capacity: int = 0
 
 
-func setup(field, camera: Node3D, centre: Vector3, sea_radius: float) -> void:
+func setup(field, camera: Node3D, body: Node3D) -> void:
 	_f = field
 	_camera = camera
-	_centre = centre
-	_sea_radius = sea_radius
+	_body = body
+	_centre = body.center()
 	name = "FieldVectors"
 	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_mm = MultiMesh.new()
@@ -157,13 +157,16 @@ func _rebuild(cam_pos: Vector3, _radial: Vector3) -> void:
 	var n: int = int(grid.cell_count)
 	var solid: PackedByteArray = _f._solid
 	var centres: PackedVector3Array = grid.centres
-	if solid.size() != n or centres.size() != n:
+	if solid.size() != n or centres.size() != n or _f._surface_depth.size() != n:
 		return
 	var wind: bool = source == SOURCE_WIND
 	if wind and not _f._mirrors.has("vel_x"):
 		return
-	# The lattice about the eye, in the grid's own frame, spaced off the eye's height over the body.
-	var alt: float = maxf((cam_pos - _centre).length() - _sea_radius, 1.0)
+	# The lattice about the eye, in the grid's own frame, spaced off the eye's height over the ground.
+	var eye_h: float = _body.altitude_at(_camera.global_position)
+	if not is_finite(eye_h):
+		return
+	var alt: float = maxf(eye_h, 1.0)
 	# Never coarser than the grid's own coarse cell, or the lattice steps over whole cells of it.
 	var spacing: float = minf(LATTICE_SPACING_FRAC * alt, float(grid.cell_size))
 	var half: int = LATTICE_SIDE / 2
@@ -208,7 +211,7 @@ func _rebuild(cam_pos: Vector3, _radial: Vector3) -> void:
 		var pos2: Vector3 = centres[c2]
 		var span: float = GLYPH_SUBTEND_RAD * cam_pos.distance_to(pos2)
 		var frac: float = minf(mag2 / _ref, 1.0)
-		var alt_c: float = (pos2 - _centre).length() - _sea_radius
+		var alt_c: float = -_f._surface_depth[c2]
 		alt_span = maxf(alt_span, absf(alt_c))
 		xforms.append(Transform3D(_aim(v2, mag2, span * THICK_FRAC, span * frac), pos2))
 		# A stable per-cell stripe offset, so a lattice of equal glyphs does not march in lockstep.

@@ -154,7 +154,7 @@ func _graze_food_mult(adults: Array) -> float:
 
 # Produce ONE aquatic offspring for `kind`: born beside a random mature parent (nudged in the water so schools
 # stay together), falling back to a valid point in the species' salinity/depth band if the parent drifted to the
-# waterline. The water gate in _instance_actor rejects any point that isn't inside the sea shell.
+# waterline. The water gate in _instance_actor rejects any point that isn't in the field's water.
 func _birth_aquatic_one(kind: String, adults: Array, cfg: Dictionary) -> void:
 	var pa: Node3D = adults[LASimRng.for_domain("life").randi_range(0, adults.size() - 1)] as Node3D
 	# THE BEARER PAYS FIRST, or there is no young. Nothing else in this function ever asked where the new body

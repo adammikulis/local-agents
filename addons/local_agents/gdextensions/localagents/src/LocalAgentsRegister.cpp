@@ -23,6 +23,7 @@
 #include "LAFieldSnapshot.hpp"
 #include "LAFieldStateCache.hpp"
 #include "LAFieldHydrosphereSeed.hpp"
+#include "LAHydrosphereFill.hpp"
 #include "LAFieldLithostaticSeed.hpp"
 #include "LAPlanetTables.hpp"
 #include "LASubstances.hpp"
@@ -78,6 +79,7 @@ void initialize_local_agents(ModuleInitializationLevel p_level) {
     ClassDB::register_class<LAColumnRadiation>();
     ClassDB::register_class<LAElementAbundances>();
     ClassDB::register_class<LAPlanetComposition>();
+    ClassDB::register_class<LAHydrosphereFill>();
     ClassDB::register_class<LARadiogenicDecay>();
     ClassDB::register_class<LAOrbitState>();
     ClassDB::register_class<LABodySeeds>();

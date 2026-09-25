@@ -77,9 +77,6 @@ func center() -> Vector3:
 func radius() -> float:
 	return _terrain.planet_radius() if _terrain != null else 0.0
 
-func sea_radius() -> float:
-	return _terrain.sea_radius() if _terrain != null else 0.0
-
 ## Highest radius any terrain on this body reaches. 0 before the terrain is built.
 func max_surface_radius() -> float:
 	return _terrain.max_surface_radius() if _terrain != null else 0.0

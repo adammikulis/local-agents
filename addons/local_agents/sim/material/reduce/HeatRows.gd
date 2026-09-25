@@ -59,9 +59,9 @@ static func rows() -> Array:
 	] + _lat_band_rows() + _alt_band_rows() + _rock_profile_rows()
 
 
-## THE GEOTHERM AGAINST RADIUS: five samples of the rock's temperature, each a sixteenth of the sea
-## shell's radius wide, the outermost open above so a peak standing over the shell falls in it.
-## `r_frac` is |r| over that radius, NaN where the body carries no shell.
+## THE GEOTHERM AGAINST RADIUS: five samples of the rock's temperature, each a sixteenth of the body's
+## radius wide, the outermost open above so a peak standing over the radius falls in it.
+## `r_frac` is |r| over that radius, NaN where the field is part of no body.
 const PROFILE_WIDTH: float = 1.0 / 16.0
 const PROFILE_SAMPLES: Dictionary = {"core": 0, "q25": 4, "mid": 8, "q75": 12, "surf": 15}
 
@@ -104,12 +104,12 @@ static func _lat_band_rows() -> Array:
 	return out
 
 
-## Floor of each altitude band above the sea shell, metres, the last open-ended above. The edges are the
+## Floor of each altitude band over the body's radius, metres, the last open-ended above. The edges are the
 ## tropopause, stratopause and mesopause of the US Standard Atmosphere 1976.
 const ALT_BAND_FLOORS_M: Array = [0.0, 1.2e4, 5.0e4, 8.5e4]
 
 
-## Coldest open cell per altitude band. `alt` is metres above the shell, NaN where the body carries none.
+## Coldest open cell per altitude band. `alt` is metres over the body's radius, NaN where there is no body.
 static func _alt_band_rows() -> Array:
 	var out: Array = []
 	for b in ALT_BAND_FLOORS_M.size():

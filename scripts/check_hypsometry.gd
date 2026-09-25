@@ -27,12 +27,13 @@ func _init() -> void:
 	var root: Node3D = Node3D.new()
 	get_root().add_child(root)
 	svc.build_planet(root, {"radius": r, "seed": 1337, "caves_enabled": true})
-	var sea: float = svc.sea_radius()
+	# The curve's elevations stand on the sphere the relief rides on.
+	var zero: float = svc.planet_radius()
 	var hs: Array[float] = []
 	for d: Vector3 in LAPlanetShape.directions(SAMPLES):
 		var sr: float = svc.surface_radius(d)
 		if not is_nan(sr):
-			hs.append(sr - sea)
+			hs.append(sr - zero)
 	hs.sort()
 	var n: int = hs.size()
 	if n < Q_STEPS:

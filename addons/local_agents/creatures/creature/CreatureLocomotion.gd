@@ -22,12 +22,10 @@ static func move(c, pos: Vector3, ground_pos: Vector3, delta: float) -> void:
 	var gpt: Vector3 = c.terrain.surface_point(nud)
 	if is_nan(gpt.x):
 		gpt = ground_pos                      # unmeshed ahead: hold last known ground
-	elif not c.can_fly and c.terrain.has_method("sea_radius"):
-		var sea_r: float = c.terrain.sea_radius()
-		if sea_r > 0.0 and (gpt - c.terrain.planet_center()).length() < sea_r - COAST_AVOID_DEPTH:
-			gpt = ground_pos
-			c._heading = -c._heading             # reflect off the coast — turn back toward land
-			c._target_heading = c._heading
+	elif not c.can_fly and c._material != null and c._material.is_water_at(gpt + nud * COAST_AVOID_DEPTH):
+		gpt = ground_pos
+		c._heading = -c._heading                 # reflect off the coast — turn back toward land
+		c._target_heading = c._heading
 	c.global_position = gpt + nud * offset
 
 
