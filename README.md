@@ -58,9 +58,9 @@ Replies stream through `reply_updated`; `think_completed` returns the final resu
 Start with **Quickstart**, then **Actions**, **Conversation** and **Chat** in the demo launcher.
 The [demo guide](addons/local_agents/docs/DEMOS.md) lists the examples and their requirements.
 
-The planet is unfinished 0.4 development. Its physics is verified one rung at a time;
-[HANDOFF.md](HANDOFF.md) lists release blockers. Creature work and
-[runtime cognition](docs/0.5_RUNTIME_COGNITION.md) are parked for 0.5.
+The [0.4 target](docs/0.4_RELEASE_SCOPE.md) is a stable, explorable planet for
+[creatures and runtime cognition in 0.5](docs/ROADMAP_0.5.md).
+[HANDOFF.md](HANDOFF.md) lists the remaining release work.
 
 <details>
 <summary>More live model screenshots</summary>
