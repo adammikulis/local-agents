@@ -67,7 +67,7 @@ inline void bracket(double p_kp, double p_b4, double &r_lo, double &r_hi) {
 			const double r = std::sqrt(-p / 3.0);
 			const double phi = std::acos(std::fmax(-1.0, std::fmin(1.0, -q / (2.0 * r * r * r))));
 			for (int k = 0; k < 3; k++) {
-				keep(2.0 * r * std::cos((phi + 2.0 * M_PI * double(k)) / 3.0) + shift);
+				keep(2.0 * r * std::cos((phi + 2.0 * std::acos(-1.0) * double(k)) / 3.0) + shift);
 			}
 		}
 	} else if (c2 != 0.0) {
