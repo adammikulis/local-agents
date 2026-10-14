@@ -62,7 +62,6 @@ private:
     Dictionary run_inference_locked(const Dictionary &request);
     Dictionary run_llama_server_inference_locked(const Dictionary &request, const Dictionary &options);
     bool ensure_sampler_locked(const Dictionary &options);
-    std::string build_prompt(const TypedArray<Dictionary> &history, const String &user_prompt) const;
     std::string token_to_string(llama_token token) const;
     bool load_model_locked(const String &path, const Dictionary &options, bool store_defaults);
     void unload_model_locked();

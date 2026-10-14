@@ -15,6 +15,14 @@
 timeout_s = 900
 
 [[gate]]
+name = "check_chat_prompt"
+script = "scripts/check_chat_prompt.sh"
+kind = "text"
+needs = ["build"]
+marker = "^check_chat_prompt: OK"
+mutation = "python3 -c \"from pathlib import Path; p=Path('addons/local_agents/gdextensions/localagents/src/RuntimeChatPrompt.cpp'); s=p.read_text(); a=s.index('    if (!user_prompt.empty()'); b=s.index(' {', a); p.write_text(s[:a] + '    if (!user_prompt.empty())' + s[b:])\""
+
+[[gate]]
 name = "check_max_file_length"
 script = "scripts/check_max_file_length.sh"
 kind = "text"
