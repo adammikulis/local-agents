@@ -14,7 +14,7 @@ command -v "$GODOT" >/dev/null 2>&1 || { echo "ERROR: godot not on PATH — a ga
 PROBE_REL="addons/local_agents/tests/gate_fly_nav.gd"
 [ -f "$REPO_ROOT/$PROBE_REL" ] || { echo "ERROR: MISSING $PROBE_REL." >&2; exit 2; }
 
-out="$(la_godot --headless --path "$REPO_ROOT" -s "res://$PROBE_REL" 2>&1)" || true
+out="$(LA_CPU_VALIDATION=1 la_godot --headless --path "$REPO_ROOT" -s "res://$PROBE_REL" 2>&1)" || true
 
 line="$(printf '%s\n' "$out" | grep -m1 '^FLY_NAV=')"
 if [ -z "$line" ]; then

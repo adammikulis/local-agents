@@ -8,7 +8,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_godot.sh"
 PROBE_REL="addons/local_agents/tests/gate_melting_lines.gd"
 [ -f "$ROOT/$PROBE_REL" ] || { echo "check_melting_lines: MISSING $PROBE_REL." >&2; exit 2; }
-OUT="$(la_godot --headless --path "$ROOT" -s "res://$PROBE_REL" 2>&1)"
+OUT="$(LA_CPU_VALIDATION=1 la_godot --headless --path "$ROOT" -s "res://$PROBE_REL" 2>&1)"
 LINE="$(printf '%s\n' "$OUT" | grep -m1 '^MELTING_LINES=')"
 [ -n "$LINE" ] || { echo "check_melting_lines: the probe published no reading." >&2; printf '%s\n' "$OUT" | tail -10 >&2; exit 2; }
 printf '%s\n' "$OUT" | grep -E ' melts at | melting slope ' || true
