@@ -3,6 +3,7 @@
 # LA_GODOT_TIMEOUT=<seconds> wraps the run; `timeout` cannot run a shell function.
 
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot_lock.sh"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_import.sh"
 
 
 # 1x1 AT CREATION. macOS clamps an off-screen position back on, so a window with pixels in it lands on
@@ -88,7 +89,7 @@ PLIST
 # Hash of the extension sources; build_extension.sh writes it beside the dylib.
 la_extension_hash() {
 	local ext="$1/addons/local_agents/gdextensions/localagents"
-	(cd "$ext" && cat CMakeLists.txt cmake/deps/CMakeLists.txt $(ls src/* include/* | sort) | md5 -q)
+	(cd "$ext" && cat CMakeLists.txt cmake/deps/CMakeLists.txt $(ls src/* include/* | sort) | la_md5_stdin)
 }
 
 # A dylib built from other sources is a stale binary: refuse, never run it.
