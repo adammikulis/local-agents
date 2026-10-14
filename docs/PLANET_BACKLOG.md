@@ -179,3 +179,18 @@ Reading: `LABodySeeds::rows` sets the star's `radius_m` to `SOLAR_RADIUS_M`.
 `scripts/agent_harness.sh single test_combustion_rate_law.gd` rejects reaction stoichiometry and enthalpy; `scripts/agent_harness.sh single test_mixture_enthalpy.gd` rejects saturated vapour.
 Complete when both pass against the requirements in `docs/PHYSICS_TODO.md` and `scripts/agent_harness.sh all` passes.
 
+
+## Future planet requirements
+
+- Grow campaign starting terrain by pre-simulating volcanism, erosion and deposition, then save the
+  resulting start world. This requires verified sediment pickup, transport and deposition.
+- Model glaciers as ice moving under gravity, eroding ground and depositing transported material
+  on melting, with the water and energy books intact.
+- Model thermal weathering as rock becoming loose sediment under physical stresses.
+- Carry aeolian dust and sediment with wind; book pickup, transport and deposition.
+- Extend groundwater to lateral, head-driven Darcy transport through a physically specified
+  permeable regolith and bedrock structure. Detect springs where the water table reaches the surface
+  and remove any seeded-spring stand-in when that mechanism is verified.
+
+Each addition requires a reproduction command, a conservation gate and a visible process demo
+before its implementation is accepted.
