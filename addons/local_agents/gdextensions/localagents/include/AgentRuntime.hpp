@@ -35,6 +35,7 @@ public:
     bool load_model(const String &model_path, const Dictionary &options);
     void unload_model();
     bool is_model_loaded() const;
+    String get_loaded_model_path() const;
     Dictionary get_runtime_health();
 
     Dictionary generate(const Dictionary &request);
@@ -76,6 +77,8 @@ private:
 
     llama_model *model_ = nullptr;
     llama_context *context_ = nullptr;
+    llama_model_params loaded_model_params_{};
+    llama_context_params loaded_context_params_{};
     std::unique_ptr<llama_sampler, void(*)(llama_sampler*)> sampler_;
 
     String default_model_path_;

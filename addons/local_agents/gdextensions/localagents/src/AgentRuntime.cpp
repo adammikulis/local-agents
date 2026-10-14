@@ -413,6 +413,7 @@ void AgentRuntime::_bind_methods() {
     ClassDB::bind_method(D_METHOD("load_model", "model_path", "options"), &AgentRuntime::load_model);
     ClassDB::bind_method(D_METHOD("unload_model"), &AgentRuntime::unload_model);
     ClassDB::bind_method(D_METHOD("is_model_loaded"), &AgentRuntime::is_model_loaded);
+    ClassDB::bind_method(D_METHOD("get_loaded_model_path"), &AgentRuntime::get_loaded_model_path);
     ClassDB::bind_method(D_METHOD("get_runtime_health"), &AgentRuntime::get_runtime_health);
     ClassDB::bind_method(D_METHOD("generate", "request"), &AgentRuntime::generate);
     ClassDB::bind_method(D_METHOD("synthesize_speech", "request"), &AgentRuntime::synthesize_speech);
@@ -463,6 +464,11 @@ bool AgentRuntime::is_model_loaded() const {
     return model_ != nullptr && context_ != nullptr;
 }
 
+String AgentRuntime::get_loaded_model_path() const {
+    std::scoped_lock lock(residency_mutex_);
+    return model_ && context_ ? loaded_model_path_ : String();
+}
+
 Dictionary AgentRuntime::get_runtime_health() {
     Dictionary health;
     String runtime_property;
@@ -473,7 +479,14 @@ Dictionary AgentRuntime::get_runtime_health() {
         runtime_property = runtime_directory_;
         model_path = default_model_path_;
     }
-    model_loaded = is_model_loaded();
+    {
+        std::scoped_lock lock(residency_mutex_);
+        model_loaded = model_ && context_;
+        if (context_) {
+            health["context_size"] = static_cast<int64_t>(llama_n_ctx(context_));
+            health["batch_size"] = static_cast<int64_t>(llama_n_batch(context_));
+        }
+    }
 
     std::filesystem::path runtime_dir = resolve_runtime_directory_path(String(), runtime_property);
     bool runtime_dir_exists = !runtime_dir.empty() && std::filesystem::exists(runtime_dir);
@@ -517,7 +530,17 @@ Dictionary AgentRuntime::get_runtime_health() {
 Dictionary AgentRuntime::generate(const Dictionary &request) {
     std::scoped_lock lock(mutex_);
 
-    Dictionary options = default_options_.duplicate();
+    if (request.has("model_path")) {
+        Variant path_value = request["model_path"];
+        if (path_value.get_type() != Variant::STRING || String(path_value).is_empty()) {
+            Dictionary error;
+            error["ok"] = false;
+            error["error"] = path_value.get_type() != Variant::STRING ? "invalid_model_path" : "model_path_missing";
+            return error;
+        }
+    }
+    String requested_path = request.get("model_path", String());
+    Dictionary options = requested_path.is_empty() ? default_options_.duplicate() : Dictionary();
     if (request.has("options")) {
         Dictionary overrides = request["options"];
         Array keys = overrides.keys();
@@ -531,20 +554,21 @@ Dictionary AgentRuntime::generate(const Dictionary &request) {
         return run_llama_server_inference_locked(request, options);
     }
 
-    if (!model_ || !context_) {
-        String model_path = get_default_model_path();
+    if (!requested_path.is_empty() || !model_ || !context_) {
+        String model_path = requested_path.is_empty() ? get_default_model_path() : requested_path;
         if (model_path.is_empty()) {
             Dictionary error;
             error["ok"] = false;
             error["error"] = "model_not_loaded";
             return error;
         }
-        if (!load_model_locked(model_path, default_options_, false)) {
+        if (!load_model_locked(model_path, options, !requested_path.is_empty())) {
             Dictionary error;
             error["ok"] = false;
-            error["error"] = "model_not_loaded";
+            error["error"] = "model_load_failed";
             return error;
         }
+        if (!requested_path.is_empty()) set_default_model_path(model_path);
     }
 
     return run_inference_locked(request);
