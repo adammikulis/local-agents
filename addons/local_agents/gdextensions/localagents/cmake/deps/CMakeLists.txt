@@ -50,7 +50,7 @@ foreach(t IN LISTS LA_DEP_TARGETS)
     if (TARGET ${t})
         string(REPLACE "-" "_" var "${t}")
         string(APPEND LA_DEPS_CONTENT
-            "set(LA_DEP_${var} \"\${CMAKE_CURRENT_LIST_DIR}/lib/$<TARGET_FILE_NAME:${t}>\")\n")
+            "set(LA_DEP_${var} \"\${CMAKE_CURRENT_LIST_DIR}/lib/$<TARGET_LINKER_FILE_NAME:${t}>\")\n")
     endif()
 endforeach()
 # godot-cpp's usage requirements, resolved. A binding compiled against different definitions than the
@@ -84,5 +84,12 @@ foreach(t IN LISTS LA_DEP_TARGETS)
     if (TARGET ${t})
         add_custom_command(TARGET la_deps POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:${t}>" "${LA_DEPS_ENTRY}/lib/")
+        if (WIN32)
+            get_target_property(dep_type ${t} TYPE)
+            if (dep_type STREQUAL "SHARED_LIBRARY")
+                add_custom_command(TARGET la_deps POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_LINKER_FILE:${t}>" "${LA_DEPS_ENTRY}/lib/")
+            endif()
+        endif()
     endif()
 endforeach()
