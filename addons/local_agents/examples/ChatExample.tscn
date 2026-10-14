@@ -76,6 +76,7 @@ layout_mode = 2
 text = "Local Agents status appears here at run time."
 autowrap_mode = 3
 script = ExtResource("7_status")
+show_next_step = false
 
 [node name="DownloadHintLabel" type="RichTextLabel" parent="HBoxContainer/PanelContainer/VBoxContainer2"]
 unique_name_in_owner = true

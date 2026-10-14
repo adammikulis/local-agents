@@ -1,8 +1,7 @@
 # AGENTS.md
 
-**SCOPE FIRST: 0.4 is the PLANET. Creature work is 0.5 and does not start yet** — it is not lower
-priority, it is premature, because behaviour tuned against a broken substrate has to be redone. The
-measurable bar the planet must clear is in `CLAUDE.md` -> "SCOPE RULE".
+**SCOPE FIRST:** Read `docs/0.4_RELEASE_SCOPE.md` before release or planet work.
+0.4 supplies the usable planet; 0.5 builds creatures and runtime cognition on it.
 
 **Process rules for this repo live in `CLAUDE.md` — read it first.** It is the canonical, enforceable
 process doc for every agent (Claude Code, Codex, sub-agents), covering the branch/worktree workflow,

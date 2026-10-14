@@ -109,50 +109,21 @@ static func next_step() -> String:
 	return String(check()["next_step"])
 
 
-## Which weights are currently resident. "" means nothing loaded, or something loaded them behind
-## this module's back — which is why load_model() below is the only sanctioned loader.
-static var _resident_path: String = ""
-static var _load_lock: Mutex = Mutex.new()
-static var _resident_lock: Mutex = Mutex.new()
-
-
 static func load_model(path: String, options: Dictionary = {}) -> bool:
 	if path == "":
 		return false
 	var runtime: Object = _runtime()
-	if runtime == null or not runtime.has_method("load_model"):
-		return false
-	_load_lock.lock()
-	if _resident_path == path and _model_loaded():
-		_load_lock.unlock()
-		return true
-	# Two arguments: load_model is bound as (model_path, options). Calling it with the path alone
-	# silently fails, which left the chat panel, the conversation driver and three demos unable to
-	# generate on an otherwise healthy install.
-	var ok: bool = bool(runtime.call("load_model", path, options))
-	_resident_lock.lock()
-	_resident_path = path if ok else ""
-	_resident_lock.unlock()
-	_load_lock.unlock()
-	return ok
+	return runtime != null and bool(runtime.call("load_model", path, options))
 
 
-## The path load_model() believes is resident, or "" if nothing is.
 static func resident_model_path() -> String:
-	_resident_lock.lock()
-	var path: String = _resident_path
-	_resident_lock.unlock()
-	return path
+	var runtime: Object = _runtime()
+	return String(runtime.call("get_loaded_model_path")) if runtime != null else ""
 
 
-## Load the project's resolved model if nothing is loaded yet. Absorbs the private-API poking
-## (`agent.agent_node.load_model()`) that three demos each reimplemented.
-## `options` carries the load-time knobs (context size, GPU layers).
 static func ensure_model_loaded(options: Dictionary = {}) -> bool:
 	if not ExtensionLoader.ensure_initialized():
 		return false
-	if _model_loaded() and resident_model_path() != "":
-		return true
 	return load_model(resolve_model_path(), options)
 
 

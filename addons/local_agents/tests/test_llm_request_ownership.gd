@@ -1,5 +1,25 @@
 extends RefCounted
 
+class DeferredJobs extends "res://addons/local_agents/agents/AgentJobs.gd":
+    var accepts: bool = true
+    var completion: Callable
+
+    func start(_job: Dictionary, _server: LocalAgentAgentServer, callback: Callable) -> bool:
+        completion = callback
+        return accepts
+
+class DeferredAgent extends LocalAgent:
+    var reentrant_accepted: bool = false
+
+    func _ready() -> void:
+        pass
+
+    func _ensure_agent_node() -> bool:
+        return true
+
+    func on_terminal(_result: Dictionary) -> void:
+        reentrant_accepted = think_async("Reentrant request")
+
 class FakeAgent extends LocalAgent:
     var accepts: bool = true
 
@@ -48,7 +68,8 @@ func run_test(tree: SceneTree) -> bool:
     var prompt: TextEdit = controller.get_node("%PromptTextEdit")
     var transcript: RichTextLabel = controller.get_node("%ModelOutputRichTextLabel")
     var session: FakeSession = controller.get("_conversation_session_service")
-    var ok: bool = _check_embedding_spaces()
+    var ok: bool = _check_deferred_completion(tree)
+    ok = _check_embedding_spaces() and ok
     agent.call("_post_think", {"ok": false, "text": "Invalid structured reply", "error": "json_parse_failed"})
     ok = _check(agent.history.is_empty(), "Failed generation entered conversation history") and ok
     prompt.text = "First question"
@@ -116,4 +137,28 @@ func _check_embedding_spaces() -> bool:
         matches = graph.search_embeddings(PackedFloat32Array([1, 0, 0]), 8, 8, strategy, "model-b")
         ok = _check(matches.size() == 1 and int(matches[0].get("node_id", -1)) == b, "Search mixed models with different dimensions") and ok
     graph.close()
+    return ok
+
+func _check_deferred_completion(tree: SceneTree) -> bool:
+    var agent: DeferredAgent = DeferredAgent.new()
+    var jobs: DeferredJobs = DeferredJobs.new()
+    agent.set("_jobs", jobs)
+    tree.root.add_child(agent)
+    agent.think_completed.connect(agent.on_terminal)
+    agent.model_load_completed.connect(agent.on_terminal)
+    var ok: bool = true
+    for load_only: bool in [false, true]:
+        var accepted: bool = agent.load_model_async() if load_only else agent.think_async("Accepted request")
+        ok = _check(accepted, "Async request was rejected without pending work") and ok
+        ok = _check(not agent.think_async("Overlapping request"), "Finished worker allowed a request before terminal dispatch") and ok
+        jobs.completion.call({"ok": false, "error": "test_failure"})
+        ok = _check(not agent.reentrant_accepted, "Terminal signal accepted reentrant work before dispatch ended") and ok
+    jobs.accepts = false
+    var before: int = agent.history.size()
+    ok = _check(not agent.think_async("Failed start"), "Failed worker start was accepted") and ok
+    ok = _check(agent.history.size() == before, "Failed worker start added a phantom user message") and ok
+    jobs.accepts = true
+    ok = _check(agent.think_async("After failure"), "Failed worker start left the agent busy") and ok
+    jobs.completion.call({"ok": false, "error": "test_failure"})
+    agent.free()
     return ok

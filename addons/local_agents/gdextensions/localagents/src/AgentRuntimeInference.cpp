@@ -236,10 +236,6 @@ std::string AgentRuntime::token_to_string(llama_token token) const {
 }
 
 bool AgentRuntime::load_model_locked(const String &path, const Dictionary &options, bool store_defaults) {
-    unload_model_locked();
-
-    llama_backend_init();
-
     llama_model_params model_params = llama_model_default_params();
     if (options.has("n_gpu_layers")) {
         model_params.n_gpu_layers = (int32_t)options["n_gpu_layers"];
@@ -254,14 +250,22 @@ bool AgentRuntime::load_model_locked(const String &path, const Dictionary &optio
         }
     }
 
-    llama_model *loaded_model = llama_model_load_from_file(path.utf8().get_data(), model_params);
-    {
-        std::scoped_lock lock(residency_mutex_);
-        model_ = loaded_model;
-    }
-    if (!model_) {
-        UtilityFunctions::push_error("AgentRuntime::load_model - failed to load: " + path);
-        return false;
+    bool model_changed = !model_ || loaded_model_path_ != path
+            || model_params.n_gpu_layers != loaded_model_params_.n_gpu_layers
+            || model_params.load_mode != loaded_model_params_.load_mode;
+    if (model_changed) {
+        unload_model_locked();
+        llama_backend_init();
+        llama_model *loaded_model = llama_model_load_from_file(path.utf8().get_data(), model_params);
+        {
+            std::scoped_lock lock(residency_mutex_);
+            model_ = loaded_model;
+        }
+        if (!model_) {
+            UtilityFunctions::push_error("AgentRuntime::load_model - failed to load: " + path);
+            return false;
+        }
+        loaded_model_params_ = model_params;
     }
 
     llama_context_params ctx_params = llama_context_default_params();
@@ -298,16 +302,31 @@ bool AgentRuntime::load_model_locked(const String &path, const Dictionary &optio
         ctx_params.embeddings = true;
     }
 
-    llama_context *loaded_context = llama_init_from_model(model_, ctx_params);
-    {
-        std::scoped_lock lock(residency_mutex_);
-        context_ = loaded_context;
-        if (loaded_context) loaded_model_path_ = path;
-    }
-    if (!context_) {
-        UtilityFunctions::push_error("AgentRuntime::load_model - failed to create context");
-        unload_model_locked();
-        return false;
+    bool context_changed = !context_
+            || ctx_params.n_ctx != loaded_context_params_.n_ctx
+            || ctx_params.n_batch != loaded_context_params_.n_batch
+            || ctx_params.pooling_type != loaded_context_params_.pooling_type
+            || ctx_params.embeddings != loaded_context_params_.embeddings;
+    if (context_changed) {
+        llama_context *old_context;
+        {
+            std::scoped_lock lock(residency_mutex_);
+            old_context = context_;
+            context_ = nullptr;
+        }
+        if (old_context) llama_free(old_context);
+        llama_context *loaded_context = llama_init_from_model(model_, ctx_params);
+        {
+            std::scoped_lock lock(residency_mutex_);
+            context_ = loaded_context;
+            if (loaded_context) loaded_model_path_ = path;
+        }
+        if (!context_) {
+            UtilityFunctions::push_error("AgentRuntime::load_model - failed to create context");
+            unload_model_locked();
+            return false;
+        }
+        loaded_context_params_ = ctx_params;
     }
 
     if (store_defaults) {
@@ -329,7 +348,7 @@ bool AgentRuntime::load_model_locked(const String &path, const Dictionary &optio
     }
 
     Dictionary sampler_opts = store_defaults ? default_options_ : options;
-    sampler_.reset();
+    if (model_changed || context_changed) sampler_.reset();
     ensure_sampler_locked(sampler_opts);
     return true;
 }

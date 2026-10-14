@@ -310,6 +310,7 @@ func think(prompt: String, extra_opts: Dictionary = {}) -> Dictionary:
 
 var _stream_generation: int = 0
 var _stream_active: bool = false
+var _async_pending: bool = false
 
 func load_model_async(extra_opts: Dictionary = {}) -> bool:
     return _start_async("", extra_opts, true)
@@ -320,22 +321,23 @@ func think_async(prompt: String, extra_opts: Dictionary = {}) -> bool:
 func _start_async(prompt: String, extra_opts: Dictionary, load_only: bool) -> bool:
     if not _ensure_agent_node():
         return false
-    if _jobs.is_busy():
+    if _async_pending or _jobs.is_busy():
         return false
     _jobs.reap()
     var runtime = _agent_runtime()
     if runtime == null:
         return false
     _history.apply_system_prompt(history, system_prompt, agent_node)
+    var job_history: Array = history.duplicate(true)
     if prompt != "":
-        submit_user_message(prompt)   # skip empties (the LLMClient path supplies opts.messages instead)
-    var opts: Dictionary = _merged_options(extra_opts)
+        job_history.append({"role": "user", "content": prompt})
+    var opts: Dictionary = _merged_options(extra_opts).duplicate(true)
     _stream_generation += 1
     _stream_active = not load_only
     var job: Dictionary = {
         "runtime": runtime,
         "load_only": load_only,
-        "request": {"prompt": prompt, "history": history.duplicate(true), "options": opts,
+        "request": {"prompt": prompt, "history": job_history, "options": opts,
             "stream_callback": Callable(self, "_on_reply_updated").bind(_stream_generation)},
         "opts": opts,
         "server_model_path": _resolve_llama_server_model_path(opts),
@@ -344,7 +346,12 @@ func _start_async(prompt: String, extra_opts: Dictionary, load_only: bool) -> bo
         # may be writing them.
         "agent_model_path": resolve_model_path(),
     }
-    _jobs.start(job, _server, Callable(self, "_emit_think_completed").bind(_stream_generation, load_only))
+    if not _jobs.start(job, _server, Callable(self, "_emit_think_completed").bind(_stream_generation, load_only)):
+        _stream_active = false
+        return false
+    _async_pending = true
+    if prompt != "":
+        submit_user_message(prompt)
     return true
 
 func _on_reply_updated(text: String, generation: int) -> void:
@@ -361,6 +368,7 @@ func _emit_think_completed(result: Dictionary, generation: int, load_only: bool)
     else:
         _post_think(result)
         emit_signal("think_completed", result)
+    _async_pending = false
 
 func _agent_runtime() -> Object:
     return Engine.get_singleton("AgentRuntime")
