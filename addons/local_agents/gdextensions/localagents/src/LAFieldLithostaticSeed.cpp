@@ -33,6 +33,8 @@ using namespace godot;
 
 namespace {
 
+enum Kind { GAS, GRAIN, PORE, SOLUTE, CONDENSED };
+
 const char *CHANNELS_GD = "res://addons/local_agents/sim/material/Channels.gd";
 const char *GEOMETRY_GD = "res://addons/local_agents/sim/material/FieldGeometry3D.gd";
 const char *MATTER_GD = "res://addons/local_agents/sim/material/MatterChannels.gd";
@@ -406,7 +408,6 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 	// Every matter channel, with what the substance table says about the substance it carries. The lattice
 	// is the rock's grains and the water in their pores; a solute rides in its solvent; the rest is the
 	// fluid's. A substance with a heat buffer of its own raises its vapour over itself, as the derive books it.
-	enum Kind { GAS, GRAIN, PORE, SOLUTE, CONDENSED };
 	struct Chan {
 		Kind kind = CONDENSED;
 		double mm = 0.0;

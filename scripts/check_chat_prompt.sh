@@ -16,4 +16,4 @@ if ! c++ -std=c++17 -I"$EXT/include" -I"$DEPS/include/llama" \
     echo "check_chat_prompt: the template rig could not compile." >&2
     exit 2
 fi
-"$WORK/chat_prompt"
+LD_LIBRARY_PATH="$DEPS/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "$WORK/chat_prompt"
