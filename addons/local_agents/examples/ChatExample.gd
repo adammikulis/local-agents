@@ -36,4 +36,5 @@ func _show_configuration(section: String) -> void:
     $HBoxContainer/ChatVBoxContainer.visible = false
     model_config.visible = section == "model"
     inference_config.visible = section == "inference"
-    download_hint_label.text = "[b]Model setup[/b]\nChoose your settings, then return to Chat."
+    var heading: String = "Model setup" if section == "model" else "Generation settings"
+    download_hint_label.text = "[b]%s[/b]\nChoose your settings, then return to Chat." % heading

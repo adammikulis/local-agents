@@ -22,7 +22,7 @@ size_flags_horizontal = 3
 size_flags_vertical = 3
 script = ExtResource("1_rm55x")
 
-[node name="ScrollContainer" type="ScrollContainer" parent="."]
+[node name="ScrollContainer" type="PanelContainer" parent="."]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -35,22 +35,24 @@ theme_override_styles/panel = SubResource("StyleBoxFlat_hlew3")
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
-theme_override_constants/margin_left = 5
-theme_override_constants/margin_top = 5
-theme_override_constants/margin_right = 5
-theme_override_constants/margin_bottom = 5
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 16
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 16
 
 [node name="VBoxContainer" type="VBoxContainer" parent="ScrollContainer/MarginContainer"]
 layout_mode = 2
+theme_override_constants/separation = 20
 
 [node name="InferenceConfigTitleLabel" type="Label" parent="ScrollContainer/MarginContainer/VBoxContainer"]
 layout_mode = 2
-text = "Inference Configuration"
-horizontal_alignment = 1
+theme_override_font_sizes/font_size = 28
+text = "Generation settings"
 
 [node name="HBoxContainer" type="HBoxContainer" parent="ScrollContainer/MarginContainer/VBoxContainer"]
 layout_mode = 2
 size_flags_vertical = 3
+theme_override_constants/separation = 20
 
 [node name="MarginContainer" type="MarginContainer" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer"]
 layout_mode = 2
@@ -78,7 +80,7 @@ layout_mode = 2
 
 [node name="AddDeleteHBoxContainer" type="HBoxContainer" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/MarginContainer/PanelContainer/SavedInferenceConfigsVBoxContainer/MarginContainer2/VBoxContainer"]
 layout_mode = 2
-size_flags_vertical = 3
+size_flags_vertical = 1
 
 [node name="BackButton" type="Button" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/MarginContainer/PanelContainer/SavedInferenceConfigsVBoxContainer/MarginContainer2/VBoxContainer/AddDeleteHBoxContainer"]
 unique_name_in_owner = true
@@ -130,26 +132,25 @@ size_flags_vertical = 3
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="Panel" type="Panel" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2"]
+[node name="Panel" type="ScrollContainer" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2"]
 layout_mode = 2
 size_flags_vertical = 3
+horizontal_scroll_mode = 0
+theme_override_styles/panel = SubResource("StyleBoxFlat_jktyj")
 
 [node name="MarginContainer2" type="MarginContainer" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel"]
-layout_mode = 1
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-size_flags_vertical = 3
-theme_override_constants/margin_left = 5
-theme_override_constants/margin_top = 5
-theme_override_constants/margin_right = 5
-theme_override_constants/margin_bottom = 5
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/margin_left = 20
+theme_override_constants/margin_top = 20
+theme_override_constants/margin_right = 20
+theme_override_constants/margin_bottom = 20
 
 [node name="GridContainer" type="GridContainer" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2"]
 layout_mode = 2
 size_flags_vertical = 3
+theme_override_constants/h_separation = 20
+theme_override_constants/v_separation = 10
 columns = 2
 
 [node name="NameTitleLabel" type="Label" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
