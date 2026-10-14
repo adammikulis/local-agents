@@ -2,6 +2,8 @@
 #include "RuntimeInferenceUtils.hpp"
 #include "RuntimeStringUtils.hpp"
 #include "RuntimeChatPrompt.hpp"
+#include "RuntimeStreamText.hpp"
+#include <godot_cpp/variant/callable.hpp>
 #include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <algorithm>
@@ -105,7 +107,7 @@ Dictionary AgentRuntime::run_inference_locked(const Dictionary &request) {
     std::string prompt_text;
     std::string prompt_error;
     if (!format_chat_prompt(llama_model_chat_template(model_, nullptr), std::move(messages),
-                            to_utf8(system_prompt_), to_utf8(prompt), prompt_text, prompt_error)) {
+                            to_utf8(get_system_prompt()), to_utf8(prompt), prompt_text, prompt_error)) {
         response["ok"] = false;
         response["error"] = from_utf8(prompt_error);
         return response;
@@ -152,6 +154,8 @@ Dictionary AgentRuntime::run_inference_locked(const Dictionary &request) {
 
     int max_tokens = options.get("max_tokens", 256);
 
+    Callable progress = request.get("stream_callback", Callable());
+    std::string previous_preview;
     std::ostringstream generated;
     for (int i = 0; i < max_tokens; ++i) {
         llama_token token = llama_sampler_sample(sampler_.get(), context_, -1);
@@ -167,6 +171,13 @@ Dictionary AgentRuntime::run_inference_locked(const Dictionary &request) {
             break;
         }
 
+        if (progress.is_valid()) {
+            std::string preview = stream_preview(generated_snapshot, stop_sequences);
+            if (preview != previous_preview) {
+                progress.call_deferred(String::utf8(preview.c_str()));
+                previous_preview = preview;
+            }
+        }
         llama_batch cont = llama_batch_get_one(&token, 1);
         if (llama_decode(context_, cont)) {
             response["ok"] = false;
@@ -243,7 +254,11 @@ bool AgentRuntime::load_model_locked(const String &path, const Dictionary &optio
         }
     }
 
-    model_ = llama_model_load_from_file(path.utf8().get_data(), model_params);
+    llama_model *loaded_model = llama_model_load_from_file(path.utf8().get_data(), model_params);
+    {
+        std::scoped_lock lock(residency_mutex_);
+        model_ = loaded_model;
+    }
     if (!model_) {
         UtilityFunctions::push_error("AgentRuntime::load_model - failed to load: " + path);
         return false;
@@ -283,7 +298,12 @@ bool AgentRuntime::load_model_locked(const String &path, const Dictionary &optio
         ctx_params.embeddings = true;
     }
 
-    context_ = llama_init_from_model(model_, ctx_params);
+    llama_context *loaded_context = llama_init_from_model(model_, ctx_params);
+    {
+        std::scoped_lock lock(residency_mutex_);
+        context_ = loaded_context;
+        if (loaded_context) loaded_model_path_ = path;
+    }
     if (!context_) {
         UtilityFunctions::push_error("AgentRuntime::load_model - failed to create context");
         unload_model_locked();
@@ -315,14 +335,18 @@ bool AgentRuntime::load_model_locked(const String &path, const Dictionary &optio
 }
 
 void AgentRuntime::unload_model_locked() {
-    if (context_) {
-        llama_free(context_);
-        context_ = nullptr;
-    }
-    if (model_) {
-        llama_model_free(model_);
+    llama_model *model;
+    llama_context *context;
+    {
+        std::scoped_lock lock(residency_mutex_);
+        model = model_;
+        context = context_;
         model_ = nullptr;
+        context_ = nullptr;
+        loaded_model_path_ = String();
     }
     sampler_.reset();
+    if (context) llama_free(context);
+    if (model) llama_model_free(model);
     llama_backend_free();
 }

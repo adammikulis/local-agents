@@ -113,6 +113,7 @@ static func next_step() -> String:
 ## this module's back — which is why load_model() below is the only sanctioned loader.
 static var _resident_path: String = ""
 static var _load_lock: Mutex = Mutex.new()
+static var _resident_lock: Mutex = Mutex.new()
 
 
 static func load_model(path: String, options: Dictionary = {}) -> bool:
@@ -129,14 +130,19 @@ static func load_model(path: String, options: Dictionary = {}) -> bool:
 	# silently fails, which left the chat panel, the conversation driver and three demos unable to
 	# generate on an otherwise healthy install.
 	var ok: bool = bool(runtime.call("load_model", path, options))
+	_resident_lock.lock()
 	_resident_path = path if ok else ""
+	_resident_lock.unlock()
 	_load_lock.unlock()
 	return ok
 
 
 ## The path load_model() believes is resident, or "" if nothing is.
 static func resident_model_path() -> String:
-	return _resident_path
+	_resident_lock.lock()
+	var path: String = _resident_path
+	_resident_lock.unlock()
+	return path
 
 
 ## Load the project's resolved model if nothing is loaded yet. Absorbs the private-API poking
@@ -145,7 +151,7 @@ static func resident_model_path() -> String:
 static func ensure_model_loaded(options: Dictionary = {}) -> bool:
 	if not ExtensionLoader.ensure_initialized():
 		return false
-	if _model_loaded() and _resident_path != "":
+	if _model_loaded() and resident_model_path() != "":
 		return true
 	return load_model(resolve_model_path(), options)
 

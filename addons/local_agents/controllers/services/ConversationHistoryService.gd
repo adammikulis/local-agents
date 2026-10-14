@@ -2,11 +2,11 @@ extends RefCounted
 class_name LocalAgentConversationHistoryService
 
 func append_to_history(history_label: RichTextLabel, text: String) -> void:
-    history_label.append_text("%s\n" % text)
+    history_label.text += "%s\n" % text
     history_label.scroll_active = true
 
 func render_conversation(history_label: RichTextLabel, messages: Array) -> void:
-    history_label.clear()
+    history_label.text = ""
     for message_variant in messages:
         var message: Dictionary = {}
         if message_variant is Dictionary:
@@ -15,7 +15,7 @@ func render_conversation(history_label: RichTextLabel, messages: Array) -> void:
         if role == "system":
             continue
         var label: String = "Agent" if role == "assistant" else role.capitalize()
-        append_to_history(history_label, "[b]%s[/b]: %s" % [label, message.get("content", "")])
+        append_to_history(history_label, "[color=#91b9ff][b]%s[/b][/color]\n%s\n" % [label.replace("[", "[lb]"), String(message.get("content", "")).replace("[", "[lb]")])
 
 func sorted_messages_from_conversation(convo: Dictionary) -> Array:
     var messages_variant: Variant = convo.get("messages", [])

@@ -1,13 +1,17 @@
-[gd_scene load_steps=4 format=3 uid="uid://vymn5e6vd5gq"]
+[gd_scene load_steps=5 format=3 uid="uid://vymn5e6vd5gq"]
 
 [ext_resource type="Script" path="res://addons/local_agents/configuration/ui/ModelConfig.gd" id="1_xsg1j"]
 
+[ext_resource type="Theme" path="res://addons/local_agents/agents/ui/ChatTheme.tres" id="llm_theme"]
+
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_hsbi1"]
+bg_color = Color(0.07, 0.106, 0.172, 1)
 
 [sub_resource type="LabelSettings" id="LabelSettings_osrau"]
 font_size = 24
 
 [node name="ModelConfig" type="Control"]
+theme = ExtResource("llm_theme")
 auto_translate_mode = 1
 layout_mode = 3
 anchors_preset = 15

@@ -9,6 +9,7 @@ signal prompt_submitted(text: String)
 ## transcript but do not emit this.
 signal reply_received(text: String)
 
+const RequestSignals: GDScript = preload("res://addons/local_agents/runtime/RequestSignals.gd")
 const Status: GDScript = preload("res://addons/local_agents/runtime/AgentStatus.gd")
 
 @export_group("Wiring")
@@ -17,10 +18,6 @@ const Status: GDScript = preload("res://addons/local_agents/runtime/AgentStatus.
 @export var agent: LocalAgent
 
 @export_group("Behaviour")
-
-## Use think_async so the frame never blocks while the model generates. Leave this on.
-## Turning it off makes every send freeze the game until the model finishes its reply.
-@export var run_async: bool = true
 
 ## Send the prompt when Enter is pressed in the text box. With this off, only the Send button sends.
 @export var send_on_enter: bool = true
@@ -31,10 +28,12 @@ const Status: GDScript = preload("res://addons/local_agents/runtime/AgentStatus.
 
 @export var auto_load_model: bool = true
 
+@export var prompt_starters: Dictionary[String, String] = {}
+
 @export_group("Presentation")
 
 ## Grey hint shown in the empty prompt box.
-@export var placeholder_text: String = "Type a prompt and press enter..."
+@export var placeholder_text: String = "Ask anything…"
 
 ## First line written into the transcript at startup, attributed to the agent. Blank = none.
 @export_multiline var greeting: String = ""
@@ -63,6 +62,11 @@ const Status: GDScript = preload("res://addons/local_agents/runtime/AgentStatus.
 
 var _lines: PackedStringArray = PackedStringArray()
 var _busy: bool = false
+var _stream_text: String = ""
+var _generation: int = 0
+var _request_agent: LocalAgent
+var _completion: Callable
+var _progress: Callable
 
 
 func _ready() -> void:
@@ -76,11 +80,10 @@ func _ready() -> void:
         update_configuration_warnings()
         return
     _apply_presentation()
+    _create_prompt_starters()
     _prompt_input.text_submitted.connect(_on_text_submitted)
     _send_button.pressed.connect(_on_send_pressed)
     agent = _find_agent()
-    if agent != null and not agent.think_completed.is_connected(_on_think_completed):
-        agent.think_completed.connect(_on_think_completed)
     if greeting.strip_edges() != "":
         _append(_agent_label(), greeting.strip_edges(), agent_color)
     refresh_status()
@@ -100,18 +103,12 @@ func send(text: String) -> void:
         _status_label.text = String(state["next_step"])
         _update_input_state(false)
         return
-    if auto_load_model and not bool(state["model_loaded"]):
-        if not Status.ensure_model_loaded():
-            _status_label.text = Status.next_step()
-            return
 
     if agent == null:
         agent = _find_agent()
     if agent == null:
         _status_label.text = "No LocalAgent found. Assign one to this panel's Agent property."
         return
-    if not agent.think_completed.is_connected(_on_think_completed):
-        agent.think_completed.connect(_on_think_completed)
 
     prompt_submitted.emit(prompt)
     if show_user_messages:
@@ -124,13 +121,16 @@ func send(text: String) -> void:
     var full_prompt: String = prompt
     if prompt_prefix.strip_edges() != "":
         full_prompt = "%s\n%s" % [prompt_prefix, prompt]
-    if run_async:
-        # A false return means either a failure path (which emits think_completed deferred) or a job
-        # already in flight on this agent (whose completion also reaches _on_think_completed), so the
-        # busy state clears either way.
-        agent.think_async(full_prompt)
+    _generation += 1
+    if agent.think_async(full_prompt):
+        _request_agent = agent
+        _completion = Callable(self, "_on_think_completed").bind(_generation)
+        _progress = Callable(self, "_on_reply_updated").bind(_generation)
+        _request_agent.think_completed.connect(_completion)
+        _request_agent.reply_updated.connect(_progress)
     else:
-        _handle_result(agent.think(full_prompt))
+        _handle_result({"ok": false, "error": "request_not_started"})
+
 
 
 ## Empty the transcript, keeping the conversation the agent itself remembers.
@@ -152,7 +152,7 @@ func refresh_status() -> void:
     var state: Dictionary = Status.check()
     var blockers: PackedStringArray = _gating_blockers(state["blockers"])
     if _busy:
-        _status_label.text = "Thinking..."
+        _status_label.text = "Preparing your reply…"
     elif blockers.is_empty():
         _status_label.text = String(state["headline"])
     else:
@@ -178,6 +178,20 @@ func _apply_presentation() -> void:
     _status_bar.visible = show_status_bar
 
 
+func _create_prompt_starters() -> void:
+    var row: HFlowContainer = get_node_or_null("%Suggestions") as HFlowContainer
+    if row == null:
+        return
+    row.visible = not prompt_starters.is_empty()
+    for caption: String in prompt_starters:
+        var button: Button = Button.new()
+        button.text = caption
+        button.theme_type_variation = &"PromptButton"
+        button.tooltip_text = prompt_starters[caption]
+        button.pressed.connect(Callable(self, "send").bind(prompt_starters[caption]))
+        row.add_child(button)
+
+
 func _on_send_pressed() -> void:
     send(_prompt_input.text)
 
@@ -187,13 +201,37 @@ func _on_text_submitted(text: String) -> void:
         send(text)
 
 
-func _on_think_completed(result: Dictionary) -> void:
-    if not _busy:
+func _on_think_completed(result: Dictionary, generation: int) -> void:
+    if not _busy or generation != _generation:
         return   # someone else is driving this agent; not our reply to render
     _handle_result(result)
 
 
+func _on_reply_updated(text: String, generation: int) -> void:
+    if _busy and generation == _generation and agent == _request_agent:
+        _stream_text = text
+        _status_label.text = "Generating reply…"
+        _repaint()
+
+
+func _disconnect_request() -> void:
+    RequestSignals.disconnect_reply(_request_agent, _completion, _progress)
+    _request_agent = null
+    _completion = Callable()
+    _progress = Callable()
+
+
+func _exit_tree() -> void:
+    _disconnect_request()
+    _generation += 1
+
+
 func _handle_result(result: Dictionary) -> void:
+    if is_instance_valid(_request_agent) and agent != _request_agent:
+        result = {"ok": false, "error": "agent_replaced"}
+    _disconnect_request()
+    _stream_text = ""
+    _repaint()
     _busy = false
     var text: String = String(result.get("text", "")).strip_edges()
     if not bool(result.get("ok", true)):
@@ -224,12 +262,17 @@ func _update_input_state(allowed: bool) -> void:
     var usable: bool = allowed and not _busy
     _prompt_input.editable = usable
     _send_button.disabled = not usable
+    _send_button.text = "Thinking…" if _busy else "Send  →"
+    var row: HFlowContainer = get_node_or_null("%Suggestions") as HFlowContainer
+    if row != null:
+        for button: Button in row.get_children():
+            button.disabled = not usable
 
 
 func _append(speaker: String, text: String, color: Color) -> void:
     if _transcript == null:
         return
-    var line: String = "[color=#%s][b]%s[/b][/color] %s" % [color.to_html(false), _escape(speaker), _escape(text)]
+    var line: String = "[color=#%s][b]%s[/b][/color]\n%s\n" % [color.to_html(false), _escape(speaker), _escape(text)]
     _lines.append(line)
     if _lines.size() > max_transcript_lines:
         _lines = _lines.slice(_lines.size() - max_transcript_lines)
@@ -242,6 +285,8 @@ func _repaint() -> void:
     _transcript.clear()
     for line in _lines:
         _transcript.append_text(String(line) + "\n")
+    if _stream_text != "":
+        _transcript.append_text("[color=#%s][b]%s[/b][/color]\n%s" % [agent_color.to_html(false), _escape(_agent_label()), _escape(_stream_text)])
 
 
 # A model is free to answer with "[b]" or a stray "[", which RichTextLabel would eat as markup.

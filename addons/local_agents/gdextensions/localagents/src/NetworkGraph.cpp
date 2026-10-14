@@ -67,7 +67,7 @@ void NetworkGraph::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_edges", "node_id", "limit"), &NetworkGraph::get_edges, DEFVAL(32));
 
     ClassDB::bind_method(D_METHOD("add_embedding", "node_id", "vector", "metadata"), &NetworkGraph::add_embedding, DEFVAL(Dictionary()));
-    ClassDB::bind_method(D_METHOD("search_embeddings", "query", "top_k", "expand", "strategy"), &NetworkGraph::search_embeddings, DEFVAL(8), DEFVAL(32), DEFVAL(String("vp_tree")));
+    ClassDB::bind_method(D_METHOD("search_embeddings", "query", "top_k", "expand", "strategy", "embedding_model"), &NetworkGraph::search_embeddings, DEFVAL(8), DEFVAL(32), DEFVAL(String("vp_tree")), DEFVAL(String()));
 }
 
 bool NetworkGraph::open(const String &path) {
@@ -79,7 +79,7 @@ bool NetworkGraph::open(const String &path) {
     embeddings_.clear();
     vp_nodes_.clear();
     vp_root_ = -1;
-    embedding_dim_ = 0;
+    embedding_dimensions_.clear();
     index_dirty_ = true;
 
     db_path_ = path;
@@ -93,7 +93,7 @@ bool NetworkGraph::open(const String &path) {
         embeddings_.clear();
         vp_nodes_.clear();
         vp_root_ = -1;
-        embedding_dim_ = 0;
+        embedding_dimensions_.clear();
         index_dirty_ = true;
         return false;
     }
@@ -110,7 +110,7 @@ bool NetworkGraph::open(const String &path) {
         embeddings_.clear();
         vp_nodes_.clear();
         vp_root_ = -1;
-        embedding_dim_ = 0;
+        embedding_dimensions_.clear();
         index_dirty_ = true;
         return false;
     }
@@ -129,7 +129,7 @@ void NetworkGraph::close() {
     embeddings_.clear();
     vp_nodes_.clear();
     vp_root_ = -1;
-    embedding_dim_ = 0;
+    embedding_dimensions_.clear();
     index_dirty_ = true;
 }
 
@@ -199,7 +199,7 @@ bool NetworkGraph::exec_sql(const char *sql) const {
 
 void NetworkGraph::load_embeddings() {
     embeddings_.clear();
-    embedding_dim_ = 0;
+    embedding_dimensions_.clear();
 
     const char *sql = "SELECT id, node_id, dim, norm, vector, COALESCE(metadata, '{}') FROM embeddings ORDER BY id ASC";
     sqlite3_stmt *stmt = nullptr;
@@ -224,12 +224,10 @@ void NetworkGraph::load_embeddings() {
         if (record.norm <= 0.0f) {
             record.norm = compute_norm(record.values);
         }
-        if (embedding_dim_ == 0) {
-            embedding_dim_ = dim;
-        }
         if (sqlite3_column_type(stmt, 5) != SQLITE_NULL) {
             record.metadata = json_to_dictionary(String((const char *)sqlite3_column_text(stmt, 5)));
         }
+        embedding_dimensions_[String(record.metadata.get("embedding_model", String()))] = dim;
         embeddings_.push_back(record);
     }
 
@@ -606,24 +604,13 @@ int64_t NetworkGraph::add_embedding(int64_t node_id, const PackedFloat32Array &v
         return -1;
     }
 
-    if (embedding_dim_ == 0) {
-        embedding_dim_ = vector.size();
-    } else if (embedding_dim_ != vector.size()) {
-        UtilityFunctions::push_error("NetworkGraph::add_embedding - inconsistent dimensions");
-        return -1;
-    }
-
     Dictionary metadata_with_node = metadata.duplicate(true);
     metadata_with_node["embedded_node_id"] = node_id;
     String embedding_model = metadata_with_node.get("embedding_model", String());
-    if (embedding_model.is_empty()) {
-        embedding_model = metadata_with_node.get("model", String());
-    }
-    if (embedding_model.is_empty()) {
-        embedding_model = metadata_with_node.get("server_model", String());
-    }
-    if (embedding_model.is_empty()) {
-        embedding_model = String("unknown");
+    auto existing_dimension = embedding_dimensions_.find(embedding_model);
+    if (existing_dimension != embedding_dimensions_.end() && existing_dimension->second != vector.size()) {
+        UtilityFunctions::push_error("NetworkGraph::add_embedding - inconsistent dimensions within one model");
+        return -1;
     }
     metadata_with_node["embedding_model"] = embedding_model;
 
@@ -657,6 +644,7 @@ INSERT INTO embeddings(node_id, dim, norm, vector, metadata) VALUES(?1, ?2, ?3, 
         record.values = std::move(values);
         record.norm = norm;
         record.metadata = metadata_with_node.duplicate(true);
+        embedding_dimensions_[embedding_model] = vector.size();
         embeddings_.push_back(record);
         index_dirty_ = true;
     }
@@ -664,7 +652,7 @@ INSERT INTO embeddings(node_id, dim, norm, vector, metadata) VALUES(?1, ?2, ?3, 
     return embedding_id;
 }
 
-TypedArray<Dictionary> NetworkGraph::search_embeddings(const PackedFloat32Array &query, int64_t top_k, int64_t expand, const String &strategy) const {
+TypedArray<Dictionary> NetworkGraph::search_embeddings(const PackedFloat32Array &query, int64_t top_k, int64_t expand, const String &strategy, const String &embedding_model) const {
     std::scoped_lock lock(mutex_);
     TypedArray<Dictionary> results;
     if (!db_ || query.is_empty() || embeddings_.empty()) {
@@ -675,7 +663,9 @@ TypedArray<Dictionary> NetworkGraph::search_embeddings(const PackedFloat32Array 
     top_k = std::max<int64_t>(top_k, 1);
 
     std::vector<float> needle = to_std_vector(query);
-    if (embedding_dim_ != static_cast<int>(needle.size())) {
+    auto dimension = embedding_dimensions_.find(embedding_model);
+    if (dimension == embedding_dimensions_.end()) return results;
+    if (dimension->second != static_cast<int>(needle.size())) {
         UtilityFunctions::push_error("NetworkGraph::search_embeddings - dimension mismatch");
         return results;
     }
@@ -695,6 +685,7 @@ TypedArray<Dictionary> NetworkGraph::search_embeddings(const PackedFloat32Array 
     if (strategy_lower == String("cosine") || strategy_lower == String("bruteforce") || strategy_lower == String("exact")) {
         matches.reserve(embeddings_.size());
         for (const EmbeddingRecord &record : embeddings_) {
+            if (String(record.metadata.get("embedding_model", String())) != embedding_model) continue;
             float dist = static_cast<float>(cosine_distance(needle, norm, record.values, record.norm));
             matches.emplace_back(dist, &record);
         }
@@ -705,7 +696,7 @@ TypedArray<Dictionary> NetworkGraph::search_embeddings(const PackedFloat32Array 
         if (strategy_lower == String("hnsw") || strategy_lower == String("faiss")) {
             UtilityFunctions::push_warning(String("NetworkGraph::search_embeddings - strategy '") + strategy_lower + "' unavailable in this build; using vp_tree");
         }
-        ensure_index();
+        ensure_index(embedding_model);
         int64_t search_width = std::max(top_k, expand);
         matches.reserve(static_cast<size_t>(search_width));
         float tau = std::numeric_limits<float>::infinity();
@@ -747,7 +738,8 @@ double NetworkGraph::cosine_distance(const std::vector<float> &a, float norm_a, 
     return 1.0f - cosine;
 }
 
-void NetworkGraph::rebuild_index() {
+void NetworkGraph::rebuild_index(const String &embedding_model) {
+    index_model_ = embedding_model;
     vp_nodes_.clear();
     vp_root_ = -1;
     if (embeddings_.empty()) {
@@ -755,8 +747,10 @@ void NetworkGraph::rebuild_index() {
         return;
     }
 
-    std::vector<int> indices(embeddings_.size());
-    std::iota(indices.begin(), indices.end(), 0);
+    std::vector<int> indices;
+    for (size_t i = 0; i < embeddings_.size(); ++i) {
+        if (String(embeddings_[i].metadata.get("embedding_model", String())) == embedding_model) indices.push_back(static_cast<int>(i));
+    }
     vp_root_ = build_vp_node(indices);
     index_dirty_ = false;
 }
@@ -817,11 +811,11 @@ int NetworkGraph::build_vp_node(std::vector<int> &indices) {
     return node_idx;
 }
 
-void NetworkGraph::ensure_index() const {
-    if (!index_dirty_) {
+void NetworkGraph::ensure_index(const String &embedding_model) const {
+    if (!index_dirty_ && index_model_ == embedding_model) {
         return;
     }
-    const_cast<NetworkGraph *>(this)->rebuild_index();
+    const_cast<NetworkGraph *>(this)->rebuild_index(embedding_model);
 }
 
 void NetworkGraph::search_vp(int node_index, const std::vector<float> &query, float norm_query,

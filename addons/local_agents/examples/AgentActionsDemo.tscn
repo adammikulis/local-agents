@@ -1,9 +1,16 @@
-[gd_scene load_steps=5 format=3 uid="uid://c2actn0demo01"]
+[gd_scene load_steps=8 format=3 uid="uid://c2actn0demo01"]
 
 [ext_resource type="Script" path="res://addons/local_agents/examples/AgentActionsDemo.gd" id="1_actions"]
 [ext_resource type="Script" path="res://addons/local_agents/agents/Agent.gd" id="2_agent"]
 [ext_resource type="Script" path="res://addons/local_agents/agents/StatusLabel.gd" id="3_status"]
 [ext_resource type="PackedScene" path="res://addons/local_agents/agents/ui/ChatPanel.tscn" id="4_chatpanel"]
+
+[ext_resource type="Theme" path="res://addons/local_agents/agents/ui/ChatTheme.tres" id="llm_theme"]
+
+[ext_resource type="Shader" path="res://addons/local_agents/examples/OrbPreview.gdshader" id="orb_shader"]
+
+[sub_resource type="ShaderMaterial" id="orb_material"]
+shader = ExtResource("orb_shader")
 
 [node name="AgentActionsDemo" type="Node"]
 script = ExtResource("1_actions")
@@ -18,91 +25,116 @@ color_words = Dictionary[String, Color]({
 })
 neutral_color = Color(0.3, 0.32, 0.4, 1)
 
+[node name="Background" type="ColorRect" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+color = Color(0.027, 0.043, 0.078, 1)
+
 [node name="Agent" type="Node" parent="."]
 unique_name_in_owner = true
 script = ExtResource("2_agent")
 system_prompt = "You control a single glowing orb. Reply with one short instruction that names exactly one colour from red, green, blue, yellow, orange, purple or white, and add the word pulse if the orb should flash. Say nothing else."
 
 [node name="Margin" type="MarginContainer" parent="."]
+theme = ExtResource("llm_theme")
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-theme_override_constants/margin_left = 16
-theme_override_constants/margin_top = 16
-theme_override_constants/margin_right = 16
-theme_override_constants/margin_bottom = 16
+theme_override_constants/margin_left = 48
+theme_override_constants/margin_top = 32
+theme_override_constants/margin_right = 48
+theme_override_constants/margin_bottom = 32
 
 [node name="Column" type="VBoxContainer" parent="Margin"]
 layout_mode = 2
-theme_override_constants/separation = 10
+theme_override_constants/separation = 16
 
 [node name="Title" type="Label" parent="Margin/Column"]
 layout_mode = 2
-theme_override_font_sizes/font_size = 22
-text = "The reply becomes actions, not text"
+theme_override_font_sizes/font_size = 32
+text = "Words into action."
 
 [node name="Hint" type="Label" parent="Margin/Column"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.7, 0.74, 0.8, 1)
-text = "Ask for a colour below and the agent calls enqueue_action(\"set_color\", …). The buttons call the same thing, so the loop still runs with no model installed."
+text = "Describe a colour or ask the orb to pulse. The model’s reply controls the live preview."
 autowrap_mode = 3
 
-[node name="SetupStatus" type="Label" parent="Margin/Column"]
+[node name="Workspace" type="HBoxContainer" parent="Margin/Column"]
 layout_mode = 2
-text = "Local Agents status appears here at run time."
-autowrap_mode = 3
-script = ExtResource("3_status")
+size_flags_vertical = 3
+theme_override_constants/separation = 24
 
-[node name="Orb" type="ColorRect" parent="Margin/Column"]
+[node name="Preview" type="VBoxContainer" parent="Margin/Column/Workspace"]
+layout_mode = 2
+custom_minimum_size = Vector2(300, 0)
+size_flags_horizontal = 3
+size_flags_stretch_ratio = 0.55
+
+[node name="PreviewLabel" type="Label" parent="Margin/Column/Workspace/Preview"]
+layout_mode = 2
+text = "LIVE PREVIEW"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 12
+theme_override_colors/font_color = Color(0.65, 0.75, 0.9, 1)
+
+[node name="Orb" type="ColorRect" parent="Margin/Column/Workspace/Preview"]
+material = SubResource("orb_material")
+mouse_filter = 2
 unique_name_in_owner = true
-custom_minimum_size = Vector2(120, 120)
+custom_minimum_size = Vector2(240, 240)
 layout_mode = 2
 size_flags_horizontal = 4
 color = Color(0.3, 0.32, 0.4, 1)
 
-[node name="Caption" type="Label" parent="Margin/Column"]
+[node name="Caption" type="Label" parent="Margin/Column/Workspace/Preview"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Orb colour: neutral"
 horizontal_alignment = 1
 
-[node name="ManualButtons" type="HBoxContainer" parent="Margin/Column"]
+[node name="ManualButtons" type="HFlowContainer" parent="Margin/Column/Workspace/Preview"]
 layout_mode = 2
-theme_override_constants/separation = 8
+theme_override_constants/separation = 4
 
-[node name="RedButton" type="Button" parent="Margin/Column/ManualButtons"]
+[node name="RedButton" type="Button" parent="Margin/Column/Workspace/Preview/ManualButtons"]
 layout_mode = 2
 text = "Red"
 
-[node name="GreenButton" type="Button" parent="Margin/Column/ManualButtons"]
+[node name="GreenButton" type="Button" parent="Margin/Column/Workspace/Preview/ManualButtons"]
 layout_mode = 2
 text = "Green"
 
-[node name="BlueButton" type="Button" parent="Margin/Column/ManualButtons"]
+[node name="BlueButton" type="Button" parent="Margin/Column/Workspace/Preview/ManualButtons"]
 layout_mode = 2
 text = "Blue"
 
-[node name="PulseButton" type="Button" parent="Margin/Column/ManualButtons"]
+[node name="PulseButton" type="Button" parent="Margin/Column/Workspace/Preview/ManualButtons"]
 layout_mode = 2
 text = "Pulse"
 
-[node name="ResetButton" type="Button" parent="Margin/Column/ManualButtons"]
+[node name="ResetButton" type="Button" parent="Margin/Column/Workspace/Preview/ManualButtons"]
 layout_mode = 2
-text = "Reset"
+text = "↺"
+tooltip_text = "Reset orb"
 
-[node name="ChatPanel" parent="Margin/Column" node_paths=PackedStringArray("agent") instance=ExtResource("4_chatpanel")]
+[node name="ChatPanel" parent="Margin/Column/Workspace" node_paths=PackedStringArray("agent") instance=ExtResource("4_chatpanel")]
 layout_mode = 2
 size_flags_vertical = 3
-agent = NodePath("../../../Agent")
+size_flags_horizontal = 3
+agent = NodePath("../../../../Agent")
 placeholder_text = "Ask for a colour, e.g. make it orange and pulse"
-greeting = "Tell me what to do with the orb."
+prompt_starters = Dictionary[String, String]({"Purple orb": "Make the orb purple.", "Blue + pulse": "Make the orb blue and pulse."})
+greeting = "Try “make the orb purple” or “blue and pulse”."
 
 [connection signal="action_requested" from="Agent" to="." method="_on_agent_action_requested"]
-[connection signal="pressed" from="Margin/Column/ManualButtons/RedButton" to="." method="_on_colour_button_pressed" binds = ["red"]]
-[connection signal="pressed" from="Margin/Column/ManualButtons/GreenButton" to="." method="_on_colour_button_pressed" binds = ["green"]]
-[connection signal="pressed" from="Margin/Column/ManualButtons/BlueButton" to="." method="_on_colour_button_pressed" binds = ["blue"]]
-[connection signal="pressed" from="Margin/Column/ManualButtons/PulseButton" to="." method="_on_pulse_button_pressed"]
-[connection signal="pressed" from="Margin/Column/ManualButtons/ResetButton" to="." method="_on_reset_button_pressed"]
-[connection signal="reply_received" from="Margin/Column/ChatPanel" to="." method="_on_reply_received"]
+[connection signal="pressed" from="Margin/Column/Workspace/Preview/ManualButtons/RedButton" to="." method="_on_colour_button_pressed" binds = ["red"]]
+[connection signal="pressed" from="Margin/Column/Workspace/Preview/ManualButtons/GreenButton" to="." method="_on_colour_button_pressed" binds = ["green"]]
+[connection signal="pressed" from="Margin/Column/Workspace/Preview/ManualButtons/BlueButton" to="." method="_on_colour_button_pressed" binds = ["blue"]]
+[connection signal="pressed" from="Margin/Column/Workspace/Preview/ManualButtons/PulseButton" to="." method="_on_pulse_button_pressed"]
+[connection signal="pressed" from="Margin/Column/Workspace/Preview/ManualButtons/ResetButton" to="." method="_on_reset_button_pressed"]
+[connection signal="reply_received" from="Margin/Column/Workspace/ChatPanel" to="." method="_on_reply_received"]

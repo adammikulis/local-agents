@@ -46,7 +46,7 @@ while IFS= read -r base; do
 	rm -f "$PROJ/.godot/imported/${base}-"*.res "$PROJ/.godot/imported/${base}-"*.md5
 done < <(la_stale_kernels "$PROJ")
 
-LA_GODOT_TIMEOUT="${LA_IMPORT_TIMEOUT:-120}" la_godot --headless --path "$PROJ" --import >/dev/null 2>&1
+LA_CPU_VALIDATION=1 LA_GODOT_TIMEOUT="${LA_IMPORT_TIMEOUT:-120}" la_godot --headless --path "$PROJ" --import >/dev/null 2>&1
 rc=$?
 [ "$rc" -eq 0 ] || exit "$rc"
 
