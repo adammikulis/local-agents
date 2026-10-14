@@ -84,12 +84,12 @@ func search_code(query: String, top_k: int = 5, expand: int = 64) -> Array:
         return []
     if not runtime.call("is_model_loaded"):
         return []
-    if not runtime.has_method("embed_text"):
+    if not runtime.has_method("embed_text_with_model"):
         return []
-    var emb: Variant = runtime.call("embed_text", query, {"normalize": true})
-    if emb.is_empty():
+    var embedding: Dictionary = runtime.embed_text_with_model(query, {"normalize": true})
+    if not bool(embedding.get("ok", false)):
         return []
-    var matches: Array[Dictionary] = _graph.search_embeddings(emb, top_k, expand)
+    var matches: Array[Dictionary] = _graph.search_embeddings(embedding["vector"], top_k, expand, "vp_tree", embedding["embedding_model"])
     var results: Array = []
     for match in matches:
         if not (match is Dictionary):
@@ -152,15 +152,11 @@ func _store_code_embedding(node_id: int, content: String) -> void:
         return
     if not runtime.call("is_model_loaded"):
         return
-    if not runtime.has_method("embed_text"):
+    if not runtime.has_method("embed_text_with_model"):
         return
-    var slice: String = content
-    if slice.length() > 4000:
-        slice = slice.substr(0, 4000)
-    var emb: Variant = runtime.call("embed_text", slice, {"normalize": true})
-    if emb.is_empty():
+    var embedding: Dictionary = runtime.embed_text_with_model(content, {"normalize": true})
+    if not bool(embedding.get("ok", false)):
         return
-    var embedding_model: String = AgentRuntimeAccess.default_model_name(runtime)
     var node_variant = _graph.get_node(node_id)
     var node_data: Dictionary = {}
     if node_variant is Dictionary:
@@ -168,10 +164,10 @@ func _store_code_embedding(node_id: int, content: String) -> void:
         var node_data_variant = node.get("data", {})
         if node_data_variant is Dictionary:
             node_data = node_data_variant
-    _graph.add_embedding(node_id, emb, {
+    _graph.add_embedding(node_id, embedding["vector"], {
         "type": "code_chunk",
         "path": node_data.get("path", ""),
-        "embedding_model": embedding_model,
+        "embedding_model": embedding["embedding_model"],
     })
 
 func _clear_code_space() -> void:

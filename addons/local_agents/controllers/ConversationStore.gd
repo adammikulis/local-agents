@@ -9,6 +9,11 @@ const MESSAGE_SPACE: String = "message"
 const AgentRuntimeAccess = preload("res://addons/local_agents/runtime/AgentRuntimeAccess.gd")
 
 var _graph: NetworkGraph = null
+var _embedding_thread: Thread
+var _embedding_queue: Array[Dictionary] = []
+var _embedding_job: Dictionary = {}
+var _embedding_generation: int = 0
+
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 
 func _ready() -> void:
@@ -138,17 +143,15 @@ func search_messages(query: String, top_k: int = 5, expand: int = 32) -> Array:
         return []
     if not _ensure_graph():
         return []
+    while _embedding_thread != null:
+        _finish_embedding(_embedding_generation)
     var runtime: Object = AgentRuntimeAccess.singleton()
-    if runtime == null or not runtime.has_method("is_model_loaded"):
+    if runtime == null or not runtime.has_method("embed_text_with_model"):
         return []
-    if not runtime.call("is_model_loaded"):
+    var result: Dictionary = runtime.embed_text_with_model(query, {"normalize": true})
+    if not bool(result.get("ok", false)):
         return []
-    if not runtime.has_method("embed_text"):
-        return []
-    var embedding: Variant = runtime.call("embed_text", query, {"normalize": true})
-    if embedding.is_empty():
-        return []
-    var matches: Array[Dictionary] = _graph.search_embeddings(embedding, top_k, expand)
+    var matches: Array[Dictionary] = _graph.search_embeddings(result["vector"], top_k, expand, "vp_tree", result["embedding_model"])
     var results: Array = []
     for item in matches:
         var node_id: int = int(item.get("node_id", -1))
@@ -222,25 +225,46 @@ func _message_from_row(row: Dictionary) -> Dictionary:
 
 func _store_embedding(message_id: int, role: String, content: String, conversation_id: int) -> void:
     var runtime: Object = AgentRuntimeAccess.singleton()
-    if runtime == null or not runtime.has_method("is_model_loaded"):
+    if runtime == null or not runtime.has_method("embed_text_with_model"):
         return
-    if not runtime.call("is_model_loaded"):
+    _embedding_queue.append({"runtime": runtime, "id": message_id, "role": role, "content": content, "conversation_id": conversation_id})
+    _start_embedding()
+
+func _start_embedding() -> void:
+    if _embedding_thread != null or _embedding_queue.is_empty():
         return
-    if not runtime.has_method("embed_text"):
+    _embedding_job = _embedding_queue.pop_front()
+    _embedding_generation += 1
+    _embedding_thread = Thread.new()
+    _embedding_thread.start(Callable(self, "_embedding_worker").bind(_embedding_job, _embedding_generation))
+
+func _embedding_worker(job: Dictionary, generation: int) -> Dictionary:
+    var runtime: Object = job["runtime"]
+    var result: Dictionary = runtime.embed_text_with_model(job["content"], {"normalize": true})
+    Callable(self, "_finish_embedding").call_deferred(generation)
+    return result
+
+func _finish_embedding(generation: int) -> void:
+    if generation != _embedding_generation or _embedding_thread == null:
         return
-    var truncated: String = content
-    if truncated.length() > 4096:
-        truncated = truncated.substr(0, 4096)
-    var vector: Variant = runtime.call("embed_text", truncated, {"normalize": true})
-    if vector.is_empty():
-        return
-    var embedding_model: String = AgentRuntimeAccess.default_model_name(runtime)
-    _graph.add_embedding(message_id, vector, {
-        "type": "chat_message",
-        "conversation_id": conversation_id,
-        "role": role,
-        "embedding_model": embedding_model,
-    })
+    var result: Dictionary = _embedding_thread.wait_to_finish()
+    _embedding_thread = null
+    var message_id: int = int(_embedding_job["id"])
+    if bool(result.get("ok", false)) and not _graph.get_node(message_id).is_empty():
+        _graph.add_embedding(message_id, result["vector"], {
+            "type": "chat_message", "conversation_id": _embedding_job["conversation_id"],
+            "role": _embedding_job["role"], "embedding_model": result["embedding_model"],
+        })
+    elif not bool(result.get("ok", false)):
+        push_warning("Message embedding unavailable: %s" % result.get("error", "unknown"))
+    _embedding_job = {}
+    _start_embedding()
+
+func _exit_tree() -> void:
+    _embedding_queue.clear()
+    if _embedding_thread != null:
+        _embedding_thread.wait_to_finish()
+        _embedding_thread = null
 
 func _generate_label(prefix: String) -> String:
     return "%s_%d_%d" % [prefix, Time.get_unix_time_from_system(), _rng.randi()]

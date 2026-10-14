@@ -23,7 +23,8 @@ if [ -n "$KEY" ] && [ "$(cat "$PROJ/.godot/la_import_key" 2>/dev/null)" = "$KEY"
 fi
 
 godot_lock || exit 1
-trap godot_unlock EXIT
+IMPORT_LOG=""
+trap 'godot_unlock; [ -z "$IMPORT_LOG" ] || rm -f "$IMPORT_LOG"' EXIT
 
 if [ -n "$KEY" ] && [ "$(cat "$CACHE_ROOT/$KEY/.godot/la_import_key" 2>/dev/null)" = "$KEY" ]; then
 	rm -rf "$PROJ/.godot.incoming"
@@ -46,9 +47,14 @@ while IFS= read -r base; do
 	rm -f "$PROJ/.godot/imported/${base}-"*.res "$PROJ/.godot/imported/${base}-"*.md5
 done < <(la_stale_kernels "$PROJ")
 
-LA_GODOT_TIMEOUT="${LA_IMPORT_TIMEOUT:-120}" la_godot --headless --path "$PROJ" --import >/dev/null 2>&1
+IMPORT_LOG="$(mktemp "${TMPDIR:-/tmp}/la_import.XXXXXX")" || exit 2
+LA_CPU_VALIDATION=1 LA_GODOT_TIMEOUT="${LA_IMPORT_TIMEOUT:-120}" la_godot --headless --path "$PROJ" --import >"$IMPORT_LOG" 2>&1
 rc=$?
-[ "$rc" -eq 0 ] || exit "$rc"
+if [ "$rc" -ne 0 ]; then
+	echo "godot_import: engine import failed (exit $rc):" >&2
+	cat "$IMPORT_LOG" >&2
+	exit "$rc"
+fi
 
 la_write_kernel_manifest "$PROJ" || { echo "godot_import: could not record the kernel include hashes." >&2; exit 1; }
 

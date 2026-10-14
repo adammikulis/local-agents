@@ -1111,3 +1111,26 @@ mutation = [
 	"python3 -c \"p='addons/local_agents/game/render/events/CycloneView.tscn'; s=open(p).read(); open(p,'w').write(s.replace('visibility_aabb = AABB(-6, -2, -6, 12, 4, 12)','visibility_aabb = AABB(-1, -0.1, -1, 2, 0.2, 2)'))\"",
 	"python3 -c \"p='addons/local_agents/game/render/events/PhenomenaMarkers.gd'; s=open(p).read(); open(p,'w').write(s.replace('_field._grid.cell_edge(c)','_field._grid.cell_size'))\"",
 ]
+
+[[gate]]
+name = "check_stream_text"
+script = "scripts/check_stream_text.sh"
+kind = "text"
+marker = "^check_stream_text: OK"
+mutation = "python3 -c \"from pathlib import Path; p=Path('addons/local_agents/gdextensions/localagents/src/RuntimeStreamText.cpp'); s=p.read_text().replace('return text.substr(0, valid);', 'return text;'); p.write_text(s)\""
+
+[[gate]]
+name = "check_llm_request_ownership"
+script = "scripts/check_llm_request_ownership.sh"
+kind = "headless"
+needs = ["build", "import"]
+marker = "LLM request ownership tests passed"
+mutation = "python3 -c \"from pathlib import Path; p=Path('addons/local_agents/controllers/ChatController.gd'); p.write_text(p.read_text().replace('if not _is_generating or generation != _request_generation:', 'if not _is_generating:'))\""
+
+[[gate]]
+name = "check_llm_http_stream"
+script = "scripts/check_llm_http_stream.sh"
+kind = "headless"
+needs = ["build", "import"]
+marker = "^check_llm_http_stream: OK"
+mutation = "python3 -c \"from pathlib import Path; p=Path('addons/local_agents/gdextensions/localagents/src/RuntimeHttp.cpp'); p.write_text(p.read_text().replace('state.progress.call_deferred(state.text);', ''))\""

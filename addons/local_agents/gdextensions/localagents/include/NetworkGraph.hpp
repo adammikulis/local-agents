@@ -9,6 +9,7 @@
 
 #include <mutex>
 #include <vector>
+#include <map>
 
 struct sqlite3;
 struct sqlite3_stmt;
@@ -39,7 +40,7 @@ public:
     TypedArray<Dictionary> get_edges(int64_t node_id, int64_t limit) const;
 
     int64_t add_embedding(int64_t node_id, const PackedFloat32Array &vector, const Dictionary &metadata);
-    TypedArray<Dictionary> search_embeddings(const PackedFloat32Array &query, int64_t top_k, int64_t expand, const String &strategy = String("vp_tree")) const;
+    TypedArray<Dictionary> search_embeddings(const PackedFloat32Array &query, int64_t top_k, int64_t expand, const String &strategy = String("vp_tree"), const String &embedding_model = String()) const;
 
 protected:
     static void _bind_methods();
@@ -68,13 +69,13 @@ private:
 
     void load_embeddings();
     double cosine_distance(const std::vector<float> &a, float norm_a, const std::vector<float> &b, float norm_b) const;
-    void rebuild_index();
+    void rebuild_index(const String &embedding_model);
     int build_vp_node(std::vector<int> &indices);
     void search_vp(int node_index, const std::vector<float> &query, float norm_query,
                    int64_t top_k, float &tau,
                    std::vector<std::pair<float, const EmbeddingRecord *>> &results) const;
 
-    void ensure_index() const;
+    void ensure_index(const String &embedding_model) const;
 
     sqlite3 *db_ = nullptr;
     String db_path_;
@@ -84,7 +85,8 @@ private:
     mutable std::vector<EmbeddingRecord> embeddings_;
     mutable std::vector<VPTreeNode> vp_nodes_;
     mutable int vp_root_ = -1;
-    mutable int embedding_dim_ = 0;
+    std::map<String, int> embedding_dimensions_;
+    mutable String index_model_;
 };
 
 } // namespace godot

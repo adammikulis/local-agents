@@ -145,12 +145,14 @@ la_godot() {
 		[ "$a" = "--headless" ] && headless=1
 	done
 	local held=0 rc=0
-	la_gpu_lock
-	case $? in
-		0) held=1 ;;
-		2) ;;
-		*) echo "la_godot: timed out waiting for the GPU lock; NO RUN HAPPENED." >&2; return 2 ;;
-	esac
+	if [ "$headless" -eq 0 ] || [ "${LA_CPU_VALIDATION:-0}" != "1" ]; then
+		la_gpu_lock
+		case $? in
+			0) held=1 ;;
+			2) ;;
+			*) echo "la_godot: timed out waiting for the GPU lock; NO RUN HAPPENED." >&2; return 2 ;;
+		esac
+	fi
 	if [ "$headless" -eq 1 ]; then
 		command ${pre[@]+"${pre[@]}"} "$binary" ${audio[@]+"${audio[@]}"} "$@"
 		rc=$?

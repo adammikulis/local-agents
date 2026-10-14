@@ -37,6 +37,8 @@ set(SRC
     src/AgentRuntimeInference.cpp
     src/RuntimeInferenceUtils.cpp
     src/RuntimeChatPrompt.cpp
+    src/RuntimeHttp.cpp
+    src/RuntimeStreamText.cpp
     src/LAAblate.cpp
     src/LAAbsorptionBands.cpp
     src/LAColumnRadiation.cpp

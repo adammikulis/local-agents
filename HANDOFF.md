@@ -175,10 +175,6 @@ Branch `native-plans` is unlanded: `scripts/check_lasim_parity.sh` there reads `
 Maintainer's decision, standing: per-cell moles of elements are the state and species are derived
 (`docs/PHYSICS_TODO.md` B); today the ledger reconstructs them from `Channels.gd` (`mol_per_unit`).
 
-## 20. THE GPU LINT RUNS HERE ONLY
-
-`.github/workflows/gpu-lint.yml` targets a self-hosted macOS runner labelled `gpu`; none is registered.
-
 ## 21. THE STAR IS SEEDED WITH TODAY'S RADIUS BESIDE THE EPOCH'S LUMINOSITY
 
 `rg -n 'star\["(radius_m|luminosity_w)"\]' addons/local_agents/gdextensions/localagents/src/LABodySystem.cpp`
@@ -186,6 +182,11 @@ reads the present nominal radius for a star `star_age_at_epoch_gyr()` old, where
 gives 0.869 of it at zero age and 0.882 at 0.2 Gyr (Bahcall, Pinsonneault & Basu 2001, ApJ 555:990,
 Table 1); the sky's disc and the ground's sunlit unit are drawn from that radius.
 Reading: `LABodySeeds::rows` sets the star's `radius_m` to `SOLAR_RADIUS_M`.
+
+## REQUIRED BASELINE: COMBUSTION AND MIXTURE ENTHALPY FAIL
+
+`scripts/agent_harness.sh single test_combustion_rate_law.gd` rejects reaction stoichiometry and enthalpy; `scripts/agent_harness.sh single test_mixture_enthalpy.gd` rejects saturated vapour.
+Complete when both pass against the requirements in `docs/PHYSICS_TODO.md` and `scripts/agent_harness.sh all` passes.
 
 ## How to run
 

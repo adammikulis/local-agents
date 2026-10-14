@@ -2,6 +2,7 @@
 
 #include "RuntimeStringUtils.hpp"
 #include "RuntimeInferenceUtils.hpp"
+#include "RuntimeHttp.hpp"
 
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
@@ -40,6 +41,8 @@
 
 using namespace godot;
 using local_agents::runtime::to_utf8;
+using local_agents::runtime::HttpJsonResponse;
+using local_agents::runtime::http_post_json;
 using local_agents::runtime::from_utf8;
 using local_agents::runtime::tokenize_text;
 using local_agents::runtime::parse_json_response;
@@ -179,79 +182,6 @@ void ensure_parent_directory(const std::filesystem::path &file_path) {
     }
     std::error_code ec;
     std::filesystem::create_directories(parent, ec);
-}
-
-struct HttpJsonResponse {
-    bool ok = false;
-    long status_code = 0;
-    String body;
-    String error;
-};
-
-size_t curl_write_string(void *contents, size_t size, size_t nmemb, void *userdata) {
-    if (!userdata) {
-        return 0;
-    }
-    const size_t total = size * nmemb;
-    std::string *buffer = static_cast<std::string *>(userdata);
-    buffer->append(static_cast<const char *>(contents), total);
-    return total;
-}
-
-HttpJsonResponse http_post_json(
-    const String &url,
-    const Dictionary &payload,
-    const PackedStringArray &headers,
-    int timeout_seconds
-) {
-    HttpJsonResponse result;
-    result.body = String();
-    result.error = String();
-
-    CURL *curl = curl_easy_init();
-    if (!curl) {
-        result.error = String("curl_init_failed");
-        return result;
-    }
-
-    struct curl_slist *header_list = nullptr;
-    for (int i = 0; i < headers.size(); ++i) {
-        std::string header = to_utf8(headers[i]);
-        header_list = curl_slist_append(header_list, header.c_str());
-    }
-    if (!header_list) {
-        header_list = curl_slist_append(header_list, "Content-Type: application/json");
-    }
-
-    std::string response_buffer;
-    std::string payload_text = to_utf8(JSON::stringify(payload));
-    std::string url_utf8 = to_utf8(url);
-
-    curl_easy_setopt(curl, CURLOPT_URL, url_utf8.c_str());
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header_list);
-    curl_easy_setopt(curl, CURLOPT_POST, 1L);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload_text.c_str());
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(payload_text.size()));
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_string);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_buffer);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout_seconds > 0 ? timeout_seconds : 120);
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
-
-    CURLcode code = curl_easy_perform(curl);
-    if (code != CURLE_OK) {
-        result.error = String::utf8(curl_easy_strerror(code));
-    } else {
-        result.ok = true;
-    }
-
-    long status_code = 0;
-    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status_code);
-    result.status_code = status_code;
-    result.body = String::utf8(response_buffer.c_str());
-
-    curl_slist_free_all(header_list);
-    curl_easy_cleanup(curl);
-    return result;
 }
 
 String normalize_server_base_url(String base_url) {
@@ -479,6 +409,7 @@ AgentRuntime *AgentRuntime::get_singleton() {
 }
 
 void AgentRuntime::_bind_methods() {
+    ClassDB::bind_method(D_METHOD("embed_text_with_model", "text", "options"), &AgentRuntime::embed_text_with_model, DEFVAL(Dictionary()));
     ClassDB::bind_method(D_METHOD("load_model", "model_path", "options"), &AgentRuntime::load_model);
     ClassDB::bind_method(D_METHOD("unload_model"), &AgentRuntime::unload_model);
     ClassDB::bind_method(D_METHOD("is_model_loaded"), &AgentRuntime::is_model_loaded);
@@ -511,13 +442,13 @@ void AgentRuntime::_notification(int what) {
 
 bool AgentRuntime::load_model(const String &model_path, const Dictionary &options) {
     std::scoped_lock lock(mutex_);
-    String resolved = model_path.is_empty() ? default_model_path_ : model_path;
+    String resolved = model_path.is_empty() ? get_default_model_path() : model_path;
     if (resolved.is_empty()) {
         UtilityFunctions::push_error("AgentRuntime::load_model - model path empty");
         return false;
     }
     if (!model_path.is_empty()) {
-        default_model_path_ = resolved;
+        set_default_model_path(resolved);
     }
     return load_model_locked(resolved, options, true);
 }
@@ -528,7 +459,7 @@ void AgentRuntime::unload_model() {
 }
 
 bool AgentRuntime::is_model_loaded() const {
-    std::scoped_lock lock(mutex_);
+    std::scoped_lock lock(residency_mutex_);
     return model_ != nullptr && context_ != nullptr;
 }
 
@@ -538,11 +469,11 @@ Dictionary AgentRuntime::get_runtime_health() {
     String model_path;
     bool model_loaded = false;
     {
-        std::scoped_lock lock(mutex_);
+        std::scoped_lock lock(config_mutex_);
         runtime_property = runtime_directory_;
         model_path = default_model_path_;
-        model_loaded = model_ != nullptr && context_ != nullptr;
     }
+    model_loaded = is_model_loaded();
 
     std::filesystem::path runtime_dir = resolve_runtime_directory_path(String(), runtime_property);
     bool runtime_dir_exists = !runtime_dir.empty() && std::filesystem::exists(runtime_dir);
@@ -601,13 +532,14 @@ Dictionary AgentRuntime::generate(const Dictionary &request) {
     }
 
     if (!model_ || !context_) {
-        if (default_model_path_.is_empty()) {
+        String model_path = get_default_model_path();
+        if (model_path.is_empty()) {
             Dictionary error;
             error["ok"] = false;
             error["error"] = "model_not_loaded";
             return error;
         }
-        if (!load_model_locked(default_model_path_, default_options_, false)) {
+        if (!load_model_locked(model_path, default_options_, false)) {
             Dictionary error;
             error["ok"] = false;
             error["error"] = "model_not_loaded";
@@ -618,8 +550,33 @@ Dictionary AgentRuntime::generate(const Dictionary &request) {
     return run_inference_locked(request);
 }
 
+Dictionary AgentRuntime::embed_text_with_model(const String &text, const Dictionary &options) {
+    std::scoped_lock lock(mutex_);
+    Dictionary result;
+    result["ok"] = false;
+    Dictionary identity;
+    PackedFloat32Array vector = embed_text_locked(text, options, &identity);
+    if (vector.is_empty()) {
+        result["error"] = String("embedding_unavailable");
+        return result;
+    }
+    String model_identity = identity.get("embedding_model", String());
+    if (model_identity.is_empty()) {
+        result["error"] = String("embedding_identity_unavailable");
+        return result;
+    }
+    result["ok"] = true;
+    result["vector"] = vector;
+    result["embedding_model"] = model_identity;
+    return result;
+}
+
 PackedFloat32Array AgentRuntime::embed_text(const String &text, const Dictionary &options) {
     std::scoped_lock lock(mutex_);
+    return embed_text_locked(text, options);
+}
+
+PackedFloat32Array AgentRuntime::embed_text_locked(const String &text, const Dictionary &options, Dictionary *identity) {
 
     PackedFloat32Array empty;
     if (text.is_empty()) {
@@ -693,17 +650,23 @@ PackedFloat32Array AgentRuntime::embed_text(const String &text, const Dictionary
             UtilityFunctions::push_error(String("AgentRuntime::embed_text - ") + parse_error);
             return empty;
         }
+        if (identity) {
+            Dictionary document = parsed;
+            String model_identity = document.get("model", String());
+            if (!model_identity.is_empty()) (*identity)["embedding_model"] = url + String("|") + model_identity;
+        }
         return server_embedding;
     }
 
     if (!model_ || !context_) {
-        if (default_model_path_.is_empty()) {
+        String model_path = get_default_model_path();
+        if (model_path.is_empty()) {
             UtilityFunctions::push_error("AgentRuntime::embed_text - model not loaded");
             return empty;
         }
         Dictionary reload_options = default_options_.duplicate();
         reload_options["embedding"] = true;
-        if (!load_model_locked(default_model_path_, reload_options, false)) {
+        if (!load_model_locked(model_path, reload_options, false)) {
             UtilityFunctions::push_error("AgentRuntime::embed_text - failed to reload model with embedding support");
             return empty;
         }
@@ -770,6 +733,7 @@ PackedFloat32Array AgentRuntime::embed_text(const String &text, const Dictionary
         }
     }
 
+    if (identity) (*identity)["embedding_model"] = loaded_model_path_;
     return embedding;
 }
 
@@ -813,11 +777,7 @@ Dictionary AgentRuntime::synthesize_speech(const Dictionary &request) {
     String runtime_override = request.get("runtime_directory", String());
     String voice_config = request.get("voice_config", String());
 
-    String runtime_property;
-    {
-        std::scoped_lock lock(speech_mutex_);
-        runtime_property = runtime_directory_;
-    }
+    String runtime_property = get_runtime_directory();
 
     std::filesystem::path runtime_dir_path = resolve_runtime_directory_path(runtime_override, runtime_property);
     if (runtime_dir_path.empty()) {
@@ -942,11 +902,7 @@ Dictionary AgentRuntime::transcribe_audio(const Dictionary &request) {
     String runtime_override = request.get("runtime_directory", String());
     String output_override = request.get("output_path", String());
 
-    String runtime_property;
-    {
-        std::scoped_lock lock(speech_mutex_);
-        runtime_property = runtime_directory_;
-    }
+    String runtime_property = get_runtime_directory();
 
     std::filesystem::path runtime_dir_path = resolve_runtime_directory_path(runtime_override, runtime_property);
     if (runtime_dir_path.empty()) {
@@ -1083,15 +1039,21 @@ Dictionary AgentRuntime::run_llama_server_inference_locked(const Dictionary &req
             append_message(messages, role, content);
         }
 
-        if (!has_system && !system_prompt_.is_empty()) {
+        String system_prompt = get_system_prompt();
+        if (!has_system && !system_prompt.is_empty()) {
             Dictionary system_message;
             system_message["role"] = String("system");
-            system_message["content"] = system_prompt_;
+            system_message["content"] = system_prompt;
             messages.insert(0, system_message);
         }
 
         String prompt = request.get("prompt", String());
-        if (!prompt.is_empty()) {
+        bool already_appended = false;
+        if (!messages.is_empty()) {
+            Dictionary last = messages[messages.size() - 1];
+            already_appended = String(last.get("role", String())) == String("user") && String(last.get("content", String())) == prompt;
+        }
+        if (!prompt.is_empty() && !already_appended) {
             append_message(messages, String("user"), prompt);
         }
     }
@@ -1165,7 +1127,9 @@ Dictionary AgentRuntime::run_llama_server_inference_locked(const Dictionary &req
         headers.append(String("Authorization: Bearer ") + api_key);
     }
 
-    HttpJsonResponse http = http_post_json(url, payload, headers, timeout_seconds);
+    Callable progress = request.get("stream_callback", Callable());
+    payload["stream"] = progress.is_valid();
+    HttpJsonResponse http = http_post_json(url, payload, headers, timeout_seconds, progress);
     response["endpoint"] = url;
     response["status_code"] = static_cast<int64_t>(http.status_code);
 
@@ -1243,31 +1207,31 @@ Dictionary AgentRuntime::run_llama_server_inference_locked(const Dictionary &req
 }
 
 void AgentRuntime::set_default_model_path(const String &path) {
-    std::scoped_lock lock(mutex_);
+    std::scoped_lock lock(config_mutex_);
     default_model_path_ = path;
 }
 
 String AgentRuntime::get_default_model_path() const {
-    std::scoped_lock lock(mutex_);
+    std::scoped_lock lock(config_mutex_);
     return default_model_path_;
 }
 
 void AgentRuntime::set_runtime_directory(const String &path) {
-    std::scoped_lock lock(mutex_);
+    std::scoped_lock lock(config_mutex_);
     runtime_directory_ = path;
 }
 
 String AgentRuntime::get_runtime_directory() const {
-    std::scoped_lock lock(mutex_);
+    std::scoped_lock lock(config_mutex_);
     return runtime_directory_;
 }
 
 void AgentRuntime::set_system_prompt(const String &prompt) {
-    std::scoped_lock lock(mutex_);
+    std::scoped_lock lock(config_mutex_);
     system_prompt_ = prompt;
 }
 
 String AgentRuntime::get_system_prompt() const {
-    std::scoped_lock lock(mutex_);
+    std::scoped_lock lock(config_mutex_);
     return system_prompt_;
 }
