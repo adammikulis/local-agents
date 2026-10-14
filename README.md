@@ -46,7 +46,7 @@ func _on_reply(result: Dictionary) -> void:
         push_warning(result.get("error", "agent unavailable"))
 ```
 
-Generation runs on a worker thread. Use the bundled `ChatPanel` for a prompt box and transcript,
+Replies stream through `reply_updated`; `think_completed` returns the final result. Use the bundled `ChatPanel` for a prompt box and transcript,
 `action_requested` for game actions, and the memory graph for stored conversations.
 
 ![A local model reply changing the orb in the Actions demo](addons/local_agents/docs/img/llm-actions.png)
@@ -61,6 +61,23 @@ The [demo guide](addons/local_agents/docs/DEMOS.md) lists the examples and their
 The planet is unfinished 0.4 development. Its physics is verified one rung at a time;
 [HANDOFF.md](HANDOFF.md) lists release blockers. Creature work and
 [runtime cognition](docs/0.5_RUNTIME_COGNITION.md) are parked for 0.5.
+
+<details>
+<summary>More live model screenshots</summary>
+
+**Streaming:** a reply captured while generation was still running.
+
+![A local model streaming its reply in Godot](addons/local_agents/docs/img/llm-streaming.png)
+
+**Conversation:** two agents responding to each other.
+
+![Two model-generated replies in the Conversation demo](addons/local_agents/docs/img/llm-conversation.png)
+
+**Chat:** saved conversations and model controls.
+
+![The Chat example running a local model](addons/local_agents/docs/img/llm-chat.png)
+
+</details>
 
 ## Development
 
