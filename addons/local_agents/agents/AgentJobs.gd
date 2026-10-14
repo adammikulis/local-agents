@@ -29,9 +29,12 @@ func join() -> void:
         _thread = null
 
 
-func start(job: Dictionary, server: AgentServer, completion: Callable) -> void:
+func start(job: Dictionary, server: AgentServer, completion: Callable) -> bool:
     _thread = Thread.new()
-    _thread.start(Callable(self, "_worker").bind(job, server, completion))
+    if _thread.start(Callable(self, "_worker").bind(job, server, completion)) != OK:
+        _thread = null
+        return false
+    return true
 
 
 func _worker(job: Dictionary, server: AgentServer, completion: Callable) -> void:
