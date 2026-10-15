@@ -47,7 +47,7 @@ print('OK')
  fallback=rows[0]
  assert not r['effective_launcher'](fallback,True)
  doc=root/'gates.toml';doc.write_text('[[gate]]\nname="a"\nscript="a"\nkind="text"\nmarker="OK"\nmutation=["one","two"]\nneeds=["build"]\ncapture_reader=true\n')
- loaded=r['load_gates'](str(doc));assert loaded[0]['mutations']==['one','two']
+ loaded=r['load_gates'](str(doc));assert loaded[0]['mutations']==[{'cmd':cmd,'exit':None,'says':None} for cmd in ['one','two']]
  doc.write_text(doc.read_text().replace('capture_reader=true','capture_reader="true"'))
  try:r['load_gates'](str(doc))
  except ValueError:pass
@@ -87,11 +87,11 @@ print('OK')
  baseline = r['run_gate'](dict(mutable, timeout_s=5),str(root),str(root/'mutable-baseline.launch'),False)
  assert baseline[0]==0, ('mutable baseline did not run', baseline)
  output=io.StringIO()
- with contextlib.redirect_stdout(output): result=r['mutate_one'](mutable,mutation)
+ with contextlib.redirect_stdout(output): result=r['mutate_one'](mutable,r['mutation_of']('mutable',mutation))
  assert result==2 and 'could not run under' in output.getvalue() and 'MUTATION_KILLED' not in output.getvalue(),output.getvalue()
  output=io.StringIO()
  skipped="python3 -c \"from pathlib import Path; Path('scripts/mutable').write_text('#!/bin/sh\\nexit 3\\n')\""
- with contextlib.redirect_stdout(output):result=r['mutate_one'](mutable,skipped)
+ with contextlib.redirect_stdout(output):result=r['mutate_one'](mutable,r['mutation_of']('mutable',skipped))
  assert result==2 and 'could not run under' in output.getvalue() and 'MUTATION_KILLED' not in output.getvalue(),output.getvalue()
  print('gate runner: captured parallel readers, serial fallbacks, strict launch rejection, final ledger ordering, array mutations, boolean validation and build preparation passed')
 
