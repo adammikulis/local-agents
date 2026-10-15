@@ -82,8 +82,8 @@ print('OK')
  globals_['arm_scratch']=lambda *args,**kwargs:True
  globals_['git']=lambda *args,**kwargs:None
  mutable=gate('mutable', "printf 'OK\\n'\n",shell=True)
- mutable['timeout_s']=.5
- mutation="python3 -c \"from pathlib import Path; Path('scripts/mutable').write_text('#!/bin/sh\\nexec sleep 2\\n')\""
+ mutable['timeout_s']=5
+ mutation="python3 -c \"from pathlib import Path; Path('scripts/mutable').write_text('#!/bin/sh\\nexec sleep 20\\n')\""
  baseline = r['run_gate'](dict(mutable, timeout_s=5),str(root),str(root/'mutable-baseline.launch'),False)
  assert baseline[0]==0, ('mutable baseline did not run', baseline)
  output=io.StringIO()
