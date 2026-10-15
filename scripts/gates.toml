@@ -1141,3 +1141,13 @@ script = "scripts/check_ladder_scope.py"
 kind = "text"
 marker = "^check_ladder_scope: OK"
 mutation = "python3 -c \"import pathlib; p=pathlib.Path('scripts/check_process_ladder.sh'); p.write_text(p.read_text().replace('then break; fi', 'then :; fi'))\""
+
+[[gate]]
+name = "check_seed_cancellation"
+script = "scripts/check_seed_cancellation.sh"
+kind = "text"
+marker = "^check_seed_cancellation: OK"
+mutation = [
+  "python3 -c \"from pathlib import Path; p=Path('addons/local_agents/gdextensions/localagents/include/LAParallel.hpp'); p.write_text(p.read_text().replace('LASeedCancellation cancellation(token);', 'LASeedCancellation cancellation(nullptr);'))\"",
+  "python3 -c \"from pathlib import Path; p=Path('addons/local_agents/gdextensions/localagents/include/LAParallel.hpp'); p.write_text(p.read_text().replace('if (failure) { std::rethrow_exception(failure); }', ''))\"",
+]

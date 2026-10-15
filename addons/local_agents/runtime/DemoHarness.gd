@@ -215,8 +215,10 @@ func _settled() -> bool:
 	return _ready_frames >= SHOT_SETTLE_FRAMES or Time.get_ticks_msec() >= _pose_deadline_ms
 
 
-## An equal share of what is left of the run for each pose still to be taken.
+## The first pose waits for startup; subsequent poses share the remaining run time.
 func _pose_budget_ms(index: int) -> int:
+	if index == 0:
+		return _shot_deadline_ms()
 	var now: int = Time.get_ticks_msec()
 	var left: int = maxi(_shot_deadline_ms() - now, 1)
 	return now + int(float(left) / float(maxi(_poses.size() - index, 1)))

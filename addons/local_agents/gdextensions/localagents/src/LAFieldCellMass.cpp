@@ -1,3 +1,4 @@
+#include "LASeedCancellation.hpp"
 #include <godot_cpp/variant/utility_functions.hpp>
 #include "LAGridGeometry.hpp"
 #include "LAFieldCellMass.hpp"
@@ -154,6 +155,7 @@ void LAFieldCellMass3D::regolith(Object *p_field) {
 	const bool walkable = up.size() >= cc && cw.size() >= cc * 3 && depth.size() == cc && edges.size() >= cc
 			&& rock_fr.size() == cc;
 	for (int c = 0; c < cc && walkable; c++) {
+		LASeedCancellation::check();
 		radius[c] = std::hypot(cw[c * 3] - double(centre.x), cw[c * 3 + 1] - double(centre.y), cw[c * 3 + 2] - double(centre.z));
 		// Any rock counts, locked or not: a cut cell's rock is the ground's own first metres.
 		if (!(rock_fr[c] > 0.0f)) {
@@ -172,6 +174,7 @@ void LAFieldCellMass3D::regolith(Object *p_field) {
 	float *gw = grain.ptrw();
 	float *pw = por.ptrw();
 	for (int c = 0; c < cc; c++) {
+		LASeedCancellation::check();
 		if (z_bot[c] <= z_top[c] || z_top[c] >= circulation_m) {
 			continue;
 		}
@@ -184,6 +187,7 @@ void LAFieldCellMass3D::regolith(Object *p_field) {
 	int solids = 0;
 	double z_min = 1.0e300;
 	for (int c = 0; c < cc; c++) {
+		LASeedCancellation::check();
 		marked += mw[c] != 0 ? 1 : 0;
 		if (z_bot[c] > z_top[c]) {
 			solids++;
@@ -322,6 +326,7 @@ void LAFieldCellMass3D::seed_enthalpy(Object *p_field, const PackedFloat32Array 
 	float *lw = h_lith.ptrw();
 	double total_j = 0.0;
 	for (int c = 0; c < cc; c++) {
+		LASeedCancellation::check();
 		hw[c] = 0.0f;
 		lw[c] = 0.0f;
 		const double cell_m3 = c < vol.size() ? double(vol[c]) : 0.0;

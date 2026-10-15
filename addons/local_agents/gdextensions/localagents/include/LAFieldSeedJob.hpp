@@ -38,9 +38,11 @@ class LAFieldSeedJob3D : public RefCounted {
 	Ref<LAFieldSeedContext> context;
 	std::thread worker;
 	std::atomic<bool> done{false};
+	std::atomic<bool> cancel_requested{false};
 	Dictionary balance;
 	bool published = false;
 	bool failure = false;
+	bool worker_failed = false;
 	int activation_stage = 0;
 
 public:
@@ -48,10 +50,11 @@ public:
 	Ref<LAFieldSeedContext> capture(Object *p_field, bool p_gravity);
 	bool begin(Object *p_field, const PackedFloat32Array &p_gravity, bool p_present);
 	bool finished() const;
+	void cancel() { cancel_requested.store(true, std::memory_order_relaxed); }
 	Dictionary publish(Object *p_field);
 	static void prepare_gravity(Object *p_field);
 	bool complete(Object *p_field, bool p_gravity);
-	bool failed() const { return failure; }
+	bool failed() const { return failure || cancel_requested.load(std::memory_order_relaxed) || (finished() && worker_failed); }
 
 protected:
 	static void _bind_methods();
