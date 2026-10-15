@@ -2,11 +2,9 @@ class_name LAGeneratingPlanetScreen
 extends CanvasLayer
 
 
-const EXPECTED_LOAD_SEC: float = 6.0      # time constant of the bar's ease; real readiness snaps it full
 const FADE_SEC: float = 0.6
 
 var _bg: ColorRect = null
-var _bar: ProgressBar = null
 var _label: Label = null
 var _t: float = 0.0
 var _done: bool = false
@@ -36,13 +34,6 @@ func _ready() -> void:
 	_label.add_theme_color_override("font_color", Color(0.85, 0.9, 1.0))
 	box.add_child(_label)
 
-	_bar = ProgressBar.new()
-	_bar.min_value = 0.0
-	_bar.max_value = 100.0
-	_bar.value = 0.0
-	_bar.show_percentage = false
-	_bar.custom_minimum_size = Vector2(360, 10)
-	box.add_child(_bar)
 
 
 func _process(delta: float) -> void:
@@ -50,16 +41,14 @@ func _process(delta: float) -> void:
 		_fade += delta
 		var a: float = clampf(1.0 - _fade / FADE_SEC, 0.0, 1.0)
 		_bg.modulate.a = a
-		_bar.value = 100.0
 		if _fade >= FADE_SEC:
 			queue_free()
 		return
 	_t += delta
-	# Ease asymptotically toward the 90 cap; only finish() (real readiness) fills the bar.
-	_bar.value = 90.0 * (1.0 - exp(-_t / (EXPECTED_LOAD_SEC * 0.5)))
+	_label.text = "Generating planet" + ".".repeat(int(_t * 2.0) % 4)
 
 
-## Called by VoxelWorld the moment the world is actually ready (terrain meshed + initial spawn done). Snaps the
-## bar full and fades the overlay out. Idempotent.
+## Called by VoxelWorld the moment the world is actually ready (terrain meshed + initial spawn done). Fades the
+## overlay out. Idempotent.
 func finish() -> void:
 	_done = true
