@@ -21,9 +21,9 @@ var _f = null                                          # back-reference to the o
 var _mineral_profile = null                            # holds the SIM_REPORT provider it registered
 # The driver's ONE between-pass probe.
 var _probe = null
+var _seed_job = null
+var _seed_bake: String = ""
 var _sealed_full_steps: int = 0
-## The seed ran to its end. A world whose seed the device refused never steps.
-var _seeded: bool = false
 
 
 ## Full steps run since the seal. A snapshot or a cache keyed on it is stale only when it moved.
@@ -85,11 +85,16 @@ func _pick_probe(field):
 ## Returns true when the world is ready and no simulated time has passed yet. A walk the device refused a
 ## piece of ends the seed: no walk after it runs, nothing is baked, and the run fails.
 func seed_tick() -> bool:
-	if _seeded:
+	if _f._ready_sim:
 		return true
-	# A device and no seed: its seed was refused, and a world is seeded once.
-	if _f._gpu != null:
-		return false
+	if _seed_job != null:
+		if _seed_job.failed():
+			LASimLoop.active().fail("SEED_FAILED")
+			return false
+		if not _seed_job.complete(_f, LAProcessSet.has_record("pass", GRAVITY_PASS)):
+			return false
+		_store_seeded(_seed_bake)
+		return true
 	if _f._terrain == null or not _f._terrain.has_method("is_solid"):
 		return false
 	_f.sample_solidity()          # solid mask -> the bedrock silicate + cement the gravity solve weighs
@@ -98,67 +103,44 @@ func seed_tick() -> bool:
 	var bake: String = LAFieldStateCache.state_key(OS.get_environment("LA_SEAL_KEY"),
 			g.nx, g.ny, g.nz, g.cell_size, g.origin)
 	var loaded: bool = OS.get_environment("LA_SEAL_RESEED") == "" and _load_seeded(bake)
-	for walk: Callable in _walks(loaded):
-		walk.call()
-		if _f._gpu.refused("the seed"):
-			return false
-	if not loaded:
-		_store_seeded(bake)
-	_seeded = true
-	return true
-
-
-## The seed's walks, each reading what the one before it left: g first, the derive that publishes g_rest,
-## the balance the stepper holds, the solve over the WHOLE seeded mass, and the world's own bulk state. A
-## LOADED world's own state is restated, then weighed like a walked one.
-func _walks(loaded: bool) -> Array:
-	var solve: Array = [_f._gravity.solve] if LAProcessSet.has_record("pass", GRAVITY_PASS) else []
+	if _f._gpu.refused("the seed"):
+		return false
 	if loaded:
-		return solve + [_f._gpu.derive_seeded.bind(true),
-			_f._body_measure.measure.bind(_f, LABodySeeds.spin_axis_of(_f._body_key))]
-	return (solve + ([_seed_under_gravity] if not solve.is_empty() else [])
-		+ [_f._gpu.derive_seeded.bind(false), _seed_balance] + solve + [_f._gpu.derive_seeded.bind(true)])
-
-
-## Each cell's column, marched to the balance it stands in: only the hydrostatic rung stands a column,
-## below it a cell stands at the pressure its own amounts state. Then handed to the device.
-func _seed_balance() -> void:
-	var g_solved: PackedFloat32Array = LAFieldLithostaticSeed.vertical(_f, _f._gpu.read_raw("g_rest"))
-	# The barometric profile is a function of the SOLVED POTENTIAL, so the solve's own phi goes with it.
-	if LAProcessSet.has_record("pass", GRAVITY_PASS):
-		LAFieldLithostaticSeed.shape_atmosphere(_f, LABodySeeds.surface_temp_c(), g_solved, _f._gravity.phi_abs())
-	var balance: Dictionary = LAFieldLithostaticSeed.compress(_f, g_solved, _f._t_rock)
-	LAFieldEnthalpySeed.seed(_f, _f._t_rock, balance.get("fluid", PackedFloat32Array()), balance.get("rock", PackedFloat32Array()))
-	# WEIGH THE BODY once the march has compressed the rock it stands on.
-	_f._body_measure.measure(_f, LABodySeeds.spin_axis_of(_f._body_key))
-	_f._gpu._seed_regolith()                       # permeability mask, grain size, Athy porosity
-	# The march's own pressure, so the first state derive reads the world at it rather than at zero,
-	# where every condensed phase would be asked to boil.
-	_f._gpu._seed("pressure", balance.get("pressure", PackedFloat32Array()))
-	_f._gpu._seed("p_fluid", balance.get("fluid", PackedFloat32Array()))
-	_f._gpu._upload_mirror("e_j_m3")
-	_f._gpu._upload_mirror("e_lith_j_m3")
-	# Every matter channel, not a hand-written subset: the balance march touched all of them.
-	for name in LAFieldCellMass3D.mirror_names(_f):
-		_f._gpu.seed_field(String(name), _f._seal)
-	_f._gpu.mark_h_dirty()
+		_f._ready_sim = true
+		return true
+	if LAProcessSet.has_record("pass", GRAVITY_PASS) and not LAFieldSeedJob3D.prepare_gravity(_f):
+		LASimLoop.active().fail("SEED_GRAVITY_FAILED")
+		return false
+	# THE WORLD PUT INTO THE BALANCE THE STEPPER HOLDS: a locked cell's rock under the column over it, an
+	# open cell at the pressure its own amounts state.
+	_f._gpu.derive_seeded()
+	if _f._gpu.refused("the seed"):
+		return false
+	var g_rest: PackedFloat32Array = _f._gpu.read_raw("g_rest").slice(0, _f._cell_count * 3)   # cells, not ghosts
+	# The barometric profile is a function of the SOLVED POTENTIAL, so the solve's own phi goes with it,
+	# and the water stands under the air that law lays.
+	_seed_bake = bake
+	_seed_job = LAFieldSeedJob3D.new()
+	if not _seed_job.begin(_f, g_rest, LAProcessSet.has_record("pass", GRAVITY_PASS)):
+		LASimLoop.active().fail("SEED_WORKER_START_FAILED")
+	return false
 
 
 ## The walks below this line are a pure function of the terrain, the box and the process set, so a run
 ## whose key names a bake reads the world they produced instead of producing it again. The seal's own
 ## manifest is not stored: it is what the ledgers read off this state, so it comes back with the state.
 func _load_seeded(k: String) -> bool:
-	if k == "" or _f._gpu == null or not SnapshotScript.is_ready(_f):
+	if k == "" or _f._gpu == null or not SnapshotScript.device_ready(_f):
 		return false
 	var data: Dictionary = LAFieldStateCache.load_state(k, _f._cell_count)
-	if data.is_empty() or not SnapshotScript.from_bytes(_f, data.get("snapshot", PackedByteArray())):
+	if data.is_empty() or not SnapshotScript.seed_from_bytes(_f, data.get("snapshot", PackedByteArray())):
 		return false
 	# The soil injector is the one CPU reader left of a seeded mirror; porosity and grain are read only
 	# by the uploads this path skips, and they come back with the channels.
 	_f._regolith = data.get("regolith", PackedByteArray())
 	if _f._seal != null:
 		_f._seal.restore(data.get("created", {}))
-	return true
+	return LAFieldSeedJob3D.finish_restore(_f, LAProcessSet.has_record("pass", GRAVITY_PASS))
 
 
 func _store_seeded(k: String) -> void:
@@ -172,21 +154,10 @@ func _store_seeded(k: String) -> void:
 	LAFieldStateCache.save_state(k, data)
 
 
-## The seed steps that read the solved vertical. A world with no gravity solve has no "below": no water
-## table, no basins to flood, and no gas for water to displace out of.
-func _seed_under_gravity() -> void:
-	LAFieldCellMass3D.regolith(_f)   # the aquifer band and its porosity, walked in the GDExtension
-	if not _f._regolith.has(1):
-		push_error("The regolith walk marked no cell permeable, so every rock cell has zero porosity, the "
-			+ "water table is unprimed and darcy_resistance() makes the groundwater row inert. The walk "
-			+ "reads `below` from solved gravity: it ran before the solve was dispatched and drained.")
-	LAFieldHydrosphereSeed.seed(_f)   # the body's own water, in its basins and its pores
-
-
 ## ONE step: SIM_SECONDS_PER_STEP of simulated time, at LASimLoop's `sim_step`, resting or not. Every
 ## per-step term happens once here, so a step's books cannot be split across a frame boundary.
 func step(sim_step: int) -> void:
-	if not _seeded:
+	if not _f._ready_sim:
 		return
 	_f._gpu._step_index = sim_step
 	# Refresh the body rotation FIRST: everything below that converts a position or a direction reads it.

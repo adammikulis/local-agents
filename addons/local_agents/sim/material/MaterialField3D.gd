@@ -51,6 +51,7 @@ const QueriesScript: GDScript = preload("res://addons/local_agents/sim/material/
 const InjectScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldInject3D.gd")
 const SphereStepScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd")
 const OrganicScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldOrganic3D.gd")
+var _ready_sim: bool = false
 var _gpu = null                                          # LAMaterialSphereGPU3D or null
 var _queries = null                                      # LAMaterialFieldQueries3D
 var _inject = null                                       # LAMaterialFieldInject3D (write-side injection)

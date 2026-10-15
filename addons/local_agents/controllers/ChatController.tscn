@@ -1,13 +1,20 @@
-[gd_scene load_steps=4 format=3 uid="uid://bkhc2d37hv1ou"]
+[gd_scene load_steps=5 format=3 uid="uid://bkhc2d37hv1ou"]
 
 [ext_resource type="Script" path="res://addons/local_agents/controllers/ChatController.gd" id="1_iul07"]
 [ext_resource type="PackedScene" path="res://addons/local_agents/controllers/SavedChatsController.tscn" id="2_j87l4"]
 
+[ext_resource type="Theme" path="res://addons/local_agents/agents/ui/ChatTheme.tres" id="llm_theme"]
+
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_pe5a1"]
-content_margin_left = 8.0
-content_margin_top = 8.0
-content_margin_right = 8.0
-content_margin_bottom = 8.0
+bg_color = Color(0.055, 0.09, 0.15, 1)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_left = 12
+corner_radius_bottom_right = 12
+content_margin_left = 18.0
+content_margin_top = 18.0
+content_margin_right = 18.0
+content_margin_bottom = 18.0
 
 [node name="ChatController" type="Control"]
 layout_mode = 3
@@ -18,6 +25,7 @@ grow_horizontal = 2
 grow_vertical = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
+theme = ExtResource("llm_theme")
 script = ExtResource("1_iul07")
 
 [node name="PanelContainer" type="PanelContainer" parent="."]
@@ -30,27 +38,28 @@ grow_vertical = 2
 
 [node name="MarginContainer" type="MarginContainer" parent="PanelContainer"]
 layout_mode = 2
-theme_override_constants/margin_left = 6
-theme_override_constants/margin_top = 6
-theme_override_constants/margin_right = 6
-theme_override_constants/margin_bottom = 6
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 12
 
 [node name="RootVBox" type="VBoxContainer" parent="PanelContainer/MarginContainer"]
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
-custom_constants/separation = 8
+theme_override_constants/separation = 8
 
-[node name="Toolbar" type="HBoxContainer" parent="PanelContainer/MarginContainer/RootVBox"]
+[node name="Toolbar" type="HFlowContainer" parent="PanelContainer/MarginContainer/RootVBox"]
 layout_mode = 2
 size_flags_horizontal = 3
-custom_constants/separation = 6
+theme_override_constants/separation = 12
 
 [node name="ModelLabel" type="Label" parent="PanelContainer/MarginContainer/RootVBox/Toolbar"]
 layout_mode = 2
 text = "Model"
 
 [node name="ModelOptionButton" type="OptionButton" parent="PanelContainer/MarginContainer/RootVBox/Toolbar"]
+custom_minimum_size = Vector2(160, 48)
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
@@ -65,9 +74,10 @@ layout_mode = 2
 
 [node name="InferenceLabel" type="Label" parent="PanelContainer/MarginContainer/RootVBox/Toolbar"]
 layout_mode = 2
-text = "Inference"
+text = "Generation"
 
 [node name="InferenceOptionButton" type="OptionButton" parent="PanelContainer/MarginContainer/RootVBox/Toolbar"]
+custom_minimum_size = Vector2(160, 48)
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
@@ -92,10 +102,10 @@ unique_name_in_owner = true
 layout_mode = 2
 text = "Saved Chats"
 
-[node name="StatusRow" type="HBoxContainer" parent="PanelContainer/MarginContainer/RootVBox"]
+[node name="StatusRow" type="HFlowContainer" parent="PanelContainer/MarginContainer/RootVBox"]
 layout_mode = 2
 size_flags_horizontal = 3
-custom_constants/separation = 6
+theme_override_constants/separation = 12
 
 [node name="StatusLabel" type="Label" parent="PanelContainer/MarginContainer/RootVBox/StatusRow"]
 unique_name_in_owner = true
@@ -122,13 +132,13 @@ text = "Speech: unknown"
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
-split_offset = 280
+split_offset = 240
 
 [node name="ConversationsColumn" type="VBoxContainer" parent="PanelContainer/MarginContainer/RootVBox/MainSplit"]
 layout_mode = 2
 size_flags_horizontal = 1
 size_flags_vertical = 3
-custom_constants/separation = 6
+theme_override_constants/separation = 12
 
 [node name="ConversationHeader" type="Label" parent="PanelContainer/MarginContainer/RootVBox/MainSplit/ConversationsColumn"]
 layout_mode = 2
@@ -144,7 +154,7 @@ select_mode = 0
 
 [node name="ConversationButtons" type="HBoxContainer" parent="PanelContainer/MarginContainer/RootVBox/MainSplit/ConversationsColumn"]
 layout_mode = 2
-custom_constants/separation = 6
+theme_override_constants/separation = 12
 
 [node name="NewConversationButton" type="Button" parent="PanelContainer/MarginContainer/RootVBox/MainSplit/ConversationsColumn/ConversationButtons"]
 unique_name_in_owner = true
@@ -174,17 +184,17 @@ theme_override_styles/panel = SubResource("StyleBoxFlat_pe5a1")
 unique_name_in_owner = true
 anchor_right = 1.0
 anchor_bottom = 1.0
-margin_left = 4.0
-margin_top = 4.0
-margin_right = -4.0
-margin_bottom = -4.0
+offset_left = 18.0
+offset_top = 18.0
+offset_right = -18.0
+offset_bottom = -18.0
 hide_root = true
 
 [node name="ChatColumn" type="VBoxContainer" parent="PanelContainer/MarginContainer/RootVBox/MainSplit"]
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
-custom_constants/separation = 6
+theme_override_constants/separation = 12
 
 [node name="HistoryPanel" type="Panel" parent="PanelContainer/MarginContainer/RootVBox/MainSplit/ChatColumn"]
 layout_mode = 2
@@ -196,16 +206,16 @@ theme_override_styles/panel = SubResource("StyleBoxFlat_pe5a1")
 unique_name_in_owner = true
 anchor_right = 1.0
 anchor_bottom = 1.0
-margin_left = 4.0
-margin_top = 4.0
-margin_right = -4.0
-margin_bottom = -4.0
+offset_left = 18.0
+offset_top = 18.0
+offset_right = -18.0
+offset_bottom = -18.0
 fit_content = false
 scroll_following = true
 selection_enabled = true
 bbcode_enabled = true
 
-[node name="InputPanel" type="Panel" parent="PanelContainer/MarginContainer/RootVBox/MainSplit/ChatColumn"]
+[node name="InputPanel" type="PanelContainer" parent="PanelContainer/MarginContainer/RootVBox/MainSplit/ChatColumn"]
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 1
@@ -215,26 +225,29 @@ theme_override_styles/panel = SubResource("StyleBoxFlat_pe5a1")
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
-custom_constants/separation = 6
+theme_override_constants/separation = 12
 
 [node name="PromptTextEdit" type="TextEdit" parent="PanelContainer/MarginContainer/RootVBox/MainSplit/ChatColumn/InputPanel/InputVBox"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
+custom_minimum_size = Vector2(0, 100)
 placeholder_text = "Type a prompt and press Ctrl+Enter to send"
 wrap_mode = 1
 
 [node name="InputButtons" type="HBoxContainer" parent="PanelContainer/MarginContainer/RootVBox/MainSplit/ChatColumn/InputPanel/InputVBox"]
 layout_mode = 2
 size_flags_horizontal = 3
-custom_constants/separation = 6
+theme_override_constants/separation = 12
 
 [node name="SendButton" type="Button" parent="PanelContainer/MarginContainer/RootVBox/MainSplit/ChatColumn/InputPanel/InputVBox/InputButtons"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Send"
 size_flags_horizontal = 3
+theme_type_variation = &"PrimaryButton"
+
 
 [node name="ClearButton" type="Button" parent="PanelContainer/MarginContainer/RootVBox/MainSplit/ChatColumn/InputPanel/InputVBox/InputButtons"]
 unique_name_in_owner = true
@@ -283,7 +296,7 @@ size_flags_horizontal = 3
 
 [node name="RenameButtons" type="HBoxContainer" parent="RenameConversationWindow/RenameRoot"]
 layout_mode = 2
-custom_constants/separation = 8
+theme_override_constants/separation = 8
 
 [node name="RenameCancelButton" type="Button" parent="RenameConversationWindow/RenameRoot/RenameButtons"]
 unique_name_in_owner = true

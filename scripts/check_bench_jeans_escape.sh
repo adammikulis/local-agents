@@ -100,6 +100,6 @@ rc=$?
 FRAMES="${LA_BENCH_JE_FRAMES:-8}"
 . "$REPO_ROOT/scripts/lib_rung.sh"
 world="$(la_rung_report 8 "$FRAMES" "all_h2,open_h2")"
-la_rung_require "$world" all_h2 || exit 2
+la_rung_require "$world" all_h2 || exit $?
 printf 'BENCH_JEANS_ESCAPE_WORLD={"all_h2":%s}\n' "$(la_rung_value "$world" all_h2)"
 echo "check_bench_jeans_escape: OK"

@@ -112,7 +112,7 @@ rc=$?
 FRAMES="${LA_BENCH_HC_FRAMES:-6}"
 . "$REPO_ROOT/scripts/lib_rung.sh"
 world="$(la_rung_report 2 "$FRAMES" "pressure_rest_rel,pressure_audited")"
-la_rung_require "$world" pressure_rest_rel pressure_audited || exit 2
+la_rung_require "$world" pressure_rest_rel pressure_audited || exit $?
 printf 'BENCH_HYDROSTATIC_COLUMN_WORLD={"pressure_rest_rel":%s,"pressure_audited":%s}\n' \
   "$(la_rung_value "$world" pressure_rest_rel)" "$(la_rung_value "$world" pressure_audited)"
 echo "check_bench_hydrostatic_column: OK"

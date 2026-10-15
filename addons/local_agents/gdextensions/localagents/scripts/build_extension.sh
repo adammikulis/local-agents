@@ -8,6 +8,7 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 EXT_DIR=$(cd "${SCRIPT_DIR}/.." && pwd)
+. "${EXT_DIR}/../../../../scripts/lib_import.sh"
 BUILD_DIR="${EXT_DIR}/build"
 BIN_DIR="${EXT_DIR}/bin"
 THIRDPARTY_DIR="${EXT_DIR}/thirdparty"
@@ -75,7 +76,7 @@ collect_from_deps_lib() {
 
 # The sources this bin was built from; lib_godot.sh refuses to launch a bin whose hash differs.
 write_source_hash() {
-    (cd "${EXT_DIR}" && cat CMakeLists.txt cmake/deps/CMakeLists.txt $(ls src/* include/* | sort) | md5 -q) > "${BIN_DIR}/SOURCE_HASH"
+    (cd "${EXT_DIR}" && cat CMakeLists.txt cmake/deps/CMakeLists.txt $(ls src/* include/* | sort) | la_md5_stdin) > "${BIN_DIR}/SOURCE_HASH"
 }
 
 patch_macos_install_names() {
@@ -316,7 +317,7 @@ deps_key() {
         printf '%s\n' "${TARGET_PLATFORM}" "$(uname -m)" "Release" "${LAUNCHER_ARGS[*]:-}"
         "${CXX:-c++}" --version 2>/dev/null | head -1
         cmake --version | head -1
-    } | md5 -q
+    } | la_md5_stdin
 }
 
 DEPS_KEY="$(deps_key)"

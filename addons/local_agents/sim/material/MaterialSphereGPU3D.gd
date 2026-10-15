@@ -188,9 +188,9 @@ func _allocate_declared(p: RefCounted, label: String) -> void:
 		var spec: Variant = want[key]
 		var n: int = int(spec["n"]) if spec is Dictionary else int(spec)
 		var indirect: bool = spec is Dictionary and bool(spec.get("indirect", false))
-		# A per-cell buffer a kernel indexes by ghost tail cells declares {"ghosts": true}.
+		# A per-cell buffer a kernel indexes by ghost tail cells declares {"ghosts": true}; "stride" per cell.
 		if spec is Dictionary and bool(spec.get("ghosts", false)):
-			n += _ng
+			n = (n + _ng) * int(spec.get("stride", 1))
 		# A per-FACE buffer declares {"faces": true}: the grid's face list is its length.
 		if spec is Dictionary and bool(spec.get("faces", false)):
 			n = _face_count

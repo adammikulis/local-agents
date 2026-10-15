@@ -237,7 +237,7 @@ rc=$?
 FRAMES="${LA_BENCH_ST_FRAMES:-8}"
 . "$REPO_ROOT/scripts/lib_rung.sh"
 world="$(la_rung_report 3 "$FRAMES" "mach_max,wind_speed_max,transport_levels")"
-la_rung_require "$world" mach_max wind_speed_max || exit 2
+la_rung_require "$world" mach_max wind_speed_max || exit $?
 printf 'BENCH_SHOCK_TUBE_WORLD={"mach_max":%s,"wind_speed_max":%s}\n' \
   "$(la_rung_value "$world" mach_max)" "$(la_rung_value "$world" wind_speed_max)"
 echo "check_bench_shock_tube: OK"

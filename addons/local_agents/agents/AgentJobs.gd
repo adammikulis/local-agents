@@ -29,9 +29,12 @@ func join() -> void:
         _thread = null
 
 
-func start(job: Dictionary, server: AgentServer, completion: Callable) -> void:
+func start(job: Dictionary, server: AgentServer, completion: Callable) -> bool:
     _thread = Thread.new()
-    _thread.start(Callable(self, "_worker").bind(job, server, completion))
+    if _thread.start(Callable(self, "_worker").bind(job, server, completion)) != OK:
+        _thread = null
+        return false
+    return true
 
 
 func _worker(job: Dictionary, server: AgentServer, completion: Callable) -> void:
@@ -44,8 +47,22 @@ func _worker(job: Dictionary, server: AgentServer, completion: Callable) -> void
     if runtime == null:
         completion.call_deferred({"ok": false, "error": "runtime_unavailable"})
         return
-    # Same per-agent model swap as the sync path, done HERE so the load cost stays off the frame.
     if not AgentServer.is_server_backend(opts):
-        AgentStatus.load_model(String(job.get("agent_model_path", "")), opts)
+        if String(job.get("agent_model_path", "")) == "":
+            completion.call_deferred({"ok": false, "error": "model_path_missing"})
+            return
+        if bool(job.get("load_only", false)):
+            if not AgentStatus.load_model(String(job.get("agent_model_path", "")), opts):
+                completion.call_deferred({"ok": false, "error": "model_load_failed"})
+                return
+        else:
+            var request: Dictionary = job.get("request", {})
+            request["model_path"] = String(job.get("agent_model_path", ""))
+    var runtime_dir: String = String(job.get("runtime_dir", ""))
+    if runtime_dir != "":
+        runtime.set_runtime_directory(runtime_dir)
+    if bool(job.get("load_only", false)):
+        completion.call_deferred({"ok": true})
+        return
     var result: Dictionary = runtime.generate(job.get("request", {}))
     completion.call_deferred(result)
