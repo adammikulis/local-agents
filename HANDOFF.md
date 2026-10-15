@@ -1,6 +1,7 @@
 # Resume here
 
 Read `CLAUDE.md`, `GODOT_BEST_PRACTICES.md` and [the release scope](docs/0.4_RELEASE_SCOPE.md).
+Keep every GitHub Actions workflow disabled; validate on this Mac and keep source synchronized.
 Resume the authorized standalone-native simulation migration; keep physics independent of UI framerate.
 Require flowing water and basic weather for the reduced 0.4. Keep async execution and genuine streaming
 where applicable. Creature cognition stays in [the 0.5 handoff](docs/0.5_RUNTIME_COGNITION.md).
@@ -11,39 +12,36 @@ Run `git worktree list`, `git status --short` in relevant trees, `git fetch orig
 directions and `git merge-base --is-ancestor main 0.4-dev` before integrating. Preserve unrelated dirty
 trees and identify their owners before changing them.
 
-- `../la-fix-native-sim-service`, branch `fix/native-sim-service`: reviewed resident derive/reduce service;
-  finish its combined integration. `Advance` still refuses physical integration.
-- `.claude/worktrees/agent-a1e18a654b3681741`: native dispatch-plan construction; finish the preserved
-  merge, then reconcile current development and the service foundation. Working/index backups are in
-  `/private/tmp/la-native-plans-interrupted-{working,index}.patch`. Keep the native channel-specific
-  heat-capacity correction and remove duplicate GDS push-block builders.
-- `../la-fix-ablate-ui`: subtree ownership, dynamic reparenting and panel-free captures; affected checks
-  pass, but its abort reconciliation still needs committing and integration.
-- `.claude/worktrees/agent-aceee89a389f0d24d`: reviewed creature absence/carcass fixes, reconciled with
-  abort-safe activation; integrate the published batch.
-- `.claude/worktrees/agent-ad34c9b0a584b80ec`: shared validation captures and gate deadlines; preserve
-  strict timeout/mutation classification, complete-run budget banking and the local-validation policy.
-  Finish the follow-up controls and full local integration.
-- `../la-fix-boxfield-rocks`, `../la-fix-sea-radius-cloud`, and the remaining `agent-*` trees contain
-  unlanded box/injection, water/crust/mesh, lobs, tides and implicit-acoustic work. Reconcile every
-  substantive change before pruning. Choose one authoritative water fill; preserve current APIs.
+- `.claude/worktrees/agent-a1e18a654b3681741`: finish native dispatch-plan integration; preserve native
+  channel-specific heat and the removed GDS push-block builders. Run its check_plan_refusal.sh,
+  `scripts/check_active_rows.sh`, `scripts/check_driver_native.sh` and `scripts/check_submit_budget.sh`;
+  mutation-test refusal before landing. Keep the full acceptance world in shared integration.
+- `.claude/worktrees/agent-aceee89a389f0d24d`: integrate the reviewed creature absence/carcass batch;
+  rerun combined integration, which was stopped for wrap-up. Preserve its tightened ceiling.
+- `.claude/worktrees/agent-ad34c9b0a584b80ec`: finish local full validation and complete-run budget
+  banking for shared captures/deadlines. Positive controls pass; rerun canonical mutations after the
+  structured-mutation merge. Never bank the stopped bootstrap run or enable Actions.
+- `../la-fix-boxfield-rocks`: integrate gas-box/injection work after remaining signed-edit and heat
+  refusal checks. Gas-only geometry initialization passes the real compression worker and Metal box
+  gate; preserve async seed cancellation and native fill cache identities.
+- `.claude/worktrees/agent-a70399c1adb4cda07`: repair outside-slice gravity before landing probes;
+  Its check_lob.sh fails at the box boundary. `LABodyMeasure::measure` assigns the slice's local
+  mass to `mass_kg`. Preserve native timestamped trajectory history and radial ray/box intersection;
+  run `scripts/agent_harness.sh lint --mutate check_probe_history` after the fix.
+- `.claude/worktrees/agent-a3f0945f92280e933`: finish the unverified tide reconciliation; test static
+  and moving-source energy exchanges, excess-body refusal and seeded CPU/GPU agreement. Review the
+  signed tidal-work ledger, native buffer capacity checks and zero-duration seeded derives. Repair
+  binding collisions, rung registration, the GDS budget, orphan UIDs and kernel compilation first.
+- `../la-fix-sea-radius-cloud` and `.claude/worktrees/agent-abf39e84754307ec0`: choose one authoritative
+  water fill, reconcile crust/mesh work and preserve condensate-based clouds and sea-datum removal.
+- `.claude/worktrees/agent-a2a7b76028aed38f2`: reconcile implicit acoustics after native plans; preserve
+  the current adaptive driver and remove obsolete temporal levels without restoring GDS encoders.
 
 Complete when bounded batches pass affected checks and independent review, land through
 `scripts/integrate.sh <branch>`, and `0.4-dev` is pushed after each integration. Preserve unfinished
 source across this requested session boundary; prune owned worktrees after their work lands.
 
-## 2. LAND THE VERIFIED NATIVE SERVICE FOUNDATION
-
-In `../la-fix-native-sim-service`, inspect `Service*`, `field/FieldSession*`, `../la-fix-native-sim-service/addons/local_agents/native/src/field/FieldView.cpp` and
-`field/ViewPublication*`. The focused child, computation, protocol, device, parity and snapshot checks
-have passed on this Mac. Time, generation and partial-publication regressions were caught at their
-intended assertions. A reply timeout is unexamined, not a caught regression.
-
-Reconcile the current development branch, run `scripts/integrate.sh fix/native-sim-service`, push
-`0.4-dev` immediately and prune the landed tree. Keep the overall migration open: `wire::AlgebraicOnly`
-permits derive/reduce and `Advance` returns `INTEGRATION_NOT_AVAILABLE`.
-
-## 3. MOVE LIVE PHYSICS AND THE CLOCK OUT OF GODOT
+## 2. MOVE LIVE PHYSICS AND THE CLOCK OUT OF GODOT
 
 Reproduce the active coupling through `scripts/show_demo.sh SliceRung1Demo`; inspect `LASimLoop`,
 `LAFieldDriver::step`, native `FieldRun` and the exporter in `scripts/lib_lasim_oracle.sh`.
@@ -71,7 +69,7 @@ Reproduce the synthetic socket comparison with `/private/tmp/la_snapshot_ipc_ben
 its results are not production GPU performance. Verify actual service throughput/latency, bounded
 memory, slow/disconnected clients and observer independence at equal simulated time before completion.
 
-## 4. VERIFY THE EXACT DESKTOP GRAVITY DEMO
+## 3. VERIFY THE EXACT DESKTOP GRAVITY DEMO
 
 Reproduce with `/Users/adammikulis/Desktop/Planet Demos/Launch Gravity Demo.command` after activating
 the integrated candidate in the primary checkout. Complete only when that exact shortcut opens a
@@ -83,7 +81,7 @@ Candidate startup checks do not verify the Desktop shortcut. Consult
 water placement in the visible acceptance arm. Obtain maintainer approval of rung 1 before advancing;
 only rung 0 has approval. Reconcile `docs/PLAYABLE_RUNG` with the accepted demo.
 
-## 5. COMPLETE THE REDUCED PLANET RELEASE
+## 4. COMPLETE THE REDUCED PLANET RELEASE
 
 Follow [the release scope](docs/0.4_RELEASE_SCOPE.md). Preserve comprehensive physics in
 [PHYSICS_TODO.md](docs/PHYSICS_TODO.md), reproductions in [PLANET_BACKLOG.md](docs/PLANET_BACKLOG.md)
