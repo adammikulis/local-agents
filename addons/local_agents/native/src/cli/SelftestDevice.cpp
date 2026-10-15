@@ -200,6 +200,33 @@ int selftest_device(la::Device &dev, const std::string &blob) {
 	dev.destroy_set(set);
 	dev.destroy_buffer(argbuf);
 	dev.destroy_buffer(buf);
+	const la::DeviceResources baseline = dev.retained_resources();
+	if (baseline.lists != 0 || baseline.fences != 0) {
+		fail("completed device commands are still retained");
+		return 1;
+	}
+	for (int request = 0; request < 64; ++request) {
+		la::BufferId resident = dev.create_buffer(cases.size() * sizeof(float), la::Usage::Storage, cases.data());
+		const std::pair<uint32_t, la::BufferId> binding{uint32_t(probe_slot), resident};
+		la::SetId descriptor = dev.make_set(k, std::span(&binding, 1));
+		la::List commands = dev.begin();
+		dev.bind(commands, k, descriptor);
+		dev.dispatch(commands, groups);
+		dev.wait(dev.submit(std::move(commands)));
+		dev.download(resident, 0, chained.data(), chained.size() * sizeof(float));
+		if (chained != once) {
+			fail("repeated resident dispatch changed its result");
+			return 1;
+		}
+		dev.destroy_set(descriptor);
+		dev.destroy_buffer(resident);
+		const la::DeviceResources retained = dev.retained_resources();
+		if (retained.buffers != baseline.buffers || retained.sets != baseline.sets
+				|| retained.lists != 0 || retained.fences != 0) {
+			fail("completed resident request retained device resources");
+			return 1;
+		}
+	}
 	std::printf("NATIVE_DEVICE_OK={\"roundtrip\":true,\"copy\":true,\"dispatch\":true,"
 				"\"indirect\":true,\"barrier\":true}\n");
 	return 0;

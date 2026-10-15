@@ -1050,7 +1050,7 @@ name = "check_lasim_parity"
 script = "scripts/check_lasim_parity.sh"
 kind = "gpu"
 marker = "^check_lasim_parity: OK"
-mutation = "sed -i '' 's|acc += x;|acc += x * 1.0000001;|' addons/local_agents/native/src/field/FieldRun.cpp"
+mutation = "sed -i '' 's|acc += x;|acc += x * 1.0000001;|' addons/local_agents/native/src/field/FieldSession.cpp"
 
 [[gate]]
 name = "check_shaders_compile"
@@ -1192,6 +1192,29 @@ script = "scripts/check_ladder_scope.py"
 kind = "text"
 marker = "^check_ladder_scope: OK"
 mutation = "python3 -c \"import pathlib; p=pathlib.Path('scripts/check_process_ladder.sh'); p.write_text(p.read_text().replace('then break; fi', 'then :; fi'))\""
+
+[[gate]]
+name = "check_native_service_protocol"
+script = "scripts/check_native_service_protocol.sh"
+kind = "text"
+marker = "^check_native_service_protocol: OK"
+mutation = [
+  "python3 -c \"from pathlib import Path; p=Path('addons/local_agents/native/src/cli/ServiceProtocol.cpp'); p.write_text(p.read_text().replace('uint16_t(operation_version) != version', 'false'))\"",
+  "python3 -c \"from pathlib import Path; p=Path('addons/local_agents/native/src/cli/ServiceProtocol.cpp'); p.write_text(p.read_text().replace('if (length > max_payload)', 'if (false)'))\"",
+  "python3 -c \"from pathlib import Path; p=Path('addons/local_agents/native/src/field/ViewPublication.cpp'); p.write_text(p.read_text().replace('temporary = directory / \\\"view.tmp\\\";', 'temporary = final;'))\"",
+]
+
+
+[[gate]]
+name = "check_native_service"
+script = "scripts/check_native_service.sh"
+kind = "gpu"
+needs = ["import"]
+marker = "^check_native_service: OK"
+mutation = [
+  "python3 -c \"from pathlib import Path; p=Path('addons/local_agents/native/src/cli/Service.cpp'); p.write_text(p.read_text().replace('revision++;', 'revision++; imported_time_s += 1.0;'))\"",
+  "python3 -c \"from pathlib import Path; p=Path('addons/local_agents/native/src/cli/Service.cpp'); p.write_text(p.read_text().replace('request.generation != generation', 'false'))\"",
+]
 
 [[gate]]
 name = "check_seed_cancellation"
