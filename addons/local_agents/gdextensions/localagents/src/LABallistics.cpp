@@ -2,6 +2,7 @@
 
 #include "LABodySystem.hpp"
 #include "LAFieldCellMass.hpp"
+#include "LAFieldMirrors.hpp"
 #include "LAFieldLithostaticSeed.hpp"
 #include "LAGridGeometry.hpp"
 #include "LAPhysicalRead.hpp"
@@ -9,6 +10,8 @@
 
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
+#include <godot_cpp/variant/packed_vector3_array.hpp>
+#include <godot_cpp/variant/packed_float64_array.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -40,6 +43,11 @@ struct SystemBody {
 	bool frame = false;
 };
 
+struct TrajectorySample {
+	double time;
+	Dvec point;
+};
+
 struct FreeBody {
 	int id = -1;
 	Dvec pos;
@@ -52,8 +60,10 @@ struct FreeBody {
 	bool armed = false;
 	bool landed = false;
 	double land_speed = 0.0;
-	Dvec rest_field;
-	Dvec from_field;
+	Dvec rest_body;
+	Dvec release_body;
+	bool track = false;
+	std::vector<TrajectorySample> trajectory;
 	double g_release = 0.0;
 };
 
@@ -75,7 +85,8 @@ struct Table {
 	Frame frame;
 	PackedFloat32Array gravity;
 	PackedByteArray solid;
-	Array mass_mirrors;
+	Ref<LAFieldMirrors> mass_mirrors;
+	Array mass_channels;
 	PackedVector3Array centres;
 	PackedByteArray levels;
 	double cell_size = 0.0;
@@ -248,7 +259,7 @@ void advance(FreeBody &b, double p_h, std::unordered_map<int, CellHeat> &p_heat)
 			}
 		}
 		b.pos = path(hi);
-		b.rest_field = to_field(b.pos);
+		b.rest_body = to_field(b.pos) - tb().frame.pivot;
 		b.vel = v0 + a0 * (hi * p_h);
 		b.fall_time_s += p_h * hi;
 		b.land_speed = b.vel.len();
@@ -375,12 +386,13 @@ Vector3 LABallistics::acceleration_at(const Vector3 &p_at, int p_exclude) {
 }
 
 void LABallistics::set_field(Object *p_grid, const PackedFloat32Array &p_gravity,
-		const PackedByteArray &p_solid, const Array &p_mass_mirrors, const Basis &p_frame,
-		const Vector3 &p_pivot) {
+		const PackedByteArray &p_solid, Object *p_mass_mirrors, const Array &p_mass_channels,
+		const Basis &p_frame, const Vector3 &p_pivot) {
 	tb().grid = p_grid;
 	tb().gravity = p_gravity;
 	tb().solid = p_solid;
-	tb().mass_mirrors = p_mass_mirrors;
+	tb().mass_mirrors = Ref<LAFieldMirrors>(Object::cast_to<LAFieldMirrors>(p_mass_mirrors));
+	tb().mass_channels = p_mass_channels;
 	const Basis inv = p_frame.inverse();
 	for (int r = 0; r < 3; r++) {
 		for (int k = 0; k < 3; k++) {
@@ -392,7 +404,7 @@ void LABallistics::set_field(Object *p_grid, const PackedFloat32Array &p_gravity
 	// A body that has landed lies on the ground, and the ground turns with the body it is part of.
 	for (FreeBody &b : tb().bodies) {
 		if (b.landed) {
-			b.pos = from_field(b.rest_field);
+			b.pos = from_field(b.rest_body + tb().frame.pivot);
 		}
 	}
 	if (p_grid) {
@@ -407,7 +419,7 @@ void LABallistics::set_field(Object *p_grid, const PackedFloat32Array &p_gravity
 }
 
 void LABallistics::clear_field() {
-	set_field(nullptr, PackedFloat32Array(), PackedByteArray(), Array(), Basis(), Vector3());
+	set_field(nullptr, PackedFloat32Array(), PackedByteArray(), nullptr, Array(), Basis(), Vector3());
 }
 
 bool LABallistics::has_field() {
@@ -474,14 +486,14 @@ Vector3 LABallistics::g_at(const Vector3 &p_at) {
 }
 
 double LABallistics::medium_density_at(const Vector3 &p_at) {
-	if (!tb().grid || tb().mass_mirrors.size() == 0) {
+	if (!tb().grid || tb().mass_mirrors.is_null() || tb().mass_channels.is_empty()) {
 		return 0.0;
 	}
 	const int c = cell_of(Dvec(p_at));
 	if (c < 0) {
 		return 0.0;
 	}
-	return LAFieldCellMass3D::kg_m3_at(tb().mass_mirrors, c);
+	return LAFieldCellMass3D::kg_m3_at(tb().mass_mirrors.ptr(), tb().mass_channels, c);
 }
 
 double LABallistics::read_check(int p_samples) {
@@ -512,7 +524,7 @@ int LABallistics::drop(const Vector3 &p_pos, const Vector3 &p_vel, double p_mass
 	b.radius_m = (std::isfinite(p_radius_m) && p_radius_m > 0.0) ? p_radius_m : 0.0;
 	// A body launched out of rock is not landed in it: it arms once it has reached open ground.
 	b.armed = !occupied(b.pos);
-	b.from_field = to_field(b.pos);
+	b.release_body = to_field(b.pos) - tb().frame.pivot;
 	b.g_release = Dvec(g_at(p_pos)).len();
 	tb().index[b.id] = tb().bodies.size();
 	tb().bodies.push_back(b);
@@ -551,10 +563,35 @@ Dictionary LABallistics::state(int p_id) {
 	out["mass_kg"] = b.mass_kg;
 	out["cell"] = cell_of(b.pos);
 	// The release point, carried in the grid's frame: the ground it was let go of turns under it.
-	const Dvec from = from_field(b.from_field);
+	const Dvec from = from_field(b.release_body + tb().frame.pivot);
 	out["from"] = from.v3();
 	out["g_release"] = b.g_release;
 	out["height_m"] = (from - pivot()).len() - (b.pos - pivot()).len();
+	return out;
+}
+
+void LABallistics::track_trajectory(int p_id) {
+	const auto it = tb().index.find(p_id);
+	if (it == tb().index.end()) { return; }
+	FreeBody &b = tb().bodies[it->second];
+	if (b.track) { return; }
+	b.track = true;
+	b.trajectory.push_back({b.fall_time_s, to_field(b.pos) - tb().frame.pivot});
+}
+
+Dictionary LABallistics::trajectory(int p_id) {
+	Dictionary out;
+	const auto it = tb().index.find(p_id);
+	if (it == tb().index.end()) { return out; }
+	const auto &samples = tb().bodies[it->second].trajectory;
+	PackedVector3Array points;
+	PackedFloat64Array times;
+	for (const TrajectorySample &sample : samples) {
+		points.append(from_field(sample.point + tb().frame.pivot).v3());
+		times.append(sample.time);
+	}
+	out["points"] = points;
+	out["times"] = times;
 	return out;
 }
 
@@ -587,6 +624,17 @@ Array LABallistics::step(double p_dt_s) {
 		while (left > 0.0 && !b.landed) {
 			const double h = sub_step_h(b, left);
 			advance(b, h, heat);
+			if (b.track) {
+				// Presentation history only: decimate old samples, preserving release and landing.
+				if (b.trajectory.size() == 96) {
+					size_t kept = 0;
+					for (size_t i = 0; i < b.trajectory.size(); i += 2) {
+						b.trajectory[kept++] = b.trajectory[i];
+					}
+					b.trajectory.resize(kept);
+				}
+				b.trajectory.push_back({b.fall_time_s, to_field(b.pos) - tb().frame.pivot});
+			}
 			left -= h;
 			n++;
 		}
@@ -612,7 +660,7 @@ Array LABallistics::step(double p_dt_s) {
 			row["sub_steps"] = b.sub_steps;
 			// The RADIAL drop: a radius is the same in either frame, and between release and landing the
 			// ground under the body has turned a long way east.
-			row["height_m"] = (from_field(b.from_field) - pivot()).len() - (b.pos - pivot()).len();
+			row["height_m"] = (from_field(b.release_body + tb().frame.pivot) - pivot()).len() - (b.pos - pivot()).len();
 			tb().landed_rows.push_back(row);
 		}
 	}
@@ -641,7 +689,7 @@ void LABallistics::_bind_methods() {
 	ClassDB::bind_static_method("LABallistics", D_METHOD("acceleration_at", "at", "exclude"),
 			&LABallistics::acceleration_at, DEFVAL(-1));
 	ClassDB::bind_static_method("LABallistics",
-			D_METHOD("set_field", "grid", "gravity", "solid", "mass_mirrors", "frame", "pivot"),
+			D_METHOD("set_field", "grid", "gravity", "solid", "mass_mirrors", "mass_channels", "frame", "pivot"),
 			&LABallistics::set_field);
 	ClassDB::bind_static_method("LABallistics", D_METHOD("clear_field"), &LABallistics::clear_field);
 	ClassDB::bind_static_method("LABallistics", D_METHOD("has_field"), &LABallistics::has_field);
@@ -655,6 +703,8 @@ void LABallistics::_bind_methods() {
 			&LABallistics::drop, DEFVAL(Vector3()), DEFVAL(0.0), DEFVAL(0.0));
 	ClassDB::bind_static_method("LABallistics", D_METHOD("release", "id"), &LABallistics::release);
 	ClassDB::bind_static_method("LABallistics", D_METHOD("state", "id"), &LABallistics::state);
+	ClassDB::bind_static_method("LABallistics", D_METHOD("track_trajectory", "id"), &LABallistics::track_trajectory);
+	ClassDB::bind_static_method("LABallistics", D_METHOD("trajectory", "id"), &LABallistics::trajectory);
 	ClassDB::bind_static_method("LABallistics", D_METHOD("live_count"), &LABallistics::live_count);
 	ClassDB::bind_static_method("LABallistics", D_METHOD("step", "dt_s"), &LABallistics::step);
 	ClassDB::bind_static_method("LABallistics", D_METHOD("drag_work"), &LABallistics::drag_work);

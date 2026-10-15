@@ -2,13 +2,19 @@
 
 #include "LAProcessSet.hpp"
 
+#include <godot_cpp/classes/canvas_item.hpp>
+#include <godot_cpp/classes/canvas_layer.hpp>
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/json.hpp>
+#include <godot_cpp/classes/node3d.hpp>
 #include <godot_cpp/classes/os.hpp>
+#include <godot_cpp/classes/window.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/core/error_macros.hpp>
 #include <godot_cpp/variant/array.hpp>
+#include <godot_cpp/variant/callable_method_pointer.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
+#include <godot_cpp/variant/typed_array.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
 #include <algorithm>
@@ -57,6 +63,16 @@ Dictionary &g_state() {  // stand-in name -> the state this run put it in
 	static Dictionary v;
 	return v;
 }
+
+Dictionary &g_held() {  // module switched off -> {instance id -> {"mode": its own mode, "visible": its own flag}}
+	static Dictionary v;
+	return v;
+}
+
+const char *SHOWN = "visibility_changed";
+const char *CHILD_ENTERED = "child_entered_tree";
+const char *READY = "ready";
+const char *CHILD_EXITING = "child_exiting_tree";
 
 bool g_parsed = false;
 double g_evo = -1.0;
@@ -139,6 +155,222 @@ Node *node_of(const String &p_name) {
 	return Object::cast_to<Node>(obj);
 }
 
+Node *node_by_id(const Variant &p_id) {
+	return Object::cast_to<Node>(ObjectDB::get_instance((uint64_t)(int64_t)p_id));
+}
+
+// A node whose `visible` no ancestor inside the module decides.
+bool visibility_root(Node *p_node, Node *p_top) {
+	if (Object::cast_to<CanvasLayer>(p_node) != nullptr || Object::cast_to<Window>(p_node) != nullptr) {
+		return true;
+	}
+	const bool spatial = Object::cast_to<Node3D>(p_node) != nullptr;
+	if (!spatial && Object::cast_to<CanvasItem>(p_node) == nullptr) {
+		return false;
+	}
+	if (p_node == p_top) {
+		return true;
+	}
+	Node *parent = p_node->get_parent();
+	if (spatial) {
+		return Object::cast_to<Node3D>(parent) == nullptr;
+	}
+	return Object::cast_to<CanvasItem>(parent) == nullptr && Object::cast_to<CanvasLayer>(parent) == nullptr;
+}
+
+// Every process owner and visibility root under p_top, with the mode and flag it holds of its own.
+void collect(Node *p_node, Node *p_top, Dictionary &r_rows, bool p_recurse) {
+	Dictionary row;
+	if (p_node == p_top || p_node->get_process_mode() != Node::PROCESS_MODE_INHERIT) {
+		row["mode"] = (int)p_node->get_process_mode();
+	}
+	if (visibility_root(p_node, p_top)) {
+		row["visible"] = (bool)p_node->get("visible");
+	}
+	r_rows[p_node->get_instance_id()] = row;
+	if (!p_recurse) { return; }
+	const TypedArray<Node> kids = p_node->get_children(true);
+	for (int i = 0; i < kids.size(); ++i) {
+		collect(Object::cast_to<Node>(kids[i]), p_top, r_rows, true);
+	}
+}
+
+bool holds_layer(Node *p_node) {
+	if (Object::cast_to<CanvasLayer>(p_node) != nullptr) {
+		return true;
+	}
+	const TypedArray<Node> kids = p_node->get_children();
+	for (int i = 0; i < kids.size(); ++i) {
+		if (holds_layer(Object::cast_to<Node>(kids[i]))) {
+			return true;
+		}
+	}
+	return false;
+}
+
+// Another module whose node is this one, above it or below it: one node answers to one switch.
+String shares_subtree(const String &p_name, Node *p_node) {
+	const Array keys = g_nodes().keys();
+	for (int i = 0; i < keys.size(); ++i) {
+		Node *other = node_of(String(keys[i]));
+		if (String(keys[i]) == p_name || other == nullptr) {
+			continue;
+		}
+		if (other == p_node || other->is_ancestor_of(p_node) || p_node->is_ancestor_of(other)) {
+			return keys[i];
+		}
+	}
+	return String();
+}
+
+// A root a switched-off module shows is hidden again before the frame is drawn, and shown when it returns.
+void on_shown(uint64_t p_id) {
+	Node *node = node_by_id(p_id);
+	if (node == nullptr || !(bool)node->get("visible")) {
+		return;
+	}
+	const Array held = g_held().values();
+	for (int i = 0; i < held.size(); ++i) {
+		const Dictionary rows = held[i];
+		if (rows.has(p_id)) {
+			Dictionary row = rows[p_id];
+			row["visible"] = true;
+			node->set("visible", false);
+			return;
+		}
+	}
+}
+
+Callable guard(const Variant &p_id) {
+	return callable_mp_static(&on_shown).bind(p_id);
+}
+
+void hold(const String &p_name, Node *p_node, Node *p_top = nullptr, bool p_recurse = true);
+void restore_rows(const String &p_name, const Dictionary &p_rows);
+
+void on_ready(uint64_t p_id, const String &p_name) {
+	Node *top = node_of(p_name);
+	Node *node = node_by_id(p_id);
+	if (top != nullptr && node != nullptr && g_held().has(p_name)
+			&& (top == node || top->is_ancestor_of(node))) { hold(p_name, node, top, false); }
+}
+
+void restore(const String &p_name);
+
+// A module moved inside another module becomes part of that owner's subtree.
+void release_nested(const String &p_name, Node *p_top) {
+	const Array names = g_nodes().keys();
+	for (int i = 0; i < names.size(); ++i) {
+		const String name = names[i];
+		Node *node = node_of(name);
+		if (name == p_name || node == nullptr || !p_top->is_ancestor_of(node)) { continue; }
+		if (g_held().has(name)) { restore(name); }
+		g_nodes().erase(name);
+		ERR_PRINT(String("LAAblate module ") + name + " moved under " + p_name + "; released former module ownership.");
+	}
+}
+
+void on_child_entered(Node *p_child, const String &p_name) {
+	Node *top = node_of(p_name);
+	if (top != nullptr && g_held().has(p_name) && top->is_ancestor_of(p_child)) {
+		release_nested(p_name, top);
+		hold(p_name, p_child, top, false);
+	}
+}
+
+// Restore before the subtree leaves: a new held parent must observe its original state.
+void on_child_exiting(Node *p_child, const String &p_name) {
+	if (!g_held().has(p_name)) { return; }
+	Dictionary held = g_held()[p_name];
+	Dictionary leaving;
+	const Array ids = held.keys();
+	for (int i = 0; i < ids.size(); ++i) {
+		Node *node = node_by_id(ids[i]);
+		if (node == nullptr) { held.erase(ids[i]); continue; }
+		if (node == p_child || p_child->is_ancestor_of(node)) {
+			leaving[ids[i]] = held[ids[i]];
+			held.erase(ids[i]);
+		}
+	}
+	restore_rows(p_name, leaving);
+}
+
+Callable exit_guard(const String &p_name) { return callable_mp_static(&on_child_exiting).bind(p_name); }
+
+Callable child_guard(const String &p_name) { return callable_mp_static(&on_child_entered).bind(p_name); }
+Callable ready_guard(const String &p_name, const Variant &p_id) {
+	return callable_mp_static(&on_ready).bind(p_id, p_name);
+}
+
+void hold(const String &p_name, Node *p_node, Node *p_top, bool p_recurse) {
+	Dictionary held = g_held()[p_name];
+	Dictionary rows;
+	collect(p_node, p_top == nullptr ? p_node : p_top, rows, p_recurse);
+	const Array ids = rows.keys();
+	for (int i = 0; i < ids.size(); ++i) {
+		Dictionary saved = held.has(ids[i]) ? Dictionary(held[ids[i]]) : Dictionary();
+		const Dictionary observed = rows[ids[i]];
+		const Array fields = observed.keys();
+		for (int j = 0; j < fields.size(); ++j) {
+			if (!saved.has(fields[j])) { saved[fields[j]] = observed[fields[j]]; }
+		}
+		held[ids[i]] = saved;
+		Node *node = node_by_id(ids[i]);
+		if (node == nullptr) { continue; }
+		if (saved.has("mode")) { node->set_process_mode(Node::PROCESS_MODE_DISABLED); }
+		const Callable children = child_guard(p_name);
+		if (!node->is_connected(CHILD_ENTERED, children)) { node->connect(CHILD_ENTERED, children); }
+		const Callable exiting = exit_guard(p_name);
+		if (!node->is_connected(CHILD_EXITING, exiting)) { node->connect(CHILD_EXITING, exiting); }
+		const Callable ready = ready_guard(p_name, ids[i]);
+		if (!node->is_node_ready() && !node->is_connected(READY, ready)) {
+			node->connect(READY, ready, Object::CONNECT_ONE_SHOT);
+		}
+		if (!saved.has("visible")) { continue; }
+		node->set("visible", false);
+		const Callable watch = guard(ids[i]);
+		if (!node->is_connected(SHOWN, watch)) { node->connect(SHOWN, watch, Object::CONNECT_DEFERRED); }
+	}
+}
+
+// Every node a switched-off module held, back to its own flag and then its own mode.
+void restore_rows(const String &p_name, const Dictionary &held) {
+	const Array ids = held.keys();
+	for (int i = 0; i < ids.size(); ++i) {
+		Node *node = node_by_id(ids[i]);
+		const Dictionary row = held[ids[i]];
+		if (node != nullptr) {
+			const Callable children = child_guard(p_name);
+			if (node->is_connected(CHILD_ENTERED, children)) { node->disconnect(CHILD_ENTERED, children); }
+			const Callable exiting = exit_guard(p_name);
+			if (node->is_connected(CHILD_EXITING, exiting)) { node->disconnect(CHILD_EXITING, exiting); }
+			const Callable ready = ready_guard(p_name, ids[i]);
+			if (node->is_connected(READY, ready)) { node->disconnect(READY, ready); }
+		}
+		if (node == nullptr || !row.has("visible")) {
+			continue;
+		}
+		const Callable watch = guard(ids[i]);
+		if (node->is_connected(SHOWN, watch)) {
+			node->disconnect(SHOWN, watch);
+		}
+		node->set("visible", row["visible"]);
+	}
+	for (int i = 0; i < ids.size(); ++i) {
+		Node *node = node_by_id(ids[i]);
+		const Dictionary row = held[ids[i]];
+		if (node != nullptr && row.has("mode")) {
+			node->set_process_mode((Node::ProcessMode)(int)row["mode"]);
+		}
+	}
+}
+
+void restore(const String &p_name) {
+	const Dictionary held = g_held()[p_name];
+	g_held().erase(p_name);
+	restore_rows(p_name, held);
+}
+
 } // namespace
 
 // Named off from the start of the run.
@@ -164,7 +396,16 @@ void LAAblate::adopt(const String &p_name, Node *p_node) {
 		ERR_FAIL_MSG(String("LAAblate.adopt(\"") + p_name + "\"): the rung already contains a process of "
 				+ "that name, so one switch would answer for two things.");
 	}
+	const String other = shares_subtree(p_name, p_node);
+	if (other != String()) {
+		ERR_FAIL_MSG(String("LAAblate.adopt(\"") + p_name + "\"): the node shares a subtree with \"" + other
+				+ "\", so one node would answer to two switches.");
+	}
 	g_nodes()[p_name] = p_node;
+	if (g_held().has(p_name)) {
+		hold(p_name, p_node);
+		return;
+	}
 	if (off(p_name)) {
 		set_on(p_name, false);
 		UtilityFunctions::print(String("ABLATED={name:") + p_name + "}");
@@ -262,13 +503,20 @@ void LAAblate::set_on(const String &p_name, bool p_on) {
 		return;
 	}
 	if (g_nodes().has(p_name)) {
-		Node *node = node_of(p_name);
-		if (node == nullptr) {
+		if (p_on) {
+			if (g_held().has(p_name)) {
+				restore(p_name);
+			}
 			return;
 		}
-		node->set_process_mode(p_on ? Node::PROCESS_MODE_INHERIT : Node::PROCESS_MODE_DISABLED);
-		if (node->has_method("set_visible") && !node->is_class("Camera3D")) {
-			node->set("visible", p_on);
+		if (g_held().has(p_name)) {
+			return;
+		}
+		Node *node = node_of(p_name);
+		if (node != nullptr) { release_nested(p_name, node); }
+		g_held()[p_name] = Dictionary();
+		if (node != nullptr) {
+			hold(p_name, node);
 		}
 		return;
 	}
@@ -280,8 +528,7 @@ bool LAAblate::is_on(const String &p_name) {
 		return state_of(p_name) != String(OFF);
 	}
 	if (g_nodes().has(p_name)) {
-		Node *node = node_of(p_name);
-		return node != nullptr && node->get_process_mode() != Node::PROCESS_MODE_DISABLED;
+		return !g_held().has(p_name);
 	}
 	return (bool)LAProcessSet::live_mask().get(p_name, true);
 }
@@ -312,6 +559,19 @@ PackedStringArray LAAblate::names() {
 	}
 	fakes.sort();
 	out.append_array(fakes);
+	return out;
+}
+
+PackedStringArray LAAblate::panels() {
+	PackedStringArray out;
+	const Array keys = g_nodes().keys();
+	for (int i = 0; i < keys.size(); ++i) {
+		Node *node = node_of(String(keys[i]));
+		if (node != nullptr && holds_layer(node)) {
+			out.append(keys[i]);
+		}
+	}
+	out.sort();
 	return out;
 }
 
@@ -404,6 +664,8 @@ double LAAblate::evo_fast() {
 }
 
 void LAAblate::release() {
+	const Array held = g_held().keys();
+	for (int i = 0; i < held.size(); ++i) { restore(held[i]); }
 	g_nodes().clear();
 	g_want().clear();
 	g_applied().clear();
@@ -430,6 +692,7 @@ void LAAblate::_bind_methods() {
 	ClassDB::bind_static_method("LAAblate", D_METHOD("is_on", "name"), &is_on);
 	ClassDB::bind_static_method("LAAblate", D_METHOD("kind_of", "name"), &kind_of);
 	ClassDB::bind_static_method("LAAblate", D_METHOD("names"), &names);
+	ClassDB::bind_static_method("LAAblate", D_METHOD("panels"), &panels);
 	ClassDB::bind_static_method("LAAblate", D_METHOD("apply_schedule", "step"), &apply_schedule);
 	ClassDB::bind_static_method("LAAblate", D_METHOD("step_switches", "step"), &step_switches);
 	ClassDB::bind_static_method("LAAblate", D_METHOD("life_full"), &life_full);

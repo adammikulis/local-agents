@@ -295,7 +295,7 @@ func _run_snapshot_roundtrip() -> void:
 	store.bind(field._gpu._rd, {}, PackedStringArray(), field._cell_count, null)
 	var refused: bool = not store.restore(_rt_handle)
 
-	var declared: int = LAMaterialSphereGPU3D.channels().size() + LAMaterialSphereGPU3D.SEED_PRODUCTS.size()
+	var declared: int = LAChannels.channels().size() + LAMaterialSphereGPU3D.SEED_PRODUCTS.size()
 	print("SNAPSHOT_ROUNDTRIP={layout:%d, channels:%d, declared:%d, cells:%d, mirrors:%d, took:%d, lost:%d, same:%d, save_same:%d, nonzero:%d, totals_differ:%d, refused:%d, bytes:%d}" % [
 		LAFieldSnapshot.LAYOUT_VERSION, store.channels(_rt_handle).size(), declared,
 		store.cell_count(_rt_handle), mirrors, took, lost, same, save_same, nonzero, totals_differ,

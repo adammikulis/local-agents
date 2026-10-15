@@ -55,7 +55,7 @@ func _process(_delta: float) -> void:
 		print("TRAILER_SHOT_END=%s frames=%d" % [_shot, _frame])
 		# Route through AppExit (the run-frames path) so Godot's movie-maker FINALIZES the file — a bare
 		# get_tree().quit() with auto_accept_quit off leaves the recording unwritten.
-		LAAppExit.request(self, 0)
+		LAAppQuit.request(self, 0)
 
 
 ## Interpolate the camera between the two surrounding keys (eased), aim it, using radial up so it stays level.

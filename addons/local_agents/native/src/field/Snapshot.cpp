@@ -1,4 +1,5 @@
 #include "Snapshot.hpp"
+#include "la/ContentHash.hpp"
 
 #include <cstdio>
 #include <cstring>
@@ -86,6 +87,7 @@ bool Snapshot::read(const std::string &path, Snapshot &out, std::string &err) {
 	}
 	out.data.resize(size_t(out.cells) * size_t(count));
 	if (want > 0) { std::memcpy(out.data.data(), bytes.data() + at, want); }
+	out.content_hash = la::content_hash(bytes.data(), bytes.size());
 	return true;
 }
 

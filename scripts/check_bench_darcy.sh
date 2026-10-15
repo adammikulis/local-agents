@@ -14,8 +14,8 @@ command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 not on PATH." >&2; 
 PROBE="addons/local_agents/tests/bench_darcy.gd"
 [ -f "$REPO_ROOT/$PROBE" ] || { echo "ERROR: $PROBE missing." >&2; exit 2; }
 
-JUDGE="$(mktemp "${TMPDIR:-/tmp}/bench_darcy.XXXXXX.py")"
-trap 'rm -f "$JUDGE"' EXIT INT TERM
+JUDGE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/bench_darcy.XXXXXX")"; JUDGE="$JUDGE_DIR/judge.py"
+trap 'rm -rf "$JUDGE_DIR"' EXIT INT TERM
 cat > "$JUDGE" <<'PY'
 import json, os, sys
 
@@ -114,6 +114,6 @@ rc=$?
 FRAMES="${LA_BENCH_DC_FRAMES:-8}"
 . "$REPO_ROOT/scripts/lib_rung.sh"
 world="$(la_rung_report 5 "$FRAMES" "all_h2o_pore,wet_cells")"
-la_rung_require "$world" all_h2o_pore || exit 2
+la_rung_require "$world" all_h2o_pore || exit $?
 printf 'BENCH_DARCY_WORLD={"all_h2o_pore":%s}\n' "$(la_rung_value "$world" all_h2o_pore)"
 echo "check_bench_darcy: OK"

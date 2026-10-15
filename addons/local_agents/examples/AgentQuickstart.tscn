@@ -1,42 +1,53 @@
-[gd_scene load_steps=3 format=3 uid="uid://b1qkstart0agnt"]
+[gd_scene load_steps=4 format=3 uid="uid://b1qkstart0agnt"]
 
 [ext_resource type="Script" path="res://addons/local_agents/agents/Agent.gd" id="1_agent"]
 [ext_resource type="PackedScene" path="res://addons/local_agents/agents/ui/ChatPanel.tscn" id="2_chatpanel"]
 
+[ext_resource type="Theme" path="res://addons/local_agents/agents/ui/ChatTheme.tres" id="llm_theme"]
+
 [node name="AgentQuickstart" type="Node"]
+
+[node name="Background" type="ColorRect" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+color = Color(0.027, 0.043, 0.078, 1)
 
 [node name="Agent" type="Node" parent="."]
 script = ExtResource("1_agent")
 system_prompt = "You are a friendly assistant running entirely on this machine, with no internet connection. Answer in one or two short sentences."
 
 [node name="Margin" type="MarginContainer" parent="."]
+theme = ExtResource("llm_theme")
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-theme_override_constants/margin_left = 16
-theme_override_constants/margin_top = 16
-theme_override_constants/margin_right = 16
-theme_override_constants/margin_bottom = 16
+theme_override_constants/margin_left = 48
+theme_override_constants/margin_top = 32
+theme_override_constants/margin_right = 48
+theme_override_constants/margin_bottom = 32
 
 [node name="Column" type="VBoxContainer" parent="Margin"]
 layout_mode = 2
-theme_override_constants/separation = 10
+theme_override_constants/separation = 16
 
 [node name="Title" type="Label" parent="Margin/Column"]
 layout_mode = 2
-theme_override_font_sizes/font_size = 22
-text = "Local Agents quickstart"
+theme_override_font_sizes/font_size = 32
+text = "Ask. Explore. Create."
 
 [node name="Hint" type="Label" parent="Margin/Column"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.7, 0.74, 0.8, 1)
-text = "There is no script anywhere in this scene. Two of these nodes do the work, a LocalAgent holding the system prompt and a ChatPanel pointed at it, and the rest is layout. Select either one to see every setting in the inspector."
+text = "A conversation with a model on your machine. Ask a question, explore an idea, or get help with your game."
 autowrap_mode = 3
 
 [node name="ChatPanel" parent="Margin/Column" node_paths=PackedStringArray("agent") instance=ExtResource("2_chatpanel")]
 layout_mode = 2
 size_flags_vertical = 3
 agent = NodePath("../../../Agent")
-greeting = "Ask me anything. Nothing you type leaves this machine."
+prompt_starters = Dictionary[String, String]({"Local models": "What does running a language model locally mean?", "Game ideas": "Give two ideas for using a local language model in a game.", "Explain a mechanic": "Explain a game skill tree in two short sentences."})
+greeting = "What would you like to explore?"

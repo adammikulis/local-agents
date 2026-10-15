@@ -22,6 +22,9 @@ FILES=(
 	"$ROOT/addons/local_agents/sim/material/PhysicalConstants.gd"
 	"$ROOT/addons/local_agents/gdextensions/localagents/src/LABodySystem.cpp"
 	"$ROOT/addons/local_agents/gdextensions/localagents/src/LAWaterCurves.cpp"
+	"$ROOT/addons/local_agents/gdextensions/localagents/src/LAMeltEos.cpp"
+	"$ROOT/addons/local_agents/gdextensions/localagents/src/LAPhaseEos.cpp"
+	"$ROOT/addons/local_agents/gdextensions/localagents/src/LASubstanceOptics.cpp"
 )
 for f in "${FILES[@]}"; do
 	[ -f "$f" ] || { echo "check_cited_authority: MISSING $f" >&2; exit 2; }
@@ -82,6 +85,7 @@ rc=$?
 BODY=(
 	"$ROOT/addons/local_agents/gdextensions/localagents/src/LABodySystem.cpp"
 	"$ROOT/addons/local_agents/gdextensions/localagents/src/LAPlanetTables.cpp"
+	"$ROOT/addons/local_agents/gdextensions/localagents/src/LASubstanceOptics.cpp"
 )
 for f in "${BODY[@]}"; do
 	[ -f "$f" ] || { echo "check_cited_authority: MISSING $f" >&2; exit 2; }

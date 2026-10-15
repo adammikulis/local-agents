@@ -189,13 +189,14 @@ func _run() -> void:
 
 	_seed(cc)
 
+	var driver: LAFieldDriver = LAFieldDriver.on(_rd)
 	for p in [derive, reduce]:
 		p.grid_dims = Vector3i(NX, NY, NZ)
 		p.grid_cell_size = CELL
 		p.grid_origin = Vector3.ZERO
 		p.face_count = grid.neighbours.size()
 		p.ghost_count = 0
-		p.setup(_rd, _bufs, cc)
+		p.setup(_rd, driver, _bufs, cc)
 
 	var seeded: PackedStringArray = LAChannels.channels()
 	seeded.append_array(PackedStringArray(["pressure", "p_fluid"]))
@@ -210,12 +211,10 @@ func _run() -> void:
 		var ctx: Dictionary = {"cell_size": CELL, "centre": Vector3.ZERO, "spin": Vector3.ZERO,
 			"spin_rate_rad_s": 0.0, "sea_radius": 0.0, "gravity_self": 0.0, "step_index": float(s),
 			"dt_s": 1.0, "seeding": false}
-		var cl: int = _rd.compute_list_begin()
-		derive.dispatch(_rd, cl, ctx, cc, groups)
-		reduce.dispatch(_rd, cl, ctx, cc, groups)
-		_rd.compute_list_end()
-		_rd.submit()
-		_rd.sync()
+		driver.open()
+		derive.dispatch(_rd, ctx, cc, groups)
+		reduce.dispatch(_rd, ctx, cc, groups)
+		driver.close()
 		steps.append(_dispatched(derive, reduce, ctx, cc, groups, s))
 
 	var rows: Dictionary = reduce._drain(_rd)
@@ -277,7 +276,8 @@ func _seed(cc: int) -> void:
 		pres.append(p)
 		h2o.append(f * full_h2o)
 		sil.append((1.0 - f) * full_sil)
-		n2.append(40.0 * (1.0 - f))
+		# Gas stands only where a fluid leaves it room: a cell full of rock holds none.
+		n2.append(40.0 * (1.0 - f) if f > 0.0 else 0.0)
 		var kg_w: float = f * full_h2o * LAPhysical.MOLAR_MASS_WATER_KG_MOL
 		var kg_r: float = sil[c] * m_sil
 		e.append(kg_w * LASubstances.enthalpy_at("h2o", 15.0, p)
@@ -289,9 +289,9 @@ func _seed(cc: int) -> void:
 	_upload(_bufs["pressure"], pres)
 
 
-## The dispatches the two passes just issued: the derive's block out of the restate it published and the
-## detect block it derives from that, then the reduce row blocks the pass encodes, taking which latch rows
-## ran this step off the pass's own record of when it latched.
+## The dispatches the two passes just issued, each as one whole dispatch with the driver's chunk words: the
+## derive's block out of the restate it published and the detect block it derives from that, then the
+## reduce row blocks the pass encodes, taking which latch rows ran this step off the pass's own record.
 func _dispatched(derive: RefCounted, reduce: RefCounted, ctx: Dictionary, cc: int, groups: int,
 		step: int) -> Array:
 	var out: Array = []
@@ -303,8 +303,10 @@ func _dispatched(derive: RefCounted, reduce: RefCounted, ctx: Dictionary, cc: in
 		return out
 	var detect: PackedByteArray = pc.duplicate()
 	detect.encode_u32(derive.PC_DETECT, 1)
-	out.append({"kernel": "state_derive", "uset": derive._set, "groups": groups, "push": pc})
-	out.append({"kernel": "state_derive", "uset": derive._set, "groups": groups, "push": detect})
+	out.append({"kernel": "state_derive", "uset": derive._set, "groups": groups,
+		"push": LAFieldDriver.dispatched_block(pc, 1, 0)})
+	out.append({"kernel": "state_derive", "uset": derive._set, "groups": groups,
+		"push": LAFieldDriver.dispatched_block(detect, 1, 0)})
 	var rows: Array = reduce._rows
 	var latched: Dictionary = reduce._latch_step
 	for r in rows.size():
@@ -313,7 +315,7 @@ func _dispatched(derive: RefCounted, reduce: RefCounted, ctx: Dictionary, cc: in
 				and int(latched.get(String(row.get("ref", "")), -1)) != step:
 			continue
 		out.append({"kernel": "reduce", "uset": (reduce._sets as Array)[r], "groups": reduce._groups,
-			"push": reduce._pc(cc, row, r * reduce._groups)})
+			"push": LAFieldDriver.dispatched_block(reduce._pc(cc, row, r * reduce._groups), 1, 0)})
 	return out
 
 
@@ -340,7 +342,7 @@ func _snapshot(grid: LAVoxelGrid, cc: int, names: PackedStringArray, file: Strin
 func _write_mirrors(grid: LAVoxelGrid, cc: int, buffers: Array) -> void:
 	var names: PackedStringArray = PackedStringArray()
 	for b in buffers:
-		if int(b["kind"]) == 0:
+		if int(b["kind"]) == 0 and int(b["elems"]) == cc:
 			names.append(String(b["name"]))
 	_snapshot(grid, cc, names, "godot_mirrors.lafs")
 
@@ -361,7 +363,17 @@ func _plan_buffers(sets: Array, cc: int) -> Array:
 			var bytes: PackedByteArray = _rd.buffer_get_data(rid)
 			var name: String = String(by_rid.get(rid, "pass_buffer_%d" % out.size()))
 			out.append({"name": name, "elems": bytes.size() / 4, "bytes": bytes, "rid": rid,
-				"kind": 0 if (_mirror_of.has(name) and bytes.size() / 4 == cc) else 1})
+				"kind": 0 if (_mirror_of.has(name) and bytes.size() / 4 == cc) or name == ReduceScript.PARTIALS else 1})
+	var authoritative: PackedStringArray = LAChannels.channels()
+	authoritative.append_array(PackedStringArray(["pressure", "p_fluid"]))
+	for name in authoritative:
+		var rid: RID = _bufs[String(name)]
+		if seen.has(rid):
+			continue
+		var bytes: PackedByteArray = _rd.buffer_get_data(rid)
+		out.append({"name": String(name), "elems": bytes.size() / 4, "bytes": bytes,
+			"rid": rid, "kind": 0})
+
 	return out
 
 

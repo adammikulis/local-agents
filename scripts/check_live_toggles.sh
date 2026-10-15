@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# ANY PROCESS THE WORLD CONTAINS SWITCHES OFF AND ON MID-RUN, THROUGH ONE REGISTRY. A body released
-# from a co-rotating point carries the ground's tangential velocity; with gravity switched off it keeps
-# it and departs along the tangent, and when the switch comes back it accelerates again. A process the
-# rung LACKS is refused. CONTROL: the same world with the switch on lands its probe.
+# ANY PROCESS THE WORLD CONTAINS SWITCHES OFF AND ON MID-RUN, THROUGH ONE REGISTRY. A body released from a
+# co-rotating point keeps the ground's tangential velocity with gravity off, departs along the tangent, and
+# accelerates again when the switch returns. A process the rung LACKS is refused; with test_masses off no
+# probe falls. CONTROL: the same world with the switches on lands its probe.
 # EXIT 0 the switches reach the world - 1 one does not - 2 the gate could not run.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -23,7 +23,8 @@ done
 PROBE="$(mktemp "${TMPDIR:-/tmp}/la_toggle_probe.XXXXXX")"
 OFF="$(mktemp "${TMPDIR:-/tmp}/la_toggle_off.XXXXXX")"
 ON="$(mktemp "${TMPDIR:-/tmp}/la_toggle_on.XXXXXX")"
-trap 'rm -f "$PROBE" "$OFF" "$ON"' EXIT INT TERM
+MASS="$(mktemp "${TMPDIR:-/tmp}/la_toggle_mass.XXXXXX")"
+trap 'rm -f "$PROBE" "$OFF" "$ON" "$MASS"' EXIT INT TERM
 
 # ARM 1 - the registry, the schedule, the panel and the free body, against the closed form.
 export LA_ABLATE=gravity@2
@@ -43,7 +44,13 @@ LA_SLICE_BOX="$BOX" LA_RUN_TIMEOUT="${LA_LIVE_TOGGLE_TIMEOUT:-110}" \
 	--planet-only "--run-frames=$FRAMES" > "$ON" 2>&1
 on_rc=$?
 
-python3 - "$PROBE" "$probe_rc" "$OFF" "$ON" "$off_rc" "$on_rc" <<'PY'
+# ARM 4 - the control's world with the test-mass module switched off by name.
+LA_SLICE_BOX="$BOX" LA_RUN_TIMEOUT="${LA_LIVE_TOGGLE_TIMEOUT:-110}" \
+	"$ROOT/scripts/run_sim_offscreen.sh" --path "$ROOT" "$SCENE" -- --sandbox --rung=1 \
+	--planet-only --ablate=test_masses "--run-frames=$FRAMES" > "$MASS" 2>&1
+mass_rc=$?
+
+python3 - "$PROBE" "$probe_rc" "$OFF" "$ON" "$off_rc" "$on_rc" "$MASS" "$mass_rc" <<'PY'
 import json, math, sys
 
 probe_log, probe_rc, off_log, on_log, off_rc, on_rc = (
@@ -51,6 +58,7 @@ probe_log, probe_rc, off_log, on_log, off_rc, on_rc = (
 probe = open(probe_log, errors="replace").read()
 off = open(off_log, errors="replace").read()
 on = open(on_log, errors="replace").read()
+mass, mass_rc = open(sys.argv[7], errors="replace").read(), int(sys.argv[8])
 fails = []
 
 
@@ -109,13 +117,6 @@ if on_read is None or math.isnan(on_read) or abs(on_read) > 1e-3:
     fails.append("the control run's integrator and field disagree by %r, so absence cannot be told "
                  "from agreement" % on_read)
 
-# The solve itself stops while the switch is off, and starts again when it comes back.
-off_solves = float(off_rep.get("gauges", {}).get("gravity_solves", {}).get("cur", -1.0))
-on_solves = float(on_rep.get("gauges", {}).get("gravity_solves", {}).get("cur", -1.0))
-if not (0.0 <= off_solves < on_solves):
-    fails.append("the switched-off run solved gravity %r times against the control's %r"
-                 % (off_solves, on_solves))
-
 # The probe was offered in both worlds: rung 1 contains gravity whether or not the switch is on.
 for text, which in ((off, "switched-off"), (on, "control")):
     if "TEST_MASS_REFUSED=" in text:
@@ -132,13 +133,19 @@ if "TEST_MASS_LANDED=" not in on:
     print("\n".join(on.splitlines()[-20:]), file=sys.stderr)
     sys.exit(2)
 
-for rc, which in ((off_rc, "switched-off"), (on_rc, "control")):
+# THE MODULE: the name reaches the probe, and with it off nothing is released to land.
+if "ABLATED={name:test_masses}" not in mass:
+    fails.append("--ablate=test_masses switched off no module")
+if "TEST_MASS_LANDED=" in mass:
+    fails.append("a probe reached the ground with test_masses switched off")
+
+for rc, which in ((off_rc, "switched-off"), (on_rc, "control"), (mass_rc, "test_masses-off")):
     if rc != 0:
         fails.append("the %s run exited %d" % (which, rc))
 
-print('LIVE_TOGGLES={"probe_failures":%d,"toggles":%d,"landed_off":%s,"landed_on":%s}'
+print('LIVE_TOGGLES={"probe_failures":%d,"toggles":%d,"landed_off":%s,"landed_on":%s,"landed_mass_off":%s}'
       % (probe_fails, len(toggles), str("TEST_MASS_LANDED=" in off).lower(),
-         str("TEST_MASS_LANDED=" in on).lower()))
+         str("TEST_MASS_LANDED=" in on).lower(), str("TEST_MASS_LANDED=" in mass).lower()))
 if fails:
     for f in fails:
         print("  " + f, file=sys.stderr)

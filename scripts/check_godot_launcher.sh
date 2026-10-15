@@ -113,8 +113,8 @@ fi
 EXT="$ROOT/addons/local_agents/gdextensions/localagents"
 rg -q 'NSApplicationActivationPolicyProhibited' "$EXT/src/LANoActivation.mm" 2>/dev/null || {
 	echo "FAIL  $EXT/src/LANoActivation.mm does not prohibit activation." >&2; launcher_fail=1; }
-rg -q 'la_prohibit_activation\(\)' "$EXT/src/LocalAgentsRegister.cpp" || {
-	echo "FAIL  LocalAgentsRegister.cpp never calls la_prohibit_activation()." >&2; launcher_fail=1; }
+rg -q 'la_agent_process_policy\(\)' "$EXT/src/LocalAgentsRegister.cpp" || {
+	echo "FAIL  LocalAgentsRegister.cpp never calls la_agent_process_policy()." >&2; launcher_fail=1; }
 rg -q 'export __CFBundleIdentifier="com\.localagents\.godot-agent"' "$LIB" || {
 	echo "FAIL  $LIB does not set __CFBundleIdentifier to the bundle id for every launch." >&2; launcher_fail=1; }
 rg -q 'la_extension_current .* \|\| return' "$LIB" || {

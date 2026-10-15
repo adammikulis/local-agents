@@ -162,7 +162,7 @@ func _take_sample() -> void:
 			if po is PackedStringArray and (po as PackedStringArray).size() > 0:
 				prey = String((po as PackedStringArray)[0])
 			hot[hkey] = {"loc": _loc_phrase(near_water, pos.y, sea), "prey": prey}
-	var corpses: int = tree.get_nodes_in_group("carrion").size()
+	var corpses: int = tree.get_node_count_in_group("carrion")
 	var destruction: float = float(_world.get("_music_destruction")) if _world.get("_music_destruction") != null else 0.0
 	var tod: float = float(_world.get("_time_of_day")) if _world.get("_time_of_day") != null else 0.5
 	var fires: int = _fire_count()
@@ -571,8 +571,8 @@ func _fire_count() -> int:
 	if _world.get("_ecology") == null:
 		return 0
 	var eco = _world.get("_ecology")
-	if eco != null and eco.has_method("fire_system"):
-		var fs = eco.fire_system()
+	if eco != null and eco.has_method("material_field"):
+		var fs = eco.material_field()
 		if fs != null and fs.has_method("active_fire_count"):
 			return int(fs.active_fire_count())
 	return 0

@@ -47,7 +47,7 @@ LocalAgentBackstoryGraphService Node            SQLite-backed NPC memory: relati
 LocalAgentCreature             CharacterBody3D  A creature with the fast and slow brain stack.
 LocalAgentCreatureSpawner      Node3D           Populates a scene from a species-count dictionary.
 LocalAgentSimWorld             Node3D           A whole world, planet or flat box, behind one node.
-LocalAgentFieldBox             Node3D           The material field as a placeable box, with a slice view.
+LocalAgentFieldBox             Node3D           The material field as a placeable box.
 # --- Authoring and demos ---
 LocalAgentDemoHarness          Node             --run-frames=N, a report line, a screenshot, then quit.
 # --- Resources you assign in the inspector ---

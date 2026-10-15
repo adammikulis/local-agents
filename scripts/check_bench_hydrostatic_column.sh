@@ -14,8 +14,8 @@ command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 not on PATH." >&2; 
 PROBE="addons/local_agents/tests/bench_hydrostatic_column.gd"
 [ -f "$REPO_ROOT/$PROBE" ] || { echo "ERROR: $PROBE missing." >&2; exit 2; }
 
-JUDGE="$(mktemp "${TMPDIR:-/tmp}/bench_hydro.XXXXXX.py")"
-trap 'rm -f "$JUDGE"' EXIT INT TERM
+JUDGE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/bench_hydro.XXXXXX")"; JUDGE="$JUDGE_DIR/judge.py"
+trap 'rm -rf "$JUDGE_DIR"' EXIT INT TERM
 cat > "$JUDGE" <<'PY'
 import json, math, os, sys
 
@@ -112,7 +112,7 @@ rc=$?
 FRAMES="${LA_BENCH_HC_FRAMES:-6}"
 . "$REPO_ROOT/scripts/lib_rung.sh"
 world="$(la_rung_report 2 "$FRAMES" "pressure_rest_rel,pressure_audited")"
-la_rung_require "$world" pressure_rest_rel pressure_audited || exit 2
+la_rung_require "$world" pressure_rest_rel pressure_audited || exit $?
 printf 'BENCH_HYDROSTATIC_COLUMN_WORLD={"pressure_rest_rel":%s,"pressure_audited":%s}\n' \
   "$(la_rung_value "$world" pressure_rest_rel)" "$(la_rung_value "$world" pressure_audited)"
 echo "check_bench_hydrostatic_column: OK"

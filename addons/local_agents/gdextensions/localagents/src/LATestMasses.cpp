@@ -10,10 +10,12 @@
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/basis.hpp>
 #include <godot_cpp/variant/packed_string_array.hpp>
+#include <godot_cpp/variant/packed_vector3_array.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/variant/vector3i.hpp>
 
 #include <cmath>
+
 
 using namespace godot;
 
@@ -141,8 +143,7 @@ Vector3 LATestMasses::ground_under_site() const {
 	return guard > 0 ? p + up * step : nowhere;
 }
 
-// The middle of the box's outward face, in the BODY's frame -- which is the grid's, so a cell lookup
-// takes it as it stands. The box is tall along the axis its offset points down.
+// The outward radial ray's intersection with the grid box, in body coordinates.
 Vector3 LATestMasses::box_face_body() const {
 	const Vector3 nowhere(NAN, NAN, NAN);
 	Ref<RefCounted> slice = _field->get("_slice");
@@ -155,24 +156,19 @@ Vector3 LATestMasses::box_face_body() const {
 		UtilityFunctions::print("TEST_MASS_NO_BOX={\"offset\":0}");
 		return nowhere;
 	}
-	int axis = 0;
-	for (int k = 1; k < 3; k++) {
-		if (std::fabs(double(off[k])) > std::fabs(double(off[axis]))) {
-			axis = k;
-		}
-	}
+	const Vector3 up = off.normalized();
 	const Vector3i dims = Vector3i(slice->get("dims"));
 	const double edge = double(slice->get("cell_size"));
-	const double half = 0.5 * double(dims[axis]) * edge;
-	return body_centre() + off + off.normalized() * float(half);
+	return body_centre() + off + LAGridGeometry::radial_box_exit(up, Vector3(dims) * float(0.5 * edge));
 }
 
 int LATestMasses::throw_orb(const Vector3 &p_at, const Vector3 &p_velocity) {
-	if (!active()) {
+	if (!active() || _off) {
 		return -1;
 	}
 	const Vector3 world_vel = ground_velocity(p_at) + p_velocity;
 	const int id = LABallistics::drop(p_at, world_vel, 0.0, 0.0);
+	LABallistics::track_trajectory(id);
 	const Dictionary st = LABallistics::state(id);
 	Orb o;
 	o.id = id;
@@ -217,6 +213,7 @@ Dictionary LATestMasses::row_of(const Orb &p_orb) const {
 		return out;
 	}
 	out["id"] = p_orb.id;
+	out["trajectory"] = LABallistics::trajectory(p_orb.id).get("points", PackedVector3Array());
 	out["throw_speed_m_s"] = p_orb.speed;
 	const Vector3 from = Vector3(out.get("from", Vector3()));
 	const Vector3 at = Vector3(out.get("position", Vector3()));
@@ -248,7 +245,7 @@ int LATestMasses::fallen() const {
 }
 
 void LATestMasses::on_sim_step(int) {
-	if (!active() || !LABallistics::has_field()) {
+	if (!active() || _off || !LABallistics::has_field()) {
 		return;
 	}
 	if (!_auto) {
@@ -363,6 +360,22 @@ void LATestMasses::on_bodies_landed(const Array &p_landed) {
 			break;
 		}
 	}
+}
+
+void LATestMasses::_notification(int p_what) {
+	if (p_what == NOTIFICATION_ENABLED) {
+		_off = false;
+		return;
+	}
+	if (p_what != NOTIFICATION_DISABLED) {
+		return;
+	}
+	_off = true;
+	_auto = false;
+	for (const Orb &orb : _orbs) {
+		LABallistics::release(orb.id);
+	}
+	_orbs.clear();
 }
 
 void LATestMasses::set_release_height_m(double p_m) {

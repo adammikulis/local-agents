@@ -10,9 +10,6 @@
 
 GODOT_LOCK_DIR="${TMPDIR:-/tmp}/la_godot_extension.lock"
 
-# ONE GPU ON THIS MACHINE, AND EVERY START-UP CAN MAKE A RenderingDevice — a rig probe and a headless
-# batch as much as a sim. So the lock belongs to the LAUNCH, not to one wrapper: several lanes' engines
-# on one GPU push a sim past Godot's own fence wait, which it reports as an engine error.
 # Reentrant through an exported marker, so a wrapper holding it for a whole run is not blocked by the
 # launch inside it. Ordering, everywhere: the extension lock is taken FIRST and the GPU lock LAST.
 LA_GPU_LOCK_DIR="${TMPDIR:-/tmp}/la_sim_gpu.lock"
@@ -129,15 +126,27 @@ la_dir_head() {
 
 la_dir_lock() {
 	local lock="$1" timeout="$2" poll="${3:-1}"
-	local waited=0 owner q tier ticket n head ahead
+	local waited=0 owner q tier ticket n head ahead f m
 	la_lock_order_ok "$lock" || return 3
 	q="$(la_dir_queue_dir "$lock")"
 	tier=n
 	[ "${LA_LOCK_PRIORITY:-0}" = "1" ] && tier=p
 	mkdir -p "$q/p" "$q/n" 2>/dev/null
-	# TAKE A TICKET: the lowest free number in our tier, atomically, carrying our pid. A number whose owner
-	# is dead is reclaimed on the way past, so a crashed waiter does not push the queue forward for ever.
+	# TAKE A TICKET: one PAST the highest live number in our tier, atomically, carrying our pid. Reusing
+	# the lowest FREE number let a newcomer claim a number under a lane already waiting, and that lane
+	# never reached the head of its own queue. A number whose owner is dead is reclaimed on the way past.
 	n=0
+	for f in "$q/$tier"/*; do
+		[ -L "$f" ] || continue
+		m="${f##*/}"
+		case "$m" in "" | *[!0-9]*) continue ;; esac
+		owner="$(readlink "$f" 2>/dev/null || echo "")"
+		if [ -z "$owner" ] || ! kill -0 "$owner" 2>/dev/null; then
+			rm -f "$f"
+			continue
+		fi
+		[ "$m" -ge "$n" ] && n=$((m + 1))
+	done
 	ticket=""
 	while [ -z "$ticket" ]; do
 		if ln -s "$$" "$q/$tier/$n" 2>/dev/null; then

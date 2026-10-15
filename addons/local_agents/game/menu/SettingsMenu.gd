@@ -164,7 +164,7 @@ func _dump_tooltips() -> void:
 	var seen: Dictionary = {}
 	var count: int = _walk_tooltips(self, seen)
 	print("TOOLTIP_COUNT=%d" % count)
-	LAAppExit.request(self, 0)
+	LAAppQuit.request(self, 0)
 
 
 func _walk_tooltips(node: Node, seen: Dictionary) -> int:

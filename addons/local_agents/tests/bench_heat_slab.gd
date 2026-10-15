@@ -123,6 +123,9 @@ func _init() -> void:
 	if coarse.is_empty() or fine.is_empty() or stress.is_empty():
 		quit(2)
 		return
+	var row: Dictionary = LASubstances.table()["silicate"]
+	var rock: Dictionary = {"k": float(row["conductivity"]), "rho": float(row["density"]),
+		"c": float(row["specific_heat_solid"])}
 	print('BENCH_RAW_HEAT_SLAB=' + JSON.stringify({"slab_m": SLAB_M, "t_cold_c": T_COLD_C,
-		"t_hot_c": T_HOT_C, "coarse": coarse, "fine": fine, "stress": stress}))
+		"t_hot_c": T_HOT_C, "rock": rock, "coarse": coarse, "fine": fine, "stress": stress}))
 	quit(0)

@@ -29,11 +29,14 @@ set_target_properties(godot-cpp PROPERTIES
     INTERFACE_COMPILE_DEFINITIONS "${LA_GODOT_CPP_DEFS}"
     INTERFACE_COMPILE_OPTIONS "${LA_GODOT_CPP_OPTIONS}")
 
-# NOTE: the homegrown ecosystem/settlement simulation + native voxel-edit/dispatch
-# sources were removed with that stack. Only the LLM/agent/graph runtime remains.
 set(SRC
     src/AgentNode.cpp
     src/AgentRuntime.cpp
+    src/AgentRuntimeInference.cpp
+    src/RuntimeInferenceUtils.cpp
+    src/RuntimeChatPrompt.cpp
+    src/RuntimeHttp.cpp
+    src/RuntimeStreamText.cpp
     src/LAAblate.cpp
     src/LAAbsorptionBands.cpp
     src/LAColumnRadiation.cpp
@@ -41,18 +44,23 @@ set(SRC
     src/LATestMasses.cpp
     src/LAMixtureEnthalpy.cpp
     src/LAPlanetTables.cpp
+    src/LAMeltEos.cpp
+    src/LAPhaseEos.cpp
     src/LABodySystem.cpp
     src/LAFieldCellMass.cpp
+    src/LAFieldSeedJob.cpp
     src/LAGridGeometry.cpp
     src/LAGravitySolve.cpp
     src/LAFieldDriver.cpp
     src/LAFieldLedger.cpp
     src/LAFieldMirrors.cpp
+    src/LAThreadClock.cpp
     src/LAFieldSnapshot.cpp
     src/LAFieldStateCache.cpp
     src/LAFieldHydrosphereSeed.cpp
     src/LAFieldLithostaticSeed.cpp
     src/LASubstances.cpp
+    src/LASubstanceOptics.cpp
     src/LAWaterCurves.cpp
     src/NetworkGraph.cpp
     src/LAProcess.cpp
@@ -72,6 +80,13 @@ set(INCLUDE_DIRS
 )
 
 add_library(localagents SHARED ${SRC} ${SQLITE_SRC})
+
+if (MSVC)
+    if (NOT LA_GODOT_CPP_MSVC_RUNTIME)
+        message(FATAL_ERROR "Dependency cache does not declare its MSVC runtime library. Rebuild the dependencies.")
+    endif()
+    set_property(TARGET localagents PROPERTY MSVC_RUNTIME_LIBRARY "${LA_GODOT_CPP_MSVC_RUNTIME}")
+endif()
 
 target_include_directories(localagents PRIVATE ${INCLUDE_DIRS})
 

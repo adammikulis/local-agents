@@ -118,6 +118,10 @@ layout(set = 0, binding = LA_BIND_MOM_Z, std430) buffer MomZ { float mom_z[]; };
 // The mixture's own kinematic eddy viscosity, m^2/s, stated once per cell so both sides of a face
 // read one number and the viscous flux is antisymmetric.
 layout(set = 0, binding = LA_BIND_FLUX_NU_T, std430) restrict buffer NuT { float nu_t[]; };
+// What PASS_MOMENTUM settled per cell, off the velocities the substep started with.
+layout(set = 0, binding = LA_BIND_FLUX_DM_X, std430) restrict buffer DmX { float dm_x[]; };
+layout(set = 0, binding = LA_BIND_FLUX_DM_Y, std430) restrict buffer DmY { float dm_y[]; };
+layout(set = 0, binding = LA_BIND_FLUX_DM_Z, std430) restrict buffer DmZ { float dm_z[]; };
 // THIS RECORD'S FLUX THROUGH EACH FACE, positive OUT of the cell that owns it: matter, the heat
 // riding it, the charge riding it. Read in one canonical order, so a face's two entries negate.
 layout(set = 0, binding = LA_BIND_FLUX_X_AMT, std430) restrict buffer XAmt { float x_amt[]; };
@@ -182,18 +186,22 @@ layout(push_constant, std430) uniform Params {
 	uint act_group;       // the row group whose activity counter and cell list this dispatch walks
 	uint act_group2;      // a second group this row's crossings wake; ACT_NO_GROUP for none
 	float phi_datum;      // J/kg: la_phi's zero against infinity
-	float grav_self;      // share of rho*phi that is the cell's own potential energy: 0.5 self-gravitating, 1 in a body's field
+	uint chunk_stride;    // chunk.glsli
+	uint chunk_phase;
 } params;
+
+#include "chunk.glsli"
 
 // The seconds THIS invocation integrates. A cell's own is dt/2^tlevel.
 float la_dt;
 
-// FluxPass's PASS_* tags. 3-5 and 9-17 belong to active_levels.glsli; anything else is the apply.
+// FluxPass's PASS_* tags. 3-5 and 9-18 belong to active_levels.glsli; anything else is the apply.
 const uint PASS_FLUX = 0u;
 const uint PASS_GRAIN = 2u;
 const uint PASS_SW = 6u;
 const uint PASS_FACE = 7u;
 const uint PASS_MOMENTUM = 8u;
+const uint PASS_MOMENTUM_APPLY = 19u;
 
 #include "march.glsli"
 #include "closures.glsli"
@@ -774,6 +782,18 @@ void move_momentum(uint c) {
 		float t_eff = rate * dt_f > 1.0e-6 ? (1.0 - exp(-rate * dt_f)) / rate : dt_f;
 		dm += k_c * (vel_at(n) - vel_at(c)) * t_eff;
 	}
+	dm_x[c] = dm.x;
+	dm_y[c] = dm.y;
+	dm_z[c] = dm.z;
+}
+
+
+// PASS_MOMENTUM_APPLY: once every cell has read its neighbours' velocities, so a face's two sides trade equally.
+void apply_momentum(uint c) {
+	if (solid[c] != 0.0 || collisionless(c)) {
+		return;
+	}
+	vec3 dm = vec3(dm_x[c], dm_y[c], dm_z[c]);
 	// This substep's share of the body impulse the stack does not already carry: state_derive booked
 	// the weight leg out of it wherever the cell's own faces state one.
 	float sf = exp2(-float(tlevel[c]));
@@ -1029,7 +1049,7 @@ void field_detect(uint c) {
 
 
 void main() {
-	uint gidx = gl_GlobalInvocationID.x;
+	uint gidx = la_cell();
 	la_dt = params.dt_s;
 	// pass_id is a push constant, so each branch here is uniform and APPEND's barriers are legal.
 	if (la_active_levels(gidx)) {
@@ -1056,6 +1076,10 @@ void main() {
 	}
 	if (params.pass_id == PASS_MOMENTUM) {
 		move_momentum(gidx);
+		return;
+	}
+	if (params.pass_id == PASS_MOMENTUM_APPLY) {
+		apply_momentum(gidx);
 		return;
 	}
 	if (params.pass_id == PASS_GRAIN) {

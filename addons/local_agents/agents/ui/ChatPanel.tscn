@@ -2,21 +2,14 @@
 
 [ext_resource type="Script" path="res://addons/local_agents/agents/ui/ChatPanel.gd" id="1_chatpanel"]
 
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_transcript"]
-content_margin_left = 6.0
-content_margin_top = 6.0
-content_margin_right = 6.0
-content_margin_bottom = 6.0
-bg_color = Color(0, 0, 0, 0.235294)
-corner_radius_top_left = 4
-corner_radius_top_right = 4
-corner_radius_bottom_right = 4
-corner_radius_bottom_left = 4
+[ext_resource type="Theme" path="res://addons/local_agents/agents/ui/ChatTheme.tres" id="theme"]
+
 
 [node name="ChatPanel" type="PanelContainer"]
 custom_minimum_size = Vector2(360, 260)
 offset_right = 360.0
 offset_bottom = 260.0
+theme = ExtResource("theme")
 script = ExtResource("1_chatpanel")
 
 [node name="Margin" type="MarginContainer" parent="."]
@@ -30,19 +23,28 @@ theme_override_constants/margin_bottom = 8
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
-theme_override_constants/separation = 6
+theme_override_constants/separation = 14
 
 [node name="StatusBar" type="HBoxContainer" parent="Margin/Root"]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_constants/separation = 6
+theme_override_constants/separation = 14
 
 [node name="StatusLabel" type="Label" parent="Margin/Root/StatusBar"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 autowrap_mode = 3
-text = "Local Agents: checking..."
+theme_override_font_sizes/font_size = 13
+theme_override_colors/font_color = Color(0.65, 0.75, 0.9, 1)
+text = "Checking model…"
+
+[node name="Suggestions" type="HFlowContainer" parent="Margin/Root"]
+unique_name_in_owner = true
+layout_mode = 2
+visible = false
+theme_override_constants/h_separation = 8
+theme_override_constants/v_separation = 8
 
 [node name="Transcript" type="RichTextLabel" parent="Margin/Root"]
 unique_name_in_owner = true
@@ -50,23 +52,25 @@ custom_minimum_size = Vector2(0, 120)
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
-theme_override_styles/normal = SubResource("StyleBoxFlat_transcript")
 bbcode_enabled = true
 scroll_following = true
 selection_enabled = true
 
 [node name="InputRow" type="HBoxContainer" parent="Margin/Root"]
 layout_mode = 2
-theme_override_constants/separation = 6
+theme_override_constants/separation = 14
 
 [node name="PromptInput" type="LineEdit" parent="Margin/Root/InputRow"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-placeholder_text = "Type a prompt and press enter..."
+custom_minimum_size = Vector2(0, 48)
+placeholder_text = "Ask anything…"
 caret_blink = true
 
 [node name="SendButton" type="Button" parent="Margin/Root/InputRow"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Send"
+custom_minimum_size = Vector2(108, 48)
+text = "Send  →"
+theme_type_variation = &"PrimaryButton"

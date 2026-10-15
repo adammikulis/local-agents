@@ -1,16 +1,19 @@
 class_name LAFieldBoundaryCapture3D
 extends RefCounted
 
-## Records a GLOBAL run's drain-derived state just outside a named slice box's six faces, and replays a
-## recorded series into a slice's REPLAY faces. Every value in the file comes from a real run's drain.
+## Records a GLOBAL run's device state just outside a named slice box's six faces, and replays a recorded
+## series into a slice's REPLAY faces. A sample is keyed on LASimLoop's step whose start it holds.
 
 const ENV_CAPTURE: String = "LA_SLICE_CAPTURE"
 const CAPTURE_SETTING: String = "local_agents/sim/slice_capture"
 const ENV_CAPTURE_BOX: String = "LA_SLICE_CAPTURE_BOX"
 const CAPTURE_BOX_SETTING: String = "local_agents/sim/slice_capture_box"
-## Field steps between samples.
+## Where a REPLAY slice books the face states it holds from each loop step, in the capture's format.
+const ENV_REPLAY_BOOK: String = "LA_SLICE_REPLAY_BOOK"
+## Loop steps between samples, from the first step the recording runs.
+## LA_APPROX: sampled_exterior_series
 const CAPTURE_EVERY: int = 10
-const VERSION: int = 2
+const VERSION: int = 3
 
 enum { RECORD, REPLAY }
 
@@ -29,9 +32,10 @@ var _unresolved: Dictionary = {}
 ## The face slot pointing away from the body centre; slot ^ 1 stands under the box. -1 outside RECORD.
 var _up_slot: int = -1
 var _samples: Array = []
-var _requested: bool = false
+## RECORD: the loop step the next sample is due at; -1 before the first step.
+var _next: int = -1
 var _starved: bool = false
-var _fed_idx: int = 0
+var _fed_idx: int = -1
 var _exhausted: bool = false
 
 
@@ -43,6 +47,7 @@ static func maybe_make(field):
 			return null
 		cap._f = field
 		cap._mode = REPLAY
+		cap._path = OS.get_environment(ENV_REPLAY_BOOK)
 		return cap
 	var path: String = configured(CAPTURE_SETTING, ENV_CAPTURE)
 	if path == "":
@@ -145,19 +150,19 @@ static func _slab_weights(grid: LAVoxelGrid, s_lo: Vector3, s_hi: Vector3) -> Di
 	return {"cells": cells, "weights": weights, "sig": ",".join(sig)}
 
 
-## Called once per field step, after the previous step drained and before this step dispatches.
-func pre_step() -> void:
+## Called once per field step at LASimLoop's `step`, after the previous step drained and before this one
+## dispatches: RECORD reads the exterior the step starts from, REPLAY puts the recorded one in place.
+func pre_step(step: int) -> void:
 	if _mode == REPLAY:
-		_replay_tick()
+		_replay_tick(step)
 		return
-	var step: int = int(_f._gpu._step_index)
-	if _requested:
-		_requested = false
-		var legs: Dictionary = _f._gpu.take_probe(_names)
-		_fold(step, legs)
-	if step % CAPTURE_EVERY == 0:
-		_f._gpu.request_probe(_names)
-		_requested = true
+	if _next >= 0 and step < _next:
+		return
+	_next = step + CAPTURE_EVERY
+	var legs: Dictionary = {}
+	for name in _names:
+		legs[name] = _f._gpu.read_raw(name)   # nothing is in flight between the drain and the dispatch
+	_fold(step, legs)
 
 
 func _fold(step: int, legs: Dictionary) -> void:
@@ -167,7 +172,7 @@ func _fold(step: int, legs: Dictionary) -> void:
 		if not (arr is PackedFloat32Array) or arr.size() < cc:
 			if not _starved:
 				_starved = true
-				push_warning("LAFieldBoundaryCapture3D: probe leg \"%s\" is absent; the sample is dropped, not invented." % String(name))
+				push_warning("LAFieldBoundaryCapture3D: the device holds no \"%s\"; the sample is dropped, not invented." % String(name))
 			return
 	var faces: Dictionary = {}
 	for d in LAVoxelGrid.SLOTS:
@@ -180,7 +185,7 @@ func _fold(step: int, legs: Dictionary) -> void:
 			return
 		faces[str(d)] = st
 	_samples.append({"step": step, "faces": faces})
-	_write()
+	_write(CAPTURE_EVERY)
 
 
 ## The global field over one face's slab, each cell carrying the share of the slab it covers.
@@ -205,35 +210,58 @@ func _face_state(face: Dictionary, legs: Dictionary) -> Dictionary:
 		"gravity": [grav.x, grav.y, grav.z]}
 
 
-func _write() -> void:
+func _write(cadence: int) -> void:
 	var fh: FileAccess = FileAccess.open(_path, FileAccess.WRITE)
 	if fh == null:
 		if not _starved:
 			_starved = true
 			push_error("LAFieldBoundaryCapture3D: cannot write \"%s\" (%s)." % [_path, error_string(FileAccess.get_open_error())])
 		return
-	fh.store_string(JSON.stringify({"version": VERSION, "cadence": CAPTURE_EVERY,
+	fh.store_string(JSON.stringify({"version": VERSION, "cadence": cadence,
 		"cell_size": _f._grid.cell_size, "up_slot": _up_slot, "unresolved": _unresolved,
-		"samples": _samples}))
+		"samples": _samples}, "", true, true))   # full precision: Godot's parser drops a long fixed decimal
 	fh.close()
 
 
-func _replay_tick() -> void:
+## The sample in force at loop step `step`: the one recorded at the start of that step, held until the next.
+func _replay_tick(step: int) -> void:
 	if _exhausted or _f._boundary == null:
 		return
-	var series: Dictionary = _f._slice.replay_series
-	var cadence: int = maxi(int(_f._slice.replay_cadence), 1)
-	var idx: int = int(_f._gpu._step_index) / cadence
+	var first: int = _f._slice.replay_first
+	var cadence: int = _f._slice.replay_cadence
+	if step < first:
+		_exhausted = true
+		push_error("LAFieldBoundaryCapture3D: the capture begins at step %d and the run is at step %d; the exterior before the recording is unknown." % [first, step])
+		return
+	var idx: int = (step - first) / cadence
 	if idx == _fed_idx:
 		return
+	var series: Dictionary = _f._slice.replay_series
 	for d in series:
 		var arr: Array = series[d]
 		if idx >= arr.size():
 			_exhausted = true
-			push_error("LAFieldBoundaryCapture3D: the capture series ends at sample %d and the run asked for %d; the exterior is unknown past the recording." % [arr.size() - 1, idx])
+			push_error("LAFieldBoundaryCapture3D: the capture ends at step %d and the run is at step %d; the exterior is unknown past the recording." % [first + (arr.size() - 1) * cadence, step])
 			return
 		_f._boundary.replay(int(d), arr[idx])
 	_fed_idx = idx
+	_book(step, first + idx * cadence)
+
+
+## What this slice's REPLAY faces hold from `step`, and the recorded step it was taken at.
+func _book(step: int, recorded: int) -> void:
+	if _path == "":
+		return
+	var faces: Dictionary = {}
+	var series: Dictionary = _f._slice.replay_series
+	for d in series:
+		var st: Dictionary = (series[d][_fed_idx] as Dictionary).duplicate(true)
+		for vk in VECTORS:
+			var v: Vector3 = st[vk]
+			st[vk] = [v.x, v.y, v.z]
+		faces[str(d)] = st
+	_samples.append({"step": step, "recorded_step": recorded, "faces": faces})
+	_write(_f._slice.replay_cadence)
 
 
 static func load_file(path: String) -> Dictionary:
@@ -243,6 +271,9 @@ static func load_file(path: String) -> Dictionary:
 	var parsed: Variant = JSON.parse_string(fh.get_as_text())
 	fh.close()
 	if not (parsed is Dictionary) or (parsed.get("samples", []) as Array).is_empty():
+		return {}
+	if int(parsed.get("version", 0)) != VERSION:
+		push_error("LAFieldBoundaryCapture3D: \"%s\" is capture version %s and this reads version %d, whose samples are keyed on LASimLoop's step." % [path, str(parsed.get("version")), VERSION])
 		return {}
 	return parsed
 
@@ -282,21 +313,33 @@ static func _mean(arr: Array) -> Dictionary:
 	return acc
 
 
-## Face slot -> the per-sample series, plus the cadence in field steps: the REPLAY boundary's feed.
-## A series with a gap cannot drive a boundary, so one bad sample refuses the whole file.
+## Face slot -> the per-sample series, the cadence in loop steps and the loop step of the first sample:
+## the REPLAY boundary's feed. A series with a gap cannot drive a boundary, so one bad, missing or
+## misplaced sample refuses the whole file.
 static func series_states(data: Dictionary) -> Dictionary:
+	var samples: Array = data.get("samples", [])
+	var cadence: int = int(data.get("cadence", 0))
+	var first: int = int((samples[0] as Dictionary).get("step", -1)) if not samples.is_empty() else -1
 	var faces: Dictionary = {}
-	for s in data.get("samples", []):
+	for i in samples.size():
+		var s: Dictionary = samples[i]
 		var sf: Dictionary = s.get("faces", {})
 		if not _sample_ok(sf):
 			push_error("LAFieldBoundaryCapture3D: the series carries a non-finite sample; a gapped series cannot drive a REPLAY face.")
+			return {}
+		if not s.has("step") or cadence <= 0 or int(s["step"]) != first + i * cadence:
+			push_error("LAFieldBoundaryCapture3D: sample %d is at step %s where a %d-step series from step %d puts step %d; a gapped series cannot drive a REPLAY face." % [i, str(s.get("step")), cadence, first, first + i * cadence])
 			return {}
 		for key in sf:
 			var d: int = int(String(key))
 			if not faces.has(d):
 				faces[d] = []
 			(faces[d] as Array).append(_state_of(sf[key]))
-	return {"cadence": int(data.get("cadence", 0)), "faces": faces}
+	for d in faces:
+		if (faces[d] as Array).size() != samples.size():
+			push_error("LAFieldBoundaryCapture3D: face %d is in %d of %d samples; a gapped series cannot drive a REPLAY face." % [d, (faces[d] as Array).size(), samples.size()])
+			return {}
+	return {"cadence": cadence, "first": first, "faces": faces}
 
 
 ## One stored face state, JSON arrays rebuilt into the vectors the provider consumes.

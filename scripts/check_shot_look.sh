@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# WHAT THE PICTURES LOOK LIKE, off the pixels, over the frame no HUD covers. THE GROUND IS A LIT SURFACE
-# AND NOT A PLATE: over the lower half of that window the median per-row standard deviation of luminance
-# beats one 8-bit step, which one flat colour reads zero for at any brightness.
+# WHAT THE PICTURES LOOK LIKE, off the pixels of the whole frame: the protocol drops every HUD panel. THE
+# GROUND IS A LIT SURFACE AND NOT A PLATE: over the lower half of the frame the median per-row standard
+# deviation of luminance beats one 8-bit step, which one flat colour reads zero for at any brightness.
 # EXIT 0 every picture holds * 1 one does not * 2 the gate could not run.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -32,7 +32,6 @@ python3 - "${PNGS[@]}" <<'PY'
 import sys
 from PIL import Image
 
-X0, X1, Y0, Y1 = 0.17, 0.76, 0.19, 0.86   # the frame no HUD panel covers
 STEP = 1.0 / 255.0                        # one 8-bit step: the picture's own resolution
 
 fail = 0
@@ -40,9 +39,7 @@ for path in sys.argv[1:]:
     im = Image.open(path).convert("L")
     w, h = im.size
     px = im.load()
-    x0, x1 = int(X0 * w), int(X1 * w)
-    y0, y1 = int(Y0 * h), int(Y1 * h)
-    lum = [[px[x, y] / 255.0 for x in range(x0, x1)] for y in range(y0, y1)]
+    lum = [[px[x, y] / 255.0 for x in range(w)] for y in range(h)]
     name = path.rsplit("/", 1)[-1]
 
     # A lit surface varies along a row; a plate does not.

@@ -16,7 +16,7 @@ PROBE_REL="addons/local_agents/tests/gate_condensed_moduli.gd"
 if la_cap_dir >/dev/null; then
 	OUT="$(la_headless condensed_moduli)" || exit 2
 else
-	OUT="$(la_godot --headless --path "$ROOT" -s "res://$PROBE_REL" 2>&1)"
+	OUT="$(LA_CPU_VALIDATION=1 la_godot --headless --path "$ROOT" -s "res://$PROBE_REL" 2>&1)"
 fi
 
 LINE="$(printf '%s\n' "$OUT" | grep -m1 '^CONDENSED_MODULI=')"

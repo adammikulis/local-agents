@@ -4,33 +4,34 @@ extends RefCounted
 ## THE MATTER CHANNELS THE KERNELS BIND, AND THE ONE WEIGHING OF THEM.
 ## `kernels3d/matter_channels.glsli` is the GPU half: same order, same switch. LABindings owns the slots.
 
-## Mixture entries — state_derive.glsl E_*. Two substances carry a phase ladder; the rest are linear in T.
+## Which of the three heat buffers carries a channel's enthalpy — state_derive.glsl E_*.
 enum Entry { H2O, SILICATE, SENSIBLE }
 
-const LADDER: Dictionary = {"h2o": Entry.H2O, "silicate": Entry.SILICATE}
+const CARRIERS: Dictionary = {"h2o": Entry.H2O, "silicate": Entry.SILICATE}
 
 ## Gaseous through this planet's whole surface range; their moles are the Dalton split's denominator.
 const GASES: PackedStringArray = ["o2", "co2", "n2", "h2", "co", "so2", "h2s", "ch4"]
 
 
-## Which mixture entry a substance's enthalpy sits in.
+## Which heat buffer a substance's enthalpy is carried in.
 static func entry_of(id: String) -> int:
-	return int(LADDER.get(id, Entry.SENSIBLE))
+	return int(CARRIERS.get(id, Entry.SENSIBLE))
 
 
-## J/kg/K a substance holds sensible heat at, or 0 for one on a phase ladder (whose enthalpy comes off
-## the ladder, not off a single capacity). Empty table entry -> 0 and a named error.
-static func specific_heat(id: String) -> float:
-	# A row naming no substance carries no matter, so it has no capacity to look up.
+## J/kg/K of the phase a CHANNEL's row declares its matter stands in; the liquid's where the row leaves
+## the phase to be derived from enthalpy. 0 for a channel whose entry is a heat buffer of its own,
+## which needs no capacity share to be told apart from what rides beside it.
+static func channel_specific_heat(channel: String) -> float:
+	var row: Dictionary = LAChannels.rows().get(channel, {})
+	var id: String = String(row.get("substance", ""))
 	if id == "" or entry_of(id) != Entry.SENSIBLE:
 		return 0.0
 	var s: Dictionary = LASubstances.table().get(id, {})
-	var c: float = float(s.get("specific_heat_gas", 0.0)) if GASES.has(id) else 0.0
-	if c <= 0.0:
-		# A sensible-entry substance has no ladder, so it holds heat at the capacity of the phase it is
-		# seeded in — the solid one where the table declares it.
-		c = float(s.get("specific_heat_solid", s.get("specific_heat", 0.0)))
-	if c <= 0.0:
+	var phase: String = String(row.get("phase", ""))
+	var key: String = "specific_heat_solid" if phase == "solid" \
+		else ("specific_heat_gas" if phase == "gas" else "specific_heat")
+	var c: float = float(s.get(key, NAN))
+	if not (c > 0.0):
 		push_error("LAMatterChannels: LASubstances gives \"%s\" no specific heat, so matter of it would "
 			% id + "carry mass with no heat capacity.")
 	return c

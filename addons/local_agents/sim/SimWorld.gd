@@ -6,6 +6,9 @@ extends Node3D
 
 enum WorldType { SPHERE, FLAT }
 
+## spawn_world() finished: terrain(), material_field() and ecology() are live.
+signal world_built
+
 const MaterialFieldScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialField3D.gd")
 const EcologyServiceScript: GDScript = preload("res://addons/local_agents/sim/ecology/EcologyService.gd")
 const FlatTerrainScript: GDScript = preload("res://addons/local_agents/creatures/terrain/adapters/FlatGroundTerrain.gd")
@@ -20,8 +23,7 @@ const SLOW_BUILD_CELLS: int = 250000
 ## Build the world automatically in _ready(). Turn it off to choose the moment yourself by calling
 ## spawn_world() from a script (e.g. after a menu has picked the settings).
 @export var build_on_ready: bool = true: set = _set_build_on_ready
-## This world's seed. Terrain generation and every random draw this node makes derive from it, so two
-## LocalAgentSimWorld nodes in one process with different seeds are independent worlds.
+## This world's seed. Terrain generation and every random draw this node makes derive from it.
 @export var world_seed: int = 1337
 
 @export_group("Sphere bounds")
@@ -31,11 +33,10 @@ const SLOW_BUILD_CELLS: int = 250000
 @export var body_seed: String = "planet"
 ## Carve winding cave tunnels into the crust while the terrain generates.
 @export var caves_enabled: bool = true
-@export var tides_enabled: bool = false
 
 @export_subgroup("Field grid")
-## Field cells along one edge of the box. The box holds res^3 cells, so this is the dominant cost knob:
-## doubling it multiplies the grid by eight.
+## Root cells along one edge of the box. Where res://docs/CELL_BUDGET declares a budget, the build refines
+## the band around the surface under it.
 @export_range(8, 64, 1, "suffix:cells") var grid_res: int = 20: set = _set_grid_res
 
 @export_subgroup("Slice")
@@ -49,9 +50,6 @@ const SLOW_BUILD_CELLS: int = 250000
 ## Offset of the slice box's centre from the body centre, metres, body frame. Its direction is the
 ## slice's local vertical, so it must be nonzero.
 @export var slice_offset_m: Vector3 = Vector3.ZERO
-
-@export_subgroup("Lighting")
-@export var sun_enabled: bool = true
 
 @export_group("Flat bounds")
 @export_custom(PROPERTY_HINT_RANGE, "1,2000,1,or_greater,suffix:m") var flat_extent: Vector3 = Vector3(120.0, 40.0, 120.0): set = _set_flat_extent
@@ -70,6 +68,11 @@ const SLOW_BUILD_CELLS: int = 250000
 ## from initial_counts instead.
 @export_range(0, 64, 1, "or_greater", "suffix:clusters") var forest_clusters: int = 6
 
+@export_group("Wiring")
+## The star the body orbits. SPHERE only; unset, the build makes the one LABodySeeds declares and sets it
+## here.
+@export var star: LAStar: set = _set_star
+
 # A small, lively founding stock for a demo world (kept modest so it boots fast).
 const DEFAULT_COUNTS: Dictionary = {"rabbit": 14, "fox": 3, "bird": 10, "plant": 40}
 
@@ -79,7 +82,8 @@ var _terrain: Variant = null     # LAVoxelTerrainService (sphere) or LAFlatGroun
 var _material: Variant = null    # LAMaterialField3D
 var _ecology: Variant = null     # LAEcologyService
 var _actors_root: Node3D = null
-var _sun: DirectionalLight3D = null
+var _loop: LASimLoop = null
+var _orbits: LASystemOrbits = null
 
 var _built: bool = false
 var _spawned: bool = false
@@ -117,10 +121,14 @@ func spawn_world() -> void:
 	if world_type == WorldType.SPHERE and not has_voxel_backend():
 		push_error("VOXEL_BACKEND_REQUIRED: LocalAgentSimWorld world_type=SPHERE needs the godot_voxel GDExtension (addons/zylann.voxel/). Install it, or set world_type to FLAT.")
 		return
+	if world_type == WorldType.SPHERE and not LAMaterialSphereGPU3D.available():
+		push_error("GPU_REQUIRED: LocalAgentSimWorld world_type=SPHERE steps its field on a compute device, and this renderer offers none (a --headless run has none). Run with a RenderingDevice, or set world_type to FLAT.")
+		return
 	if world_type == WorldType.FLAT and flat_cell_size <= 0.0:
 		push_error("LocalAgentSimWorld: flat_cell_size must be greater than 0, because the flat build divides the extent by it. Got %s." % str(flat_cell_size))
 		return
 	_built = true
+	_declare_processes()
 	var ok: bool = false
 	if world_type == WorldType.SPHERE:
 		ok = _build_sphere()
@@ -136,6 +144,49 @@ func spawn_world() -> void:
 	_ecology.setup(_terrain, _actors_root)
 	if _ecology.has_method("set_material_field"):
 		_ecology.set_material_field(_material)
+	_wire_loop()
+	world_built.emit()
+
+
+## WHICH PROCESSES THIS WORLD CONTAINS, settled before anything is built. An explicit set outranks a rung,
+## and the rung is `--rung=N`, the project setting, LA_RUNG or docs/PLAYABLE_RUNG, in that order.
+func _declare_processes() -> void:
+	var ids: PackedStringArray = LAProcessSet.records_from_args()
+	if not ids.is_empty():
+		LAProcessSet.declare_records(ids)
+		return
+	LAProcessSet.declare(LAProcessSet.resolve(LAProcessSet.UNSET))
+
+
+## THE ONE DRIVER, as the game's. A SPHERE world holds simulated time while its field seeds, then each
+## step turns the body and advances the orbit before the field steps; the ecology steps in both modes.
+func _wire_loop() -> void:
+	_loop = LASimLoop.new()
+	_loop.name = "SimLoop"
+	add_child(_loop)
+	if world_type == WorldType.SPHERE:
+		_loop.hold()
+		_loop.seeding.connect(_on_seeding)
+		_loop.subscribe(_on_step)
+		_loop.subscribe(Callable(_material.step_driver(), "step"))
+	_loop.subscribe(_ecology.on_sim_step)
+
+
+func _on_seeding() -> void:
+	if _material.step_driver().seed_tick():
+		_loop.release()
+
+
+## One simulated step of what surrounds the field: the body turns on its measured spin, the orbit
+## advances and publishes the star's irradiance, and the ecology learns where the star stands.
+func _on_step(_step: int) -> void:
+	var dt: float = LASimLoop.step_seconds()
+	var spin: float = _body.angular_velocity_rad_s()
+	if is_finite(spin):
+		_body.rotate(_body.spin_axis(), spin * dt)
+	_orbits.update(dt)
+	var centre: Vector3 = _body.center()
+	_ecology.set_sun((star.global_position - centre).normalized(), centre)
 
 
 ## The radius the seeded matter fills before it is laid down: its mass over the density of what it is made
@@ -160,16 +211,15 @@ func _build_sphere() -> bool:
 	add_child(_body)
 	_body.setup({
 		"radius": seed_radius(), "seed_key": body_seed, "caves_enabled": caves_enabled,
-		"tides_enabled": tides_enabled, "seed": world_seed,
+		"seed": world_seed,
 	})
 	_terrain = _body.terrain()
 	_actors_root = _body.actors_root
-	# A sun so the field's solar/thermal pass has a real light (drives heating → biomass). Fixed in space.
-	if sun_enabled:
-		_sun = DirectionalLight3D.new()
-		_sun.name = "Sun"
-		_sun.rotation = Vector3(-0.9, 0.4, 0.0)
-		add_child(_sun)
+	if star == null:
+		star = LAStar.new()
+		star.name = "Star"
+		add_child(star)
+	star.setup({})
 	# Cartesian box enclosing the planet and the air above it. METRES: the gravity solve is SI.
 	_material = MaterialFieldScript.new()
 	_material.name = "MaterialField"
@@ -203,10 +253,22 @@ func _build_sphere() -> bool:
 		_material.setup_box(_body.center() - Vector3(half, half, half), dims, cell_m, _terrain,
 			_body.center(), rock_m, air_m,
 			LAFieldGridBudget.target_edge_m(body_seed, seed_radius(), LABodySeeds.surface_temp_c()), seed_radius())
+	# Slot-opposite reciprocity is the contract every gather kernel the field steps depends on.
+	var grid_check: Dictionary = _material._grid.validate()
+	if not bool(grid_check.get("ok", false)):
+		push_error("GRID_INVALID: %s" % JSON.stringify(grid_check))
+		return false
 	if _material.has_method("sample_solidity"):
 		_material.sample_solidity()
-	if _sun != null and _material.has_method("set_sun"):
-		_material.set_sun(_sun)
+	# The star's irradiance along the line from it to the body centre.
+	_material.set_star(star)
+	_material.set_body(_body)
+	# The body IS the field's matter: its mass, inertia and spin are read back off it, never typed.
+	_body.set_field(_material)
+	_orbits = LASystemOrbits.new()
+	_orbits.name = "SystemOrbits"
+	add_child(_orbits)
+	_orbits.setup(_body, star, _material)
 	return true
 
 
@@ -284,6 +346,8 @@ func _get_configuration_warnings() -> PackedStringArray:
 		out.append("Flat Extent needs a positive size on every axis; %s has a zero or negative component, which leaves the flat field volume empty." % str(flat_extent))
 	if auto_spawn and not build_on_ready:
 		out.append("Auto Spawn is on but Build On Ready is off, so no world exists to spawn into until something calls spawn_world() from a script.")
+	if star != null and world_type == WorldType.FLAT:
+		out.append("Star is set but World Type is Flat. A flat world has no body to orbit it, so nothing reads the star.")
 	var cells: int = planned_cell_count()
 	if cells > SLOW_BUILD_CELLS:
 		out.append("These settings ask for %d field cells. Past roughly %d the world takes a while to build and holds a lot of memory. Lower Field Grid res (Sphere) or raise Flat Cell Size." % [cells, SLOW_BUILD_CELLS])
@@ -333,6 +397,11 @@ func _set_flat_cell_size(value: float) -> void:
 
 func _set_auto_spawn(value: bool) -> void:
 	auto_spawn = value
+	_refresh_warnings()
+
+
+func _set_star(value: LAStar) -> void:
+	star = value
 	_refresh_warnings()
 
 

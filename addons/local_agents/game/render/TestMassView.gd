@@ -11,9 +11,6 @@ const TRAIL_COLOUR: Color = Color(1.0, 0.80, 0.38)
 ## away and one at your feet are both a few pixels across.
 const MARKER_SUBTEND: float = 0.006
 const TRAIL_SUBTEND: float = 0.003
-## Samples one probe's path keeps. At the cap every second sample is dropped, so the whole arc stays and
-## only its resolution halves.
-const TRAIL_SAMPLES: int = 96
 ## A drawn piece spans at most this much of its own distance from the eye, so a long leg passing close by
 ## is cut into pieces that each recede rather than standing as one slab across the frame.
 const PIECE_SUBTEND: float = 0.25
@@ -23,8 +20,6 @@ var _probes: Node = null
 var _camera: Camera3D = null
 var _markers: MultiMeshInstance3D = null
 var _trails: MultiMeshInstance3D = null
-## probe id -> the world points it has stood at, release point first.
-var _paths: Dictionary = {}
 
 
 func setup(probes: Node, camera: Camera3D) -> void:
@@ -41,52 +36,21 @@ func _process(_delta: float) -> void:
 		return
 	var rows: Array = _probes.rows()
 	var eye: Vector3 = _camera.global_position
-	_sample(rows)
 	_fit(_markers.multimesh, rows.size())
 	for i in range(rows.size()):
 		var pos: Vector3 = rows[i]["position"]
 		_markers.multimesh.set_instance_transform(i, Transform3D(
 			Basis.IDENTITY.scaled(Vector3.ONE * MARKER_SUBTEND * eye.distance_to(pos)), pos))
-	_draw_paths(eye)
-
-
-## Where each probe stands this frame, appended to its own path. A path lives as long as the probe the
-## integrator hands back.
-func _sample(rows: Array) -> void:
-	var live: Dictionary = {}
-	for row: Dictionary in rows:
-		var id: int = int(row["id"])
-		live[id] = true
-		var path: PackedVector3Array = _paths.get(id, PackedVector3Array())
-		if path.is_empty():
-			path.append(row["from"] as Vector3)
-		var pos: Vector3 = row["position"]
-		if path[path.size() - 1].distance_to(pos) > 0.0:
-			path.append(pos)
-		if path.size() > TRAIL_SAMPLES:
-			path = _decimate(path)
-		_paths[id] = path
-	for id: int in _paths.keys():
-		if not live.has(id):
-			_paths.erase(id)
-
-
-## Every second point dropped, the last one kept: the same arc at half the samples.
-static func _decimate(path: PackedVector3Array) -> PackedVector3Array:
-	var out: PackedVector3Array = PackedVector3Array()
-	for i in range(0, path.size() - 1, 2):
-		out.append(path[i])
-	out.append(path[path.size() - 1])
-	return out
+	_draw_paths(eye, rows)
 
 
 ## THE PATH IS DRAWN IN PIECES, each sized at its OWN distance from the eye. One box over a two-kilometre
 ## fall has one width, so standing at its foot puts a wall across the frame and standing off it leaves
 ## nothing to see; in pieces the line recedes the way a line does.
-func _draw_paths(eye: Vector3) -> void:
+func _draw_paths(eye: Vector3, rows: Array) -> void:
 	var pieces: Array[Transform3D] = []
-	for id: int in _paths:
-		var path: PackedVector3Array = _paths[id]
+	for row: Dictionary in rows:
+		var path: PackedVector3Array = row["trajectory"]
 		for i in range(path.size() - 1):
 			_cut(pieces, eye, path[i], path[i + 1])
 	_fit(_trails.multimesh, pieces.size())
@@ -103,7 +67,7 @@ static func _cut(out: Array[Transform3D], eye: Vector3, a: Vector3, b: Vector3) 
 	for k in n:
 		var p0: Vector3 = a.lerp(b, float(k) / float(n))
 		var p1: Vector3 = a.lerp(b, float(k + 1) / float(n))
-		out.append(_column(p0, p1, TRAIL_SUBTEND * eye.distance_to(0.5 * (p0 + p1))))
+		out.append(LARenderGlyph.segment(p0, p1, TRAIL_SUBTEND * eye.distance_to(0.5 * (p0 + p1))))
 
 
 ## Distance from the eye to the nearest point of the segment a-b.
@@ -120,18 +84,6 @@ static func _fit(mm: MultiMesh, want: int) -> void:
 	if mm.instance_count < want:
 		mm.instance_count = want
 	mm.visible_instance_count = want
-
-
-## A box spanning `a` to `b`, `w` across: the path the probe took, given a width the eye can find.
-static func _column(a: Vector3, b: Vector3, w: float) -> Transform3D:
-	var along: Vector3 = b - a
-	var len_m: float = along.length()
-	if len_m <= 0.0:
-		return Transform3D(Basis.IDENTITY.scaled(Vector3.ZERO), a)
-	var y: Vector3 = along / len_m
-	var ref: Vector3 = Vector3.UP if absf(y.y) < 0.95 else Vector3.RIGHT
-	var x: Vector3 = ref.cross(y).normalized()
-	return Transform3D(Basis(x * w, y * len_m, y.cross(x) * w), 0.5 * (a + b))
 
 
 func _instances(mesh: Mesh, col: Color) -> MultiMeshInstance3D:

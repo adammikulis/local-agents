@@ -1,7 +1,8 @@
-[gd_scene load_steps=3 format=3 uid="uid://e4demolaunchr01"]
+[gd_scene load_steps=4 format=3 uid="uid://e4demolaunchr01"]
 
 [ext_resource type="Script" path="res://addons/local_agents/examples/DemoLauncher.gd" id="1_launcher"]
 [ext_resource type="Script" path="res://addons/local_agents/agents/StatusLabel.gd" id="2_status"]
+[ext_resource type="PackedScene" path="res://addons/local_agents/examples/DemoRow.tscn" id="3_row"]
 
 [node name="DemoLauncher" type="Control"]
 layout_mode = 3
@@ -11,6 +12,7 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_launcher")
+row_scene = ExtResource("3_row")
 
 [node name="Margin" type="MarginContainer" parent="."]
 layout_mode = 1

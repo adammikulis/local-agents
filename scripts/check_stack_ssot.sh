@@ -11,7 +11,7 @@ require_tool python3
 require_tool rg
 
 EOS="$ROOT/addons/local_agents/sim/material/kernels3d/eos.glsli"
-CPP="$ROOT/addons/local_agents/gdextensions/localagents/src/LAFieldLithostaticSeed.cpp"
+CPP="$ROOT/addons/local_agents/gdextensions/localagents/src/LAPhaseEos.cpp"
 for f in "$EOS" "$CPP"; do
 	[ -f "$f" ] || { echo "check_stack_ssot: MISSING ${f#"$ROOT"/}" >&2; exit 2; }
 done
@@ -56,7 +56,7 @@ def tokens(text):
     return out
 
 PAIRS = [
-    ("equation of state", sys.argv[2], "float la_eos_p(", "double eos_p("),
+    ("equation of state", sys.argv[2], "float la_eos_p(", "double LAPhaseEosFn::mixture_pressure("),
 ]
 total = 0
 for what, path, gsig, csig in PAIRS:

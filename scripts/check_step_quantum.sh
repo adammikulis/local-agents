@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 # A FIELD STEP IS A FIXED QUANTUM OF SIMULATED TIME. THE DAY LENGTH IS DERIVED FROM IT, NEVER AN INPUT TO IT.
 #
-# Every rate multiplies by real_seconds_per_step(), so a day length reaching it rescales the chemistry.
+# Every rate multiplies by SIM_SECONDS_PER_STEP, so a day length reaching it rescales the chemistry.
 #
-# Three checks:
+# Two checks:
 #   1. MaterialFieldSphereStep3D.gd declares `const SIM_SECONDS_PER_STEP`.
-#   2. real_seconds_per_step() returns exactly that constant — no other identifier in its body.
-#   3. day_length appears nowhere under addons/local_agents/sim/ except SimClock.gd, and nowhere in the
+#   2. day_length appears nowhere under addons/local_agents/sim/ except SimClock.gd, and nowhere in the
 #      kernels. No carve-outs: a substrate rate reading the day-length knob is the defect itself.
 #
 # Exit 0 = clean, 1 = violation, 2 = the gate could not run.
@@ -46,21 +45,7 @@ if ! rg -q '^const SIM_SECONDS_PER_STEP: float = ' "$ROOT/$STEP_FILE"; then
   violations=$((violations + 1))
 fi
 
-# --- 2. real_seconds_per_step() returns it and nothing else ---------------------------------------------
-body="$(awk '
-  /^static func real_seconds_per_step\(\)/ { grab = 1; next }
-  grab && /^(static func|func|const|var|#|##)/ { grab = 0 }
-  grab { print }
-' "$ROOT/$STEP_FILE" | tr -d '[:space:]')"
-if [[ "$body" != "returnSIM_SECONDS_PER_STEP" ]]; then
-  echo "FAIL  $STEP_FILE: real_seconds_per_step() must be exactly 'return SIM_SECONDS_PER_STEP'."
-  echo "      Found: ${body:-<no body>}"
-  echo "      Any other term makes the step quantum a function of something else, and every reaction rate in"
-  echo "      the substrate multiplies by this function."
-  violations=$((violations + 1))
-fi
-
-# --- 3. nothing in the substrate reads the day-length knob ----------------------------------------------
+# --- 2. nothing in the substrate reads the day-length knob ----------------------------------------------
 hits="$(rg -n --no-heading 'day_length' \
   --glob "$SIM_DIR/**/*.gd" --glob "$KERNEL_DIR/**/*.glsl" --glob "$KERNEL_DIR/**/*.glsli" \
   --glob "!$CLOCK_FILE" "$ROOT" 2>/dev/null)"

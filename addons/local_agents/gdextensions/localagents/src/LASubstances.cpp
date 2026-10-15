@@ -1,7 +1,10 @@
 #include "LASubstances.hpp"
 
+#include "LAMeltEos.hpp"
+#include "LAPhaseEos.hpp"
 #include "LAPhysicalRead.hpp"
 #include "LAPlanetTables.hpp"
+#include "LASubstanceOptics.hpp"
 #include "LAWaterCurves.hpp"
 
 #include <godot_cpp/core/class_db.hpp>
@@ -31,12 +34,15 @@ constexpr double IRON_LIQUID_EXPANSION_PER_K = 1.22e-4;
 constexpr double IRON_SOLID_DENSITY_AT_MELT_KG_M3 = 7265.0;
 constexpr double IRON_MELT_C = 1538.0;
 constexpr double IRON_SOLID_EXPANSION_PER_K = 3.54e-5;    // alpha-Fe at 25 C, CRC 97th ed., linear x3
-constexpr double IRON_SOLID_BULK_MODULUS_PA = 1.662e11;   // Guinan & Beshers 1968, JPCS 29:541
-constexpr double IRON_SOLID_BULK_MODULUS_DERIV = 5.16;    // bcc Fe, Holland & Powell 2011, JMG 29:333 (ds62 iron)
-constexpr double IRON_LIQUID_BULK_MODULUS_PA = 1.097e11;  // liquid Fe at 1 bar, Anderson & Ahrens 1994, JGR 99:4273
-constexpr double IRON_LIQUID_BULK_MODULUS_DERIV = 4.66;   // K'_S0, Anderson & Ahrens 1994, JGR 99:4273
+constexpr double IRON_SOLID_BULK_MODULUS_S_PA = 1.662e11; // adiabatic, 25 C, Guinan & Beshers 1968, JPCS 29:541
+constexpr double IRON_SOLID_DENSITY_25C_KG_M3 = 7874.0;   // alpha-Fe, CRC 97th ed.
+constexpr double IRON_SOLID_BULK_MODULUS_T_DERIV = 5.16;  // bcc Fe, Holland & Powell 2011, JMG 29:333 (ds62 iron)
+// Liquid Fe's isothermal K0 and K0' at 1811 K, Vinet fit, Dorogokupets et al. 2017, Sci. Rep. 7:41863, Table 1.
+constexpr double IRON_LIQUID_BULK_MODULUS_T_PA = 8.37e10;
+constexpr double IRON_LIQUID_BULK_MODULUS_T_DERIV = 5.97;
 constexpr double IRON_LIQUID_SPECIFIC_HEAT_J_KGK = 824.0; // Desai 1986, J. Phys. Chem. Ref. Data 15:967
 constexpr double IRON_SOLID_SPECIFIC_HEAT_J_KGK = 449.0;  // alpha-Fe at 25 C, CRC 97th ed.
+constexpr double IRON_VAPOUR_CP_J_MOLK = 25.7;             // Fe(g) at 298.15 K, CRC 97th ed. 5-4
 constexpr double IRON_LATENT_FUSION_J_KG = 2.473e5;       // Desai 1986, dHfus 13.81 kJ/mol
 constexpr double IRON_BOIL_C = 2861.0;                    // CRC 97th ed.
 constexpr double IRON_LATENT_VAPORISATION_J_KG = 6.09e6;  // CRC, dHvap 340 kJ/mol
@@ -45,9 +51,6 @@ constexpr double IRON_CRITICAL_P_PA = 8.75e8;             // 8750 bar, Beutl, Po
 constexpr double IRON_CONDUCTIVITY_W_MK = 80.4;           // Fe at 300 K, CRC 97th ed.
 
 constexpr double OLIVINE_DENSITY_KG_M3 = 3355.0;   // San Carlos Fo90, Abramson et al. 1997, JGR 102:12253
-constexpr double OLIVINE_BULK_MODULUS_PA = 1.294e11; // adiabatic K_S, Abramson et al. 1997
-constexpr double OLIVINE_BULK_MODULUS_DERIV = 4.29;  // dK_S/dP, Abramson et al. 1997, JGR 102:12253
-constexpr double OLIVINE_EXPANSION_PER_K = 2.7e-5;   // forsterite, Bouhifd et al. 1996, GRL 23:1143
 constexpr double FORSTERITE_CP_J_MOLK = 117.9;       // Robie & Hemingway 1995
 constexpr double FAYALITE_CP_J_MOLK = 132.9;         // Robie & Hemingway 1995
 constexpr double FORSTERITE_MELT_C = 1890.0;         // 2163 K, Bowen & Andersen 1914; Richet et al. 1993
@@ -55,8 +58,6 @@ constexpr double FORSTERITE_FUSION_J_MOL = 1.42e5;   // Richet et al. 1993, GRL 
 constexpr double OLIVINE_CONDUCTIVITY_W_MK = 4.7;    // Fo90, Horai 1971, JGR 76:1278
 
 constexpr double ENSTATITE_DENSITY_KG_M3 = 3204.0;   // Smyth & McCormick 1995, AGU Handbook
-constexpr double ENSTATITE_BULK_MODULUS_PA = 1.078e11; // Bass 1995, AGU Handbook
-constexpr double ENSTATITE_BULK_MODULUS_DERIV = 8.65;  // Holland & Powell 2011, JMG 29:333 (ds62 en)
 constexpr double ENSTATITE_CP_J_MOLK = 82.1;         // Krupka et al. 1985, Am. Min. 70:249
 constexpr double ENSTATITE_MOLAR_MASS_KG_MOL = 0.1003875; // MgSiO3 endmember
 constexpr double ENSTATITE_MELT_C = 1557.0;          // incongruent point, Bowen & Andersen 1914
@@ -72,11 +73,6 @@ constexpr double ANORTHITE_MELT_C = 1553.0;          // Bowen 1913 plagioclase l
 constexpr double ALBITE_MELT_C = 1118.0;
 constexpr double ANORTHITE_FUSION_J_MOL = 1.33e5;    // Richet & Bottinga 1984
 constexpr double ALBITE_FUSION_J_MOL = 6.45e4;
-constexpr double ANORTHITE_BULK_MODULUS_PA = 8.4e10; // Bass 1995
-constexpr double ALBITE_BULK_MODULUS_PA = 5.7e10;
-// Holland & Powell 2011, JMG 29:333 (ds62 an, ab).
-constexpr double ANORTHITE_BULK_MODULUS_DERIV = 4.09;
-constexpr double ALBITE_BULK_MODULUS_DERIV = 5.91;
 constexpr double ANORTHITE_CONDUCTIVITY_W_MK = 1.88; // Horai 1971
 constexpr double ALBITE_CONDUCTIVITY_W_MK = 2.08;
 
@@ -84,31 +80,48 @@ constexpr double HALITE_DENSITY_KG_M3 = 2163.0;      // CRC 97th ed.
 constexpr double HALITE_MELT_C = 800.7;              // CRC 97th ed.
 constexpr double HALITE_FUSION_J_MOL = 2.816e4;      // CRC 97th ed.
 constexpr double HALITE_CP_J_MOLK = 50.5;            // CRC 97th ed., 298 K
-constexpr double HALITE_EXPANSION_PER_K = 1.19e-4;   // CRC linear 39.6e-6 x3
-constexpr double HALITE_BULK_MODULUS_PA = 2.44e10;   // Spetzler et al. 1972
-constexpr double HALITE_BULK_MODULUS_DERIV = 5.0;    // Holland & Powell 2011, JMG 29:333 (ds62 hlt)
-constexpr double CALCITE_BULK_MODULUS_PA = 7.33e10;  // Redfern & Angel 1999, Contrib Mineral Petrol 134:102
-constexpr double CALCITE_BULK_MODULUS_DERIV = 4.06;  // Holland & Powell 2011, JMG 29:333 (ds62 cc)
-// Fluorapatite to 61 GPa, V0 fixed: Rucks et al. 2023, Am Min 108:1683.
-constexpr double APATITE_BULK_MODULUS_PA = 9.70e10;
-constexpr double APATITE_BULK_MODULUS_DERIV = 3.3;
-constexpr double ORGANIC_BULK_MODULUS_PA = 5.0e9;    // kerogen, Yu et al. 2018, Fuel 224:412
+constexpr double CALCITE_BULK_MODULUS_T_PA = 7.33e10;  // Holland & Powell 2011, JMG 29:333 (ds62 cc)
+constexpr double CALCITE_BULK_MODULUS_T_DERIV = 4.06;  // Holland & Powell 2011, JMG 29:333 (ds62 cc)
+// Fluorapatite to 61 GPa, V0 fixed: Rucks et al. 2023, Am Min 108:731.
+constexpr double APATITE_BULK_MODULUS_T_PA = 9.70e10;
+constexpr double APATITE_BULK_MODULUS_T_DERIV = 3.3;
+// Mean volume expansivity of F-OH apatites, 22-928 C (Hovis et al. 2014, Am. Mineral. 99:2171).
+constexpr double APATITE_EXPANSION_PER_K = 4.10e-5;
+constexpr double ORGANIC_BULK_MODULUS_S_PA = 4.25e9; // kerogen, midpoint of 3.5-5.0 GPa by ultrasonics, Yan & Han 2013, SEG 2778
 // A polymeric solid: the Tait form V = V0[1 - C ln(1 + p/B)] with the universal C = 0.0894 for
 // polymer PVT (Zoller & Walsh 1995) gives dK/dp = 1/C - 1.
-constexpr double ORGANIC_BULK_MODULUS_DERIV = 10.19;
+constexpr double ORGANIC_BULK_MODULUS_T_DERIV = 10.19;
 constexpr double HALITE_CONDUCTIVITY_W_MK = 6.5;     // single crystal, Urquhart & Bauer 2015
+
+// Isothermal K0, K0' and alpha0 at 298 K, Holland & Powell 2011, JMG 29:333 (ds62 fo, fa, en, an, ab, hlt).
+constexpr double FORSTERITE_BULK_MODULUS_T_PA = 1.285e11;
+constexpr double FORSTERITE_BULK_MODULUS_T_DERIV = 3.84;
+constexpr double FORSTERITE_EXPANSION_PER_K = 2.85e-5;
+constexpr double FAYALITE_BULK_MODULUS_T_PA = 1.256e11;
+constexpr double FAYALITE_BULK_MODULUS_T_DERIV = 4.68;
+constexpr double FAYALITE_EXPANSION_PER_K = 2.82e-5;
+constexpr double ENSTATITE_BULK_MODULUS_T_PA = 1.059e11;
+constexpr double ENSTATITE_BULK_MODULUS_T_DERIV = 8.65;
+constexpr double ENSTATITE_EXPANSION_PER_K = 2.27e-5;
+constexpr double ANORTHITE_BULK_MODULUS_T_PA = 8.60e10;
+constexpr double ANORTHITE_BULK_MODULUS_T_DERIV = 4.09;
+constexpr double ANORTHITE_EXPANSION_PER_K = 1.41e-5;
+constexpr double ALBITE_BULK_MODULUS_T_PA = 5.41e10;
+constexpr double ALBITE_BULK_MODULUS_T_DERIV = 5.91;
+constexpr double ALBITE_EXPANSION_PER_K = 2.36e-5;
+constexpr double HALITE_BULK_MODULUS_T_PA = 2.38e10;
+constexpr double HALITE_BULK_MODULUS_T_DERIV = 5.0;
+constexpr double HALITE_EXPANSION_PER_K = 1.147e-4;
 
 constexpr double APATITE_DENSITY_KG_M3 = 3190.0;     // fluorapatite, Handbook of Mineralogy
 constexpr double APATITE_CP_J_MOLK = 370.0;          // 298 K, Dachs, Harlov & Benisek 2010
 constexpr double APATITE_CONDUCTIVITY_W_MK = 1.38;   // Horai 1971
 
-// Pressure derivative of the bulk modulus for the phases whose K0 lives in LAPhysical.
-// Water: the modified-Tait exponent n = dK/dp (Cole 1948, Underwater Explosions, Princeton).
-// Ice Ih: dK_T/dp over 0-100 MPa at 260 K from IAPWS-06 kappa_T (Feistel & Wagner 2006, JPCRD 35:1021).
-constexpr double WATER_BULK_MODULUS_DERIV = 7.15;
-constexpr double ICE_BULK_MODULUS_DERIV = 5.2;
-constexpr double QUARTZ_BULK_MODULUS_DERIV = 5.99;   // alpha-quartz, Angel et al. 1997, J Appl Cryst 30:461
-constexpr double ROCK_BULK_MODULUS_DERIV = 4.1;      // wollastonite, Holland & Powell 2011, JMG 29:333 (ds62 wo)
+// dK_T/dp for the phases whose K0 lives in LAPhysical.
+constexpr double WATER_BULK_MODULUS_T_DERIV = 5.68;  // 25 C, 0.1 MPa, IAPWS-95 isotherm, Wagner & Pruss 2002, JPCRD 31:387
+constexpr double ICE_BULK_MODULUS_T_DERIV = 5.2;     // 0-100 MPa, 260 K, IAPWS-06, Feistel & Wagner 2006, JPCRD 35:1021
+constexpr double QUARTZ_BULK_MODULUS_T_DERIV = 5.99; // alpha-quartz, Angel et al. 1997, J Appl Cryst 30:461
+constexpr double ROCK_BULK_MODULUS_T_DERIV = 4.1;    // wollastonite, Holland & Powell 2011, JMG 29:333 (ds62 wo)
 
 // HIGHER heating value per kg of each element in a solid fuel -- Channiwala & Parikh 2002, Fuel
 // 81:1051-1063, "A unified correlation for estimating HHV of solid, liquid and gaseous fuels", eq. 1.
@@ -163,7 +176,7 @@ Dictionary entry(const Dictionary &p_formula, double p_density, double p_cp_j_kg
 	d["formula"] = p_formula;
 	d["molar_mass"] = LAElementAbundances::molar_mass(p_formula);
 	d["density"] = p_density;
-	d["specific_heat"] = p_cp_j_kgk;
+	d["specific_heat_solid"] = p_cp_j_kgk;
 	d["conductivity"] = p_lambda_w_mk;
 	return d.merged(p_extra, true);
 }
@@ -190,12 +203,20 @@ struct GasRow {
 	const char *triple_p_pa;
 	const char *critical_t_c;
 	const char *critical_p_pa;
+	const char *acentric;
 	const char *latent_fusion;
 	const char *latent_vaporisation;
 	const char *latent_vaporisation_ref_t_c;
 	const char *conductivity;
 	const char *density_solid;
 	const char *density_solid_ref_t_c;
+	const char *density_melt;
+	const char *density_melt_ref_t_c;
+	const char *expansion_melt;
+	const char *bulk_modulus_melt;
+	const char *bulk_modulus_melt_deriv;
+	const char *melt_form;
+	const char *melt_prefix;
 };
 
 const ElementCount F_N2[] = { { "N", 2.0 } };
@@ -211,52 +232,56 @@ const GasRow GASES[] = {
 	{ "n2", F_N2, 1, "MOLAR_MASS_N2_KG_MOL", "ATOMISATION_N2_J_MOL", "ENTROPY_N2_GAS_J_MOLK", 0.0,
 		nullptr, true, "N2_LIQUID_SPECIFIC_HEAT_J_KGK", "N2_GAS_SPECIFIC_HEAT_J_KGK",
 		"N2_TRIPLE_T_C", "N2_BOIL_C", "STANDARD_PRESSURE_PA", "N2_TRIPLE_T_C", "N2_TRIPLE_P_PA",
-		"N2_CRITICAL_T_C", "N2_CRITICAL_P_PA", "LATENT_HEAT_FUSION_N2_J_KG",
+		"N2_CRITICAL_T_C", "N2_CRITICAL_P_PA", "N2_ACENTRIC_FACTOR", "LATENT_HEAT_FUSION_N2_J_KG",
 		"LATENT_HEAT_VAPORISATION_N2_J_KG", "N2_BOIL_C", "THERMAL_CONDUCT_N2_GAS_W_MK",
-		nullptr, nullptr },
+		nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, "reduced_simon", "N2" },
 	{ "o2", F_O2, 1, "MOLAR_MASS_O2_KG_MOL", "ATOMISATION_O2_J_MOL", nullptr, ENTROPY_O2_GAS_J_MOLK,
 		nullptr, true, "O2_LIQUID_SPECIFIC_HEAT_J_KGK", "O2_GAS_SPECIFIC_HEAT_J_KGK",
 		"O2_TRIPLE_T_C", "O2_BOIL_C", "STANDARD_PRESSURE_PA", "O2_TRIPLE_T_C", "O2_TRIPLE_P_PA",
-		"O2_CRITICAL_T_C", "O2_CRITICAL_P_PA", "LATENT_HEAT_FUSION_O2_J_KG",
+		"O2_CRITICAL_T_C", "O2_CRITICAL_P_PA", "O2_ACENTRIC_FACTOR", "LATENT_HEAT_FUSION_O2_J_KG",
 		"LATENT_HEAT_VAPORISATION_O2_J_KG", "O2_BOIL_C", "THERMAL_CONDUCT_O2_GAS_W_MK",
-		nullptr, nullptr },
+		nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, "simon", "O2" },
 	// No 1-atm boiling point (triple P > 1 atm): the vapour curve's second anchor is 0 C saturation.
 	{ "co2", F_CO2, 2, "MOLAR_MASS_CO2_KG_MOL", "ATOMISATION_CO2_J_MOL", nullptr, ENTROPY_CO2_GAS_J_MOLK,
 		"FORMATION_ENTHALPY_CO2_J_MOL", false, "CO2_LIQUID_SPECIFIC_HEAT_J_KGK",
 		"CO2_GAS_SPECIFIC_HEAT_J_KGK", "CO2_TRIPLE_T_C", "CO2_SAT_REF_T_C", "CO2_SAT_REF_P_PA",
-		"CO2_TRIPLE_T_C", "CO2_TRIPLE_P_PA", "CO2_CRITICAL_T_C", "CO2_CRITICAL_P_PA",
+		"CO2_TRIPLE_T_C", "CO2_TRIPLE_P_PA", "CO2_CRITICAL_T_C", "CO2_CRITICAL_P_PA", "CO2_ACENTRIC_FACTOR",
 		"LATENT_HEAT_FUSION_CO2_J_KG", "CO2_LATENT_VAPORISATION_J_KG", "CO2_TRIPLE_T_C",
-		"THERMAL_CONDUCT_CO2_GAS_W_MK", "DRY_ICE_DENSITY_KG_M3", "CO2_TRIPLE_T_C" },
+		"THERMAL_CONDUCT_CO2_GAS_W_MK", "DRY_ICE_DENSITY_KG_M3", "CO2_TRIPLE_T_C", "CO2_LIQUID_DENSITY_KG_M3",
+		"CO2_TRIPLE_T_C", "CO2_LIQUID_EXPANSION_PER_K", "CO2_LIQUID_BULK_MODULUS_T_PA", "CO2_LIQUID_BULK_MODULUS_T_DERIV",
+		"reduced_poly", "CO2" },
 	{ "h2", F_H2, 1, "MOLAR_MASS_H2_KG_MOL", "ATOMISATION_H2_J_MOL", "ENTROPY_H2_GAS_J_MOLK", 0.0,
 		nullptr, true, "H2_LIQUID_SPECIFIC_HEAT_J_KGK", "H2_GAS_SPECIFIC_HEAT_J_KGK",
-		"H2_TRIPLE_T_C", "H2_BOIL_C", "STANDARD_PRESSURE_PA", "H2_TRIPLE_T_C", "H2_TRIPLE_P_PA",
-		"H2_CRITICAL_T_C", "H2_CRITICAL_P_PA", "LATENT_HEAT_FUSION_H2_J_KG",
+		nullptr, "H2_BOIL_C", "STANDARD_PRESSURE_PA", nullptr, nullptr,
+		"H2_CRITICAL_T_C", "H2_CRITICAL_P_PA", "H2_ACENTRIC_FACTOR", nullptr,
 		"LATENT_HEAT_VAPORISATION_H2_J_KG", "H2_BOIL_C", "THERMAL_CONDUCT_H2_GAS_W_MK",
 		nullptr, nullptr },
 	{ "co", F_CO, 2, "MOLAR_MASS_CO_KG_MOL", "ATOMISATION_CO_J_MOL", "ENTROPY_CO_GAS_J_MOLK", 0.0,
 		"FORMATION_ENTHALPY_CO_J_MOL", false, "CO_LIQUID_SPECIFIC_HEAT_J_KGK",
 		"CO_GAS_SPECIFIC_HEAT_J_KGK", "CO_TRIPLE_T_C", "CO_BOIL_C", "STANDARD_PRESSURE_PA",
-		"CO_TRIPLE_T_C", "CO_TRIPLE_P_PA", "CO_CRITICAL_T_C", "CO_CRITICAL_P_PA",
+		"CO_TRIPLE_T_C", "CO_TRIPLE_P_PA", "CO_CRITICAL_T_C", "CO_CRITICAL_P_PA", "CO_ACENTRIC_FACTOR",
 		"LATENT_HEAT_FUSION_CO_J_KG", "LATENT_HEAT_VAPORISATION_CO_J_KG", "CO_BOIL_C",
-		"THERMAL_CONDUCT_CO_GAS_W_MK", nullptr, nullptr },
+		"THERMAL_CONDUCT_CO_GAS_W_MK",
+		nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, "simon", "CO" },
 	{ "so2", F_SO2, 2, "MOLAR_MASS_SO2_KG_MOL", "ATOMISATION_SO2_J_MOL", "ENTROPY_SO2_GAS_J_MOLK", 0.0,
 		"FORMATION_ENTHALPY_SO2_J_MOL", false, "SO2_LIQUID_SPECIFIC_HEAT_J_KGK",
-		"SO2_GAS_SPECIFIC_HEAT_J_KGK", "SO2_TRIPLE_T_C", "SO2_BOIL_C", "STANDARD_PRESSURE_PA",
-		"SO2_TRIPLE_T_C", "SO2_TRIPLE_P_PA", "SO2_CRITICAL_T_C", "SO2_CRITICAL_P_PA",
-		"LATENT_HEAT_FUSION_SO2_J_KG", "LATENT_HEAT_VAPORISATION_SO2_J_KG", "SO2_BOIL_C",
+		"SO2_GAS_SPECIFIC_HEAT_J_KGK", nullptr, "SO2_BOIL_C", "STANDARD_PRESSURE_PA",
+		nullptr, nullptr, "SO2_CRITICAL_T_C", "SO2_CRITICAL_P_PA", "SO2_ACENTRIC_FACTOR",
+		nullptr, "LATENT_HEAT_VAPORISATION_SO2_J_KG", "SO2_BOIL_C",
 		"THERMAL_CONDUCT_SO2_GAS_W_MK", nullptr, nullptr },
 	{ "h2s", F_H2S, 2, "MOLAR_MASS_H2S_KG_MOL", "ATOMISATION_H2S_J_MOL", "ENTROPY_H2S_GAS_J_MOLK", 0.0,
 		"FORMATION_ENTHALPY_H2S_J_MOL", false, "H2S_LIQUID_SPECIFIC_HEAT_J_KGK",
-		"H2S_GAS_SPECIFIC_HEAT_J_KGK", "H2S_TRIPLE_T_C", "H2S_BOIL_C", "STANDARD_PRESSURE_PA",
-		"H2S_TRIPLE_T_C", "H2S_TRIPLE_P_PA", "H2S_CRITICAL_T_C", "H2S_CRITICAL_P_PA",
-		"LATENT_HEAT_FUSION_H2S_J_KG", "LATENT_HEAT_VAPORISATION_H2S_J_KG", "H2S_BOIL_C",
+		"H2S_GAS_SPECIFIC_HEAT_J_KGK", nullptr, "H2S_BOIL_C", "STANDARD_PRESSURE_PA",
+		nullptr, nullptr, "H2S_CRITICAL_T_C", "H2S_CRITICAL_P_PA", "H2S_ACENTRIC_FACTOR",
+		nullptr, "LATENT_HEAT_VAPORISATION_H2S_J_KG", "H2S_BOIL_C",
 		"THERMAL_CONDUCT_H2S_GAS_W_MK", nullptr, nullptr },
 	{ "ch4", F_CH4, 2, "MOLAR_MASS_CH4_KG_MOL", "ATOMISATION_CH4_J_MOL", "ENTROPY_CH4_GAS_J_MOLK", 0.0,
 		"FORMATION_ENTHALPY_CH4_J_MOL", false, "CH4_LIQUID_SPECIFIC_HEAT_J_KGK",
 		"CH4_GAS_SPECIFIC_HEAT_J_KGK", "CH4_TRIPLE_T_C", "CH4_BOIL_C", "STANDARD_PRESSURE_PA",
-		"CH4_TRIPLE_T_C", "CH4_TRIPLE_P_PA", "CH4_CRITICAL_T_C", "CH4_CRITICAL_P_PA",
+		"CH4_TRIPLE_T_C", "CH4_TRIPLE_P_PA", "CH4_CRITICAL_T_C", "CH4_CRITICAL_P_PA", "CH4_ACENTRIC_FACTOR",
 		"LATENT_HEAT_FUSION_CH4_J_KG", "LATENT_HEAT_VAPORISATION_CH4_J_KG", "CH4_BOIL_C",
-		"THERMAL_CONDUCT_CH4_GAS_W_MK", nullptr, nullptr },
+		"THERMAL_CONDUCT_CH4_GAS_W_MK",
+		nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, "simon", "CH4" },
 };
 
 // Viscosity against temperature. Water: the Vogel form on the measured reference, mu = mu_ref
@@ -281,20 +306,53 @@ Dictionary gas_entry(const GasRow &p_g) {
 		d["formation_enthalpy_j_mol"] = pc(p_g.formation_enthalpy);
 	}
 	d["density"] = pc(p_g.molar_mass) * pc("STP_MOLAR_DENSITY_MOL_M3");
+	d["density_ref_t_c"] = 0.0;   // STP_MOLAR_DENSITY_MOL_M3 is taken at KELVIN_OFFSET, 0 C
 	if (p_g.density_solid) {
 		d["density_solid"] = pc(p_g.density_solid);
 		d["density_solid_ref_t_c"] = pc(p_g.density_solid_ref_t_c);
 	}
+	if (p_g.density_melt) {
+		d["density_melt"] = pc(p_g.density_melt);
+		d["density_melt_ref_t_c"] = pc(p_g.density_melt_ref_t_c);
+		d["expansion_melt_per_k"] = pc(p_g.expansion_melt);
+		d["bulk_modulus_melt_pa"] = pc(p_g.bulk_modulus_melt);
+		d["bulk_modulus_melt_deriv"] = pc(p_g.bulk_modulus_melt_deriv);
+	}
 	d["specific_heat"] = pc(p_g.specific_heat);
 	d["specific_heat_gas"] = pc(p_g.specific_heat_gas);
-	d["melt_c"] = pc(p_g.melt_c);
 	d["boil_c"] = pc(p_g.boil_c);
 	d["boil_ref_p_pa"] = pc(p_g.boil_ref_p_pa);
-	d["triple_t_c"] = pc(p_g.triple_t_c);
-	d["triple_p_pa"] = pc(p_g.triple_p_pa);
 	d["critical_t_c"] = pc(p_g.critical_t_c);
 	d["critical_p_pa"] = pc(p_g.critical_p_pa);
-	d["latent_fusion_j_kg"] = pc(p_g.latent_fusion);
+	d["acentric_factor"] = pc(p_g.acentric);
+	// LA_APPROX: no_solid_without_melting_line
+	if (p_g.melt_c) {
+		d["melt_c"] = pc(p_g.melt_c);
+		d["triple_t_c"] = pc(p_g.triple_t_c);
+		d["triple_p_pa"] = pc(p_g.triple_p_pa);
+		d["melt_p_pa"] = pc(p_g.triple_p_pa);
+		d["liquidus_c"] = pc(p_g.melt_c);
+		d["latent_fusion_j_kg"] = pc(p_g.latent_fusion);
+	}
+	// LA_APPROX: melting_line_extrapolation
+	if (p_g.melt_form) {
+		const String pre = String(p_g.melt_prefix) + String("_MELT_");
+		auto k = [&](const char *p_s) { return la_physical((pre + String(p_s)).utf8().get_data()); };
+		const bool two = la_physical_map().has(pre + String("A2"));
+		Array a;
+		Array c;
+		a.push_back(k("A1"));
+		c.push_back(k("C1"));
+		if (two) {
+			a.push_back(k("A2"));
+			c.push_back(k("C2"));
+		}
+		d["melt_line_form"] = String(p_g.melt_form);
+		d["melt_line_t0_k"] = k("T0_K");
+		d["melt_line_p0_pa"] = k("P0_PA");
+		d["melt_line_a"] = a;
+		d["melt_line_c"] = c;
+	}
 	d["latent_vaporisation_j_kg"] = pc(p_g.latent_vaporisation);
 	d["latent_vaporisation_ref_t_c"] = pc(p_g.latent_vaporisation_ref_t_c);
 	d["conductivity"] = pc(p_g.conductivity);
@@ -318,8 +376,8 @@ Dictionary water_entry() {
 	d["density"] = pc("WATER_DENSITY_KG_M3");
 	d["density_ref_t_c"] = pc("LAB_REFERENCE_TEMP_C");
 	d["expansion_per_k"] = pc("WATER_VOLUME_EXPANSION_PER_K");
-	d["bulk_modulus_pa"] = pc("WATER_BULK_MODULUS_PA");
-	d["bulk_modulus_deriv"] = WATER_BULK_MODULUS_DERIV;
+	d["bulk_modulus_pa"] = pc("WATER_BULK_MODULUS_T_PA");
+	d["bulk_modulus_deriv"] = WATER_BULK_MODULUS_T_DERIV;
 	d["viscosity_pa_s"] = pc("WATER_DYNAMIC_VISCOSITY_PA_S");
 	d["viscosity_ref_t_c"] = WATER_VISCOSITY_REF_T_C;
 	d["viscosity_vogel_b_k"] = WATER_VISCOSITY_VOGEL_B_K;
@@ -327,8 +385,8 @@ Dictionary water_entry() {
 	d["density_solid"] = pc("ICE_DENSITY_KG_M3");
 	d["density_solid_ref_t_c"] = pc("WATER_FREEZE_C");
 	d["expansion_solid_per_k"] = pc("ICE_VOLUME_EXPANSION_PER_K");
-	d["bulk_modulus_solid_pa"] = pc("ICE_BULK_MODULUS_PA");
-	d["bulk_modulus_solid_deriv"] = ICE_BULK_MODULUS_DERIV;
+	d["bulk_modulus_solid_pa"] = pc("ICE_BULK_MODULUS_T_PA");
+	d["bulk_modulus_solid_deriv"] = ICE_BULK_MODULUS_T_DERIV;
 	d["specific_heat"] = pc("WATER_SPECIFIC_HEAT_J_KGK");
 	d["specific_heat_solid"] = pc("ICE_SPECIFIC_HEAT_J_KGK");
 	d["specific_heat_gas"] = pc("VAPOUR_SPECIFIC_HEAT_J_KGK");
@@ -340,6 +398,9 @@ Dictionary water_entry() {
 	d["triple_p_pa"] = pc("WATER_TRIPLE_P_PA");
 	d["critical_t_c"] = pc("WATER_CRITICAL_T_C");
 	d["critical_p_pa"] = pc("WATER_CRITICAL_P_PA");
+	d["acentric_factor"] = pc("WATER_ACENTRIC_FACTOR");
+	d["melt_p_pa"] = pc("WATER_TRIPLE_P_PA");
+	d["liquidus_c"] = pc("WATER_TRIPLE_T_C");
 	d["latent_fusion_j_kg"] = pc("LATENT_HEAT_FUSION_J_KG");
 	d["latent_vaporisation_j_kg"] = pc("LATENT_HEAT_VAPORISATION_0C_J_KG");
 	d["latent_vaporisation_ref_t_c"] = pc("WATER_FREEZE_C");
@@ -355,6 +416,30 @@ double litter_n_per_c() {
 	return (pc("MOLAR_MASS_CARBON_KG_MOL") / pc("LITTER_C_TO_N")) / pc("MOLAR_MASS_NITROGEN_KG_MOL");
 }
 
+// Oven-dry wood's volumetric expansivity, 1/K: parallel-to-grain plus radial (eq. 4-19a) and tangential
+// (eq. 4-20a) linear coefficients at the oven-dry specific gravity G0 = rho / rho_water (Glass & Zelinka
+// 2010, Wood Handbook, FPL-GTR-190, ch. 4, p. 4-14).
+constexpr double WOOD_PARALLEL_EXPANSION_PER_K = 3.8e-6;   // midpoint of the source's 3.1 to 4.5e-6
+constexpr double WOOD_RADIAL_PER_G0 = 32.4e-6;
+constexpr double WOOD_RADIAL_AT_ZERO = 9.9e-6;
+constexpr double WOOD_TANGENTIAL_PER_G0 = 32.4e-6;
+constexpr double WOOD_TANGENTIAL_AT_ZERO = 18.4e-6;
+constexpr double WOOD_HANDBOOK_WATER_DENSITY_KG_M3 = 1000.0;
+
+double wood_expansion_per_k() {
+	const double g0 = pc("DRY_WOOD_DENSITY_KG_M3") / WOOD_HANDBOOK_WATER_DENSITY_KG_M3;
+	// LA_APPROX: wood_parallel_grain_midpoint
+	return WOOD_PARALLEL_EXPANSION_PER_K + (WOOD_RADIAL_PER_G0 * g0 + WOOD_RADIAL_AT_ZERO)
+			+ (WOOD_TANGENTIAL_PER_G0 * g0 + WOOD_TANGENTIAL_AT_ZERO);
+}
+
+// K_T of the organic rows, Pa: the kerogen K_S on the dry wood their alpha, rho and c_p are.
+double organic_modulus_t() {
+	// LA_APPROX: kerogen_modulus_midpoint
+	return LAPhaseEosFn::isothermal_modulus(ORGANIC_BULK_MODULUS_S_PA, wood_expansion_per_k(),
+			pc("DRY_WOOD_DENSITY_KG_M3"), pc("DRY_WOOD_SPECIFIC_HEAT_J_KGK"), pc("LAB_REFERENCE_TEMP_C"));
+}
+
 Dictionary organic_entry(const char *p_element_symbol, double p_entropy_j_kgk, const char *p_molar_mass,
 		bool p_carries_nitrogen, bool p_vegetated) {
 	Dictionary d;
@@ -367,13 +452,16 @@ Dictionary organic_entry(const char *p_element_symbol, double p_entropy_j_kgk, c
 	d["molar_mass"] = pc(p_molar_mass);
 	d["entropy_j_molk"] = p_entropy_j_kgk * pc(p_molar_mass);
 	d["density"] = organic_mol_per_m3() * pc(p_molar_mass);
-	d["specific_heat"] = pc("DRY_WOOD_SPECIFIC_HEAT_J_KGK");
+	d["density_ref_t_c"] = pc("LAB_REFERENCE_TEMP_C");
+	d["specific_heat_solid"] = pc("DRY_WOOD_SPECIFIC_HEAT_J_KGK");
 	if (p_vegetated) {
 		d["albedo"] = pc("ALBEDO_VEGETATION");
 	}
 	d["conductivity"] = pc("THERMAL_CONDUCT_ORGANIC_W_MK");
-	d["bulk_modulus_pa"] = ORGANIC_BULK_MODULUS_PA;
-	d["bulk_modulus_deriv"] = ORGANIC_BULK_MODULUS_DERIV;
+	// LA_APPROX: litter_pool_wood_expansivity
+	d["expansion_per_k"] = wood_expansion_per_k();
+	d["bulk_modulus_pa"] = organic_modulus_t();
+	d["bulk_modulus_deriv"] = ORGANIC_BULK_MODULUS_T_DERIV;
 	return d;
 }
 
@@ -387,12 +475,14 @@ Dictionary cellulose_entry() {
 	d["formula"] = f;
 	d["molar_mass"] = pc("MOLAR_MASS_CH2O_UNIT_KG_MOL");
 	d["density"] = pc("DRY_WOOD_DENSITY_KG_M3");
-	d["specific_heat"] = pc("DRY_WOOD_SPECIFIC_HEAT_J_KGK");
+	d["density_ref_t_c"] = pc("LAB_REFERENCE_TEMP_C");
+	d["specific_heat_solid"] = pc("DRY_WOOD_SPECIFIC_HEAT_J_KGK");
 	d["pyrolysis_ea_over_r_k"] = pc("CELLULOSE_PYROLYSIS_EA_OVER_R_K");
 	d["albedo"] = pc("ALBEDO_VEGETATION");
 	d["conductivity"] = pc("THERMAL_CONDUCT_CELLULOSE_W_MK");
-	d["bulk_modulus_pa"] = ORGANIC_BULK_MODULUS_PA;
-	d["bulk_modulus_deriv"] = ORGANIC_BULK_MODULUS_DERIV;
+	d["expansion_per_k"] = wood_expansion_per_k();
+	d["bulk_modulus_pa"] = organic_modulus_t();
+	d["bulk_modulus_deriv"] = ORGANIC_BULK_MODULUS_T_DERIV;
 	return d;
 }
 
@@ -403,18 +493,22 @@ Dictionary silicate_entry() {
 	d["molar_mass"] = pc("MOLAR_MASS_CASIO3_KG_MOL");
 	d["formation_enthalpy_j_mol"] = pc("FORMATION_ENTHALPY_CASIO3_J_MOL");
 	d["entropy_j_molk"] = pc("ENTROPY_CASIO3_J_MOL_K");
+	// LA_APPROX: basalt_isotherm_on_casio3
 	d["density"] = pc("ROCK_DENSITY_KG_M3");
 	d["density_ref_t_c"] = pc("LAB_REFERENCE_TEMP_C");
 	d["expansion_per_k"] = pc("ROCK_VOLUME_EXPANSION_PER_K");
-	d["bulk_modulus_pa"] = pc("ROCK_BULK_MODULUS_PA");
-	d["bulk_modulus_deriv"] = ROCK_BULK_MODULUS_DERIV;
+	d["bulk_modulus_pa"] = LAPhaseEosFn::isothermal_modulus(pc("ROCK_BULK_MODULUS_S_PA"), pc("ROCK_VOLUME_EXPANSION_PER_K"),
+			pc("ROCK_DENSITY_KG_M3"), pc("ROCK_SPECIFIC_HEAT_J_KGK"), pc("LAB_REFERENCE_TEMP_C"));
+	d["bulk_modulus_deriv"] = ROCK_BULK_MODULUS_T_DERIV;
 	d["tensile_strength_pa"] = pc("BASALT_TENSILE_STRENGTH_PA");
-	d["specific_heat"] = pc("ROCK_SPECIFIC_HEAT_J_KGK");
+	d["specific_heat_solid"] = pc("ROCK_SPECIFIC_HEAT_J_KGK");
 	d["melt_c"] = pc("BASALT_SOLIDUS_C");
 	d["liquidus_c"] = pc("BASALT_LIQUIDUS_C");
 	d["latent_fusion_j_kg"] = pc("BASALT_LATENT_HEAT_CRYSTALLISATION_J_KG");
-	// The rock is the solid; its melt is lighter, and the melting curve reads both.
-	d["density_melt"] = pc("BASALT_MELT_DENSITY_KG_M3");
+	d["melt_p_pa"] = pc("STANDARD_PRESSURE_PA");
+	d.merge(LAMeltEos::oxide_melt(d["formula"], pc("BASALT_LIQUIDUS_C")), true);
+	// LA_APPROX: melt_compression_endmember
+	d.merge(LAMeltEos::diopside_melt_compression(pc("BASALT_LIQUIDUS_C")), true);
 	d["conductivity"] = pc("THERMAL_CONDUCT_ROCK_W_MK");
 	d["emissivity"] = pc("BASALT_EMISSIVITY");
 	d["albedo"] = pc("ALBEDO_BARE_GROUND");
@@ -441,9 +535,9 @@ Dictionary silica_entry() {
 	d["density"] = pc("QUARTZ_DENSITY_KG_M3");
 	d["density_ref_t_c"] = pc("LAB_REFERENCE_TEMP_C");
 	d["expansion_per_k"] = pc("QUARTZ_VOLUME_EXPANSION_PER_K");
-	d["bulk_modulus_pa"] = pc("QUARTZ_BULK_MODULUS_PA");
-	d["bulk_modulus_deriv"] = QUARTZ_BULK_MODULUS_DERIV;
-	d["specific_heat"] = pc("QUARTZ_SPECIFIC_HEAT_J_KGK");
+	d["bulk_modulus_pa"] = pc("QUARTZ_BULK_MODULUS_T_PA");
+	d["bulk_modulus_deriv"] = QUARTZ_BULK_MODULUS_T_DERIV;
+	d["specific_heat_solid"] = pc("QUARTZ_SPECIFIC_HEAT_J_KGK");
 	d["conductivity"] = pc("THERMAL_CONDUCT_ROCK_W_MK");
 	d["emissivity"] = pc("BASALT_EMISSIVITY");
 	d["albedo"] = pc("ALBEDO_BARE_GROUND");
@@ -462,9 +556,9 @@ Dictionary carbonate_entry() {
 	d["density"] = pc("CALCITE_DENSITY_KG_M3");
 	d["density_ref_t_c"] = pc("LAB_REFERENCE_TEMP_C");
 	d["expansion_per_k"] = pc("CALCITE_VOLUME_EXPANSION_PER_K");
-	d["bulk_modulus_pa"] = CALCITE_BULK_MODULUS_PA;
-	d["bulk_modulus_deriv"] = CALCITE_BULK_MODULUS_DERIV;
-	d["specific_heat"] = pc("CALCITE_SPECIFIC_HEAT_J_KGK");
+	d["bulk_modulus_pa"] = CALCITE_BULK_MODULUS_T_PA;
+	d["bulk_modulus_deriv"] = CALCITE_BULK_MODULUS_T_DERIV;
+	d["specific_heat_solid"] = pc("CALCITE_SPECIFIC_HEAT_J_KGK");
 	d["conductivity"] = pc("THERMAL_CONDUCT_ROCK_W_MK");
 	d["emissivity"] = pc("BASALT_EMISSIVITY");
 	d["albedo"] = pc("ALBEDO_BARE_GROUND");
@@ -484,7 +578,8 @@ Dictionary fixed_n_entry() {
 	d["formation_enthalpy_j_mol"] = FORMATION_ENTHALPY_NO_J_MOL;
 	d["entropy_gas_j_molk"] = ENTROPY_NO_GAS_J_MOLK;
 	d["density"] = pc("ROCK_DENSITY_KG_M3");
-	d["specific_heat"] = pc("ROCK_SPECIFIC_HEAT_J_KGK");
+	d["density_ref_t_c"] = pc("LAB_REFERENCE_TEMP_C");
+	d["specific_heat_solid"] = pc("ROCK_SPECIFIC_HEAT_J_KGK");
 	d["conductivity"] = pc("THERMAL_CONDUCT_ROCK_W_MK");
 	return d;
 }
@@ -495,6 +590,7 @@ Dictionary build_table() {
 	for (int i = 0; i < int(sizeof(GASES) / sizeof(GasRow)); i++) {
 		t[String(GASES[i].id)] = gas_entry(GASES[i]);
 	}
+	la_optics::declare(t);
 	t["organic_c"] = organic_entry("C", WOOD_ENTROPY_C_J_KGK, "MOLAR_MASS_CARBON_KG_MOL", true, true);
 	t["organic_h"] = organic_entry("H", WOOD_ENTROPY_H_J_KGK, "MOLAR_MASS_HYDROGEN_KG_MOL", false, false);
 	t["organic_o"] = organic_entry("O", WOOD_ENTROPY_O_J_KGK, "MOLAR_MASS_OXYGEN_KG_MOL", false, false);
@@ -529,12 +625,16 @@ void add_planet_minerals() {
 	metal_extra["density_solid"] = IRON_SOLID_DENSITY_AT_MELT_KG_M3;
 	metal_extra["density_solid_ref_t_c"] = IRON_MELT_C;
 	metal_extra["expansion_solid_per_k"] = IRON_SOLID_EXPANSION_PER_K;
-	metal_extra["bulk_modulus_solid_pa"] = IRON_SOLID_BULK_MODULUS_PA;
-	metal_extra["bulk_modulus_solid_deriv"] = IRON_SOLID_BULK_MODULUS_DERIV;
-	metal_extra["bulk_modulus_pa"] = IRON_LIQUID_BULK_MODULUS_PA;
-	metal_extra["bulk_modulus_deriv"] = IRON_LIQUID_BULK_MODULUS_DERIV;
+	metal_extra["bulk_modulus_solid_pa"] = LAPhaseEosFn::isothermal_modulus(IRON_SOLID_BULK_MODULUS_S_PA, IRON_SOLID_EXPANSION_PER_K,
+			IRON_SOLID_DENSITY_25C_KG_M3, IRON_SOLID_SPECIFIC_HEAT_J_KGK, pc("LAB_REFERENCE_TEMP_C"));
+	metal_extra["bulk_modulus_solid_deriv"] = IRON_SOLID_BULK_MODULUS_T_DERIV;
+	metal_extra["bulk_modulus_pa"] = IRON_LIQUID_BULK_MODULUS_T_PA;
+	metal_extra["bulk_modulus_deriv"] = IRON_LIQUID_BULK_MODULUS_T_DERIV;
 	metal_extra["specific_heat_solid"] = IRON_SOLID_SPECIFIC_HEAT_J_KGK;
+	metal_extra["specific_heat"] = IRON_LIQUID_SPECIFIC_HEAT_J_KGK;
 	metal_extra["melt_c"] = IRON_MELT_C;
+	metal_extra["liquidus_c"] = IRON_MELT_C;
+	metal_extra["melt_p_pa"] = pc("STANDARD_PRESSURE_PA");
 	metal_extra["latent_fusion_j_kg"] = IRON_LATENT_FUSION_J_KG;
 	metal_extra["boil_c"] = IRON_BOIL_C;
 	metal_extra["boil_ref_p_pa"] = pc("STANDARD_PRESSURE_PA");
@@ -543,6 +643,7 @@ void add_planet_minerals() {
 	metal_extra["critical_t_c"] = IRON_CRITICAL_T_C;
 	metal_extra["critical_p_pa"] = IRON_CRITICAL_P_PA;
 	metal_extra["traces"] = LAElementAbundances::core_traces();
+	metal_extra["specific_heat_gas"] = IRON_VAPOUR_CP_J_MOLK / LAElementAbundances::molar_mass(f_metal);
 	// LA_APPROX: pure_iron_core_alloy
 	t["metal"] = entry(f_metal, IRON_LIQUID_DENSITY_KG_M3, IRON_LIQUID_SPECIFIC_HEAT_J_KGK,
 			IRON_CONDUCTIVITY_W_MK, metal_extra);
@@ -552,21 +653,31 @@ void add_planet_minerals() {
 	const Dictionary f_ol = LAPlanetComposition::olivine_formula();
 	const double mm_ol = LAElementAbundances::molar_mass(f_ol);
 	Dictionary ol_extra;
-	ol_extra["expansion_per_k"] = OLIVINE_EXPANSION_PER_K;
-	ol_extra["bulk_modulus_pa"] = OLIVINE_BULK_MODULUS_PA;
-	ol_extra["bulk_modulus_deriv"] = OLIVINE_BULK_MODULUS_DERIV;
+	ol_extra["expansion_per_k"] = m * FORSTERITE_EXPANSION_PER_K + (1.0 - m) * FAYALITE_EXPANSION_PER_K;
+	ol_extra["bulk_modulus_pa"] = m * FORSTERITE_BULK_MODULUS_T_PA + (1.0 - m) * FAYALITE_BULK_MODULUS_T_PA;
+	ol_extra["bulk_modulus_deriv"] = m * FORSTERITE_BULK_MODULUS_T_DERIV + (1.0 - m) * FAYALITE_BULK_MODULUS_T_DERIV;
 	ol_extra["melt_c"] = FORSTERITE_MELT_C;
+	ol_extra["liquidus_c"] = FORSTERITE_MELT_C;
+	ol_extra["melt_p_pa"] = pc("STANDARD_PRESSURE_PA");
 	ol_extra["latent_fusion_j_kg"] = FORSTERITE_FUSION_J_MOL / mm_ol;
+	ol_extra.merge(LAMeltEos::oxide_melt(f_ol, FORSTERITE_MELT_C), true);
+	ol_extra.merge(LAMeltEos::olivine_melt_compression(m, FORSTERITE_MELT_C), true);
 	t["olivine"] = entry(f_ol, OLIVINE_DENSITY_KG_M3,
 			(m * FORSTERITE_CP_J_MOLK + (1.0 - m) * FAYALITE_CP_J_MOLK) / mm_ol,
 			OLIVINE_CONDUCTIVITY_W_MK, rock.merged(ol_extra, true));
 
 	const Dictionary f_px = LAPlanetComposition::pyroxene_formula();
 	Dictionary px_extra;
-	px_extra["bulk_modulus_pa"] = ENSTATITE_BULK_MODULUS_PA;
-	px_extra["bulk_modulus_deriv"] = ENSTATITE_BULK_MODULUS_DERIV;
+	px_extra["expansion_per_k"] = ENSTATITE_EXPANSION_PER_K;
+	px_extra["bulk_modulus_pa"] = ENSTATITE_BULK_MODULUS_T_PA;
+	px_extra["bulk_modulus_deriv"] = ENSTATITE_BULK_MODULUS_T_DERIV;
 	px_extra["melt_c"] = ENSTATITE_MELT_C;
+	px_extra["liquidus_c"] = ENSTATITE_MELT_C;
+	px_extra["melt_p_pa"] = pc("STANDARD_PRESSURE_PA");
 	px_extra["latent_fusion_j_kg"] = ENSTATITE_FUSION_J_MOL / ENSTATITE_MOLAR_MASS_KG_MOL;
+	px_extra.merge(LAMeltEos::oxide_melt(f_px, ENSTATITE_MELT_C), true);
+	// LA_APPROX: melt_compression_endmember
+	px_extra.merge(LAMeltEos::enstatite_melt_compression(ENSTATITE_MELT_C), true);
 	t["pyroxene"] = entry(f_px, ENSTATITE_DENSITY_KG_M3,
 			ENSTATITE_CP_J_MOLK / ENSTATITE_MOLAR_MASS_KG_MOL, ENSTATITE_CONDUCTIVITY_W_MK,
 			rock.merged(px_extra, true));
@@ -576,11 +687,16 @@ void add_planet_minerals() {
 	const Dictionary f_pl = LAPlanetComposition::plagioclase_formula();
 	const double mm_pl = LAElementAbundances::molar_mass(f_pl);
 	Dictionary pl_extra;
-	pl_extra["bulk_modulus_pa"] = x * ANORTHITE_BULK_MODULUS_PA + (1.0 - x) * ALBITE_BULK_MODULUS_PA;
-	pl_extra["bulk_modulus_deriv"] = x * ANORTHITE_BULK_MODULUS_DERIV + (1.0 - x) * ALBITE_BULK_MODULUS_DERIV;
+	pl_extra["expansion_per_k"] = x * ANORTHITE_EXPANSION_PER_K + (1.0 - x) * ALBITE_EXPANSION_PER_K;
+	pl_extra["bulk_modulus_pa"] = x * ANORTHITE_BULK_MODULUS_T_PA + (1.0 - x) * ALBITE_BULK_MODULUS_T_PA;
+	pl_extra["bulk_modulus_deriv"] = x * ANORTHITE_BULK_MODULUS_T_DERIV + (1.0 - x) * ALBITE_BULK_MODULUS_T_DERIV;
 	pl_extra["melt_c"] = ALBITE_MELT_C;
 	pl_extra["liquidus_c"] = ANORTHITE_MELT_C;
+	pl_extra["melt_p_pa"] = pc("STANDARD_PRESSURE_PA");
 	pl_extra["latent_fusion_j_kg"] = (x * ANORTHITE_FUSION_J_MOL + (1.0 - x) * ALBITE_FUSION_J_MOL) / mm_pl;
+	pl_extra.merge(LAMeltEos::oxide_melt(f_pl, ANORTHITE_MELT_C), true);
+	// LA_APPROX: melt_compression_endmember
+	pl_extra.merge(LAMeltEos::anorthite_melt_compression(ANORTHITE_MELT_C), true);
 	t["plagioclase"] = entry(f_pl,
 			x * ANORTHITE_DENSITY_KG_M3 + (1.0 - x) * ALBITE_DENSITY_KG_M3,
 			(x * ANORTHITE_CP_J_MOLK + (1.0 - x) * ALBITE_CP_J_MOLK) / mm_pl,
@@ -593,18 +709,22 @@ void add_planet_minerals() {
 	Dictionary hal_extra;
 	hal_extra["density_ref_t_c"] = pc("LAB_REFERENCE_TEMP_C");
 	hal_extra["expansion_per_k"] = HALITE_EXPANSION_PER_K;
-	hal_extra["bulk_modulus_pa"] = HALITE_BULK_MODULUS_PA;
-	hal_extra["bulk_modulus_deriv"] = HALITE_BULK_MODULUS_DERIV;
+	hal_extra["bulk_modulus_pa"] = HALITE_BULK_MODULUS_T_PA;
+	hal_extra["bulk_modulus_deriv"] = HALITE_BULK_MODULUS_T_DERIV;
 	hal_extra["melt_c"] = HALITE_MELT_C;
+	hal_extra["liquidus_c"] = HALITE_MELT_C;
+	hal_extra["melt_p_pa"] = pc("STANDARD_PRESSURE_PA");
 	hal_extra["latent_fusion_j_kg"] = HALITE_FUSION_J_MOL / mm_hal;
+	hal_extra.merge(LAMeltEos::halite_melt(HALITE_MELT_C), true);
 	hal_extra["traces"] = shell_tr;
 	t["halite"] = entry(f_hal, HALITE_DENSITY_KG_M3, HALITE_CP_J_MOLK / mm_hal,
 			HALITE_CONDUCTIVITY_W_MK, hal_extra);
 
 	const Dictionary f_ap = LAPlanetComposition::apatite_formula();
 	Dictionary ap_extra = rock.duplicate();
-	ap_extra["bulk_modulus_pa"] = APATITE_BULK_MODULUS_PA;
-	ap_extra["bulk_modulus_deriv"] = APATITE_BULK_MODULUS_DERIV;
+	ap_extra["expansion_per_k"] = APATITE_EXPANSION_PER_K;
+	ap_extra["bulk_modulus_pa"] = APATITE_BULK_MODULUS_T_PA;
+	ap_extra["bulk_modulus_deriv"] = APATITE_BULK_MODULUS_T_DERIV;
 	t["apatite"] = entry(f_ap, APATITE_DENSITY_KG_M3,
 			APATITE_CP_J_MOLK / LAElementAbundances::molar_mass(f_ap), APATITE_CONDUCTIVITY_W_MK, ap_extra);
 }
@@ -636,115 +756,9 @@ double dget(const Dictionary &p_d, const char *p_key, double p_default) {
 	return double(p_d.get(p_key, p_default));
 }
 
-// The pressure derivative of a declared bulk modulus. A row carrying the modulus and no derivative has
-// that phase's stiffening UNMEASURED; no value stands in for it.
-double kprime(const Dictionary &p_s, const String &p_id, const char *p_k_key, const char *p_kp_key) {
-	if (!p_s.has(p_k_key)) {
-		return 0.0;
-	}
-	ERR_FAIL_COND_V_MSG(!p_s.has(p_kp_key), 0.0, "LASubstances(\"" + p_id + "\"): the table gives "
-			+ p_k_key + " and no " + p_kp_key + ".");
-	return double(p_s[p_kp_key]);
-}
-
-// Specific volume of a condensed phase, m^3/kg: the reference volume opened up by thermal expansion and
-// squeezed by pressure. A coefficient the table does not carry leaves its term out.
-// Eulerian finite strain f at a pressure, from third-order Birch-Murnaghan (Birch 1947, Phys. Rev. 71:809):
-//   P = 3 K0 f (1 + 2f)^(5/2) [1 + 3/2 (K0' - 4) f]
-// P(f) rises monotonically over the bracket, so bisection converges on the one root without a derivative.
-// A LINEAR compressibility, v = v0 (1 - P/K), has no root at all once P approaches K -- and the pressure
-// inside a planet is of that order, so it returns a density that diverges instead of a rock that resists.
-double bm_strain(double p_p_pa, double p_k0_pa, double p_kprime) {
-	if (!(p_k0_pa > 0.0) || !std::isfinite(p_p_pa) || p_p_pa == 0.0) {
-		return 0.0;
-	}
-	auto pressure_at = [&](double f) {
-		return 3.0 * p_k0_pa * f * std::pow(1.0 + 2.0 * f, 2.5)
-				* (1.0 + 1.5 * (p_kprime - 4.0) * f);
-	};
-	// P(f) rises only between its turning points, 9a f^2 + (7 + 2a) f + 1 = 0 with a = 3/2 (K0' - 4);
-	// outside them the third-order form is not invertible and bisection lands on a root that is not the
-	// state. K0' > 4 turns back at a small NEGATIVE f, K0' < 4 at a positive one.
-	double lo = -0.45;
-	double hi = 1.5;
-	const double a = 1.5 * (p_kprime - 4.0);
-	const double disc = (7.0 + 2.0 * a) * (7.0 + 2.0 * a) - 36.0 * a;
-	if (a != 0.0 && disc > 0.0) {
-		const double r1 = (-(7.0 + 2.0 * a) + std::sqrt(disc)) / (18.0 * a);
-		const double r2 = (-(7.0 + 2.0 * a) - std::sqrt(disc)) / (18.0 * a);
-		if (r1 < 0.0) {
-			lo = std::max(lo, r1);
-		} else {
-			hi = std::min(hi, r1);
-		}
-		if (r2 < 0.0) {
-			lo = std::max(lo, r2);
-		} else {
-			hi = std::min(hi, r2);
-		}
-	}
-	if (!(hi > lo) || p_p_pa < pressure_at(lo) || p_p_pa > pressure_at(hi)) {
-		return 0.0;
-	}
-	for (int i = 0; i < 60; ++i) {
-		const double mid = 0.5 * (lo + hi);
-		if (pressure_at(mid) < p_p_pa) {
-			lo = mid;
-		} else {
-			hi = mid;
-		}
-	}
-	return 0.5 * (lo + hi);
-}
-
-// Liquid water, kg/m^3: the saturated liquid from the triple point to the critical point (IAPWS SR1-86).
-double water_liquid_density(double p_t_c) {
-	const double t_k = std::min(std::max(p_t_c, pc("WATER_TRIPLE_T_C")), pc("WATER_CRITICAL_T_C")) + pc("KELVIN_OFFSET");
-	const double tau = std::max(1.0 - t_k / (pc("WATER_CRITICAL_T_C") + pc("KELVIN_OFFSET")), 0.0);
-	const double t3 = std::cbrt(tau);
-	return pc("WATER_CRITICAL_DENSITY_KG_M3") * (1.0 + pc("IAPWS_SAT_RHO_B1") * t3 + pc("IAPWS_SAT_RHO_B2") * t3 * t3
-			+ pc("IAPWS_SAT_RHO_B3") * std::pow(tau, 5.0 / 3.0) + pc("IAPWS_SAT_RHO_B4") * std::pow(tau, 16.0 / 3.0)
-			+ pc("IAPWS_SAT_RHO_B5") * std::pow(tau, 43.0 / 3.0) + pc("IAPWS_SAT_RHO_B6") * std::pow(tau, 110.0 / 3.0));
-}
-
-double specific_volume(double p_rho_ref, double p_t_ref_c, double p_alpha_per_k, double p_bulk_pa,
-		double p_kprime, double p_t_c, double p_p_pa, bool p_kell = false) {
-	if (p_rho_ref <= 0.0) {
-		return 0.0;
-	}
-	// The expansivity falls under pressure as alpha * K_T stays constant (Anderson 1995), K_T = K0 + K0' P.
-	const double dp = p_p_pa - pc("STANDARD_PRESSURE_PA");
-	const double alpha = (p_bulk_pa > 0.0 && dp > 0.0) ? p_alpha_per_k * p_bulk_pa / (p_bulk_pa + p_kprime * dp)
-													 : p_alpha_per_k;
-	double v = p_kell ? 1.0 / water_liquid_density(p_t_c)
-			: (1.0 + alpha * (p_t_c - p_t_ref_c)) / p_rho_ref;
-	if (p_bulk_pa > 0.0 && p_p_pa > 0.0) {
-		const double f = bm_strain(dp, p_bulk_pa, p_kprime);
-		v *= std::pow(1.0 + 2.0 * f, -1.5);
-	}
-	return v > 0.0 ? v : 0.0;
-}
-
 // True when this row's phase boundaries are the IAPWS formulations rather than the two-anchor law.
 bool iapws_curves(const Dictionary &p_s) {
 	return bool(p_s.get("iapws", false));
-}
-
-// A row has a liquid-vapour boundary if it declares either form of one.
-bool has_vapour_curve(const Dictionary &p_s) {
-	return iapws_curves(p_s) || std::isfinite(dget(p_s, "boil_c", kInf));
-}
-
-// Gaseous at these conditions? The table's own vapour boundary decides -- the frost point below the triple
-// pressure, the boiling point above it.
-bool is_gas_at(const Dictionary &p_s, const String &p_id, double p_t_c, double p_p_pa) {
-	if (!has_vapour_curve(p_s)) {
-		return false;
-	}
-	if (LASubstances::sublimes_at(p_id, p_p_pa)) {
-		return p_t_c > LASubstances::sublimation_c_at(p_id, p_p_pa);
-	}
-	return p_t_c > LASubstances::boil_c_at(p_id, p_p_pa);
 }
 
 // ln p = A - B/T, with B fixed by the TWO measured points the table carries -- the triple point and the
@@ -856,7 +870,34 @@ Dictionary gas_state(const String &p_id, double p_h_j_kg, double p_p_pa, double 
 	return out;
 }
 
+// THE LADDER'S ANCHOR: every phase is integrated outward from the row's standard state, where its
+// sensible enthalpy is zero (LAPhaseEosFn::anchor). Its energy where the solid starts to melt, J/kg.
+double anchor_melt_start(int p_anchor, double p_t_ref, double p_c_sol, double p_c_liq, double p_c_gas,
+		double p_melt, double p_boil, double p_l_fus, double p_l_vap) {
+	if (p_anchor == 0) {
+		return p_c_sol * (p_melt - p_t_ref);
+	}
+	if (p_anchor == 1) {
+		return p_c_liq * (p_melt - p_t_ref) - p_l_fus;
+	}
+	return p_c_gas * (p_boil - p_t_ref) - p_l_vap - p_c_liq * (p_boil - p_melt) - p_l_fus;
+}
+
+// Below the triple pressure: the solid's energy at the frost point, J/kg. A liquid anchor reaches it
+// through the triple point.
+double anchor_sub_start(int p_anchor, double p_t_ref, double p_c_sol, double p_c_liq, double p_c_gas,
+		double p_t_sub, double p_l_sub, double p_t_triple, double p_l_fus) {
+	if (p_anchor == 0) {
+		return p_c_sol * (p_t_sub - p_t_ref);
+	}
+	if (p_anchor == 2) {
+		return p_c_gas * (p_t_sub - p_t_ref) - p_l_sub;
+	}
+	return p_c_liq * (p_t_triple - p_t_ref) - p_l_fus - p_c_sol * (p_t_triple - p_t_sub);
+}
+
 } // namespace
+
 
 // The one table. Cached because it is read per cell and per substance on hot paths, and it is built
 // entirely from constants; no caller writes to it.
@@ -980,56 +1021,43 @@ double LASubstances::latent_sublimation_j_kg(const String &p_id) {
 	return dget(s, "latent_fusion_j_kg", 0.0) + dget(s, "latent_vaporisation_j_kg", 0.0);
 }
 
-// True when this row carries an equation of state. A row without one has that dependence UNMEASURED
-// here, not zero, and reports its reference value unchanged.
+double LASubstances::solid_density(const String &p_id) {
+	return LAPhaseEosFn::condensed(p_id).solid.rho;
+}
+
+double LASubstances::liquid_density(const String &p_id) {
+	return LAPhaseEosFn::condensed(p_id).liquid.rho;
+}
+
+Dictionary LASubstances::eos_of(const String &p_id) {
+	return LAPhaseEosFn::describe(p_id);
+}
+
+// True when the row carries an expansivity or a bulk modulus for a phase. density() off the reference
+// state along a coefficient the row lacks is NaN.
 bool LASubstances::has_eos(const String &p_id) {
 	const Dictionary s = row_of(p_id);
 	return s.has("expansion_per_k") || s.has("bulk_modulus_pa")
 			|| s.has("expansion_solid_per_k") || s.has("bulk_modulus_solid_pa");
 }
 
-// Density at a temperature and pressure, kg/m^3. `p_p_pa` is the partial pressure of THIS substance.
+// Density at a temperature and pressure, kg/m^3. `p_p_pa` is the partial pressure of THIS substance. A
+// fluid is the Peng-Robinson root at that partial pressure; a condensed state is the one rule's.
 double LASubstances::density(const String &p_id, double p_t_c, double p_p_pa) {
 	const Dictionary s = row_of(p_id);
 	if (s.is_empty()) {
 		return 0.0;
 	}
-	if (is_gas_at(s, p_id, p_t_c, p_p_pa)) {
+	if (LAPhaseEosFn::gas_at(p_id, p_t_c, p_p_pa)) {
 		const double mm = dget(s, "molar_mass", 0.0);
-		const double t_k = p_t_c + pc("KELVIN_OFFSET");
-		if (mm <= 0.0 || t_k <= 0.0 || p_p_pa <= 0.0) {
-			return 0.0;
-		}
-		return p_p_pa * mm / (pc("GAS_CONSTANT_J_MOL_K") * t_k);
+		const LAFluidEos &f = LAPhaseEosFn::fluid(p_id);
+		ERR_FAIL_COND_V_MSG(!f.valid, NAN, "LASubstances.density(\"" + p_id + "\"): the row has no fluid "
+				"equation of state (no critical point or no acentric factor).");
+		const double v = LAPhaseEosFn::pr_molar_volume(f, p_t_c + pc("KELVIN_OFFSET"), p_p_pa);
+		return (mm > 0.0 && v > 0.0) ? mm / v : 0.0;
 	}
-
-	const double lab_t = pc("LAB_REFERENCE_TEMP_C");
-	const double rho_liq = dget(s, "density", 0.0);
-	const double v_liq = specific_volume(rho_liq, dget(s, "density_ref_t_c", lab_t),
-			dget(s, "expansion_per_k", 0.0), dget(s, "bulk_modulus_pa", 0.0),
-			kprime(s, p_id, "bulk_modulus_pa", "bulk_modulus_deriv"), p_t_c, p_p_pa, p_id == "h2o");
-	if (!s.has("density_solid")) {
-		return v_liq > 0.0 ? 1.0 / v_liq : 0.0;
-	}
-	const double v_sol = specific_volume(dget(s, "density_solid", 0.0),
-			dget(s, "density_solid_ref_t_c", lab_t), dget(s, "expansion_solid_per_k", 0.0),
-			dget(s, "bulk_modulus_solid_pa", 0.0),
-			kprime(s, p_id, "bulk_modulus_solid_pa", "bulk_modulus_solid_deriv"), p_t_c, p_p_pa);
-	// Across the melting interval both phases are present and VOLUMES add, so the specific volumes mix by
-	// the melt fraction. Outside it one end of the lever carries everything.
-	const double solidus = melt_c_at(p_id, p_p_pa, 0.0);
-	if (!std::isfinite(solidus)) {
-		return v_sol > 0.0 ? 1.0 / v_sol : 0.0;
-	}
-	const double liquidus = liquidus_c_at(p_id, p_p_pa, 0.0);
-	double phi = 1.0;
-	if (p_t_c <= solidus) {
-		phi = 0.0;
-	} else if (p_t_c < liquidus) {
-		phi = (p_t_c - solidus) / (liquidus - solidus);
-	}
-	const double v = (1.0 - phi) * v_sol + phi * v_liq;
-	return v > 0.0 ? 1.0 / v : 0.0;
+	const double v = LAPhaseEosFn::condensed_volume(LAPhaseEosFn::condensed(p_id), p_t_c, p_p_pa);
+	return std::isnan(v) ? NAN : (v > 0.0 ? 1.0 / v : 0.0);
 }
 
 // mol/m^3 at which a cell is FULL of this substance: density over molar mass. 0 and a named error when
@@ -1049,36 +1077,43 @@ double LASubstances::full_mol_m3(const String &p_id) {
 double LASubstances::enthalpy_at(const String &p_id, double p_t_c, double p_p_pa,
 		double p_molality_mol_kg) {
 	const Dictionary s = row_of(p_id);
-	const double c_liq = dget(s, "specific_heat", 0.0);
-	const double c_sol = dget(s, "specific_heat_solid", c_liq);
-	const double c_gas = dget(s, "specific_heat_gas", c_liq);
+	const double c_liq = dget(s, "specific_heat", NAN);
+	const double c_sol = dget(s, "specific_heat_solid", NAN);
+	const double c_gas = dget(s, "specific_heat_gas", NAN);
 	const double KELVIN_OFFSET = pc("KELVIN_OFFSET");
+	const LAAnchor &anc = LAPhaseEosFn::anchor(p_id);
+	const int anchor = anc.phase;
+	const double t_ref = anc.t_c;
+	const double t_triple = dget(s, "triple_t_c", NAN);
 	// Pressure-dependent, and depressed by any dissolved solute. For water the Clapeyron slope is negative.
-	const double melt = melt_c_at(p_id, p_p_pa, p_molality_mol_kg);
+	const double melt_row = melt_c_at(p_id, p_p_pa, p_molality_mol_kg);
+	const bool has_melt = std::isfinite(melt_row);
 	const double boil = boil_c_at(p_id, p_p_pa);
-	const double t_k = p_t_c + KELVIN_OFFSET;
-	if (!std::isfinite(melt)) {
-		// Never melts on this planet. Sensible heat alone, on whichever capacity it has.
-		const double c = c_sol > 0.0 ? c_sol : c_liq;
-		return c * t_k;
+	if (!has_melt && !std::isfinite(boil)) {
+		// Never melts on this planet: the solid's sensible heat from the standard state.
+		return c_sol * (p_t_c - t_ref);
 	}
+	// A row with no solid is liquid from absolute zero: its fusion rung stands at 0 K and costs nothing.
+	const double melt = has_melt ? melt_row : -KELVIN_OFFSET;
+	const double l_fus = has_melt ? double(s["latent_fusion_j_kg"]) : 0.0;
 
 	// NO LIQUID BELOW THE TRIPLE POINT. The plateau crossed is SUBLIMATION at the frost point.
 	if (sublimes_at(p_id, p_p_pa)) {
 		const double t_sub = sublimation_c_at(p_id, p_p_pa);
+		const double l_sub = latent_sublimation_j_kg(p_id);
+		const double h_sub_start = anchor_sub_start(anchor, t_ref, c_sol, c_liq, c_gas, t_sub, l_sub, t_triple, l_fus);
 		if (p_t_c <= t_sub) {
-			return c_sol * t_k;
+			return p_t_c == t_sub ? h_sub_start : h_sub_start - c_sol * (t_sub - p_t_c);
 		}
-		const double h_sub = c_sol * (t_sub + KELVIN_OFFSET) + latent_sublimation_j_kg(p_id);
-		return gas_enthalpy_at(p_id, p_t_c, p_p_pa, t_sub, h_sub, c_gas);
+		return gas_enthalpy_at(p_id, p_t_c, p_p_pa, t_sub, h_sub_start + l_sub, c_gas);
 	}
 
+	const double liquidus = has_melt ? liquidus_c_at(p_id, p_p_pa, p_molality_mol_kg) : -KELVIN_OFFSET;
+	const double l_vap = std::isfinite(boil) ? latent_vaporisation_at(p_id, boil) : 0.0;
+	const double h_start = anchor_melt_start(anchor, t_ref, c_sol, c_liq, c_gas, melt, boil, l_fus, l_vap);
 	if (p_t_c <= melt) {
-		return c_sol * t_k;
+		return p_t_c == melt ? h_start : h_start - c_sol * (melt - p_t_c);
 	}
-	const double liquidus = liquidus_c_at(p_id, p_p_pa, p_molality_mol_kg);
-	const double l_fus = dget(s, "latent_fusion_j_kg", 0.0);
-	const double h_start = c_sol * (melt + KELVIN_OFFSET);
 	const double h_end = h_start + l_fus + c_liq * (liquidus - melt);
 	if (p_t_c < liquidus) {
 		// Lever rule across the mush: solid and liquid enthalpies weighted by the melt fraction.
@@ -1091,7 +1126,7 @@ double LASubstances::enthalpy_at(const String &p_id, double p_t_c, double p_p_pa
 	}
 	// THE LATENT HEAT AT THE BOUNDARY, not the table's reference value: the plateau is zero at the
 	// critical point. Above it the atomisation and ionisation energies are paid by equilibrium.
-	const double h_top = h_end + c_liq * (boil - liquidus) + latent_vaporisation_at(p_id, boil);
+	const double h_top = h_end + c_liq * (boil - liquidus) + l_vap;
 	return gas_enthalpy_at(p_id, p_t_c, p_p_pa, boil, h_top, c_gas);
 }
 
@@ -1257,29 +1292,16 @@ double LASubstances::ionised_fraction(const String &p_id, double p_t_k, double p
 	return atoms > 0.0 ? ion_atoms / atoms : 0.0;
 }
 
-// Melting point at pressure, and depressed by dissolved solute. Clapeyron for the solid-liquid boundary:
-// dT/dP = T dv / dH_fus, with dv = 1/rho_liquid - 1/rho_solid straight out of this table.
+// Melting point at pressure, and depressed by dissolved solute: the one rule's solidus, whose Clapeyron
+// slope takes both phases at the melting point.
 double LASubstances::melt_c_at(const String &p_id, double p_p_pa, double p_molality_mol_kg) {
-	const Dictionary s = row_of(p_id);
-	const double t_ref_c = dget(s, "melt_c", kInf);
-	if (!std::isfinite(t_ref_c)) {
+	const LACondensedEos &c = LAPhaseEosFn::condensed(p_id);
+	double t_c = LAPhaseEosFn::solidus_c(c, p_p_pa);
+	if (!std::isfinite(t_c)) {
 		return kInf;
 	}
-	// THE REFERENCE densities, not density() at (t, p): this is a rung of the phase ladder, and
-	// enthalpy.glsli carries the same two constants and has no EOS to call.
-	// A substance whose table row is its solid names its melt; one whose row is its liquid names its solid.
-	const double rho_l = dget(s, "density_melt", dget(s, "density", 0.0));
-	const double rho_s = s.has("density_melt") ? dget(s, "density", 0.0) : dget(s, "density_solid", rho_l);
-	const double l_fus = dget(s, "latent_fusion_j_kg", 0.0);
-	double t_c = t_ref_c;
-	if (iapws_curves(s)) {
-		t_c = la_water::iapws_melting_ih_t_k(p_p_pa) - pc("KELVIN_OFFSET");
-	} else if (rho_l > 0.0 && rho_s > 0.0 && l_fus > 0.0) {
-		const double dv = (1.0 / rho_l) - (1.0 / rho_s);
-		const double p_ref = dget(s, "triple_p_pa", pc("STANDARD_PRESSURE_PA"));
-		t_c += (p_p_pa - p_ref) * (t_ref_c + pc("KELVIN_OFFSET")) * dv / l_fus;
-	}
 	// van 't Hoff, about the PURE solvent's melting point at this pressure: K_f = R T_m^2 / L_fus.
+	const double l_fus = dget(row_of(p_id), "latent_fusion_j_kg", 0.0);
 	if (p_molality_mol_kg > 0.0 && l_fus > 0.0) {
 		const double t_m_k = t_c + pc("KELVIN_OFFSET");
 		t_c -= pc("GAS_CONSTANT_J_MOL_K") * t_m_k * t_m_k / l_fus * p_molality_mol_kg;
@@ -1291,18 +1313,8 @@ double LASubstances::melt_c_at(const String &p_id, double p_p_pa, double p_molal
 // it meets the solidus. DECISION, not a law: the interval keeps its width, both ends on one Clapeyron
 // slope.
 double LASubstances::liquidus_c_at(const String &p_id, double p_p_pa, double p_molality_mol_kg) {
-	const Dictionary s = row_of(p_id);
 	const double solidus = melt_c_at(p_id, p_p_pa, p_molality_mol_kg);
-	if (!std::isfinite(solidus)) {
-		return kInf;
-	}
-	const double t_sol = dget(s, "melt_c", kInf);
-	const double t_liq = dget(s, "liquidus_c", t_sol);
-	if (!std::isfinite(t_sol) || !std::isfinite(t_liq)) {
-		return solidus;
-	}
-	const double w = t_liq - t_sol;
-	return solidus + (w > 0.0 ? w : 0.0);
+	return std::isfinite(solidus) ? solidus + LAPhaseEosFn::condensed(p_id).width : kInf;
 }
 
 // THE LIQUID-VAPOUR BOUNDARY READ AS A PRESSURE -- boil_c_at() inverted, so one curve answers from
@@ -1442,25 +1454,31 @@ double LASubstances::latent_vaporisation_at(const String &p_id, double p_t_c) {
 Dictionary LASubstances::enthalpy_to_state(const String &p_id, double p_h_j_kg, double p_p_pa,
 		double p_molality_mol_kg) {
 	const Dictionary s = row_of(p_id);
-	const double c_liq = dget(s, "specific_heat", 0.0);
-	const double c_sol = dget(s, "specific_heat_solid", c_liq);
-	const double c_gas = dget(s, "specific_heat_gas", c_liq);
+	const double c_liq = dget(s, "specific_heat", NAN);
+	const double c_sol = dget(s, "specific_heat_solid", NAN);
+	const double c_gas = dget(s, "specific_heat_gas", NAN);
 	const double KELVIN_OFFSET = pc("KELVIN_OFFSET");
+	const LAAnchor &anc = LAPhaseEosFn::anchor(p_id);
+	const int anchor = anc.phase;
+	const double t_ref = anc.t_c;
+	const double t_triple = dget(s, "triple_t_c", NAN);
 	// Pressure-dependent, and depressed by dissolved solute. For water the Clapeyron slope is negative.
-	const double melt = melt_c_at(p_id, p_p_pa, p_molality_mol_kg);
-	const double liquidus = liquidus_c_at(p_id, p_p_pa, p_molality_mol_kg);
+	const double melt_row = melt_c_at(p_id, p_p_pa, p_molality_mol_kg);
+	const bool has_melt = std::isfinite(melt_row);
+	// A row with no solid is liquid from absolute zero: its fusion rung stands at 0 K and costs nothing.
+	const double melt = has_melt ? melt_row : -KELVIN_OFFSET;
+	const double liquidus = has_melt ? liquidus_c_at(p_id, p_p_pa, p_molality_mol_kg) : -KELVIN_OFFSET;
 	// THE BOUNDARY AT THIS PRESSURE, not the one-atmosphere reference point. See boil_c_at().
 	const double boil = boil_c_at(p_id, p_p_pa);
-	const double l_fus = dget(s, "latent_fusion_j_kg", 0.0);
+	const double l_fus = has_melt ? double(s["latent_fusion_j_kg"]) : 0.0;
 	// THE LATENT HEAT AT THE BOUNDARY: at high pressure the plateau gets SHORTER, reaching zero at the
 	// critical point, which is why a supercritical cell has no plateau at all below.
 	const double l_vap = std::isfinite(boil) ? latent_vaporisation_at(p_id, boil) : 0.0;
 
 	Dictionary out;
-	if (!std::isfinite(melt)) {
-		// A substance this planet never melts. Temperature is sensible heat alone.
-		const double c = c_sol > 0.0 ? c_sol : c_liq;
-		out["t_c"] = c > 0.0 ? (p_h_j_kg / c) - KELVIN_OFFSET : 0.0;
+	if (!has_melt && !std::isfinite(boil)) {
+		// A substance this planet never melts. Temperature is sensible heat from the standard state.
+		out["t_c"] = t_ref + p_h_j_kg / c_sol;
 		out["phase"] = int(SOLID);
 		out["melted"] = 0.0;
 		out["vaporised"] = 0.0;
@@ -1471,9 +1489,10 @@ Dictionary LASubstances::enthalpy_to_state(const String &p_id, double p_h_j_kg, 
 	// fusion, and the next ramp is the gas.
 	if (sublimes_at(p_id, p_p_pa)) {
 		const double t_sub = sublimation_c_at(p_id, p_p_pa);
-		const double h_sub_start = c_sol * (t_sub + KELVIN_OFFSET);
+		const double l_sub = latent_sublimation_j_kg(p_id);
+		const double h_sub_start = anchor_sub_start(anchor, t_ref, c_sol, c_liq, c_gas, t_sub, l_sub, t_triple, l_fus);
 		if (p_h_j_kg <= h_sub_start) {
-			out["t_c"] = c_sol > 0.0 ? (p_h_j_kg / c_sol) - KELVIN_OFFSET : t_sub;
+			out["t_c"] = t_sub - (h_sub_start - p_h_j_kg) / c_sol;
 			out["phase"] = int(SOLID);
 			out["melted"] = 0.0;
 			out["vaporised"] = 0.0;
@@ -1482,7 +1501,6 @@ Dictionary LASubstances::enthalpy_to_state(const String &p_id, double p_h_j_kg, 
 			out["ionised"] = 0.0;
 			return out;
 		}
-		const double l_sub = latent_sublimation_j_kg(p_id);
 		const double h_sub_end = h_sub_start + l_sub;
 		if (p_h_j_kg < h_sub_end) {
 			out["t_c"] = t_sub;
@@ -1499,9 +1517,9 @@ Dictionary LASubstances::enthalpy_to_state(const String &p_id, double p_h_j_kg, 
 		return st;
 	}
 
-	const double h_melt_start = c_sol * (melt + KELVIN_OFFSET);
+	const double h_melt_start = anchor_melt_start(anchor, t_ref, c_sol, c_liq, c_gas, melt, boil, l_fus, l_vap);
 	if (p_h_j_kg <= h_melt_start) {
-		out["t_c"] = c_sol > 0.0 ? (p_h_j_kg / c_sol) - KELVIN_OFFSET : melt;
+		out["t_c"] = melt - (h_melt_start - p_h_j_kg) / c_sol;
 		out["phase"] = int(SOLID);
 		out["melted"] = 0.0;
 		out["vaporised"] = 0.0;
@@ -1516,7 +1534,7 @@ Dictionary LASubstances::enthalpy_to_state(const String &p_id, double p_h_j_kg, 
 		const double dt = liquidus - melt;
 		const double a2 = (c_liq - c_sol) * dt;
 		const double a1 = c_sol * dt + l_fus;
-		const double phi = 2.0 * dh / (a1 + std::sqrt(a1 * a1 + 4.0 * a2 * dh));
+		const double phi = dt > 0.0 ? 2.0 * dh / (a1 + std::sqrt(a1 * a1 + 4.0 * a2 * dh)) : dh / l_fus;
 		out["t_c"] = melt + phi * dt;
 		out["phase"] = int(SOLID);
 		out["melted"] = phi;
@@ -1525,7 +1543,7 @@ Dictionary LASubstances::enthalpy_to_state(const String &p_id, double p_h_j_kg, 
 	}
 
 	if (!std::isfinite(boil)) {
-		out["t_c"] = c_liq > 0.0 ? liquidus + (p_h_j_kg - h_melt_end) / c_liq : liquidus;
+		out["t_c"] = liquidus + (p_h_j_kg - h_melt_end) / c_liq;
 		out["phase"] = int(LIQUID);
 		out["melted"] = 1.0;
 		out["vaporised"] = 0.0;
@@ -1534,7 +1552,7 @@ Dictionary LASubstances::enthalpy_to_state(const String &p_id, double p_h_j_kg, 
 
 	const double h_boil_start = h_melt_end + c_liq * (boil - liquidus);
 	if (p_h_j_kg <= h_boil_start) {
-		out["t_c"] = c_liq > 0.0 ? liquidus + (p_h_j_kg - h_melt_end) / c_liq : liquidus;
+		out["t_c"] = liquidus + (p_h_j_kg - h_melt_end) / c_liq;
 		out["phase"] = int(LIQUID);
 		out["melted"] = 1.0;
 		out["vaporised"] = 0.0;
@@ -1561,6 +1579,9 @@ void LASubstances::_bind_methods() {
 	ClassDB::bind_static_method("LASubstances", D_METHOD("organic_energy_j_mol", "element"), &organic_energy_j_mol);
 	ClassDB::bind_static_method("LASubstances", D_METHOD("latent_sublimation_j_kg", "id"), &latent_sublimation_j_kg);
 	ClassDB::bind_static_method("LASubstances", D_METHOD("has_eos", "id"), &has_eos);
+	ClassDB::bind_static_method("LASubstances", D_METHOD("solid_density", "id"), &solid_density);
+	ClassDB::bind_static_method("LASubstances", D_METHOD("liquid_density", "id"), &liquid_density);
+	ClassDB::bind_static_method("LASubstances", D_METHOD("eos_of", "id"), &eos_of);
 	ClassDB::bind_static_method("LASubstances", D_METHOD("density", "id", "t_c", "p_pa"), &density);
 	ClassDB::bind_static_method("LASubstances", D_METHOD("full_mol_m3", "id"), &full_mol_m3);
 	ClassDB::bind_static_method("LASubstances",

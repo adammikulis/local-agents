@@ -7,7 +7,9 @@ const ARG_RUN_FRAMES: String = "--run-frames="
 const ARG_SHOOT: String = "--shoot="
 const ARG_SHOOT_FRAMES: String = "--shoot-frames="
 const ARG_SHOOT_SIZE: String = "--shoot-size="
+const ARG_SHOOT_STEP: String = "--shoot-step="
 const ARG_SHOTS: String = "--shots="
+const ARG_SHOT_WITHOUT: String = "--shot-without="
 const DEFAULT_SHOOT_SIZE: Vector2i = Vector2i(1280, 800)
 
 @export_group("Headless run")
@@ -36,14 +38,18 @@ const DEFAULT_SHOOT_SIZE: Vector2i = Vector2i(1280, 800)
 ## Frame the screenshot is taken on. Give the scene enough frames to settle before it shoots.
 ## The command line overrides this: `-- --shoot-frames=N`.
 @export_range(1, 100000, 1, "suffix:frames") var shoot_frames: int = 90
+## Simulated step every picture is of: the loop halts there and the shot waits for it. -1 shoots whatever
+## step the frame lands on. The command line overrides this: `-- --shoot-step=N`.
+@export_range(-1, 100000, 1, "suffix:steps") var shoot_step: int = -1
 
 @export_group("Exit")
-## Route the quit through the LAAppExit autoload when it is registered (game installs), otherwise
+## Route the quit through the AppExit autoload when it is registered (game installs), otherwise
 ## `get_tree().quit()`. Keeps the addon usable in projects that do not register that autoload.
 @export var use_app_exit: bool = true
 
 var _frame: int = 0          # run length, in SIM STEPS when a LASimLoop is running; physics ticks otherwise.
 var _render_frame: int = 0   # render frames only; drives shoot_frames
+var _shot_timed_out: bool = false
 var _ready_frames: int = 0   # consecutive frames the host has called the picture worth taking
 var _done: bool = false
 
@@ -53,6 +59,12 @@ var _poses: Array[Vector3] = []       # alt_m, pitch_deg, yaw_deg
 var _pose_index: int = 0
 var _pose_applied: int = -1
 var _pose_deadline_ms: int = 0
+# --shot-without: each pose photographed again with each named LAAblate module switched off.
+var _without: PackedStringArray = PackedStringArray()
+var _without_at: int = -1             # the module this pose is being photographed without; -1 = none
+var _without_was_on: bool = true      # that module's switch before this pose was photographed without it
+var _panels_off: PackedStringArray = PackedStringArray()   # the panels the protocol switched off
+var _hold: int = 0                    # frames left before a switched-off module is out of the picture
 
 # The image read out is the one drawn BEFORE this frame, so readiness must have held through that draw.
 const SHOT_SETTLE_FRAMES: int = 2
@@ -112,33 +124,106 @@ func _physics_process(_delta: float) -> void:
 func _process(_delta: float) -> void:
 	_render_frame += 1
 	# Screenshot first: a scene given both flags is being photographed, not measured.
-	if _done or shoot_path == "" or _render_frame < shoot_frames:
+	if _done or shoot_path == "" or not _at_shoot_step() or _render_frame < shoot_frames:
 		return
 	if _poses.is_empty():
 		if not _settled():
 			return
 		_done = true
 		_capture(shoot_path)
-		_quit(0)
+		_quit(2 if _shot_timed_out else 0)
 		return
 	# ONE LAUNCH, MANY PICTURES: move to the pose, let the ground arrive under it, photograph, next.
 	if _pose_applied != _pose_index:
+		_drop_panels()
 		report_source.call("demo_shot_pose", _poses[_pose_index].x, _poses[_pose_index].y,
 			_poses[_pose_index].z)
 		_pose_applied = _pose_index
 		_ready_frames = 0
 		_pose_deadline_ms = _pose_budget_ms(_pose_index)
 		return
+	if _without_at >= 0:
+		_photograph_without()
+		return
 	if not _settled():
 		return
 	var pose: Vector3 = _poses[_pose_index]
 	_capture(pose_path(shoot_path, _pose_index, pose),
-		" shot_index=%d shot_pose=%s" % [_pose_index, pose_tag(pose)])
+		" shot_index=%d shot_pose=%s panels_off=%s" % [_pose_index, pose_tag(pose), JSON.stringify(_panels_off)])
 	_ready_frames = 0
+	if _shot_timed_out or _without.is_empty():
+		_next_pose()
+		return
+	_without_at = 0
+	_switch_without(false)
+
+
+## The same pose again once the module is out of the picture, then the next module or the next pose.
+func _photograph_without() -> void:
+	if _hold > 0:
+		_hold -= 1
+		return
+	var pose: Vector3 = _poses[_pose_index]
+	var module: String = _without[_without_at]
+	_capture(without_path(pose_path(shoot_path, _pose_index, pose), module),
+		" shot_index=%d shot_pose=%s shot_without=%s" % [_pose_index, pose_tag(pose), module])
+	_switch_without(true)
+	_without_at += 1
+	if _without_at < _without.size():
+		_switch_without(false)
+		return
+	_without_at = -1
+	_next_pose()
+
+
+## THE PROTOCOL PHOTOGRAPHS THE WORLD: every module that draws over the frame is switched off.
+func _drop_panels() -> void:
+	for panel in LAAblate.panels():
+		if LAAblate.is_on(panel):
+			LAAblate.set_on(panel, false)
+			_panels_off.append(panel)
+
+
+## A name LAAblate does not hold would photograph the pose unchanged under a label saying otherwise.
+## Switched back, the module is put as it was before this pose went without it.
+func _switch_without(on: bool) -> void:
+	var module: String = _without[_without_at]
+	if LAAblate.kind_of(module) == "":
+		_done = true
+		print("SHOT_WITHOUT_UNKNOWN=%s" % module)
+		_quit(2)
+		return
+	if not on:
+		_without_was_on = LAAblate.is_on(module)
+	LAAblate.set_on(module, on and _without_was_on)
+	_hold = SHOT_SETTLE_FRAMES
+
+
+func _next_pose() -> void:
+	if _shot_timed_out:
+		_done = true
+		_quit(2)
+		return
 	_pose_index += 1
 	if _pose_index >= _poses.size():
 		_done = true
 		_quit(0)
+
+
+## The loop stands at `shoot_step`, halted there from the first frame. True with no step declared. A loop
+## already past it cannot be photographed at it, and the run fails.
+func _at_shoot_step() -> bool:
+	if shoot_step < 0:
+		return true
+	var loop: LASimLoop = LASimLoop.active()
+	if loop == null:
+		return false
+	loop.halt_at(shoot_step)
+	if loop.step_index() > shoot_step:
+		_done = true
+		print("SHOT_STEP_PASSED=%d" % loop.step_index())
+		_quit(2)
+	return loop.step_index() == shoot_step
 
 
 ## Ready for SHOT_SETTLE_FRAMES running, or out of the time this pose was given.
@@ -146,11 +231,16 @@ func _settled() -> bool:
 	if not _has_shot_ready_hook():
 		return true
 	_ready_frames = _ready_frames + 1 if bool(report_source.call("demo_shot_ready")) else 0
-	return _ready_frames >= SHOT_SETTLE_FRAMES or Time.get_ticks_msec() >= _pose_deadline_ms
+	if _ready_frames >= SHOT_SETTLE_FRAMES:
+		return true
+	_shot_timed_out = Time.get_ticks_msec() >= _pose_deadline_ms
+	return _shot_timed_out
 
 
-## An equal share of what is left of the run for each pose still to be taken.
+## The first pose waits for startup; subsequent poses share the remaining run time.
 func _pose_budget_ms(index: int) -> int:
+	if index == 0:
+		return _shot_deadline_ms()
 	var now: int = Time.get_ticks_msec()
 	var left: int = maxi(_shot_deadline_ms() - now, 1)
 	return now + int(float(left) / float(maxi(_poses.size() - index, 1)))
@@ -165,6 +255,10 @@ static func pose_path(base: String, index: int, pose: Vector3) -> String:
 	var stem: String = base.get_basename()
 	return "%s_%d_%dm_%d_%d.%s" % [stem, index, roundi(pose.x), roundi(pose.y), roundi(pose.z),
 		base.get_extension()]
+
+
+static func without_path(pose_png: String, module: String) -> String:
+	return "%s_without_%s.%s" % [pose_png.get_basename(), module, pose_png.get_extension()]
 
 
 ## `alt_m:pitch_deg:yaw_deg` triples separated by `;`. Empty when any of them is malformed: a pose the
@@ -200,6 +294,13 @@ func _tick_run() -> void:
 	if _done:
 		return
 	var loop: LASimLoop = LASimLoop.active()
+	if loop != null and loop.failure != "":
+		_done = true
+		emit_report()
+		print("RUN_FAILED=" + JSON.stringify({"step": loop.failed_step, "committed": loop.step_index(),
+			"reason": loop.failure}))
+		_quit(EXIT_RUN_FAILED)
+		return
 	_frame = loop.step_index() if loop != null else _frame + 1
 	if run_frames > 0 and _frame >= run_frames:
 		_done = true
@@ -208,6 +309,8 @@ func _tick_run() -> void:
 
 
 const COMPLETE_MARKER: String = "LA_RUN_COMPLETE"
+## The exit of a run whose loop stopped on a step that could not complete.
+const EXIT_RUN_FAILED: int = 1
 
 
 ## Print the report line now, without quitting. Public so a host can force a report at any moment.
@@ -272,10 +375,8 @@ func _quit(code: int) -> void:
 		return
 	print_complete(code)
 	if use_app_exit:
-		var app_exit: Node = tree.root.get_node_or_null("AppExit")
-		if app_exit != null and app_exit.has_method("quit"):
-			app_exit.call("quit", code)
-			return
+		LAAppQuit.request(self, code)
+		return
 	tree.quit(code)
 
 
@@ -316,8 +417,12 @@ func _parse_cli() -> void:
 		var arg: String = String(arg_v)
 		if arg.begins_with(ARG_SHOOT_FRAMES):
 			shoot_frames = maxi(1, int(arg.substr(ARG_SHOOT_FRAMES.length())))
+		elif arg.begins_with(ARG_SHOOT_STEP):
+			shoot_step = maxi(0, int(arg.substr(ARG_SHOOT_STEP.length())))
 		elif arg.begins_with(ARG_SHOTS):
 			_shots_spec = arg.substr(ARG_SHOTS.length())
 			_poses = parse_shots(_shots_spec)
+		elif arg.begins_with(ARG_SHOT_WITHOUT):
+			_without = arg.substr(ARG_SHOT_WITHOUT.length()).split(",", false)
 		elif arg.begins_with(ARG_SHOOT):
 			shoot_path = arg.substr(ARG_SHOOT.length())

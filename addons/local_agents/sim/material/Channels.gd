@@ -86,17 +86,6 @@ static func slow_channels() -> PackedStringArray:
 	return _by("residency", "slow")
 
 
-## Channel name -> reaction slot, for every channel a reaction can read or write.
-static func inventory_channels() -> Dictionary:
-	var out: Dictionary = {}
-	var tbl: Dictionary = rows()
-	for name in tbl:
-		var slot: int = int(tbl[name].get("slot", -1))
-		if slot >= 0 and String(tbl[name].get("substance", "")) != "":
-			out[String(name)] = slot
-	return out
-
-
 ## Reaction slot -> LASubstances id, for every slot whose contents are matter, derived slots included.
 static func slot_substance() -> Dictionary:
 	var out: Dictionary = {}

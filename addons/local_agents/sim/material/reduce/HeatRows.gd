@@ -10,6 +10,7 @@ static func rows() -> Array:
 		# Unweighted: over the open-cell count this is a mean over CELLS, not volume. all_temp_max is the
 		# deep rock the open-only rows cannot see.
 		{"key": "open_temp_sum", "source": "temp", "op": Rec.Op.SUM, "mask": Rec.Mask.OPEN},
+		{"key": "open_temp_n", "source": "temp", "op": Rec.Op.COUNT, "mask": Rec.Mask.OPEN},
 		{"key": "all_temp_max", "source": "temp", "op": Rec.Op.MAX, "mask": Rec.Mask.ALL},
 		# The ground SKIN: an open cell whose gravity-below neighbour is solid. Unweighted, so over
 		# ground_cells this is a mean over cells. First rows to dispatch Mask.GROUND.
@@ -20,14 +21,15 @@ static func rows() -> Array:
 		{"key": "fire_peak", "source": "fire", "op": Rec.Op.MAX, "mask": Rec.Mask.ALL},
 		{"key": "fire_cells", "source": "fire", "op": Rec.Op.COUNT_GT, "mask": Rec.Mask.ALL, "threshold": 0.0},
 		# J/m^3 per step, so volume-weighted these are joules per step. Mask-free: the outflow pass emits
-		# from solid cells too, so an OPEN mask would drop the ground's emission.
+		# from solid cells too, so an OPEN mask would drop the ground's emission. `energy_book` is the sign
+		# the energy books fold a row's joules with: +1 into the field, -1 out of it.
 		{"key": "rad_absorbed", "source": "rad_absorbed", "op": Rec.Op.SUM, "mask": Rec.Mask.ALL,
-			"weight": true, "energy_book": true},
+			"weight": true, "energy_book": 1.0},
 		{"key": "rad_emitted", "source": "rad_emitted", "op": Rec.Op.SUM, "mask": Rec.Mask.ALL,
-			"weight": true, "energy_book": true},
-		# The rock's own decay, J/m^3 per step, volume-weighted to joules. The energy books read this.
+			"weight": true, "energy_book": -1.0},
+		# The rock's own decay, J/m^3 per step, volume-weighted to joules.
 		{"key": "radiogenic", "source": "radiogenic", "op": Rec.Op.SUM, "mask": Rec.Mask.ALL,
-			"weight": true, "energy_book": true},
+			"weight": true, "energy_book": 1.0},
 		{"key": "sw_reflected", "source": "sw_space", "op": Rec.Op.SUM, "mask": Rec.Mask.ALL,
 			"weight": true},
 		{"key": "rad_sb_rel_max", "source": "rad_residual", "op": Rec.Op.MAX, "mask": Rec.Mask.ALL},

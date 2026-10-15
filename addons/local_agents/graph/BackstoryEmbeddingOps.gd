@@ -8,7 +8,7 @@ static func index_memory_embedding_node(svc, node_id: int, memory_id: String, np
     if summary.strip_edges() == "":
         return {"ok": false, "error": "empty_memory_summary"}
     var runtime: Object = svc._agent_runtime()
-    if runtime == null or not runtime.has_method("embed_text"):
+    if runtime == null or not runtime.has_method("embed_text_with_model"):
         return {"ok": false, "error": "runtime_unavailable"}
     var backend_ready: Dictionary = ensure_embedding_backend_ready(svc, embed_options, runtime)
     if not bool(backend_ready.get("ok", false)):
@@ -18,25 +18,17 @@ static func index_memory_embedding_node(svc, node_id: int, memory_id: String, np
             "backend": backend_ready,
         }
 
-    var vector: PackedFloat32Array = runtime.call("embed_text", summary, embed_options)
-    if vector.is_empty():
-        return {"ok": false, "error": "embedding_failed"}
+    var embedding: Dictionary = runtime.call("embed_text_with_model", summary, embed_options)
+    if not bool(embedding.get("ok", false)):
+        return embedding
 
-    var embedding_model: String = String(embed_options.get("server_model", embed_options.get("model", ""))).strip_edges()
-    if embedding_model == "" and runtime.has_method("get_default_model_path"):
-        var model_path: String = String(runtime.call("get_default_model_path")).strip_edges()
-        if model_path != "":
-            embedding_model = model_path.get_file()
-    if embedding_model == "":
-        embedding_model = "unknown"
-
-    var embedding_id: int = int(svc._graph.add_embedding(node_id, vector, {
+    var embedding_id: int = int(svc._graph.add_embedding(node_id, embedding["vector"], {
         "type": "memory",
         "memory_id": memory_id,
         "npc_id": npc_id,
         "source": "backstory_memory",
         "strategy_hint": "cosine",
-        "embedding_model": embedding_model,
+        "embedding_model": embedding["embedding_model"],
     }))
     if embedding_id == -1:
         return {"ok": false, "error": "embedding_store_failed"}

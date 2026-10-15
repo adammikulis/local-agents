@@ -31,8 +31,6 @@ var _book_kind: PackedInt32Array = PackedInt32Array()
 var _dispatch_sets: Array = []
 var _dispatch_pcs: Array = []
 var _dispatch_groups: PackedInt32Array = PackedInt32Array()
-var _dispatch_args: Array = []
-var _dispatch_offsets: PackedInt32Array = PackedInt32Array()
 
 # Cumulative, per channel, in that channel's own unit.
 var _moved: Dictionary = {}
@@ -55,8 +53,6 @@ func plan(ops: Array) -> void:
 	_dispatch_sets = []
 	_dispatch_pcs = []
 	_dispatch_groups = PackedInt32Array()
-	_dispatch_args = []
-	_dispatch_offsets = PackedInt32Array()
 	if not _dispatchable() or ops.is_empty():
 		return
 	var by_pair: Dictionary = {}
@@ -127,8 +123,6 @@ func _plan_pair(key: String, ops: Array, idx: PackedInt32Array, val: PackedFloat
 		_dispatch_sets.append(uset)
 		_dispatch_pcs.append(_push(base, count, same))
 		_dispatch_groups.append(int(ceil(float(count) / 64.0)))
-		_dispatch_args.append(RID())
-		_dispatch_offsets.append(0)
 
 
 ## The first round whose cells this entry does not collide with, opening a new one when they all do.
@@ -184,16 +178,14 @@ func _set_for(src: String, dst: String) -> RID:
 	return uset
 
 
-func dispatch(_rd_in: RenderingDevice, cl: int, _ctx: Dictionary, _cc: int, _groups: int) -> void:
+func dispatch(_rd_in: RenderingDevice, _ctx: Dictionary, _cc: int, _groups: int) -> void:
 	if not _dispatchable() or _dispatch_pcs.is_empty():
 		return
-	_driver.run(cl, _pipe, _dispatch_sets, _dispatch_pcs, _dispatch_groups, _dispatch_args,
-		_dispatch_offsets, true)
+	_driver.run(_pipe, _dispatch_sets, _dispatch_pcs, _dispatch_groups, [], PackedInt32Array(), true,
+		PackedStringArray([_label() + "/edit"]))
 	_dispatch_pcs = []
 	_dispatch_sets = []
 	_dispatch_groups = PackedInt32Array()
-	_dispatch_args = []
-	_dispatch_offsets = PackedInt32Array()
 
 
 ## What the device applied, read once the driver has synced: the entries, not the grid.

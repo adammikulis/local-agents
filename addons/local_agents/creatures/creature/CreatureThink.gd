@@ -4,8 +4,7 @@ extends RefCounted
 
 const COMPANION_FOLLOW_DIST: float = 4.0   # a "follow" companion closes to this range, then heels/holds
 
-# The game's LAThrownRock prop, optional: a core creature runs with the game deleted, it just cannot throw.
-const THROWN_ROCK_PATH: String = "res://addons/local_agents/sim/actors/ThrownRock.gd"
+const THROWN_ROCK_SCENE: String = "res://addons/local_agents/sim/actors/ThrownRock.tscn"
 
 
 static func think_prey(c, pos: Vector3, fallback: Vector3) -> Vector3:
@@ -106,20 +105,16 @@ static func _hunt_with_rock(c, pos: Vector3, prey: Node3D, to_prey: Vector3, fal
 
 
 static func _throw_rock_at(c, prey: Node3D) -> void:
-	var rock_script: GDScript = LAOptionalScript.resolve(THROWN_ROCK_PATH)
-	if rock_script == null:
-		return   # no LAThrownRock prop (core/library build with the game deleted) — can't throw
 	c.has_rock = false
 	_set_rock_visual(c, false)
 	c._throw_cd = 2.5
 	var parent: Node = c.get_parent()
 	if parent == null:
 		return
-	var rock: Node = rock_script.new()
+	var rock: LAThrownRock = (load(THROWN_ROCK_SCENE) as PackedScene).instantiate() as LAThrownRock
 	parent.add_child(rock)
-	if rock.has_method("setup"):
-		rock.setup(c.terrain, c._material)
-	rock.throw_at(c.global_position + Vector3(0, c.size, 0), prey, 26.0)
+	rock.setup(c.terrain, c._material)
+	rock.throw_at(c.global_position + c.terrain.up_at(c.global_position) * c.size, prey, 26.0)
 
 
 ## The meal is drawn out of the prey's body; the remainder stays on it as the carcass a scavenger strips.
@@ -188,7 +183,7 @@ static func _try_eat_food(c, pos: Vector3) -> bool:
 	var best_val: float = 0.0
 	var reach: float = maxf(c.size + 1.0, 1.4)
 	for grp in ["plant", "carrion"]:
-		for f in c.get_tree().get_nodes_in_group(grp):
+		for f in LAGroupIndex.shared().nearby(c.get_tree(), grp, pos, reach):
 			if not is_instance_valid(f) or not (f is Node3D):
 				continue
 			if not f.has_method("food_profile"):
@@ -304,6 +299,11 @@ static func think_scavenger(c, pos: Vector3, _delta: float) -> Vector3:
 	return c._heading + LACreatureBird.steer(c, pos)
 
 
+## The farthest a cue is read from: a flyer seen against the sky, or anything else in sight.
+static func _cue_reach(c) -> float:
+	return maxf(c.sense_radius * 4.0, LAVision.effective_range(c))
+
+
 static func _best_learned_cue(c, pos: Vector3) -> Dictionary:
 	if c._cognition == null:
 		return {}
@@ -312,7 +312,7 @@ static func _best_learned_cue(c, pos: Vector3) -> Dictionary:
 	var best_dir: Vector3 = Vector3.ZERO
 	var unknown_key: String = ""
 	var unknown_dir: Vector3 = Vector3.ZERO
-	for m in c.get_tree().get_nodes_in_group("creature"):
+	for m in LAGroupIndex.shared().nearby(c.get_tree(), "creature", pos, _cue_reach(c)):
 		if not is_instance_valid(m) or m == c or not (m is Node3D):
 			continue
 		var mpos: Vector3 = (m as Node3D).global_position
@@ -349,7 +349,7 @@ static func _reinforce_cue_success(c) -> void:
 	c._pursued_cue = ""
 	c._pursued_cd = 0.0
 	var pos: Vector3 = c.global_position
-	for m in c.get_tree().get_nodes_in_group("creature"):
+	for m in LAGroupIndex.shared().nearby(c.get_tree(), "creature", pos, _cue_reach(c)):
 		if not is_instance_valid(m) or m == c or not (m is Node3D):
 			continue
 		var mpos: Vector3 = (m as Node3D).global_position

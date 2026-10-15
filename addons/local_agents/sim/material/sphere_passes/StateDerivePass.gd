@@ -9,31 +9,40 @@ const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/st
 const FluxPassScript: GDScript = preload("res://addons/local_agents/sim/material/sphere_passes/FluxPass.gd")
 
 ## props row layout — state_derive.glsl PROP_*.
-const PROP_STRIDE: int = 13
+const PROP_STRIDE: int = 79
 const PROP_M: int = 0
-const PROP_C: int = 1
-const PROP_MOL_PER_KG: int = 2
-const PROP_ENTRY: int = 3
-const PROP_LAMBDA: int = 4
-const PROP_FULL: int = 5
-## The EOS half: rho(T, p) inverted per substance, so pressure is a state function of the cell.
-const PROP_ALPHA: int = 6
-const PROP_BULK: int = 7
-const PROP_TREF: int = 8
+const PROP_MOL_PER_KG: int = 1
+const PROP_ENTRY: int = 2
+const PROP_LAMBDA: int = 3
+const PROP_FULL: int = 4
 ## 1 where the channel is a rock or metal phase, so the solid flag reads the whole lithic volume.
-const PROP_LITHIC: int = 9
+const PROP_LITHIC: int = 5
 ## 1-based index into the push constant's radiogenic W/kg slots; 0 for a substance with no U/Th/K.
-const PROP_RAD_GROUP: int = 10
+const PROP_RAD_GROUP: int = 6
 ## 1 where the channel is a CONDENSED phase: it fills volume of its own and resists being squeezed. A
 ## dissolved solute rides in its solvent and does neither.
-const PROP_CONDENSED: int = 11
-const PROP_KPRIME: int = 12
+const PROP_CONDENSED: int = 7
+## The solid's and the melt's equations of state, LASubstances.eos_of(id), a PH_* block each.
+const PROP_SOLID: int = 8
+const PROP_LIQUID: int = 17
+const PH_FULL: int = 0
+const PH_ALPHA: int = 1
+const PH_BULK: int = 2
+const PH_KP: int = 3
+const PH_B4: int = 4
+const PH_TREF: int = 5
+const PH_LINEAR: int = 6
+const PH_F_LO: int = 7
+const PH_F_HI: int = 8
+## The channel substance's own phase ladder, laid out by LAMixtureEnthalpy::thermal_row — every condensed
+## channel melts and boils where its table row says. state_derive.glsl PROP_LADDER, TH_*.
+const PROP_LADDER: int = 26
 
 ## Push-constant slots for distinct radiogenic trace mixes, re-evaluated at the run's epoch per step.
 const RAD_GROUPS: int = 4
 
-## state_derive.glsl's Params. LAFieldDriver::run_transport writes the restate's three words at
-## PC_BYTES-12, -8 and -4, so `restate`, `args_slot` and `act_base` stay the last three.
+## state_derive.glsl's Params, less the chunk words the driver appends. LAFieldDriver::run_transport
+## writes the restate's three words at PC_BYTES-12, -8 and -4, so they stay the last three here.
 const PC_BYTES: int = 96
 const PC_LITHIFY: int = 76
 const PC_DETECT: int = 80
@@ -60,7 +69,7 @@ func _buffers(cc: int) -> Dictionary:
 		"org_hc": cc, "org_oc": cc, "org_fresh": cc,
 		"bodyf_x": cc, "bodyf_y": cc, "bodyf_z": cc,
 		"water_rho": {"n": cc, "ghosts": true}, "k_cond": {"n": cc, "ghosts": true}, "gas_r": {"n": cc, "ghosts": true},
-		"gas_gamma": {"n": cc, "ghosts": true}, "mach": cc, "g_rest": {"n": cc * 3, "ghosts": true}, "cap_lith": {"n": cc, "ghosts": true}, "lattice_frac": {"n": cc, "ghosts": true},
+		"gas_gamma": {"n": cc, "ghosts": true}, "mach": cc, "g_rest": {"n": cc, "stride": 3, "ghosts": true}, "cap_lith": {"n": cc, "ghosts": true}, "lattice_frac": {"n": cc, "ghosts": true},
 		"rad_w_m3": {"n": cc, "ghosts": true}, "ke_j_m3": cc, "pe_j_m3": cc, "grav_phi": {"n": cc, "ghosts": true}, "grav_ref": {"n": cc, "ghosts": true}, "lithic_frac": {"n": cc, "ghosts": true}, "lithic_kg": {"n": cc, "ghosts": true},
 		"r_frac": cc, "surface_class": cc, "melt_body": cc, "erupt": cc, "cyclone": cc,
 		"vert_up": cc, "vert_down": cc})
@@ -86,7 +95,7 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 	_set = _uset(_pipe, LABindings.set_for("state_derive.glsl", bufs, {"derive_props": props_ssbo}))
 
 
-func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:
+func dispatch(_rd: RenderingDevice, ctx: Dictionary, cc: int, groups: int) -> void:
 	if not _dispatchable() or not _set.is_valid():
 		return
 	# The body's spin vector, rad/s: direction from its seeded angular momentum, rate from its measured
@@ -97,7 +106,7 @@ func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: i
 	pc.resize(PC_BYTES)
 	pc.encode_u32(PC_LITHIFY, 1 if LAProcessSet.has_record("derive", "lithify") else 0)
 	pc.encode_u32(0, cc)
-	pc.encode_float(4, LAMaterialFieldSphereStep3D.real_seconds_per_step())
+	pc.encode_float(4, LAMaterialFieldSphereStep3D.SIM_SECONDS_PER_STEP)
 	pc.encode_float(8, w.x)
 	pc.encode_float(12, w.y)
 	pc.encode_float(16, w.z)
@@ -125,8 +134,9 @@ func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: i
 	# the phase above settled. Reading a neighbour inside the derive would read a value being written.
 	var pc_detect: PackedByteArray = pc.duplicate()
 	pc_detect.encode_u32(PC_DETECT, 1)
-	_driver.run(cl, _pipe, [_set], [pc, pc_detect], PackedInt32Array([groups, groups]),
-		[RID(), RID()], PackedInt32Array([0, 0]), true)
+	_driver.run(_pipe, [_set], [pc, pc_detect], PackedInt32Array([groups, groups]),
+		[RID(), RID()], PackedInt32Array([0, 0]), true,
+		PackedStringArray([_label() + "/derive", _label() + "/detect"]))
 	# THE SAME SOLVE, HANDED TO THE SUBSTEP LOOP. One owner of the equation of state: transport dispatches
 	# this pipeline again over its active list, and the driver writes the list slot into the block.
 	ctx["restate"] = {"pipe": _pipe, "set": _set, "pc": pc, "total": cc + ghost_count}
@@ -144,6 +154,7 @@ func _props() -> PackedFloat32Array:
 	out.resize(channels.size() * PROP_STRIDE + DET_SLOTS)
 	var rows: Dictionary = LAChannels.rows()
 	var table: Dictionary = LASubstances.table()
+	var carriers: Dictionary = {}
 	for i in channels.size():
 		var name: String = channels[i]
 		var row: Dictionary = rows[name]
@@ -155,8 +166,9 @@ func _props() -> PackedFloat32Array:
 				% [name, unit] + "A channel amount is moles per m^3; without it the channel's mass is a guess.")
 			return PackedFloat32Array()
 		var entry: int = LAMatterChannels.entry_of(id)
-		var c: float = LAMatterChannels.specific_heat(id)
-		if entry == LAMatterChannels.Entry.SENSIBLE and c <= 0.0:
+		carriers[entry] = true
+		var ladder: PackedFloat32Array = LAMixtureEnthalpy.thermal_row(id)
+		if ladder.size() != PROP_STRIDE - PROP_LADDER:
 			return PackedFloat32Array()
 		var mol_per_kg: float = 1.0 / molar[i] if LAMatterChannels.GASES.has(id) else 0.0
 		var lambda_w_mk: float = float(s.get("conductivity", 0.0))
@@ -167,21 +179,35 @@ func _props() -> PackedFloat32Array:
 		var base: int = i * PROP_STRIDE
 		out[base + PROP_LAMBDA] = lambda_w_mk
 		out[base + PROP_M] = molar[i]
-		out[base + PROP_C] = c
 		out[base + PROP_MOL_PER_KG] = mol_per_kg
 		out[base + PROP_ENTRY] = float(entry)
 		out[base + PROP_FULL] = full[i]
-		out[base + PROP_ALPHA] = float(s.get("expansion_per_k", 0.0))
+		for k in ladder.size():
+			out[base + PROP_LADDER + k] = ladder[k]
 		# CONDENSED fills volume of its own and resists being squeezed, which is what the EOS sums; a gas
-		# is the A term and a dissolved solute rides in its solvent. No modulus is a substance nobody has
-		# measured, and reading one as incompressible lets its cell signal at any speed at all.
-		out[base + PROP_CONDENSED] = 0.0 if mol_per_kg > 0.0 \
-			or String(row.get("phase", "")) == "dissolved" else 1.0
-		out[base + PROP_BULK] = float(s.get("bulk_modulus_pa", s.get("bulk_modulus_solid_pa", 0.0)))
-		out[base + PROP_KPRIME] = float(s.get("bulk_modulus_deriv", s.get("bulk_modulus_solid_deriv", 0.0)))
-		out[base + PROP_TREF] = float(s.get("density_ref_t_c", 0.0))
+		# is the A term and a dissolved solute rides in its solvent.
+		var condensed: bool = not (mol_per_kg > 0.0 or String(row.get("phase", "")) == "dissolved")
+		out[base + PROP_CONDENSED] = 1.0 if condensed else 0.0
+		var eos: Dictionary = LASubstances.eos_of(id)
+		var fluid: Dictionary = eos["fluid"]
+		if mol_per_kg > 0.0 and fluid.is_empty():
+			push_error("StateDerivePass: LASubstances gives gas \"%s\" no fluid equation of state." % id)
+			return PackedFloat32Array()
+		var solid: Dictionary = eos["solid"]
+		var melt: Dictionary = eos["liquid"]
+		var melts: bool = is_finite(LASubstances.melt_c_at(id, LAPhysical.STANDARD_PRESSURE_PA))
+		if condensed and melts and (solid.is_empty() or melt.is_empty()):
+			push_error("StateDerivePass: LASubstances gives \"%s\" a melting point and not both phases' " % id
+				+ "equations of state, so channel %s would melt into a volume nobody measured." % name)
+			return PackedFloat32Array()
+		_pack_phase(out, base + PROP_SOLID, solid, molar[i])
+		_pack_phase(out, base + PROP_LIQUID, melt, molar[i])
 		out[base + PROP_LITHIC] = 1.0 if bool(row.get("lithic", false)) or bool(row.get("lattice", false)) else 0.0
 		out[base + PROP_RAD_GROUP] = float(_rad_group(s.get("traces", {})))
+	# The kernel reads the water and rock carriers by index; a table without either has no water or rock row.
+	if not (carriers.has(LAMatterChannels.Entry.H2O) and carriers.has(LAMatterChannels.Entry.SILICATE)):
+		push_error("StateDerivePass: the channel table carries no water or no silicate channel.")
+		return PackedFloat32Array()
 	# The amounts the detect phase compares against, each read back from its ONE declaration, so the
 	# kernel and the row that counts its cells ask the same question.
 	var body: float = float(LAReduceRecords.row("lava_hot").get("threshold", NAN))
@@ -196,6 +222,21 @@ func _props() -> PackedFloat32Array:
 	out[det + 3] = LAMaterialFieldQueries3D.TUBE_MELT_NEAR_ZERO
 	out[det + 4] = LAMaterialFieldQueries3D.MOLTEN_MIN
 	return out
+
+
+## One phase of LASubstances.eos_of() as a PH_* block; zeros where the table names none.
+func _pack_phase(out: PackedFloat32Array, at: int, ph: Dictionary, molar_kg: float) -> void:
+	if ph.is_empty():
+		return
+	out[at + PH_FULL] = float(ph["rho"]) / molar_kg
+	out[at + PH_ALPHA] = float(ph["alpha"])
+	out[at + PH_BULK] = float(ph["k"])
+	out[at + PH_KP] = float(ph["kp"])
+	out[at + PH_B4] = float(ph["b4"])
+	out[at + PH_TREF] = float(ph["t_ref_c"])
+	out[at + PH_LINEAR] = 1.0 if bool(ph["linear_density"]) else 0.0
+	out[at + PH_F_LO] = float(ph["f_lo"])
+	out[at + PH_F_HI] = float(ph["f_hi"])
 
 
 ## 1-based index of this trace mix among the distinct radiogenic mixes; 0 for one with no U/Th/K.

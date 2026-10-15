@@ -33,6 +33,7 @@ class LATestMasses : public Node {
 	std::vector<Orb> _orbs;
 	int _fallen = 0;
 	bool _auto = false;
+	bool _off = false;
 	double _release_height_m = 2000.0;
 	double _throw_speed_m_s = 0.0;
 	double _lob_speed = 0.0;
@@ -89,6 +90,9 @@ public:
 
 protected:
 	static void _bind_methods();
+	// Switched off, the probes it released are gone and none is released; switched on, the scene's own
+	// probe falls again.
+	void _notification(int p_what);
 };
 
 } // namespace godot

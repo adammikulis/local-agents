@@ -199,8 +199,8 @@ func _reset_day() -> void:
 ## The sub-solar latitude is computed in the WORLD frame, where the spin does not enter it.
 func _advance_day() -> void:
 	var sun_world: Vector3 = Vector3.ZERO
-	if _f._sun_light != null:
-		sun_world = _f._sun_light.global_transform.basis.z
+	if _f._star != null:
+		sun_world = _f._star.global_position - _f.centre()
 	if sun_world.length() < 0.001:
 		return                                           # no sun in the scene: no day, and nothing to measure
 	sun_world = sun_world.normalized()
@@ -218,7 +218,7 @@ func _advance_day() -> void:
 	if _prev_sun.length() < 0.001:
 		_prev_sun = cur
 		_day_start_s = _clock_s()
-		_day_start_field_s = LASimReport.gauge_cur("field_sim_s", 0.0)
+		_day_start_field_s = LASimLoop.active().elapsed_s() if LASimLoop.active() != null else 0.0
 		return
 	var step: float = atan2(axis.dot(_prev_sun.cross(cur)), _prev_sun.dot(cur))
 	_prev_sun = cur
@@ -262,7 +262,7 @@ func _close_day() -> void:
 	_recompute_long()
 
 	var now_s: float = _clock_s()
-	var now_field: float = LASimReport.gauge_cur("field_sim_s", 0.0)
+	var now_field: float = LASimLoop.active().elapsed_s() if LASimLoop.active() != null else 0.0
 	if _day_start_s >= 0.0:
 		_day_period_s = now_s - _day_start_s
 		_day_period_field_s = now_field - _day_start_field_s

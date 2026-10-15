@@ -26,6 +26,7 @@ public:
 	static const int MAX_LEVEL = 10;
 
 	// Edge in metres and volume in m^3 per cell, over interior plus ghost tail.
+	static Vector3 radial_box_exit(const Vector3 &p_direction, const Vector3 &p_half_extents);
 	static PackedFloat32Array edges(Object *p_grid);
 	static PackedFloat32Array volumes(Object *p_grid);
 	// Cells at each refinement level, coarsest first.

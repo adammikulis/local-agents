@@ -2,8 +2,6 @@ class_name LAMaterialSphereGPU3D
 extends RefCounted
 
 
-## Views of LAChannels, the one declaration of what a channel is.
-static func channels() -> PackedStringArray: return LAChannels.channels()
 const SEED_PRODUCTS: PackedStringArray = ["pressure", "p_fluid"]
 
 
@@ -25,7 +23,7 @@ static func available() -> bool:
 	return true
 
 var _rd: RenderingDevice = null
-## The native driver: it sequences the passes, issues every compute list and does the drain's readback.
+## The device's one driver: it sequences the passes, owns every submit and does the drain's readback.
 var _driver: LAFieldDriver = null
 ## One buffer every channel this drain reads is copied into on the device, so the CPU waits once.
 var _staging: RID = RID()
@@ -38,7 +36,7 @@ var _cc: int = 0
 var _ng: int = 0                    # ghost tail cells appended past _cc; 0 = every wall shut
 var _face_count: int = 0            # faces over interior plus ghost tail: LAVoxelGrid.neighbours
 var _bnd_keys: PackedStringArray = PackedStringArray()   # per-step boundary books, cleared before each step
-var _step_index: int = 0            # monotonic field-step counter, published to kernels as ctx["step_index"]
+var _step_index: int = 0            # LASimLoop's step this field step runs at, published as ctx["step_index"]
 var _seed_totals: Dictionary = {}   # per channel: the total the last whole-mirror seed declared
 var _groups: int = 0
 var _bufs: Dictionary = {}          # channel/buffer name → its one RID
@@ -82,14 +80,14 @@ func setup(field) -> void:
 	if _rd == null:
 		push_error("LAMaterialSphereGPU3D: no RenderingDevice")
 		return
-	_driver = LAFieldDriver.new()
-	_driver.set_device(_rd)
+	_driver = LAFieldDriver.on(_rd)
+	LASimReport.register(_submit_report)
 	_mirrors = field._mirrors
 	_mirrors.set_device(_rd)
 	_groups = int(ceil(float(_cc) / 64.0))
 	var tc: int = _cc + _ng
 
-	for name in channels():
+	for name in LAChannels.channels():
 		_bufs[name] = _new_f(tc)
 		_buf_owner[name] = "LAChannels.rows()"
 	for name in LAChannels.derived_buffers():
@@ -166,14 +164,14 @@ func setup(field) -> void:
 		if _pass_names[i] == "InjectPass":
 			_inject = _passes[i]
 	for p2 in _passes:
-		p2.setup(_rd, _bufs, _cc)
+		p2.setup(_rd, _driver, _bufs, _cc)
 	# The boundary books are per-step rates: cleared before every step, summed by their reduce rows after.
 	for key in _bufs:
 		if String(key).begins_with("bnd_"):
 			_bnd_keys.append(String(key))
 			_bnd_rids.append(_bufs[key])
 	# Every name a drain can ask for is a channel or a derived buffer, so this many slots cannot overflow.
-	_staging_slots = channels().size() + LAChannels.derived_buffers().size()
+	_staging_slots = LAChannels.channels().size() + LAChannels.derived_buffers().size()
 	_staging = _rd.storage_buffer_create(_staging_slots * _cc * 4)
 
 
@@ -190,9 +188,9 @@ func _allocate_declared(p: RefCounted, label: String) -> void:
 		var spec: Variant = want[key]
 		var n: int = int(spec["n"]) if spec is Dictionary else int(spec)
 		var indirect: bool = spec is Dictionary and bool(spec.get("indirect", false))
-		# A per-cell buffer a kernel indexes by ghost tail cells declares {"ghosts": true}.
+		# A per-cell buffer a kernel indexes by ghost tail cells declares {"ghosts": true}; "stride" per cell.
 		if spec is Dictionary and bool(spec.get("ghosts", false)):
-			n += _ng
+			n = (n + _ng) * int(spec.get("stride", 1))
 		# A per-FACE buffer declares {"faces": true}: the grid's face list is its length.
 		if spec is Dictionary and bool(spec.get("faces", false)):
 			n = _face_count
@@ -226,7 +224,7 @@ func begin_frame() -> void:
 	if _solid_dirty:
 		LAFieldCellMass3D.upload_solid(_rd, _bufs, _field)
 		_solid_dirty = false
-	_ctx["dt"] = LAMaterialFieldSphereStep3D.real_seconds_per_step()   # simulated seconds, not the cadence
+	_ctx["dt"] = LAMaterialFieldSphereStep3D.SIM_SECONDS_PER_STEP   # simulated seconds, not the cadence
 	_ctx["cell_size"] = _grid.cell_size
 	_ctx["cell_size_min"] = _grid.cell_size * pow(0.5, float(_grid.max_level))
 	# The SOLVED gravity, for the handful of scalar laws a pass evaluates once. A per-cell law reads the
@@ -266,20 +264,39 @@ func mark_h_dirty() -> void:
 	_h_dirty = true
 
 
-func step() -> void:
+## One field step, dispatched; false when it was not.
+func step() -> bool:
 	if _rd == null:
-		return
+		return false
 	if _pending:
 		_rd.sync()
 		_pending = false
 	_ctx["step_index"] = _step_index
-	_ctx["dt_s"] = LAMaterialFieldSphereStep3D.real_seconds_per_step()
+	_ctx["dt_s"] = LAMaterialFieldSphereStep3D.SIM_SECONDS_PER_STEP
 	_driver.pre_step(_passes, _ctx, _cc, _groups)
 	_driver.clear_buffers(_bnd_rids, _cc * 4)
-	# Deferred sync — drained at the next begin_frame, so the GPU overlaps the CPU frame work.
+	# Every submit of the step is waited on inside it; an empty tail stays in flight for the drain's sync.
 	_driver.step(_passes, _pass_names, _ctx, _cc, _groups, _step_probe)
+	if refused("field step %d" % _step_index):
+		return false
 	_pending = true
-	_step_index += 1
+	return true
+
+
+## A REFUSED PIECE ENDS THE RUN: true once the driver has refused one, and the loop is told what fell, so
+## the step it fell in is neither drained nor committed.
+func refused(what: String) -> bool:
+	var piece: String = _driver.aborted()
+	if piece != "" and LASimLoop.active() != null:
+		LASimLoop.active().fail("%s aborted: the driver refused \"%s\"" % [what, piece])
+	return piece != ""
+
+
+## The driver's ledger as the report states it, in ms. A device that waits without limit has no wait.
+func _submit_report() -> Dictionary:
+	var led: Dictionary = _driver.ledger()
+	return {"submit_refused": float(led["refused"]), "submit_worst_ms": float(led["worst_usec"]) / 1000.0,
+		"submit_wait_ms": float(led["wait_usec"]) / 1000.0 if is_finite(float(led["wait_usec"])) else null}
 
 
 ## Signature: `probe.call(pass_index: int, pass_name: String)`, pass_index -1 = before any pass ran.
@@ -300,15 +317,6 @@ func read_raw_bytes(name: String) -> PackedByteArray:
 	if _rd == null or not _bufs.has(name):
 		return PackedByteArray()
 	return _rd.buffer_get_data(_bufs[name])
-
-
-## Sync an in-flight step submit WITHOUT reading channels — for save/load/dispose paths that touch buffers
-## outside the normal begin/step/end loop. Leaves the mirrors untouched.
-func _flush_pending() -> void:
-	if not _pending:
-		return
-	_rd.sync()
-	_pending = false
 
 
 func _drain_pending() -> void:
@@ -358,13 +366,14 @@ func derive_seeded(sealing: bool = false) -> void:
 	_ctx["cell_size"] = _grid.cell_size
 	_ctx["cell_size_min"] = _grid.cell_size * pow(0.5, float(_grid.max_level))
 	_ctx["seeding"] = not sealing
+	_driver.restart()
 	for i in _passes.size():
 		if not (_pass_names[i] in ["StateDerivePass", "ReducePass"]): continue
-		var cl: int = _rd.compute_list_begin()
-		_passes[i].dispatch(_rd, cl, _ctx, _cc, _groups)
-		_rd.compute_list_end()
-		_rd.submit()
-		_rd.sync()
+		_driver.open()
+		_passes[i].dispatch(_rd, _ctx, _cc, _groups)
+		_driver.close()
+		if refused("the seeded derive"):
+			break
 		_passes[i]._drain(_rd)
 	_ctx.erase("seeding")
 
@@ -507,7 +516,7 @@ func inject_created(channel: String) -> float:
 func dispose() -> void:
 	if _rd == null:
 		return
-	_flush_pending()        # ensure the GPU is idle (no in-flight step submit) before freeing any RID
+	_drain_pending()        # the GPU idle, and the step in flight read, before any RID is freed
 	for p in _passes:
 		if p != null and p.has_method("dispose"):
 			p.dispose(_rd)

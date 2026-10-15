@@ -31,6 +31,7 @@ set -euo pipefail
 # Pure-bash, no `dirname`: this must still resolve when PATH is broken, or the missing-tool check below
 # never gets a chance to report exit 2.
 ROOT="$(cd "${BASH_SOURCE[0]%/*}/.." && pwd)"
+"$ROOT/scripts/prune_orphan_uid.sh"
 # shellcheck source=lib_import.sh
 source "$ROOT/scripts/lib_import.sh"
 # shellcheck source=lib_require.sh
@@ -95,7 +96,7 @@ trap 'rm -rf "$LOCK_DIR"; rm -f "$LOG" "$PARSE_LOG"' EXIT
 
 # --- phase 1: the editor scan (class_name + .gdextension registration, import) ------------------------
 scan_rc=0
-la_godot --headless --editor --quit-after "$QUIT_AFTER" --path "$PROJECT" > "$LOG" 2>&1 || scan_rc=$?
+LA_CPU_VALIDATION=1 la_godot --headless --editor --quit-after "$QUIT_AFTER" --path "$PROJECT" > "$LOG" 2>&1 || scan_rc=$?
 
 # Positive evidence that the editor actually ran. Every Godot invocation prints its banner; an empty or
 # bannerless log means the binary never got going, and the old `|| true` turned exactly that into a pass.

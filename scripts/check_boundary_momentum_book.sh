@@ -105,7 +105,7 @@ func _run(p_ghost: float, mode: int = LAFieldBoundary3D.CONSTANT, vel: Vector3 =
 		var spec: Variant = derived[key]
 		var dn: int = int(spec["n"]) if spec is Dictionary else int(spec)
 		if spec is Dictionary and bool(spec.get("ghosts", false)):
-			dn += ng
+			dn = (dn + ng) * int(spec.get("stride", 1))
 		bufs[String(key)] = _f32(_filled(dn, 0.0), owned)
 	bufs["ground_d"] = _f32(_filled(tc, 0.0), owned)   # flux.glsl binding 99: the driver's own
 	bufs["gravity"] = _f32(_filled(tc * 3, 0.0), owned)
@@ -143,7 +143,7 @@ func _run(p_ghost: float, mode: int = LAFieldBoundary3D.CONSTANT, vel: Vector3 =
 		var vals: PackedByteArray = _filled(tc, float(pair[1])).to_byte_array()
 		_rd.buffer_update(bufs[String(pair[0])], 0, vals.size(), vals)
 
-	p.setup(_rd, bufs, cc)
+	p.setup(_rd, LAFieldDriver.on(_rd), bufs, cc)
 	if not relax_on:
 		for row: Dictionary in p._rows:
 			if String(row["channel"]).begins_with("mom_"):
@@ -155,13 +155,11 @@ func _run(p_ghost: float, mode: int = LAFieldBoundary3D.CONSTANT, vel: Vector3 =
 		bnd.attach(stub)
 		if bnd.error != "":
 			_expect(false, "boundary attach failed: " + bnd.error)
-	var cl: int = _rd.compute_list_begin()
+	p._driver.open()
 	# The step is a small fraction of CELL over the sound speed: inside the explicit acoustic regime.
-	p.dispatch(_rd, cl, {"cell_size": CELL, "sun_dir": Vector3.ZERO, "dt_s": 1.0e-4},
+	p.dispatch(_rd, {"cell_size": CELL, "sun_dir": Vector3.ZERO, "dt_s": 1.0e-4},
 		cc, int(ceil(float(cc) / 64.0)))
-	_rd.compute_list_end()
-	_rd.submit()
-	_rd.sync()
+	p._driver.close()
 	var out: Dictionary = {}
 	for key in ["bnd_mom_x", "bnd_mom_y", "bnd_mom_z", "bnd_n2",
 			"mom_x", "mom_y", "mom_z", "e_j_m3"]:

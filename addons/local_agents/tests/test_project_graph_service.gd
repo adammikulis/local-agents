@@ -15,6 +15,9 @@ class MockRuntime extends Object:
         var length_score := float(normalized.length()) / 200.0
         return PackedFloat32Array([assistant_score, code_score, length_score])
 
+    func embed_text_with_model(text: String, options: Dictionary = {}) -> Dictionary:
+        return {"ok": true, "vector": embed_text(text, options), "embedding_model": "project-test-model"}
+
     func _substring_count(text: String, needle: String) -> float:
         if needle == "":
             return 0.0

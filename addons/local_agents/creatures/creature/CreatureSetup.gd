@@ -2,6 +2,9 @@ class_name LACreatureSetup
 extends RefCounted
 
 
+## The farthest any creature has been set up to hear, m: the reach a call is relayed over.
+static var max_hearing_range: float = 0.0
+
 # Per-individual jitter on maturity and lifespan, so a generation does not mature, breed and die in lockstep.
 const MATURITY_VARIANCE: float = 0.45    # ±fraction on per-individual maturity_age
 const LIFESPAN_VARIANCE: float = 0.45    # ±fraction on per-individual max_age
@@ -71,6 +74,8 @@ static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
 	# Perception genes (with sensible per-body defaults) + kin id for social learning.
 	c.eye_fov = float(config.get("eye_fov", c.eye_fov))
 	c.hearing_range = float(config.get("hearing_range", c.sense_radius * 1.5))
+	max_hearing_range = maxf(max_hearing_range, c.hearing_range)
+	c.set_notify_local_transform(true)
 	c.family_id = int(config.get("family_id", c.get_instance_id()))
 	LACreatureAffiliation.setup(c)
 	# Nesting is general and config-driven.
@@ -91,6 +96,7 @@ static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
 	c.add_to_group(c.GROUP_SELECTABLE)
 	c.add_to_group(c._species_group(c.species))
 	c.add_to_group(c.GROUP_CREATURE)
+	LAGroupIndex.shared().joined(c)
 	c._heading = Vector3(rng.randf() * 2.0 - 1.0, 0.0, rng.randf() * 2.0 - 1.0).normalized()
 	if c._heading == Vector3.ZERO:
 		c._heading = Vector3.FORWARD

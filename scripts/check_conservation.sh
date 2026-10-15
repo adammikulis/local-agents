@@ -5,9 +5,9 @@
 # SI. The tolerance is a fraction too, from the float32 format and the cell count; changing it needs the
 # maintainer.
 #
-# A CLEAN LOG IS NOT A PASS. The audit runs once, REFERENCE_STEPS past the seal, and only when every gated
-# quantity produced a number. A run that never reached the horizon, or whose ledger could not answer, prints
-# no violation line at all — so this gate reads `conservation_audited` and refuses to call that conserved.
+# A CLEAN LOG IS NOT A PASS. The audit reads every folded drain and judges from REFERENCE_STEPS past the seal,
+# latching only once every gated quantity produced a number. A run short of the horizon, or whose ledger could
+# not answer, prints no violation line — so this gate reads `conservation_audited` and refuses that silence.
 #
 # EXIT CODES. 0 conserved · 1 a substance drifted · 2 could not run or could not measure, never a silent pass.
 set -uo pipefail
@@ -146,8 +146,6 @@ case "$verdict" in
   starved*)
     echo "ERROR: the audit ran and could not answer. No number for: ${verdict#starved }" >&2
     echo "       A quantity with no total is UNMEASURED, not conserved. Fix the ledger leg that is absent." >&2
-    echo "       A row also reads UNMEASURED when its tolerance reached 1.0: past that the instrument" >&2
-    echo "       cannot separate a wholly unaccounted window from round-off, so it may not report a pass." >&2
     grep '^CONSERVATION_UNMEASURED=' "$OUT" >&2
     exit 2 ;;
   short)

@@ -5,6 +5,7 @@ extends RefCounted
 const SvcScript: GDScript = preload("res://addons/local_agents/graph/BackstoryGraphService.gd")
 const ChronicleScript: GDScript = preload("res://addons/local_agents/sim/ecology/BandChronicle.gd")
 const ClockScript: GDScript = preload("res://addons/local_agents/sim/SimClock.gd")
+const LoopScript: GDScript = preload("res://addons/local_agents/sim/SimLoop.gd")
 const ExtensionLoader: GDScript = preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
 
 const DB_PATH: String = "user://local_agents/test_band_affiliation.sqlite3"
@@ -53,6 +54,10 @@ func run_test(tree: SceneTree) -> bool:
 
 	var clock: LASimClock = ClockScript.new()
 	clock.set_body(SpinningBody.new())
+	# The calendar reads the loop's step count; held, the loop never steps, so only a restore moves it.
+	var loop: LASimLoop = LoopScript.new()
+	loop.hold()
+	clock.add_child(loop)
 	tree.get_root().add_child(clock)
 	clock.restore({"elapsed": float(DAY_FIRST) * clock.day_length()})
 

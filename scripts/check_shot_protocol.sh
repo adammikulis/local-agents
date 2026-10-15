@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# ONE RUN, MANY PICTURES. The shot protocol moves the camera through a list of poses in a single launch
-# and photographs each. This holds it to that: one PNG per pose, each carrying the pose it was asked for,
-# each a lit scene rather than one flat colour, and NO TWO CONSECUTIVE FRAMES THE SAME — a pose that
-# never moves the camera photographs the previous one again, and identical bytes are how that shows.
+# ONE RUN, MANY PICTURES. The shot protocol photographs each pose of a list in a single launch: one PNG per
+# pose, each carrying the pose it was asked for, a lit scene rather than one flat colour, no HUD panel over
+# it, and NO TWO CONSECUTIVE FRAMES THE SAME — a pose that never moves the camera photographs the one
+# before it again, and identical bytes are how that shows.
 # EXIT 0 every pose is its own picture · 1 one is not · 2 could not run.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -76,6 +76,19 @@ for i in "${!WANT[@]}"; do
 		echo "FAIL  pose $want photographed one flat colour (mean $mean, contrast $contrast)." >&2
 		fail=1
 	}
+	# AND IT IS THE WORLD, NOT THE INTERFACE: the scene's panels were switched off and none stands over it.
+	dropped="$(printf '%s' "$line" | rg -N -o -e 'panels_off=[^ ]*' | cut -d= -f2)"
+	hud="$(printf '%s' "$line" | rg -N -o -e 'hud_px=[^ ]*' | cut -d= -f2)"
+	case "$dropped" in
+		'["'*) ;;
+		*) echo "check_shot_protocol: pose $want dropped no panel (${dropped:-none}), so a bare frame asks nothing." >&2
+			exit 2 ;;
+	esac
+	if [ "$hud" != "[]" ]; then
+		shown="${hud:-none}"
+		echo "FAIL  pose $want was photographed under HUD panels (hud_px ${shown:0:60})." >&2
+		fail=1
+	fi
 	# AND IT IS A DIFFERENT PICTURE. A pose that never moved the camera re-photographs the last frame.
 	if [ -n "$prev" ] && cmp -s "$prev" "$path"; then
 		echo "FAIL  pose $want is byte-for-byte the picture before it: the camera never moved." >&2

@@ -1,7 +1,7 @@
 # Using Local Agents in your project
 
 This document covers assembling the addon into something that works: what is in
-`addons/local_agents/`, what you can delete, the nodes you drop into a scene, the project settings
+`addons/local_agents/`, the nodes you drop into a scene, the project settings
 that point the addon at a model, and the two duck-typed contracts the creature behaviour talks
 through.
 
@@ -10,9 +10,7 @@ DEMOS.md lists the example scenes.
 
 ## What is in the addon
 
-The addon is one plugin, and the game is deletable. Copy `addons/local_agents/` into your project,
-delete `game/`, and the agent, creature and simulation nodes keep working. The two references into
-`game/` from outside it are both soft, and "What deleting costs you" below names them.
+The addon is one plugin.
 
 The compiled GDExtension in `gdextensions/localagents/` is a hard dependency. Build it before you run
 anything: `sim/` and the agent nodes name its classes as typed identifiers. INSTALL.md covers the build.
@@ -36,57 +34,16 @@ Core library directories:
 | `tests/` | the headless test suite |
 
 `sim/` is the simulation library: the `LocalAgentSimWorld` facade, the `LAMaterialField3D` substrate
-under `material/`, ecology, cubed-sphere planet generation, terrain, actors, events, and the
+under `material/`, ecology, planet generation, terrain, actors, events, and the
 local-LLM streamer. `LocalAgentSimWorld` in SPHERE mode needs the optional zylann.voxel GDExtension
 from https://github.com/Zylann/godot_voxel, FLAT mode needs nothing beyond this addon.
 `sim/EMERGENCE.md` explains the rule the simulation is built on.
 
-`game/`, `assets/` and `voices/` are the optional Anima game. `audio/` is not: `creatures/creature/
-CreatureThink.gd:158` and four actors under `sim/actors/` call `LAAudioDirector.emit()` to make a
-chomp, an impact or a weather sound. A creature making a noise is a stimulus broadcast like scent, so
-`audio/` is part of the library and deleting it is a parse error.
-
 ## Installing into your own project
 
 1. Copy `addons/local_agents/` into your project's `addons/` directory.
-2. Optionally delete `game/`, `assets/` and `voices/`. Read "What deleting costs you" below before you
-   delete `sim/`.
-3. Click Project > Project Settings > Plugins and enable Local Agents.
-4. Add a node and fill in the inspector.
-
-### What deleting costs you
-
-Two files outside `game/` name a path inside it, and neither is a hard link. `examples/demos/
-voxel_planet_game.tres` is the catalogue entry for the flagship scene: its `scene_path` is an
-`@export_file` String rather than a `PackedScene`, so the resource still loads and its launcher row
-reports "Its scene is missing" instead of breaking the menu. `creatures/Creature.gd` names the game's
-combustion visual through `LAOptionalScript.resolve`, which returns null when the file is gone, so a
-creature still dies burned without it.
-
-Deleting `sim/` costs more than you might expect. Two example scenes name a `sim/` script on an
-`ext_resource` line:
-
-- `examples/BoxFieldDemo.tscn:3` needs `sim/material/FieldBox.gd`.
-- `examples/SimWorldPlanetDemo.tscn:4` needs `sim/SimWorld.gd`.
-
-Both break quietly rather than loudly. Godot still loads a `.tscn` whose `ext_resource` script is
-missing: it logs `Parse Error: [ext_resource] referenced non-existent resource` and hands back a
-`PackedScene` with that one node stripped down to its bare type. Every sibling survives. `BoxFieldDemo`
-still opens with its camera, its light and a working `DemoHarness`, whose script lives in `runtime/`
-rather than `sim/`, and only its `FieldBox` child loses its script. `SimWorldPlanetDemo` opens with
-`%SimWorld` reduced to a plain `Node3D`, so the cast at `examples/SimWorldPlanetDemo.gd:21` yields
-null. Neither reports anything at load. The failure surfaces later as a null-instance property access
-inside `demo_report()`, which only a `--run-frames` run reaches.
-
-The launcher does not warn you either. `LADemoLauncher.gate_reason()` at
-`examples/DemoLauncher.gd:90` only calls `ResourceLoader.exists(entry.scene_path)`, and that returns
-true for a `.tscn` whose script is gone, so both rows stay clickable. Delete those two scenes and
-their catalogue entries along with `sim/`, or keep `sim/`.
-
-The creature stack itself survives. `creatures/Creature.gd:369` and
-`creatures/creature/CreatureThink.gd:16` are the only other references into `sim/`, and both are plain
-String constants resolved through a guarded `ResourceLoader.exists()` at runtime. Without `sim/` a
-creature simply cannot throw a rock and shows no flame prop when it burns.
+2. Click Project > Project Settings > Plugins and enable Local Agents.
+3. Add a node and fill in the inspector.
 
 Enabling the plugin registers the `AgentManager` autoload for you, so you do not add it by hand.
 `plugin.gd` writes it in `_enter_tree()`, and on disable it removes the entry only if the plugin was
@@ -105,9 +62,6 @@ Seven are the scripts already attached to a demo scene: `examples/TutorialDemo.g
 `examples/AgentActionsDemo.gd`, `examples/SimWorldPlanetDemo.gd`, `examples/CoreCreatureSmoke.gd`,
 `examples/AgentConversationDemo.gd`, `examples/ThinkingCreatureDemo.gd` and `examples/ChatExample.gd`.
 The other two are game-only: `game/world/VoxelViewControls.gd` and `game/GameMode.gd`.
-
-`project.godot` in this repo also registers `GameMode` and `AppExit`. Both live under `game/` and are
-game-only. Do not register them in a project that deletes `game/`.
 
 ## Project settings
 
@@ -262,21 +216,19 @@ You do not instance `LAFish` yourself. `LAEcologyService.spawn()` builds one whe
 carries `"aquatic": true` (`sim/ecology/EcologyService.gd:436`), and refuses to place it out of water.
 The ten configs shipped today live in `creatures/species/aquatic/`.
 
-`LocalAgentSimWorld` is a `Node3D` that composes a whole world: a planet body or a ground plane, the
-`LAMaterialField3D` substrate, the ecology, and the founding population. See the third quickstart
-below for its export surface.
+`LocalAgentSimWorld` is a `Node3D` that composes a whole world: a planet body under its star or a
+ground plane, the `LAMaterialField3D` substrate, the ecology, the founding population, and the loop
+that steps them. `LASimWorldView` is its look. See the third quickstart below for its export surface.
 
-`LocalAgentFieldBox` is a `Node3D` that runs the material field in box mode with a heat source at its
-floor and a plane of cubes tinted by live temperature, so you can watch warmth diffuse and rise. Its
-exports come in groups:
+`LocalAgentFieldBox` is a `Node3D` that owns an `LAMaterialField3D` in box mode as a child, with a heat
+source at its floor. Its exports come in groups:
 
 - Volume: Extent, Cell Size, Origin Offset.
-- Heat Source: Heat Enabled, Heat Per Frame, Heat Burst Frames, and Heat Source Cells, which is how
-  many cells wide the emitter is.
-- Slice View: Show Slice, Slice Axis, Slice Position, Cube Fill, Color Span, Cold Color, Hot Color.
+- Heat Source: Heat Enabled, Heat Source W, Heat Burst S, and Heat Source Cells, which is how many
+  cells wide the emitter is.
 
-Box mode is a CPU substrate, so the simulation runs headless and only the visual is skipped when
-there is no display. The node owns an `LAMaterialField3D` as a child rather than extending it.
+The box holds no matter: nothing seeds or steps a box-mode field, so the source adds nothing and every
+cell reads NAN. `LAFieldBoxSliceView`, a plane of cubes tinted by temperature, is its look.
 
 ### Resources and the harness
 
@@ -439,26 +391,28 @@ silently dropped, so pass a typed local if you have to go through `set()`.
 Add a `LocalAgentSimWorld`, pick a World Type, set the bounds, and press play. It composes the planet
 body, the material field, the ecology and the founding population behind one node, with no game
 shell, so no HUD, menus, disasters or save system. `examples/SimWorldPlanetDemo.tscn` is that node
-plus a camera, a light and a harness, and its script contains no world-building code at all.
+plus its view (`game/render/SimWorldView.tscn`, which holds the Sun and the terrain material), a camera
+and a harness, and its script contains no world-building code at all.
 
 | export | mode | meaning |
 | --- | --- | --- |
 | `world_type` | both | `SPHERE` (planet in a box field) or `FLAT` (ground plane plus a box field) |
 | `build_on_ready` | both | build automatically, or call `spawn_world()` yourself |
-| `body_seed`, `caves_enabled`, `tides_enabled` | SPHERE | which body is seeded, and its toggles |
+| `world_seed` | both | the seed terrain generation and every random draw derive from |
+| `body_seed`, `caves_enabled` | SPHERE | which body is seeded, and its toggle |
 | `grid_res` | SPHERE | field cells along one edge of the box |
-| `sun_enabled` | SPHERE | build the child sun that drives the field's solar pass |
+| `slice_cells`, `slice_cell_size_m`, `slice_fine_m`, `slice_offset_m` | SPHERE | a slice box laid on the body instead of one around it |
+| `star` | SPHERE | the star the body orbits; unset, the build makes the one `LABodySeeds` declares |
 | `flat_extent`, `flat_cell_size`, `ground_y` | FLAT | box extent, field cell size, floor height |
 | `auto_spawn`, `initial_counts` | both | founding population |
 | `forest_clusters` | SPHERE | forest seed clusters scattered at start, default 6 |
 
-`forest_clusters` is read only inside the `world_type == WorldType.SPHERE` arm of `spawn_life()` at
-`sim/SimWorld.gd:259`. The FLAT arm calls `_scatter_flat(counts)` and never touches it, so setting it
-on a FLAT world does nothing. Put plants in `initial_counts` instead.
+`forest_clusters` does nothing on a FLAT world. Put plants in `initial_counts` instead.
 
-SPHERE needs zylann.voxel. Asking for it without the extension is a hard, named failure:
-`spawn_world()` pushes `VOXEL_BACKEND_REQUIRED` and builds nothing rather than quietly doing
-something else. FLAT never touches the planet scripts, which is why the SPHERE path is `load()`ed at
+SPHERE needs zylann.voxel and a RenderingDevice, because its field steps on a compute device. Asking
+for it without either is a hard, named failure: `spawn_world()` pushes `VOXEL_BACKEND_REQUIRED` or
+`GPU_REQUIRED` and builds nothing rather than quietly doing something else. A `--headless` run has no
+RenderingDevice. FLAT never touches the planet scripts, which is why the SPHERE path is `load()`ed at
 runtime instead of preloaded.
 
 After the build, `material_field()`, `ecology()`, `terrain()`, `planet_body()` and `actors_root()`
@@ -474,7 +428,7 @@ extends Node3D
 func _ready() -> void:
     var body: Variant = world.planet_body()
     if body != null:
-        camera.look_at_from_position(Vector3(0.0, 0.0, world.radius * 3.0), body.center(), Vector3.UP)
+        camera.look_at_from_position(Vector3(0.0, 0.0, world.seed_radius() * 3.0), body.center(), Vector3.UP)
 ```
 
 Raise the camera's Far, or the planet clips out of view.
@@ -525,9 +479,10 @@ terrain. It puts its synthetic planet centre 100000 units below the plane, which
 so the sphere movement path runs unchanged on flat ground without losing horizontal precision. It has
 no sea, so land walkers never hit coast avoidance.
 
-`LAVoxelTerrainService` is the cubed-sphere planet, owned by `LAPlanetBody`, and it adds the voxel
-operations the flat adapter has no use for: `fill_sphere()`, `fill_box()`, `sdf_at()`,
-`is_solid()`, `attach_viewer()` and `build_planet()`.
+`LAVoxelTerrainService` is the planet's signed-distance terrain, owned by `LAPlanetBody`, and it adds
+the voxel operations the flat adapter has no use for: `fill_sphere()`, `sdf_at()`, `is_solid()`,
+`attach_viewer()`, `build_planet()` and `terrain_node()`, the VoxelLodTerrain a view dresses with
+`LATerrainLook.dress()`.
 
 `Creature.setup()` defaults `terrain` to a fresh `LAFlatGroundTerrain` when none is injected, so a
 bare creature never null-derefs its movement path.
@@ -645,30 +600,27 @@ machine can open. `scripts/check_demo_catalog.sh` answers the static half of the
 
 ## Running a scene headless
 
-Scenes carrying a `LocalAgentDemoHarness` honour `--run-frames=N` and exit on their own. Run them
-with `scripts/run_demo.sh`, which takes about a second each:
+Scenes carrying a `LocalAgentDemoHarness` honour `--run-frames=N` and exit on their own. Run the ones
+that need no window with `scripts/run_demo.sh`, which takes about a second each:
 
 ```bash
-scripts/run_demo.sh --list                  # which scenes honour the contract, and which do not
+scripts/run_demo.sh --list                  # which scenes honour the contract, and which need a window
 scripts/run_demo.sh BoxFieldDemo            # one demo, 40 frames
 scripts/run_demo.sh BoxFieldDemo 200        # one demo, 200 frames
-scripts/run_demo.sh --all                   # every demo that honours the contract
+scripts/run_demo.sh --all                   # every demo that honours the contract and needs no window
 ```
 
-`BoxFieldDemo`, `CoreCreatureSmoke`, `SimWorldPlanetDemo`, `ThinkingCreatureDemo` and `TutorialDemo`
-carry the harness today. The script detects that per scene by grep rather than from a hardcoded list,
-and refuses the others up front instead of hanging on them, because a scene with no harness ignores
+It refuses a scene with no harness up front instead of hanging on it, because such a scene ignores
 `--run-frames` and runs forever. Run those with the engine's own flag:
 
 ```bash
 godot --headless --path . addons/local_agents/examples/GraphExample.tscn --quit-after 120
 ```
 
-One scene genuinely needs a window. `addons/local_agents/game/VoxelWorld.tscn` runs its field as a
-compute shader, and a headless run has no compute device, so it boots and exits 0 with every field
-gauge empty. It fails silently rather than loudly, which makes a headless run of it a green light that
-measured nothing. Use `scripts/agent_harness.sh sim` for that scene, and `scripts/run_sim_offscreen.sh`
-for anything taking a screenshot. Both place the window off-screen and neither can take the keyboard.
+A planet's field steps on a compute device, and a headless run has none. `game/VoxelWorld.tscn`, every
+scene inheriting it and every scene holding a SPHERE `LocalAgentSimWorld` need a window. Use
+`scripts/agent_harness.sh sim` for the voxel world, and `scripts/run_sim_offscreen.sh` for the others and
+for anything taking a screenshot. Neither window can take the keyboard.
 
 A new `class_name` or `.gdextension` only registers after an editor scan. If Godot reports a class as
 missing, run `scripts/editor_scan.sh` once and try again.

@@ -2,7 +2,7 @@ class_name LADebugPanel
 extends CanvasLayer
 
 
-signal view_toggled(view: String, on: bool)          # "temp"|"wind"|"scent"|a field-channel key
+signal view_toggled(view: String, on: bool)          # "temp"|"blocks"|"wind"|"scent"|a field-channel key
 signal highlight_toggled(group: String, on: bool)    # a "species_*" or "nest" group
 signal behavior_toggled(behavior: String, on: bool)  # a creature behavior-state category
 signal paths_toggled(on: bool)
@@ -108,6 +108,7 @@ func _ready() -> void:
 	_add_section("RENDER DEBUG")
 	_add_check("Wireframe", func(on: bool) -> void: render_debug_toggled.emit("wireframe", on))
 	_add_check("Overdraw", func(on: bool) -> void: render_debug_toggled.emit("overdraw", on))
+	_add_check("Voxel blocks", func(on: bool) -> void: view_toggled.emit("blocks", on))
 
 	_add_section("CAPTURE")
 	var shot: Button = Button.new()

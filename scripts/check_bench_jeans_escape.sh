@@ -15,8 +15,8 @@ command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 not on PATH." >&2; 
 PROBE="addons/local_agents/tests/bench_jeans_escape.gd"
 [ -f "$REPO_ROOT/$PROBE" ] || { echo "ERROR: $PROBE missing." >&2; exit 2; }
 
-JUDGE="$(mktemp "${TMPDIR:-/tmp}/bench_jeans.XXXXXX.py")"
-trap 'rm -f "$JUDGE"' EXIT INT TERM
+JUDGE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/bench_jeans.XXXXXX")"; JUDGE="$JUDGE_DIR/judge.py"
+trap 'rm -rf "$JUDGE_DIR"' EXIT INT TERM
 cat > "$JUDGE" <<'PY'
 import json, math, os, sys
 
@@ -100,6 +100,6 @@ rc=$?
 FRAMES="${LA_BENCH_JE_FRAMES:-8}"
 . "$REPO_ROOT/scripts/lib_rung.sh"
 world="$(la_rung_report 8 "$FRAMES" "all_h2,open_h2")"
-la_rung_require "$world" all_h2 || exit 2
+la_rung_require "$world" all_h2 || exit $?
 printf 'BENCH_JEANS_ESCAPE_WORLD={"all_h2":%s}\n' "$(la_rung_value "$world" all_h2)"
 echo "check_bench_jeans_escape: OK"
