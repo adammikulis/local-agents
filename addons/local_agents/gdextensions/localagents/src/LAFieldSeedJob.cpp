@@ -134,12 +134,29 @@ Dictionary LAFieldSeedJob3D::publish(Object *p_field) {
 	return balance;
 }
 
-void LAFieldSeedJob3D::prepare_gravity(Object *p_field) {
+bool LAFieldSeedJob3D::prepare_gravity(Object *p_field) {
 	Object *gravity = p_field->get("_gravity");
 	gravity->call("solve");
+	Object *gpu = p_field->get("_gpu");
+	if (bool(gpu->call("refused", "the seed"))) { return false; }
 	LAFieldCellMass3D::regolith(p_field);
 	const PackedByteArray regolith = p_field->get("_regolith");
-	ERR_FAIL_COND_MSG(!regolith.has(1), "SEED_REGOLITH_EMPTY: solved gravity marked no permeable cell");
+	ERR_FAIL_COND_V_MSG(!regolith.has(1), false, "SEED_REGOLITH_EMPTY: solved gravity marked no permeable cell");
+	return true;
+}
+
+bool LAFieldSeedJob3D::finish_restore(Object *p_field, bool p_gravity) {
+	Object *gpu = p_field->get("_gpu");
+	if (p_gravity) {
+		Object *gravity = p_field->get("_gravity");
+		gravity->call("solve");
+		if (bool(gpu->call("refused", "the seed"))) { return false; }
+	}
+	gpu->call("derive_seeded", true);
+	if (bool(gpu->call("refused", "the seed"))) { return false; }
+	Object *measure = p_field->get("_body_measure");
+	measure->call("measure", p_field, LABodySeeds::spin_axis_of(p_field->get("_body_key")));
+	return true;
 }
 
 bool LAFieldSeedJob3D::complete(Object *p_field, bool p_gravity) {
@@ -151,6 +168,11 @@ bool LAFieldSeedJob3D::complete(Object *p_field, bool p_gravity) {
 		return false;
 	}
 	Object *gpu = p_field->get("_gpu");
+	auto refused = [&]() {
+		if (!bool(gpu->call("refused", "the seed"))) { return false; }
+		failure = true;
+		return true;
+	};
 	switch (activation_stage++) {
 		case 0: {
 			Object *measure = p_field->get("_body_measure");
@@ -173,9 +195,11 @@ bool LAFieldSeedJob3D::complete(Object *p_field, bool p_gravity) {
 				Object *gravity = p_field->get("_gravity");
 				gravity->call("solve");
 			}
+			refused();
 			return false;
 		case 3:
 			gpu->call("derive_seeded", true);
+			if (refused()) { return false; }
 			p_field->set("_ready_sim", true);
 			return true;
 		default:
@@ -192,6 +216,7 @@ void LAFieldSeedContext::_bind_methods() {
 }
 
 void LAFieldSeedJob3D::_bind_methods() {
+	ClassDB::bind_static_method("LAFieldSeedJob3D", D_METHOD("finish_restore", "field", "gravity"), &LAFieldSeedJob3D::finish_restore);
 	ClassDB::bind_static_method("LAFieldSeedJob3D", D_METHOD("prepare_gravity", "field"), &LAFieldSeedJob3D::prepare_gravity);
 	ClassDB::bind_method(D_METHOD("capture", "field", "gravity"), &LAFieldSeedJob3D::capture);
 	ClassDB::bind_method(D_METHOD("begin", "field", "gravity", "present"), &LAFieldSeedJob3D::begin);

@@ -3,6 +3,7 @@ extends RefCounted
 
 
 const ClockScript: GDScript = preload("res://addons/local_agents/sim/SimClock.gd")
+const LoopScript: GDScript = preload("res://addons/local_agents/sim/SimLoop.gd")
 
 ## The one thing LASimClock reads off a planet: how fast it turns. Earth's sidereal rotation period is
 ## 86164.0905 s (IERS Conventions 2010).
@@ -12,14 +13,18 @@ class SpinningBody extends RefCounted:
 
 
 func run_test(tree: SceneTree) -> bool:
+	var loop: LASimLoop = LoopScript.new()
+	loop.hold()             # held, it never steps: only a restore moves its count
 	var clock: LASimClock = ClockScript.new()
 	clock.set_body(SpinningBody.new())
+	tree.get_root().add_child(loop)
 	tree.get_root().add_child(clock)
 
-	var ok: bool = _round_trip_keeps_the_time(clock)
+	var ok: bool = _round_trip_keeps_the_time(loop, clock)
 	ok = _refuses_a_time_nobody_has(clock) and ok
 
 	clock.queue_free()
+	loop.queue_free()
 	if ok:
 		print("SimClock tests passed")
 	return ok
@@ -28,14 +33,15 @@ func run_test(tree: SceneTree) -> bool:
 ## A save that loses time is a world that runs backwards over a reload, and the loss lands on a day
 ## boundary sooner or later. Step 15 is the first count whose serialized seconds divide back to less
 ## than itself in double precision; the rest are a day, five days and eight days in.
-func _round_trip_keeps_the_time(clock: LASimClock) -> bool:
+func _round_trip_keeps_the_time(loop: LASimLoop, clock: LASimClock) -> bool:
 	var ok: bool = true
 	for target_v in [1, 15, 30, 55, 1994, 9973, 15956]:
 		var target: int = int(target_v)
-		while clock.steps() < target:
-			clock.advance()
+		loop.restore_elapsed_s(float(target) * LASimLoop.step_seconds())
+		clock.advance()
 		var steps_before: int = clock.steps()
 		var day_before: int = clock.day()
+		ok = _assert(steps_before == target, "the loop stands at step %d, not %d" % [steps_before, target]) and ok
 		clock.restore(clock.serialize())
 		ok = _assert(clock.steps() == steps_before,
 			"a save and reload moved the clock from step %d to step %d" % [steps_before, clock.steps()]) and ok

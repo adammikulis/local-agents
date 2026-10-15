@@ -655,7 +655,7 @@ marker = "^check_submit_budget: OK"
 mutation = [
 	"perl -0pi -e 's/return gl_WorkGroupID\\.x \\* params\\.chunk_stride \\+ params\\.chunk_phase;/return gl_WorkGroupID.x;/' addons/local_agents/sim/material/kernels3d/chunk.glsli",
 	"perl -0pi -e 's/partials\\[params\\.base \\+ la_group\\(\\)\\]/partials[params.base + gl_WorkGroupID.x]/' addons/local_agents/sim/material/kernels3d/reduce.glsl",
-	"perl -0pi -e 's/alone > _wait_usec/false/' addons/local_agents/gdextensions/localagents/src/LAFieldDriver.cpp",
+	"perl -0pi -e 's/alone > _wait\\(\\)/false/' addons/local_agents/gdextensions/localagents/src/LAFieldDriver.cpp",
 	"perl -0pi -e 's/it->second\\.known\\s*&& _pred\\(it->second, p_groups\\) <= _target\\(it->second\\);/it->second.known;/' addons/local_agents/gdextensions/localagents/src/LAFieldDriver.cpp",
 	"perl -0pi -e 's/indirect \\? _count\\(p_args, p_offset\\) : p_groups;/indirect ? 1 : p_groups;/' addons/local_agents/gdextensions/localagents/src/LAFieldDriver.cpp",
 	"perl -0pi -e 's/put_u32\\(w, n, \\(uint32_t\\)p_stride\\);\\n\\tput_u32\\(w, n \\+ 4, \\(uint32_t\\)p_phase\\);/put_u32(w, n, p_args.is_valid() ? 1u : (uint32_t)p_stride);\\n\\tput_u32(w, n + 4, p_args.is_valid() ? 0u : (uint32_t)p_phase);/' addons/local_agents/gdextensions/localagents/src/LAFieldDriver.cpp",
@@ -663,10 +663,29 @@ mutation = [
 	"perl -0pi -e 's/\\t\\t_abort = p_key;\\n//' addons/local_agents/gdextensions/localagents/src/LAFieldDriver.cpp",
 	"perl -0pi -e 's/\\(pc\\.slice\\(4, 12\\) \\+ pc\\.slice\\(20, 32\\) \\+ pc\\.slice\\(40, 44\\)\\)\\.hex_encode\\(\\)/\"rows\"/' addons/local_agents/sim/material/sphere_passes/ReducePass.gd",
 	"perl -0pi -e 's/\\tdm_z\\[c\\] = dm\\.z;\\n/\\tdm_z[c] = dm.z;\\n\\tvel_x[c] += dm.x;\\n/' addons/local_agents/sim/material/kernels3d/flux.glsl",
-	"perl -0pi -e 's/\\tLASimReport\\.register\\(_driver\\.report\\)\\n//' addons/local_agents/sim/material/MaterialSphereGPU3D.gd",
+	"perl -0pi -e 's/\\tLASimReport\\.register\\(_submit_report\\)\\n//' addons/local_agents/sim/material/MaterialSphereGPU3D.gd",
 	"perl -0pi -e 's/atomicMax\\(tlevel\\[uint\\(rnb\\)\\], lv\\);/atomicMax(tlevel[uint(rnb)], tlevel[c]);/' addons/local_agents/sim/material/kernels3d/active_levels.glsli",
 ]
 needs = ["build", "import", "capture"]
+
+[[gate]]
+name = "check_world_refusal"
+script = "scripts/check_world_refusal.sh"
+kind = "gpu"
+marker = "^check_world_refusal: OK"
+mutation = [
+	"perl -0pi -e 's/if failure == \"\" and _subscribers\\[i\\]\\.is_valid\\(\\):/if _subscribers[i].is_valid():/' addons/local_agents/sim/SimLoop.gd",
+	"perl -0pi -e 's/\\t\\t\\t_step -= 1\\n//' addons/local_agents/sim/SimLoop.gd",
+	"perl -0pi -e 's/\\t\\tif _f\\._gpu\\.refused\\(\"the seed\"\\):\\n\\t\\t\\treturn false\\n//' addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd",
+	"perl -0pi -e 's/\\tif not submitted:\\n\\t\\treturn\\n//' addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd",
+	"perl -0pi -e 's/\\tLASimReport\\.event\\(\"field_step\"\\)\\n(\\tif _f\\._seal != null)/$1/; s/(\\tvar t0: int = Time\\.get_ticks_usec\\(\\)\\n)/\\tLASimReport.event(\"field_step\")\\n$1/' addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd",
+	"perl -0pi -e 's/\\tif refused\\(\"field step %d\" % _step_index\\):\\n\\t\\treturn false\\n//' addons/local_agents/sim/material/MaterialSphereGPU3D.gd",
+	"perl -0pi -e 's/\\t\\tif refused\\(\"the seeded derive\"\\):\\n\\t\\t\\tbreak\\n//' addons/local_agents/sim/material/MaterialSphereGPU3D.gd",
+	"perl -0pi -e 's/\\tif piece != \"\" and LASimLoop\\.active\\(\\) != null:/\\tif false:/' addons/local_agents/sim/material/MaterialSphereGPU3D.gd",
+	"perl -0pi -e 's/\\tif _driver\\.aborted\\(\\) != \"\":\\n\\t\\treturn INF\\n//' addons/local_agents/sim/material/sphere_passes/GravityPass.gd",
+	"perl -0pi -e 's/ and _f\\._gpu\\._driver\\.aborted\\(\\) == \"\"//' addons/local_agents/sim/material/MaterialFieldGravity3D.gd",
+]
+needs = ["import"]
 
 [[gate]]
 name = "check_comment_claims"
@@ -1065,7 +1084,7 @@ name = "check_snapshot_roundtrip"
 script = "scripts/check_snapshot_roundtrip.sh"
 kind = "gpu"
 marker = "^check_snapshot_roundtrip: OK"
-mutation = "python3 -c \"p='addons/local_agents/sim/material/MaterialFieldSnapshot3D.gd'; s=open(p).read(); open(p,'w').write(s.replace('LAMaterialSphereGPU3D.channels() + LAMaterialSphereGPU3D.SEED_PRODUCTS', 'LAMaterialSphereGPU3D.channels()'))\""
+mutation = "python3 -c \"p='addons/local_agents/sim/material/MaterialFieldSnapshot3D.gd'; s=open(p).read(); open(p,'w').write(s.replace('LAChannels.channels() + LAMaterialSphereGPU3D.SEED_PRODUCTS', 'LAChannels.channels()'))\""
 
 [[gate]]
 name = "check_atmosphere_mass"

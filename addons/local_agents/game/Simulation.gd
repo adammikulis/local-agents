@@ -83,8 +83,10 @@ func _wire_loop() -> void:
 	# time passes while that is true.
 	_loop.hold()
 	_loop.seeding.connect(_on_seeding)
-	_loop.stepped.connect(_on_step)
-	_loop.stepped.connect(Callable(_material.step_driver(), "step"))
+	_loop.subscribe(_on_step)
+	_loop.subscribe(Callable(_material.step_driver(), "step"))
+	# The calendar counts committed steps, so it turns once the field's step has completed.
+	_loop.subscribe(func(_step: int) -> void: _clock.advance())
 	_subscribe("test_masses", _test_masses)
 	_subscribe("ecology", _ecology)
 	_subscribe("events", _events)
@@ -97,12 +99,12 @@ func _wire_loop() -> void:
 ## A step subscriber is a named, ablatable module: off means its handler never runs.
 func _subscribe(name: String, node: Node) -> void:
 	LAAblate.adopt(name, node)
-	_loop.stepped.connect(func(step: int) -> void:
+	_loop.subscribe(func(step: int) -> void:
 		if node.can_process():
 			node.on_sim_step(step))
 
 
-func _on_seeding(_tick: int) -> void:
+func _on_seeding() -> void:
 	if _material.step_driver().seed_tick():
 		_loop.release()
 
@@ -213,11 +215,10 @@ func set_probe_flags(overview: bool, farview: bool, auto_meteor: bool, auto_sele
 	_auto_select = auto_select
 
 
-## ONE simulated step: the clock, the orbit, the spin and the spawn probe. `dt` is a fixed quantum of
-## SIMULATED seconds, so the orbit and the rotation advance by real physics rather than by a frame period.
+## ONE simulated step: the orbit, the spin and the spawn probe. `dt` is a fixed quantum of SIMULATED
+## seconds, so the orbit and the rotation advance by real physics rather than by a frame period.
 func _on_step(_step: int) -> void:
 	var dt: float = LAMaterialFieldSphereStep3D.SIM_SECONDS_PER_STEP
-	_clock.advance()
 	var spin: float = _body.angular_velocity_rad_s()
 	if _spawn.is_spawned() and is_finite(spin):
 		_body.rotate(_body.spin_axis(), spin * dt)
