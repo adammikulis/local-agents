@@ -57,11 +57,11 @@ func _ready() -> void:
 	_loop.name = "SimLoop"
 	add_child(_loop)
 	_loop.hold()
-	_loop.seeding.connect(func(_tick: int) -> void:
+	_loop.seeding.connect(func() -> void:
 		if _field.step_driver().seed_tick():
 			_loop.release())
-	_loop.stepped.connect(_heat)
-	_loop.stepped.connect(Callable(_field.step_driver(), "step"))
+	_loop.subscribe(_heat)
+	_loop.subscribe(Callable(_field.step_driver(), "step"))
 
 
 ## The LAMaterialField3D this node owns. Call add_heat_energy(), temp_at() and friends on it

@@ -6,6 +6,7 @@
 set -euo pipefail
 
 NATIVE_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+. "${NATIVE_DIR}/../../../scripts/lib_import.sh"
 BUILD_DIR="${NATIVE_DIR}/build"
 THIRDPARTY_DIR="${NATIVE_DIR}/thirdparty"
 CACHE_ROOT="${LA_NATIVE_DEPS_CACHE:-${HOME}/.cache/local-agents/nativedeps}"
@@ -47,8 +48,8 @@ deps_key() {
 		printf '%s\n' "$(uname -s)" "$(uname -m)" "Release" "${LAUNCHER_ARGS[*]:-}"
 		"${CXX:-c++}" --version 2>/dev/null | head -1
 		cmake --version | head -1
-	} | md5 -q 2>/dev/null || {
-		echo "Error: md5 is unavailable, so this tree cannot name its cache entry." >&2
+	} | la_md5_stdin || {
+		echo "Error: no MD5 tool is available, so this tree cannot name its cache entry." >&2
 		exit 1
 	}
 }

@@ -138,7 +138,7 @@ rc=$?
 FRAMES="${LA_BENCH_HS_FRAMES:-8}"
 . "$REPO_ROOT/scripts/lib_rung.sh"
 world="$(la_rung_report 4 "$FRAMES" "radiogenic,all_temp_max")"
-la_rung_require "$world" radiogenic all_temp_max || exit 2
+la_rung_require "$world" radiogenic all_temp_max || exit $?
 printf 'BENCH_HEAT_SLAB_WORLD={"radiogenic":%s,"all_temp_max":%s}\n' \
   "$(la_rung_value "$world" radiogenic)" "$(la_rung_value "$world" all_temp_max)"
 echo "check_bench_heat_slab: OK"

@@ -318,7 +318,7 @@ rc=$?
 FRAMES="${LA_BENCH_PC_FRAMES:-6}"
 . "$REPO_ROOT/scripts/lib_rung.sh"
 world="$(la_rung_report 1 "$FRAMES" "water_liquid_total,ice_cells,all_h2o")"
-la_rung_require "$world" water_liquid_total all_h2o || exit 2
+la_rung_require "$world" water_liquid_total all_h2o || exit $?
 printf 'BENCH_PHASE_CHANGE_WORLD={"water_liquid_total":%s,"all_h2o":%s}\n' \
   "$(la_rung_value "$world" water_liquid_total)" "$(la_rung_value "$world" all_h2o)"
 echo "check_bench_phase_change: OK"

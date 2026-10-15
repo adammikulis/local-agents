@@ -22,6 +22,11 @@ trap 'rm -f "$LOG"' EXIT INT TERM
 LA_RUN_TIMEOUT="${LA_FIELD_BOX_TIMEOUT:-110}" "$ROOT/scripts/run_sim_offscreen.sh" --path "$ROOT" "$SCENE" \
 	-- "--run-frames=$STEPS" > "$LOG" 2>&1
 rc=$?
+[ "$rc" -eq 0 ] || {
+	echo "check_field_box: the box launcher failed (exit $rc)." >&2
+	tail -25 "$LOG" >&2
+	exit 2
+}
 
 python3 - "$LOG" "$rc" "$STEPS" "$TOL" <<'PY'
 import json, re, sys

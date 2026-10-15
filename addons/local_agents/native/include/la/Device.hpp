@@ -4,12 +4,20 @@
 #include <cstdint>
 #include <memory>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
 namespace la {
+
+class DeviceFailure : public std::runtime_error {
+public:
+	using std::runtime_error::runtime_error;
+};
+
+struct DeviceResources { size_t buffers, sets, lists, fences; };
 
 enum class Backend { Metal, Vulkan };
 enum class Usage { Storage, Indirect };
@@ -41,9 +49,11 @@ public:
 	virtual const char *name() const = 0;
 	virtual Backend backend() const = 0;
 	virtual bool supports_timestamps() const = 0;
+	virtual DeviceResources retained_resources() const = 0;
 
 	virtual bool load_kernels(const std::string &blob_path, std::string &err) = 0;
 	virtual size_t kernel_count() const = 0;
+	virtual uint64_t kernel_blob_hash() const = 0;
 	virtual bool has_kernel(std::string_view name) const = 0;
 	// Aborts on an unknown name: a kernel the blob does not carry is a build that did not happen.
 	virtual KernelId kernel(std::string_view name) = 0;

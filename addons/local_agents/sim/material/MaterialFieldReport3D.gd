@@ -210,30 +210,28 @@ func _track_if_measured(r: Dictionary, key: String, register: String) -> void:
 		_extremes.track(register, float(v))
 
 
-## STEPS, the clock the run ends on. Physics frames advance through the seed while steps do not.
-func _is_final_frame() -> bool:
-	var want: int = int(Engine.get_meta("la_run_frames", 0))
-	return want > 0 and LASimLoop.active() != null and LASimLoop.active().step_index() >= want - 1
-
-
+## The instruments, on the loop's committed step: STEPS are the clock the run ends on, and physics frames
+## advance through the seed while steps do not.
 func _heavy_block() -> Dictionary:
-	var frame: int = LASimLoop.active().step_index() if LASimLoop.active() != null else 0
+	var loop: LASimLoop = LASimLoop.active()
+	var frame: int = loop.step_index() if loop != null else 0
 	var every: int = HEAVY_EVERY_FRAMES
 	var ov: String = OS.get_environment("LA_GAUGE_EVERY")
 	if ov != "":
 		every = maxi(int(ov), 1)
-	# Always recompute on the final frame so the report a run is judged on is never a stale cache.
-	if not _heavy_cache.is_empty() and frame - _heavy_frame < every and not _is_final_frame():
+	# The report a run is judged on, its last step's or a failed run's, is never a stale cache.
+	var want: int = int(Engine.get_meta("la_run_frames", 0))
+	var last: bool = loop != null and (loop.failure != "" or want > 0 and frame >= want - 1)
+	if not _heavy_cache.is_empty() and frame - _heavy_frame < every and not last:
 		return _heavy_cache
 	_heavy_frame = frame
 	var d: Dictionary = surface_climate()
 	d.merge(LAFieldHydrosphereSeed.wetness(_f))
 	d.merge(LAFieldPressureAudit.inversions(_f))
-	var step: int = _f._gpu._step_index if _f._gpu != null else 0
 	# momentum — Σ m*v over the air, the third conserved quantity of mechanics.
-	d.merge(_momentum.report(step))
+	d.merge(_momentum.report(frame))
 	# The radiative books ride in with the ledger: they are reduce rows off the device, not a CPU scan.
 	if _f._ledger != null:
-		d.merge(_f._ledger.report(step))
+		d.merge(_f._ledger.report(frame))
 	_heavy_cache = d
 	return d

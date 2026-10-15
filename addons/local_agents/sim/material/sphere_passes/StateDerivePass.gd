@@ -69,7 +69,7 @@ func _buffers(cc: int) -> Dictionary:
 		"org_hc": cc, "org_oc": cc, "org_fresh": cc,
 		"bodyf_x": cc, "bodyf_y": cc, "bodyf_z": cc,
 		"water_rho": {"n": cc, "ghosts": true}, "k_cond": {"n": cc, "ghosts": true}, "gas_r": {"n": cc, "ghosts": true},
-		"gas_gamma": {"n": cc, "ghosts": true}, "mach": cc, "g_rest": {"n": cc * 3, "ghosts": true}, "cap_lith": {"n": cc, "ghosts": true}, "lattice_frac": {"n": cc, "ghosts": true},
+		"gas_gamma": {"n": cc, "ghosts": true}, "mach": cc, "g_rest": {"n": cc, "stride": 3, "ghosts": true}, "cap_lith": {"n": cc, "ghosts": true}, "lattice_frac": {"n": cc, "ghosts": true},
 		"rad_w_m3": {"n": cc, "ghosts": true}, "ke_j_m3": cc, "pe_j_m3": cc, "grav_phi": {"n": cc, "ghosts": true}, "grav_ref": {"n": cc, "ghosts": true}, "lithic_frac": {"n": cc, "ghosts": true}, "lithic_kg": {"n": cc, "ghosts": true},
 		"r_frac": cc, "surface_class": cc, "melt_body": cc, "erupt": cc, "cyclone": cc,
 		"vert_up": cc, "vert_down": cc})
@@ -106,7 +106,7 @@ func dispatch(_rd: RenderingDevice, ctx: Dictionary, cc: int, groups: int) -> vo
 	pc.resize(PC_BYTES)
 	pc.encode_u32(PC_LITHIFY, 1 if LAProcessSet.has_record("derive", "lithify") else 0)
 	pc.encode_u32(0, cc)
-	pc.encode_float(4, LAMaterialFieldSphereStep3D.real_seconds_per_step())
+	pc.encode_float(4, LAMaterialFieldSphereStep3D.SIM_SECONDS_PER_STEP)
 	pc.encode_float(8, w.x)
 	pc.encode_float(12, w.y)
 	pc.encode_float(16, w.z)

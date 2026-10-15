@@ -24,6 +24,9 @@ using Clock = std::chrono::steady_clock;
 
 const std::string RESTATE_KEY = "transport/restate";
 
+// The wait a rig plans every driver against; NAN leaves each its backend's.
+double g_rig_wait_usec = std::numeric_limits<double>::quiet_NaN();
+
 RID rid_at(const Array &a, int i) {
 	if (i < 0 || i >= a.size()) {
 		return RID();
@@ -77,24 +80,28 @@ Ref<LAFieldDriver> LAFieldDriver::on(RenderingDevice *p_rd) {
 	d->_rd = p_rd;
 	RenderingServer *rs = RenderingServer::get_singleton();
 	const bool metal = rs != nullptr && rs->get_current_rendering_driver_name() == "metal";
-	d->set_wait_usec(metal ? double(METAL_FENCE_WAIT_MS) * 1000.0 : std::numeric_limits<double>::infinity());
+	d->_wait_usec = metal ? double(METAL_FENCE_WAIT_MS) * 1000.0 : std::numeric_limits<double>::infinity();
 	return d;
 }
 
-void LAFieldDriver::set_wait_usec(double p_usec) {
-	_wait_usec = p_usec;
+void LAFieldDriver::rig_wait_usec(double p_usec) {
+	g_rig_wait_usec = p_usec;
 }
 
 String LAFieldDriver::aborted() const {
 	return String(_abort.c_str());
 }
 
+double LAFieldDriver::_wait() const {
+	return std::isnan(g_rig_wait_usec) ? _wait_usec : g_rig_wait_usec;
+}
+
 bool LAFieldDriver::_bounded() const {
-	return std::isfinite(_wait_usec);
+	return std::isfinite(_wait());
 }
 
 double LAFieldDriver::_target(const Cost &p_cost) const {
-	return std::sqrt(p_cost.floor_usec * _wait_usec);
+	return std::sqrt(p_cost.floor_usec * _wait());
 }
 
 // No piece of a dispatch finishes sooner than its latency floor; past it, it costs what the last submit that
@@ -243,13 +250,13 @@ bool LAFieldDriver::_room(const std::string &p_key, double p_groups) {
 bool LAFieldDriver::_admit(const std::string &p_key, double p_groups) {
 	const Cost &cost = _costs[p_key];
 	const double alone = cost.known ? _pred(cost, p_groups) : 0.0;
-	if (p_groups == 1.0 && alone > _wait_usec) {
+	if (p_groups == 1.0 && alone > _wait()) {
 		++_refused;
 		_abort = p_key;
 		UtilityFunctions::push_error(vformat("LAFieldDriver: \"%s\" is predicted at %.1f ms in the smallest "
 				"submit it splits into, past the device's %.1f ms fence wait, so it was NOT submitted and the "
 				"step is aborted.",
-				String(p_key.c_str()), alone / 1000.0, _wait_usec / 1000.0));
+				String(p_key.c_str()), alone / 1000.0, _wait() / 1000.0));
 		return false;
 	}
 	_carried.push_back(Carried{ p_key, p_groups });
@@ -768,7 +775,6 @@ Dictionary LAFieldDriver::ledger() const {
 	out["indirect_classes"] = _indirect_classes;
 	out["reads"] = _reads;
 	out["refused"] = _refused;
-	out["aborted"] = aborted();
 	out["over_target"] = _over_target;
 	out["worst_usec"] = _worst_usec;
 	out["last_usec"] = _last_usec;
@@ -779,17 +785,7 @@ Dictionary LAFieldDriver::ledger() const {
 		}
 	}
 	out["floors"] = floors;
-	out["wait_usec"] = _wait_usec;
-	return out;
-}
-
-Dictionary LAFieldDriver::report() const {
-	Dictionary out;
-	out["submit_refused"] = double(_refused);
-	out["submit_worst_ms"] = _worst_usec / 1000.0;
-	if (_bounded()) {
-		out["submit_wait_ms"] = _wait_usec / 1000.0;
-	}
+	out["wait_usec"] = _wait();
 	return out;
 }
 
@@ -839,7 +835,7 @@ Dictionary LAFieldDriver::fold_reduce(const RID &p_partials, const PackedInt32Ar
 
 void LAFieldDriver::_bind_methods() {
 	ClassDB::bind_static_method("LAFieldDriver", D_METHOD("on", "rd"), &LAFieldDriver::on);
-	ClassDB::bind_method(D_METHOD("set_wait_usec", "usec"), &LAFieldDriver::set_wait_usec);
+	ClassDB::bind_static_method("LAFieldDriver", D_METHOD("rig_wait_usec", "usec"), &LAFieldDriver::rig_wait_usec);
 	ClassDB::bind_method(D_METHOD("aborted"), &LAFieldDriver::aborted);
 	ClassDB::bind_method(D_METHOD("open"), &LAFieldDriver::open);
 	ClassDB::bind_method(D_METHOD("close"), &LAFieldDriver::close);
@@ -862,7 +858,6 @@ void LAFieldDriver::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("fold_reduce", "partials", "folds", "keys", "groups"),
 			&LAFieldDriver::fold_reduce);
 	ClassDB::bind_method(D_METHOD("ledger"), &LAFieldDriver::ledger);
-	ClassDB::bind_method(D_METHOD("report"), &LAFieldDriver::report);
 	ClassDB::bind_static_method("LAFieldDriver", D_METHOD("dispatched_block", "pc", "stride", "phase"),
 			&LAFieldDriver::dispatched_block);
 

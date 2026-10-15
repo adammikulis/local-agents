@@ -1340,30 +1340,58 @@ Dictionary LAPlanetComposition::site_box(Object *p_terrain, bool p_coast, const 
 }
 
 // Saturated pore column standing ABOVE the sea under ground at elevation p_e_m, m of water per m^2, with
-// the table p_h_m over the sea: Athy porosity integrated from the table down to sea level.
-static double pore_above_sea(double p_e_m, double p_h_m, double p_phi0, double p_zc, double p_aquifer_m) {
+// the table p_h_m over the sea: the crust's porosity phi_0 exp(-sigma' / P_c) down a frame of grains at
+// p_rho_g under p_g, dry over the table and buoyed by water at p_rho_w under it. With u = 1 - phi the frame
+// deepens by dsigma' / (rho g u) and holds phi dsigma' / (rho g u), both closed forms in ln u.
+static double pore_above_sea(double p_e_m, double p_h_m, double p_aquifer_m, double p_phi0, double p_pc,
+		double p_rho_g, double p_rho_w, double p_g) {
 	const double z_hi = std::min(std::max(p_e_m, 0.0), p_aquifer_m);
 	const double z_wt = std::max(p_e_m - p_h_m, 0.0);
 	if (!(z_hi > z_wt)) {
 		return 0.0;
 	}
-	return p_phi0 * p_zc * (std::exp(-z_wt / p_zc) - std::exp(-z_hi / p_zc));
+	auto u = [&](double p_s) { return 1.0 - p_phi0 * std::exp(-p_s / p_pc); };
+	// sigma' a depth p_z below the level where it is p_s0, down a frame of density p_rho.
+	auto reach = [&](double p_s0, double p_rho, double p_z) {
+		const double w = p_rho * p_g * p_z;
+		double lo = p_s0 + w * u(p_s0), hi = p_s0 + w;
+		for (int i = 0; i < 200 && lo < hi; i++) {
+			const double mid = 0.5 * (lo + hi);
+			if (mid <= lo || mid >= hi) {
+				break;
+			}
+			if (mid - p_s0 + p_pc * std::log(u(mid) / u(p_s0)) < w) {
+				lo = mid;
+			} else {
+				hi = mid;
+			}
+		}
+		return 0.5 * (lo + hi);
+	};
+	const double buoyed = p_rho_g - p_rho_w;
+	const double s_wt = reach(0.0, p_rho_g, z_wt);
+	const double s_hi = reach(s_wt, buoyed, z_hi - z_wt);
+	return p_pc * std::log(u(s_hi) / u(s_wt)) / (buoyed * p_g);
 }
 
 double LAPlanetComposition::water_table_m(double p_r_m, double p_groundwater_m3, double p_sea_level_m,
-		const PackedFloat64Array &p_area_below, const PackedFloat64Array &p_elevation_m) {
+		const PackedFloat64Array &p_area_below, const PackedFloat64Array &p_elevation_m, double p_g,
+		double p_rho_grain, double p_rho_water) {
 	const int n = std::min(p_area_below.size(), p_elevation_m.size());
-	const double phi0 = la_physical("REGOLITH_SURFACE_POROSITY");
-	const double zc = la_physical("COMPACTION_LENGTH_M");
+	const double phi0 = la_physical("CRUST_SURFACE_POROSITY");
+	const double pc = la_physical("CRUST_POROSITY_CLOSURE_PA");
 	const double aq = la_physical("GROUNDWATER_CIRCULATION_M");
-	if (n < 2 || !(p_r_m > 0.0) || !(phi0 > 0.0) || !(zc > 0.0) || !(aq > 0.0)) {
-		return 0.0;
+	if (n < 2 || !(p_r_m > 0.0) || !(phi0 > 0.0) || !(pc > 0.0) || !(aq > 0.0) || !(p_g > 0.0)
+			|| !(p_rho_grain > p_rho_water) || !(p_rho_water > 0.0)) {
+		return NAN;
 	}
 	auto volume = [&](double h) {
 		double acc = 0.0;
 		for (int i = 1; i < n; i++) {
-			const double a = pore_above_sea(p_elevation_m[i - 1] - p_sea_level_m, h, phi0, zc, aq);
-			const double b = pore_above_sea(p_elevation_m[i] - p_sea_level_m, h, phi0, zc, aq);
+			const double a = pore_above_sea(p_elevation_m[i - 1] - p_sea_level_m, h, aq, phi0, pc, p_rho_grain,
+					p_rho_water, p_g);
+			const double b = pore_above_sea(p_elevation_m[i] - p_sea_level_m, h, aq, phi0, pc, p_rho_grain,
+					p_rho_water, p_g);
 			acc += 0.5 * (a + b) * (p_area_below[i] - p_area_below[i - 1]);
 		}
 		return 4.0 * kPi * p_r_m * p_r_m * acc;
@@ -1373,7 +1401,7 @@ double LAPlanetComposition::water_table_m(double p_r_m, double p_groundwater_m3,
 	if (volume(hi) < p_groundwater_m3) {
 		UtilityFunctions::push_error("LAPlanetComposition: the body declares more groundwater than the pore "
 				"space standing over its sea can hold, so the table would stand above the ground everywhere.");
-		return hi;
+		return NAN;
 	}
 	double lo = 0.0;
 	for (int i = 0; i < 64; i++) {
@@ -1454,7 +1482,7 @@ void LAPlanetComposition::_bind_methods() {
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("footprint_ground", "surface", "dir", "body_r_m", "sea_r_m", "footprint_m"), &footprint_ground);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("site_box", "terrain", "coast", "offset", "dims", "cell_m", "surface_axis"), &site_box);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("coast_site", "surface", "body_r_m", "sea_r_m", "footprint_m"), &coast_site);
-	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("water_table_m", "r_m", "groundwater_m3", "sea_level_m", "area_below", "elevation_m"), &water_table_m);
+	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("water_table_m", "r_m", "groundwater_m3", "sea_level_m", "area_below", "elevation_m", "g", "rho_grain", "rho_water"), &water_table_m);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("mg_number"), &mg_number);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("an_fraction"), &an_fraction);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("apatite_f_fraction"), &apatite_f_fraction);

@@ -47,8 +47,8 @@ const QueriesScript: GDScript = preload("res://addons/local_agents/sim/material/
 const InjectScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldInject3D.gd")
 const SphereStepScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd")
 const OrganicScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldOrganic3D.gd")
+var _ready_sim: bool = false
 var _gpu = null                                          # LAMaterialSphereGPU3D or null
-var _use_gpu: bool = false
 var _queries = null                                      # LAMaterialFieldQueries3D
 var _inject = null                                       # LAMaterialFieldInject3D (write-side injection)
 var _stamp = null                                        # LAMineralStamp3D — solid-flag -> SDF growth stamp
@@ -148,7 +148,6 @@ func sea_radius() -> float:
 	return 0.0
 
 
-var _ready_sim: bool = false
 var _seal = null
 
 
@@ -260,7 +259,6 @@ func activate() -> void:
 		# The GPU driver runs the kernels over the grid's neighbour SSBO.
 		_gpu = SphereGPUScript.new()
 		_gpu.setup(self)
-		_use_gpu = true
 	_boundary.attach(_gpu)                # uploads the redirect table + supplied ghost tails
 	_inject = InjectScript.new()
 	_inject.setup(self)
@@ -276,7 +274,6 @@ func activate() -> void:
 	_ejecta.setup(self)
 	add_child(_ejecta)                            # books its parcels' launches and landings
 	_capture = CaptureScript.maybe_make(self)
-	_ready_sim = true
 
 
 ## Rock fraction per cell from the terrain's signed distance; the solid flag is the half-full cell.

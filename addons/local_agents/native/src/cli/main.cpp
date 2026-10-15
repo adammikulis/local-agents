@@ -1,4 +1,5 @@
 #include "Selftest.hpp"
+#include "Service.hpp"
 #include "field/FieldRun.hpp"
 #include "la/Device.hpp"
 
@@ -14,6 +15,7 @@ namespace {
 
 const char *kUsage =
 		"Usage: lasim [--backend metal|vulkan] [--device N] [--kernels FILE]\n"
+		"             [--serve --publications DIRECTORY]\n"
 		"             [--selftest-device | --selftest-kernels]\n"
 		"             [--property-tests [--seed N] [--only NAME]]\n"
 		"             [--load SNAPSHOT --plan PLAN --passes derive,reduce [--steps N]\n"
@@ -28,10 +30,12 @@ std::string blob_beside(const char *argv0) {
 
 } // namespace
 
-int main(int argc, char **argv) {
+int main(int argc, char **argv) try {
 	la::Backend backend = la::Backend::Metal;
 	int index = 0;
 	std::string blob;
+	bool want_service = false;
+	std::string publications;
 	bool want_device = false;
 	bool want_kernels = false;
 	bool want_properties = false;
@@ -57,6 +61,10 @@ int main(int argc, char **argv) {
 			index = std::atoi(argv[++i]);
 		} else if (a == "--kernels" && i + 1 < argc) {
 			blob = argv[++i];
+		} else if (a == "--serve") {
+			want_service = true;
+		} else if (a == "--publications" && i + 1 < argc) {
+			publications = argv[++i];
 		} else if (a == "--selftest-device") {
 			want_device = true;
 		} else if (a == "--selftest-kernels") {
@@ -89,7 +97,7 @@ int main(int argc, char **argv) {
 		}
 	}
 	const bool want_field = !run.snapshot.empty() || !run.plan.empty() || !run.passes.empty();
-	if (!want_device && !want_kernels && !want_properties && !want_field) {
+	if (!want_service && !want_device && !want_kernels && !want_properties && !want_field) {
 		std::fputs(kUsage, stderr);
 		return 2;
 	}
@@ -98,6 +106,17 @@ int main(int argc, char **argv) {
 		return 2;
 	}
 	if (blob.empty()) { blob = blob_beside(argv[0]); }
+	if (want_service) {
+		if (publications.empty() || want_field || want_device || want_kernels || want_properties) {
+			std::fputs("lasim: --serve requires --publications and exclusive service operation.\n", stderr);
+			return 2;
+		}
+		return lasim::serve(backend, index, blob, publications);
+	}
+	if (!publications.empty()) {
+		std::fputs("lasim: --publications requires --serve.\n", stderr);
+		return 2;
+	}
 	run.blob = blob;
 	if (!have_seed) {
 		seed = static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
@@ -125,4 +144,8 @@ int main(int argc, char **argv) {
 	}
 	std::printf("LA_RUN_COMPLETE={\"code\":%d}\n", code);
 	return code;
+} catch (const la::DeviceFailure &error) {
+	std::fprintf(stderr, "lasim: GPU execution failed: %s\n", error.what());
+	std::printf("LA_RUN_COMPLETE={\"code\":2}\n");
+	return 2;
 }

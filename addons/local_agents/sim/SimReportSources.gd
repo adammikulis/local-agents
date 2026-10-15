@@ -16,8 +16,8 @@ static func population(w) -> Dictionary:
 		if String(c.get("state")) == "drink":
 			drinkers += 1
 	var n_fire: int = 0
-	if w._ecology != null and w._ecology.has_method("fire_system"):
-		var fsys = w._ecology.fire_system()
+	if w._ecology != null:
+		var fsys = w._ecology.material_field()
 		if fsys != null and fsys.has_method("active_fire_count"):
 			n_fire = fsys.active_fire_count()
 	return {

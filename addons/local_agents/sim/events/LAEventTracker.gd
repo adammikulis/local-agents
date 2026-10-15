@@ -114,8 +114,8 @@ func _snapshot() -> Dictionary:
 
 
 func _fire_count() -> int:
-	if _ecology != null and _ecology.has_method("fire_system"):
-		var fs = _ecology.fire_system()
+	if _ecology != null and _ecology.has_method("material_field"):
+		var fs = _ecology.material_field()
 		if fs != null and fs.has_method("active_fire_count"):
 			return int(fs.active_fire_count())
 	return 0

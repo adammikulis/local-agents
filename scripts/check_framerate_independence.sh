@@ -56,7 +56,7 @@ PRESENTATION_ALLOW = {
     f"{SIM}/ecology/BandChronicle.gd": "historian: writes dated records to the backstory store, not the field",
 }
 
-# R3 allowlist. A RATCHET — entries are removed as each module moves onto LASimLoop.stepped, never added.
+# R3 allowlist. A RATCHET — entries are removed as each module moves onto LASimLoop.subscribe, never added.
 # Each entry ticks its own integrator, or follows its LABallistics bodies, on the engine's physics tick.
 PHYSICS_TICK_ALLOW = {
     f"{SIM}/actors/Tree.gd": "advances its own topple swing each engine tick",
@@ -120,7 +120,7 @@ for rel in gd_files(SIM) + gd_files(GAME):
             if R3_RE.match(l):
                 violations.append(
                     f"{rel}:{i+1}: R3 sim module runs on the ENGINE's physics tick\n"
-                    f"    subscribe to LASimLoop.stepped instead; only {SIM_LOOP} may hold _physics_process")
+                    f"    step through LASimLoop.subscribe() instead; only {SIM_LOOP} may hold _physics_process")
 
     if "_process" not in funcs:
         continue
@@ -153,7 +153,7 @@ for rel in gd_files(SIM) + gd_files(GAME):
         if R2_RE.match(l):
             violations.append(
                 f"{rel}:{i+1}: R2 module integrates the RENDER delta in _process\n"
-                f"    subscribe to LASimLoop.stepped, or add it to PRESENTATION_ALLOW with a reason")
+                f"    step through LASimLoop.subscribe(), or add it to PRESENTATION_ALLOW with a reason")
 
 if violations:
     print("FRAMERATE-INDEPENDENCE GATE FAILED")

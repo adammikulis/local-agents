@@ -6,6 +6,7 @@
 #include "LAScriptCall.hpp"
 
 #include <godot_cpp/core/class_db.hpp>
+#include <godot_cpp/classes/json.hpp>
 #include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
@@ -59,10 +60,29 @@ std::vector<Share> shares_of(const Dictionary &p_mole_fractions) {
 
 } // namespace
 
+bool LAFieldFill::valid_spec(const Variant &p_fill) {
+	if (p_fill.get_type() != Variant::DICTIONARY) { return false; }
+	const Dictionary fill = p_fill;
+	if (fill.is_empty()) { return true; }
+	const Variant fractions = fill.get("mole_fractions", Variant());
+	const Variant pressure = fill.get("pressure_pa", Variant());
+	return fractions.get_type() == Variant::DICTIONARY
+			&& (pressure.get_type() == Variant::FLOAT || pressure.get_type() == Variant::INT);
+}
+
+String LAFieldFill::cache_key(const String &p_base, const Dictionary &p_fill, double p_temp_c) {
+	if (p_base.is_empty()) { return p_base; }
+	Dictionary declaration;
+	declaration["fill"] = p_fill;
+	declaration["temp_c"] = p_temp_c;
+	return (p_base + JSON::stringify(declaration, String(), true, true)).sha256_text();
+}
+
 double LAFieldFill::gas_molar_density(const Dictionary &p_mole_fractions, double p_temp_c, double p_pressure_pa) {
 	const std::vector<Share> shares = shares_of(p_mole_fractions);
 	const double t_k = p_temp_c + la_physical("KELVIN_OFFSET");
-	if (shares.empty() || !(t_k > 0.0) || !(p_pressure_pa > 0.0)) {
+	if (shares.empty() || !(t_k > 0.0) || !std::isfinite(t_k)
+			|| !(p_pressure_pa > 0.0) || !std::isfinite(p_pressure_pa)) {
 		UtilityFunctions::push_error("LAFieldFill: no mixture, or a temperature or pressure at or below zero.");
 		return NAN;
 	}
@@ -144,6 +164,8 @@ bool LAFieldFill::lay_gas(Object *p_field, const Dictionary &p_mole_fractions, d
 }
 
 void LAFieldFill::_bind_methods() {
+	ClassDB::bind_static_method("LAFieldFill", D_METHOD("valid_spec", "fill"), &LAFieldFill::valid_spec);
+	ClassDB::bind_static_method("LAFieldFill", D_METHOD("cache_key", "base", "fill", "temp_c"), &LAFieldFill::cache_key);
 	ClassDB::bind_static_method("LAFieldFill",
 			D_METHOD("gas_molar_density", "mole_fractions", "temp_c", "pressure_pa"), &LAFieldFill::gas_molar_density);
 	ClassDB::bind_static_method("LAFieldFill", D_METHOD("lay_gas", "field", "mole_fractions", "temp_c", "pressure_pa"),

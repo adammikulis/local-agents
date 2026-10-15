@@ -1,4 +1,5 @@
 #include "la/KernelBlob.hpp"
+#include "la/ContentHash.hpp"
 
 #include <cstdio>
 #include <cstring>
@@ -9,14 +10,6 @@ namespace {
 constexpr char kMagic[8] = {'L', 'A', 'K', 'B', 'L', 'O', 'B', '\0'};
 constexpr uint32_t kVersion = 1;
 
-uint64_t fnv1a(const uint8_t *data, size_t n) {
-	uint64_t h = 1469598103934665603ull;
-	for (size_t i = 0; i < n; ++i) {
-		h ^= data[i];
-		h *= 1099511628211ull;
-	}
-	return h;
-}
 
 void put_u32(std::vector<uint8_t> &out, uint32_t v) {
 	out.insert(out.end(), reinterpret_cast<uint8_t *>(&v), reinterpret_cast<uint8_t *>(&v) + 4);
@@ -86,7 +79,7 @@ bool KernelBlob::write(const std::string &path, const KernelBlob &blob, std::str
 		}
 	}
 
-	const uint64_t hash = fnv1a(body.data(), body.size());
+	const uint64_t hash = la::content_hash(body.data(), body.size());
 	FILE *fh = std::fopen(path.c_str(), "wb");
 	if (fh == nullptr) {
 		err = "cannot open " + path + " for writing";
@@ -133,7 +126,7 @@ bool KernelBlob::read(const std::string &path, KernelBlob &blob, std::string &er
 	}
 	const uint8_t *body = raw.data() + sizeof(kMagic) + 12;
 	const size_t body_size = raw.size() - sizeof(kMagic) - 12;
-	if (fnv1a(body, body_size) != stored) {
+	if (la::content_hash(body, body_size) != stored) {
 		err = path + " does not hash to what it was written with; it is corrupt or truncated";
 		return false;
 	}
@@ -168,6 +161,7 @@ bool KernelBlob::read(const std::string &path, KernelBlob &blob, std::string &er
 		err = path + " carries bytes past its last kernel";
 		return false;
 	}
+	blob.content_hash = la::content_hash(raw.data(), raw.size());
 	return true;
 }
 

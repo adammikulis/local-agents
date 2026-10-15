@@ -14,7 +14,7 @@ func track(key: String, value: float) -> void:
 	if not is_finite(value):
 		return                              # a NaN would poison min/max forever; drop it and keep the register usable
 	var frame: int = int(Engine.get_physics_frames())
-	var sim_s: float = LASimReport.gauge_cur("field_sim_s", 0.0)
+	var sim_s: float = LASimLoop.active().elapsed_s() if LASimLoop.active() != null else 0.0
 	var r: Dictionary = _rec.get(key, {})
 	if r.is_empty():
 		_order.append(key)

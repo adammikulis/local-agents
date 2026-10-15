@@ -12,6 +12,8 @@ class LAFieldFill : public RefCounted {
 	GDCLASS(LAFieldFill, RefCounted);
 
 public:
+	static bool valid_spec(const Variant &p_fill);
+	static String cache_key(const String &p_base, const Dictionary &p_fill, double p_temp_c);
 	// mol/m^3 of the mixture whose one-fluid Peng-Robinson pressure, `LAPhaseEosFn::mixture_pressure`, is
 	// `p_pressure_pa` at `p_temp_c`. NAN, with the reason pushed, where no fluid root stands there.
 	static double gas_molar_density(const Dictionary &p_mole_fractions, double p_temp_c, double p_pressure_pa);

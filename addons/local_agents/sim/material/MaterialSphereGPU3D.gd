@@ -2,8 +2,6 @@ class_name LAMaterialSphereGPU3D
 extends RefCounted
 
 
-## Views of LAChannels, the one declaration of what a channel is.
-static func channels() -> PackedStringArray: return LAChannels.channels()
 const SEED_PRODUCTS: PackedStringArray = ["pressure", "p_fluid"]
 
 
@@ -82,13 +80,13 @@ func setup(field) -> void:
 		push_error("LAMaterialSphereGPU3D: no RenderingDevice")
 		return
 	_driver = LAFieldDriver.on(_rd)
-	LASimReport.register(_driver.report)
+	LASimReport.register(_submit_report)
 	_mirrors = field._mirrors
 	_mirrors.set_device(_rd)
 	_groups = int(ceil(float(_cc) / 64.0))
 	var tc: int = _cc + _ng
 
-	for name in channels():
+	for name in LAChannels.channels():
 		_bufs[name] = _new_f(tc)
 		_buf_owner[name] = "LAChannels.rows()"
 	for name in LAChannels.derived_buffers():
@@ -171,7 +169,7 @@ func setup(field) -> void:
 		if String(key).begins_with("bnd_"):
 			_bnd_rids.append(_bufs[key])
 	# Every name a drain can ask for is a channel or a derived buffer, so this many slots cannot overflow.
-	_staging_slots = channels().size() + LAChannels.derived_buffers().size()
+	_staging_slots = LAChannels.channels().size() + LAChannels.derived_buffers().size()
 	_staging = _rd.storage_buffer_create(_staging_slots * _cc * 4)
 
 
@@ -188,9 +186,9 @@ func _allocate_declared(p: RefCounted, label: String) -> void:
 		var spec: Variant = want[key]
 		var n: int = int(spec["n"]) if spec is Dictionary else int(spec)
 		var indirect: bool = spec is Dictionary and bool(spec.get("indirect", false))
-		# A per-cell buffer a kernel indexes by ghost tail cells declares {"ghosts": true}.
+		# A per-cell buffer a kernel indexes by ghost tail cells declares {"ghosts": true}; "stride" per cell.
 		if spec is Dictionary and bool(spec.get("ghosts", false)):
-			n += _ng
+			n = (n + _ng) * int(spec.get("stride", 1))
 		# A per-FACE buffer declares {"faces": true}: the grid's face list is its length.
 		if spec is Dictionary and bool(spec.get("faces", false)):
 			n = _face_count
@@ -224,7 +222,7 @@ func begin_frame() -> void:
 	if _solid_dirty:
 		LAFieldCellMass3D.upload_solid(_rd, _bufs, _field)
 		_solid_dirty = false
-	_ctx["dt"] = LAMaterialFieldSphereStep3D.real_seconds_per_step()   # simulated seconds, not the cadence
+	_ctx["dt"] = LAMaterialFieldSphereStep3D.SIM_SECONDS_PER_STEP   # simulated seconds, not the cadence
 	_ctx["cell_size"] = _grid.cell_size
 	_ctx["cell_size_min"] = _grid.cell_size * pow(0.5, float(_grid.max_level))
 	# The SOLVED gravity, for the handful of scalar laws a pass evaluates once. A per-cell law reads the
@@ -264,29 +262,39 @@ func mark_h_dirty() -> void:
 	_h_dirty = true
 
 
-func step() -> void:
+## One field step, dispatched; false when it was not.
+func step() -> bool:
 	if _rd == null:
-		return
+		return false
 	if _pending:
 		_rd.sync()
 		_pending = false
 	_ctx["step_index"] = _step_index
-	_ctx["dt_s"] = LAMaterialFieldSphereStep3D.real_seconds_per_step()
+	_ctx["dt_s"] = LAMaterialFieldSphereStep3D.SIM_SECONDS_PER_STEP
 	_driver.pre_step(_passes, _ctx, _cc, _groups)
 	_driver.clear_buffers(_bnd_rids, _cc * 4)
 	# Every submit of the step is waited on inside it; an empty tail stays in flight for the drain's sync.
 	_driver.step(_passes, _pass_names, _ctx, _cc, _groups, _step_probe)
-	if _refused("field step %d" % _step_index):
-		return
+	if refused("field step %d" % _step_index):
+		return false
 	_pending = true
+	return true
 
 
-## A REFUSED PIECE ENDS THE RUN: the step it fell in is neither drained nor counted, and the loop stops.
-func _refused(what: String) -> bool:
-	var loop: LASimLoop = LASimLoop.active()
-	if _driver.aborted() != "" and loop != null and loop.failure == "":
-		loop.failure = "%s aborted: the driver refused \"%s\"" % [what, _driver.aborted()]
-	return _driver.aborted() != ""
+## A REFUSED PIECE ENDS THE RUN: true once the driver has refused one, and the loop is told what fell, so
+## the step it fell in is neither drained nor committed.
+func refused(what: String) -> bool:
+	var piece: String = _driver.aborted()
+	if piece != "" and LASimLoop.active() != null:
+		LASimLoop.active().fail("%s aborted: the driver refused \"%s\"" % [what, piece])
+	return piece != ""
+
+
+## The driver's ledger as the report states it, in ms. A device that waits without limit has no wait.
+func _submit_report() -> Dictionary:
+	var led: Dictionary = _driver.ledger()
+	return {"submit_refused": float(led["refused"]), "submit_worst_ms": float(led["worst_usec"]) / 1000.0,
+		"submit_wait_ms": float(led["wait_usec"]) / 1000.0 if is_finite(float(led["wait_usec"])) else null}
 
 
 ## Signature: `probe.call(pass_index: int, pass_name: String)`, pass_index -1 = before any pass ran.
@@ -364,7 +372,7 @@ func derive_seeded(sealing: bool = false) -> void:
 		_driver.open()
 		_passes[i].dispatch(_rd, _ctx, _cc, _groups)
 		_driver.close()
-		if _refused("the seeded derive"):
+		if refused("the seeded derive"):
 			break
 		_passes[i]._drain(_rd)
 	_ctx.erase("seeding")

@@ -68,13 +68,13 @@ jobs:
         # A fresh checkout has no .godot cache, so the .glsl kernels are unimported and every class_name is
         # unregistered. The Godot-backed gates (reaction balance, whole-tree parse) read both.
         run: |
-          godot --headless --path . --import 2>&1 | tail -5 || true
+          scripts/godot_import.sh .
 
       - name: Register class names
         # A fresh checkout has no global script class cache, so a `class_name` is unregistered and every
         # script typing one fails to parse. scripts/new_worktree.sh does this locally for the same reason.
         run: |
-          scripts/editor_scan.sh --path . || true
+          scripts/editor_scan.sh --path .
 
       - name: Lint
         # LA_NO_GPU skips exactly the kind=gpu rows of scripts/gates.toml, which check_gpu_gate_list.sh

@@ -402,7 +402,7 @@ and a harness, and its script contains no world-building code at all.
 | `world_type` | both | `SPHERE` (planet in a box field) or `FLAT` (ground plane plus a box field) |
 | `build_on_ready` | both | build automatically, or call `spawn_world()` yourself |
 | `world_seed` | both | the seed terrain generation and every random draw derive from |
-| `body_seed`, `caves_enabled`, `tides_enabled` | SPHERE | which body is seeded, and its toggles |
+| `body_seed`, `caves_enabled` | SPHERE | which body is seeded, and its toggle |
 | `grid_res` | SPHERE | field cells along one edge of the box |
 | `slice_cells`, `slice_cell_size_m`, `slice_fine_m`, `slice_offset_m` | SPHERE | a slice box laid on the body instead of one around it |
 | `star` | SPHERE | the star the body orbits; unset, the build makes the one `LABodySeeds` declares |
