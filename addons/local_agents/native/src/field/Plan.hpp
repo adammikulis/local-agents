@@ -45,6 +45,7 @@ struct PlanRow {
 enum Fold : uint32_t { FoldSum = 0, FoldMin = 1, FoldMax = 2, FoldSkip = 3 };
 
 struct Plan {
+	uint64_t content_hash = 0;
 	uint32_t version = 0;
 	uint32_t cells = 0;
 	uint32_t reduce_groups = 0;

@@ -24,6 +24,7 @@ target_include_directories(la_device PUBLIC include)
 
 if (APPLE)
     enable_language(OBJCXX)
+    set_source_files_properties(src/cli/Service.cpp PROPERTIES LANGUAGE OBJCXX COMPILE_OPTIONS "-fobjc-arc")
     target_sources(la_device PRIVATE src/device/DeviceMetal.mm)
     set_source_files_properties(src/device/DeviceMetal.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
     target_compile_definitions(la_device PUBLIC LA_BACKEND_METAL=1)
@@ -41,10 +42,15 @@ set(LA_KERNEL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../sim/material/kernels3d")
 
 add_executable(lasim
     src/cli/main.cpp
+    src/cli/Service.cpp
+    src/cli/ServiceProtocol.cpp
     src/cli/SelftestDevice.cpp
     src/cli/SelftestKernels.cpp
     src/cli/PropertyTests.cpp
     src/field/FieldRun.cpp
+    src/field/FieldSession.cpp
+    src/field/ViewPublication.cpp
+    src/field/FieldView.cpp
     src/field/Plan.cpp
     src/field/Snapshot.cpp
     src/tests/Lattice.cpp
