@@ -1,7 +1,8 @@
 # PHYSICS TODO — the one list
 
-**This is the only list of physics work that is left.** Work comes from here, and anything found goes in
-here. An item leaves this file when it is implemented and verified, never when it is worked around.
+**This is the only list of physics requirements.** The [0.4 release scope](0.4_RELEASE_SCOPE.md)
+selects which active paths must ship. Preserve every other requirement for planet development.
+An item leaves this file when it is implemented and verified, never when it is worked around.
 
 **A departure from real physics may not be added to close an item.** If an item cannot be done correctly,
 it stays open and the maintainer is asked. See `CLAUDE.md`.
@@ -25,15 +26,13 @@ rock record can confirm beats seeding one at an epoch only models describe. Iron
 planet's mass; it starts in a core instead of forming one. A magma ocean also gives the built substrate —
 rivers, weathering, sediment, aquifers — nothing to act on.
 
-Free O2 at zero is correct. There is no photosynthesis, no biological nitrogen fixation, no litter and no
-biosphere — LIVING THINGS AND THEIR BEHAVIOUR are 0.5 work, and nothing else is. Radiogenic abundances
-belong at formation, not today. An item is open here only if it is wrong for a lifeless planet of that age.
+Free O2 at zero is correct for the lifeless referent. There is no photosynthesis, biological nitrogen
+fixation, litter or biosphere. Radiogenic abundances belong at formation, not today.
+An item is open here only if it is wrong for a lifeless planet of that age.
 
-**ALL OF THE PLANET'S MASS IS SEEDED IN 0.4, AND ITS ELEMENTAL COMPOSITION MUST BE THE REAL ONE.** No
-element waits for a later version. The tell that this was misread: "a biosphere is 0.5" was taken to mean
-"carbon is 0.5", and the planet ended up made of one mineral. Chemistry is not biology — a process runs in
-0.4 unless it needs a living organism to catalyse it. Weathering, clay formation, serpentinization,
-outgassing, ore concentration and abiotic organic synthesis are all 0.4.
+The comprehensive planet model requires its real elemental composition. Chemistry is not biology:
+weathering, clay formation, serpentinization, outgassing, ore concentration and abiotic organic
+synthesis remain planet requirements. Their release timing follows [the release scope](0.4_RELEASE_SCOPE.md).
 
 ## The grid is Cartesian with axis-aligned refinement, and this is SETTLED
 

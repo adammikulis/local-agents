@@ -155,19 +155,15 @@ violation is a decision that needs approval. Translate the euphemism: "minting",
 the simulation creates atoms from nothing. Distrust framings as well as facts: a tracker, a task
 description, a prior agent's report and this file are all claims.
 
-**Every bug you find is in scope.** One you do not fix when you find it never gets fixed. "Not my current
-task", "another lane owns it", "noting it for later" are the tells. This covers the harness and the tooling.
-Fix the class, not the instance: leave a gate behind.
+**Bugs in active release paths are in scope.** Fix the class and leave a gate. Broader planet
+requirements remain in `docs/PHYSICS_TODO.md` and `docs/PLANET_BACKLOG.md`; extending an absent
+subsystem is not a prerequisite for the usable-planet release.
 
-## Scope: the planet first. Living things are 0.5
+## Scope: a usable planet for creature work
 
-0.4 is the planet. Creature and plant work is premature until the planet is locked down, and the referent
-is the lifeless 4.4 Ga Earth (`docs/PHYSICS_TODO.md`). Locked down means: every conserved substance has a
-drift gauge reading ~0; no physical constant is fitted; springs and rivers run, sediment moves, snow and
-sea ice form at 0 °C, volcanism and weathering are mechanisms; nothing depends on the observer. Touch a
-creature file only when the planet needs it. All of the planet's mass is seeded in 0.4 at its real
-elemental composition; chemistry is not biology, so weathering, clay, serpentinization, outgassing, ore
-concentration and abiotic organic synthesis are 0.4. `docs/0.5_CREATURE_FEATURES.md` is parked.
+Read `docs/0.4_RELEASE_SCOPE.md` before release or planet work; it is the release scope authority.
+0.4 supplies a stable explorable planet. 0.5 starts creature and cognition work after that demo is
+accepted. Preserve the comprehensive physics requirements without making every subsystem a 0.4 gate.
 
 ## The ladder, the slice, and the demos
 

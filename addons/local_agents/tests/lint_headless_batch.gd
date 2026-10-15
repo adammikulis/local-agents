@@ -1,8 +1,8 @@
 extends SceneTree
 
-## ONE HEADLESS LAUNCH FOR EVERY RUNNER THAT ONLY READS TABLES, fenced LA_BATCH_BEGIN=/LA_BATCH_END= so
-## lint_capture.sh splits the log per runner and each prints the verdict its gate reads. A runner with
-## `_after_frame() -> bool` holds the batch, its fence open, until it answers true.
+## ONE HEADLESS LAUNCH FOR EVERY RUNNER THAT ONLY READS TABLES. Output is fenced with
+## LA_BATCH_BEGIN=/LA_BATCH_END= so lint_capture.sh can split the log per runner, and each runner
+## prints the verdict marker its gate reads.
 
 const RUNNERS: Array = [
 	["engine_version", ""],
@@ -23,55 +23,43 @@ const RUNNERS: Array = [
 	["parse_all", "res://scripts/parse_all_scripts.gd"],
 	["hypsometry", "res://scripts/check_hypsometry.gd"],
 	["ablate_modules", "res://addons/local_agents/tests/gate_ablate_modules.gd"],
+	["llm_request_ownership", "res://addons/local_agents/tests/test_llm_request_ownership.gd"],
+	["llm_http_stream", "res://addons/local_agents/tests/check_llm_http_stream.gd"],
 ]
 
-var _row: int = 0
-var _held: Object = null
 
-
-func _run(path: String) -> Object:
+func _run(path: String) -> void:
 	var scr: GDScript = load(path)
 	if scr == null:
 		printerr("lint_headless_batch: %s did not load." % path)
-		return null
+		return
 	var inst: Object = scr.new()
 	if inst == null:
 		printerr("lint_headless_batch: %s did not instantiate." % path)
-		return null
-	if inst.has_method("_initialize"):
+		return
+	if inst.has_method("run_test"):
+		await inst.call("run_test", self)
+	elif inst.has_method("_initialize"):
 		inst.call("_initialize")
-	return inst
+	if inst.has_method("_after_frame"):
+		while not bool(inst.call("_after_frame")):
+			await process_frame
+	if not (inst is RefCounted):
+		inst.free()
 
 
 func _initialize() -> void:
-	_run_rows()
+	call_deferred("_run_all")
 
-
-func _process(_delta: float) -> bool:
-	if _held != null and bool(_held.call("_after_frame")):
-		_close(_held)
-		_held = null
-		_run_rows()
-	return false
-
-
-func _run_rows() -> void:
+func _run_all() -> void:
 	var version: Dictionary = Engine.get_version_info()
-	while _row < RUNNERS.size():
-		var path: String = String(RUNNERS[_row][1])
-		print("LA_BATCH_BEGIN=%s" % String(RUNNERS[_row][0]))
+	for row in RUNNERS:
+		var name: String = String(row[0])
+		var path: String = String(row[1])
+		print("LA_BATCH_BEGIN=%s" % name)
 		if path == "":
 			print("ENGINE_VERSION=%d.%d" % [int(version["major"]), int(version["minor"])])
-		var inst: Object = _run(path) if path != "" else null
-		if inst != null and inst.has_method("_after_frame"):
-			_held = inst
-			return
-		_close(inst)
+		else:
+			await _run(path)
+		print("LA_BATCH_END=%s" % name)
 	quit(0)
-
-
-func _close(inst: Object) -> void:
-	if inst != null and not (inst is RefCounted):
-		inst.free()
-	print("LA_BATCH_END=%s" % String(RUNNERS[_row][0]))
-	_row += 1

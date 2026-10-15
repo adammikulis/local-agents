@@ -40,7 +40,8 @@ KEEP_ENTRIES=4
 # the engine, and this arm's configuration. A docs-only or scripts-only change lints without launching a
 # sim, because nothing the run reads has moved.
 KEY="$("$SCRIPT_DIR/cache_key.sh" capture --path "$ROOT" \
-	"seed=$SEED" "rung=$CAP_RUNG" "frames=$FRAMES" "arm=$ARM" "gpu=${LA_NO_GPU:-0}" 2>/dev/null || echo "")"
+	"seed=$SEED" "rung=$CAP_RUNG" "frames=$FRAMES" "arm=$ARM" "gpu=${LA_NO_GPU:-0}" \
+	"stream_fixture=$(la_md5_stdin < "$ROOT/addons/local_agents/tests/support/chat_stream_server.py")" 2>/dev/null || echo "")"
 if [ -n "$KEY" ] && [ -f "$CACHE_ROOT/$KEY/COMPLETE" ]; then
 	if cp -Rp "$CACHE_ROOT/$KEY/." "$CAP/" 2>/dev/null; then
 		rm -f "$CAP/COMPLETE"
@@ -122,8 +123,12 @@ if [ ! -f "$ROOT/$BATCH_REL" ]; then
 fi
 rm -f "$CAP"/headless/*.log
 BATCH_LOG="$CAP/headless/batch.log"
-LA_GODOT_TIMEOUT="${LA_BATCH_TIMEOUT:-120}" la_godot --headless --path "$ROOT" \
+. "$SCRIPT_DIR/lib_llm_stream_fixture.sh"
+trap 'la_stream_fixture_stop' EXIT
+la_stream_fixture_start "$ROOT" "$CAP/headless" || { echo "lint_capture: stream fixture unavailable." >&2; exit 2; }
+LA_CPU_VALIDATION=1 LA_GODOT_TIMEOUT="${LA_BATCH_TIMEOUT:-120}" la_godot --headless --path "$ROOT" \
 	--log-file "$BATCH_LOG" -s "res://$BATCH_REL" > "$CAP/headless/batch.stdout" 2>&1
+la_stream_fixture_stop
 [ -s "$BATCH_LOG" ] || cp "$CAP/headless/batch.stdout" "$BATCH_LOG"
 
 awk -v dir="$CAP/headless" '

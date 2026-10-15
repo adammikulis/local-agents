@@ -114,6 +114,6 @@ rc=$?
 FRAMES="${LA_BENCH_DC_FRAMES:-8}"
 . "$REPO_ROOT/scripts/lib_rung.sh"
 world="$(la_rung_report 5 "$FRAMES" "all_h2o_pore,wet_cells")"
-la_rung_require "$world" all_h2o_pore || exit 2
+la_rung_require "$world" all_h2o_pore || exit $?
 printf 'BENCH_DARCY_WORLD={"all_h2o_pore":%s}\n' "$(la_rung_value "$world" all_h2o_pore)"
 echo "check_bench_darcy: OK"

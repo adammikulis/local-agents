@@ -29,7 +29,7 @@ layout(push_constant, std430) uniform Params {
 	uint base;         // this row's first partial slot
 	float threshold;
 	uint weight;       // 1 weighs each cell by its own volume, m^3; 0 counts it once
-	uint has_aux;      // 0 none, 1 src*aux, 2 src*(aux + aux2)
+	uint has_aux;      // 0 none, 1 src*aux, 2 src*(aux + aux2), 3 src - aux
 	uint has_gate;     // low bits: 0 none, 1 gate, 2 gate*gate_aux; bit 2: gate_lo is strict; bit 4: held
 	float gate_lo;     // gated cells are those inside [gate_lo, gate_hi)
 	float gate_hi;
@@ -70,6 +70,9 @@ float la_fold(float a, float b) {
 
 float la_raw(uint i) {
 	float v = src[i];
+	if (params.has_aux == 3u) {
+		return v - aux[i];
+	}
 	if (params.has_aux != 0u) {
 		float a = aux[i];
 		if (params.has_aux == 2u) {

@@ -33,7 +33,7 @@ if [ -z "${claims:-}" ] || [ -z "${fails:-}" ] || [ "$claims" -eq 0 ]; then
 	exit 2
 fi
 # THE TWO REFUSALS ARE THE CLAIM; any other engine error means the verdict is not evidence.
-refused='LAAblate\.adopt\("probe_(nested|twice)"\)'
+refused='LAAblate module probe_moved moved under probe_module; released former module ownership\.|LAAblate\.adopt\("probe_(nested|twice)"\)'
 for name in nested twice; do
 	printf '%s\n' "$probe" | grep -q "LAAblate.adopt(\"probe_$name\")" || {
 		echo "check_ablate_modules: the second switch on one node (probe_$name) was taken without a word." >&2

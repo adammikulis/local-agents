@@ -14,6 +14,9 @@ class MockRuntime extends Object:
         var length_score := float(normalized.length()) / 100.0
         return PackedFloat32Array([assistant_score, user_score, length_score])
 
+    func embed_text_with_model(text: String, options: Dictionary = {}) -> Dictionary:
+        return {"ok": true, "vector": embed_text(text, options), "embedding_model": "test-model"}
+
     func _substring_count(text: String, needle: String) -> float:
         if needle == "":
             return 0.0
@@ -30,7 +33,11 @@ func run_test(tree: SceneTree) -> bool:
     return ok
 
 func _exercise(tree: SceneTree) -> bool:
-    var store := LAConversationStore.new()
+    var store: LAConversationStore = LAConversationStore.new()
+    var graph: NetworkGraph = NetworkGraph.new()
+    if not graph.open(":memory:"):
+        return _assert(false, "Could not open isolated conversation fixture")
+    store.set("_graph", graph)
     tree.get_root().add_child(store)
     store.clear_all()
 

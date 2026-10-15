@@ -70,6 +70,9 @@ Dictionary &g_held() {  // module switched off -> {instance id -> {"mode": its o
 }
 
 const char *SHOWN = "visibility_changed";
+const char *CHILD_ENTERED = "child_entered_tree";
+const char *READY = "ready";
+const char *CHILD_EXITING = "child_exiting_tree";
 
 bool g_parsed = false;
 double g_evo = -1.0;
@@ -176,7 +179,7 @@ bool visibility_root(Node *p_node, Node *p_top) {
 }
 
 // Every process owner and visibility root under p_top, with the mode and flag it holds of its own.
-void collect(Node *p_node, Node *p_top, Dictionary &r_rows) {
+void collect(Node *p_node, Node *p_top, Dictionary &r_rows, bool p_recurse) {
 	Dictionary row;
 	if (p_node == p_top || p_node->get_process_mode() != Node::PROCESS_MODE_INHERIT) {
 		row["mode"] = (int)p_node->get_process_mode();
@@ -184,12 +187,11 @@ void collect(Node *p_node, Node *p_top, Dictionary &r_rows) {
 	if (visibility_root(p_node, p_top)) {
 		row["visible"] = (bool)p_node->get("visible");
 	}
-	if (!row.is_empty()) {
-		r_rows[p_node->get_instance_id()] = row;
-	}
+	r_rows[p_node->get_instance_id()] = row;
+	if (!p_recurse) { return; }
 	const TypedArray<Node> kids = p_node->get_children(true);
 	for (int i = 0; i < kids.size(); ++i) {
-		collect(Object::cast_to<Node>(kids[i]), p_top, r_rows);
+		collect(Object::cast_to<Node>(kids[i]), p_top, r_rows, true);
 	}
 }
 
@@ -243,46 +245,108 @@ Callable guard(const Variant &p_id) {
 	return callable_mp_static(&on_shown).bind(p_id);
 }
 
-// One node's subtree off under p_name: every process owner disabled, every visibility root hidden.
-void hold(const String &p_name, Node *p_node) {
+void hold(const String &p_name, Node *p_node, Node *p_top = nullptr, bool p_recurse = true);
+void restore_rows(const String &p_name, const Dictionary &p_rows);
+
+void on_ready(uint64_t p_id, const String &p_name) {
+	Node *top = node_of(p_name);
+	Node *node = node_by_id(p_id);
+	if (top != nullptr && node != nullptr && g_held().has(p_name)
+			&& (top == node || top->is_ancestor_of(node))) { hold(p_name, node, top, false); }
+}
+
+void restore(const String &p_name);
+
+// A module moved inside another module becomes part of that owner's subtree.
+void release_nested(const String &p_name, Node *p_top) {
+	const Array names = g_nodes().keys();
+	for (int i = 0; i < names.size(); ++i) {
+		const String name = names[i];
+		Node *node = node_of(name);
+		if (name == p_name || node == nullptr || !p_top->is_ancestor_of(node)) { continue; }
+		if (g_held().has(name)) { restore(name); }
+		g_nodes().erase(name);
+		ERR_PRINT(String("LAAblate module ") + name + " moved under " + p_name + "; released former module ownership.");
+	}
+}
+
+void on_child_entered(Node *p_child, const String &p_name) {
+	Node *top = node_of(p_name);
+	if (top != nullptr && g_held().has(p_name) && top->is_ancestor_of(p_child)) {
+		release_nested(p_name, top);
+		hold(p_name, p_child, top, false);
+	}
+}
+
+// Restore before the subtree leaves: a new held parent must observe its original state.
+void on_child_exiting(Node *p_child, const String &p_name) {
+	if (!g_held().has(p_name)) { return; }
+	Dictionary held = g_held()[p_name];
+	Dictionary leaving;
+	const Array ids = held.keys();
+	for (int i = 0; i < ids.size(); ++i) {
+		Node *node = node_by_id(ids[i]);
+		if (node == nullptr) { held.erase(ids[i]); continue; }
+		if (node == p_child || p_child->is_ancestor_of(node)) {
+			leaving[ids[i]] = held[ids[i]];
+			held.erase(ids[i]);
+		}
+	}
+	restore_rows(p_name, leaving);
+}
+
+Callable exit_guard(const String &p_name) { return callable_mp_static(&on_child_exiting).bind(p_name); }
+
+Callable child_guard(const String &p_name) { return callable_mp_static(&on_child_entered).bind(p_name); }
+Callable ready_guard(const String &p_name, const Variant &p_id) {
+	return callable_mp_static(&on_ready).bind(p_id, p_name);
+}
+
+void hold(const String &p_name, Node *p_node, Node *p_top, bool p_recurse) {
 	Dictionary held = g_held()[p_name];
 	Dictionary rows;
-	collect(p_node, p_node, rows);
-	Array fresh;
+	collect(p_node, p_top == nullptr ? p_node : p_top, rows, p_recurse);
 	const Array ids = rows.keys();
 	for (int i = 0; i < ids.size(); ++i) {
-		if (!held.has(ids[i])) {
-			held[ids[i]] = rows[ids[i]];
-			fresh.append(ids[i]);
+		Dictionary saved = held.has(ids[i]) ? Dictionary(held[ids[i]]) : Dictionary();
+		const Dictionary observed = rows[ids[i]];
+		const Array fields = observed.keys();
+		for (int j = 0; j < fields.size(); ++j) {
+			if (!saved.has(fields[j])) { saved[fields[j]] = observed[fields[j]]; }
 		}
-	}
-	for (int i = 0; i < fresh.size(); ++i) {
-		Node *node = node_by_id(fresh[i]);
-		if (node != nullptr && Dictionary(held[fresh[i]]).has("mode")) {
-			node->set_process_mode(Node::PROCESS_MODE_DISABLED);
+		held[ids[i]] = saved;
+		Node *node = node_by_id(ids[i]);
+		if (node == nullptr) { continue; }
+		if (saved.has("mode")) { node->set_process_mode(Node::PROCESS_MODE_DISABLED); }
+		const Callable children = child_guard(p_name);
+		if (!node->is_connected(CHILD_ENTERED, children)) { node->connect(CHILD_ENTERED, children); }
+		const Callable exiting = exit_guard(p_name);
+		if (!node->is_connected(CHILD_EXITING, exiting)) { node->connect(CHILD_EXITING, exiting); }
+		const Callable ready = ready_guard(p_name, ids[i]);
+		if (!node->is_node_ready() && !node->is_connected(READY, ready)) {
+			node->connect(READY, ready, Object::CONNECT_ONE_SHOT);
 		}
-	}
-	for (int i = 0; i < fresh.size(); ++i) {
-		Node *node = node_by_id(fresh[i]);
-		if (node == nullptr || !Dictionary(held[fresh[i]]).has("visible")) {
-			continue;
-		}
+		if (!saved.has("visible")) { continue; }
 		node->set("visible", false);
-		const Callable watch = guard(fresh[i]);
-		if (!node->is_connected(SHOWN, watch)) {
-			node->connect(SHOWN, watch, Object::CONNECT_DEFERRED);
-		}
+		const Callable watch = guard(ids[i]);
+		if (!node->is_connected(SHOWN, watch)) { node->connect(SHOWN, watch, Object::CONNECT_DEFERRED); }
 	}
 }
 
 // Every node a switched-off module held, back to its own flag and then its own mode.
-void restore(const String &p_name) {
-	const Dictionary held = g_held()[p_name];
-	g_held().erase(p_name);
+void restore_rows(const String &p_name, const Dictionary &held) {
 	const Array ids = held.keys();
 	for (int i = 0; i < ids.size(); ++i) {
 		Node *node = node_by_id(ids[i]);
 		const Dictionary row = held[ids[i]];
+		if (node != nullptr) {
+			const Callable children = child_guard(p_name);
+			if (node->is_connected(CHILD_ENTERED, children)) { node->disconnect(CHILD_ENTERED, children); }
+			const Callable exiting = exit_guard(p_name);
+			if (node->is_connected(CHILD_EXITING, exiting)) { node->disconnect(CHILD_EXITING, exiting); }
+			const Callable ready = ready_guard(p_name, ids[i]);
+			if (node->is_connected(READY, ready)) { node->disconnect(READY, ready); }
+		}
 		if (node == nullptr || !row.has("visible")) {
 			continue;
 		}
@@ -299,6 +363,12 @@ void restore(const String &p_name) {
 			node->set_process_mode((Node::ProcessMode)(int)row["mode"]);
 		}
 	}
+}
+
+void restore(const String &p_name) {
+	const Dictionary held = g_held()[p_name];
+	g_held().erase(p_name);
+	restore_rows(p_name, held);
 }
 
 } // namespace
@@ -442,8 +512,9 @@ void LAAblate::set_on(const String &p_name, bool p_on) {
 		if (g_held().has(p_name)) {
 			return;
 		}
-		g_held()[p_name] = Dictionary();
 		Node *node = node_of(p_name);
+		if (node != nullptr) { release_nested(p_name, node); }
+		g_held()[p_name] = Dictionary();
 		if (node != nullptr) {
 			hold(p_name, node);
 		}
@@ -593,8 +664,9 @@ double LAAblate::evo_fast() {
 }
 
 void LAAblate::release() {
+	const Array held = g_held().keys();
+	for (int i = 0; i < held.size(); ++i) { restore(held[i]); }
 	g_nodes().clear();
-	g_held().clear();
 	g_want().clear();
 	g_applied().clear();
 	g_fakes().clear();

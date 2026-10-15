@@ -106,7 +106,7 @@ func _allocate_spec(name: String, spec: Variant) -> void:
 		return
 	var n: int = int(spec["n"]) if spec is Dictionary else int(spec)
 	if spec is Dictionary and bool(spec.get("ghosts", false)):
-		n += ghost_count
+		n = (n + ghost_count) * int(spec.get("stride", 1))
 	if spec is Dictionary and bool(spec.get("faces", false)):
 		n = grid.neighbours.size()
 	var indirect: bool = spec is Dictionary and bool(spec.get("indirect", false))

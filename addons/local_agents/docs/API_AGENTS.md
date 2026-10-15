@@ -20,7 +20,7 @@ the runtime never boots in the editor.
 - `model_profile` (LocalAgentModelProfile, default `null`). Load-time knobs. Share one profile between agents to describe the
   weights once.
 - `inference` (LocalAgentInferenceParams, default `null`). Sampling knobs and which backend runs the request.
-- `preload_model` (bool, default `false`). Load the weights in `_ready()` instead of on the first `think()`. Ignored for the
+- `preload_model` (bool, default `false`). Start loading the weights asynchronously at startup. Ignored for the
   llama-server backend, which loads the model in its own process.
 - `use_player_settings` (bool, default `false`). Let the model the player picked in the in-game manager
   (`user://local_agents/model_settings.cfg`) override the three properties above.
@@ -64,8 +64,12 @@ None of the four signal arguments are typed in the source, so a handler may decl
 - `think_completed(result)`. A `think_async()` job finished, on the main thread. `result` has the same shape as the return of
   `think()`.
 
+- `reply_updated(text)`. Cumulative reply text on the main thread while an accepted request generates.
+- `model_load_completed(result)`. An asynchronous model load finished.
+
 #### think_async() and think()
 ```gdscript
+func load_model_async(extra_opts: Dictionary = {}) -> bool
 func think_async(prompt: String, extra_opts: Dictionary = {}) -> bool
 func think(prompt: String, extra_opts: Dictionary = {}) -> Dictionary
 ```
@@ -278,15 +282,15 @@ LocalAgent node renames the speaker.
   It stops there, so two panels under one parent do not grab each other's agent.
 
 #### Exports, group Behaviour
-- `run_async` (bool, default `true`). Use `think_async()` so the frame never blocks. Turning it off makes every send freeze the game
-  until the model finishes.
+- Replies generate asynchronously and stream through `LocalAgent.reply_updated(text)`.
+
 - `send_on_enter` (bool, default `true`). Send when Enter is pressed in the text box.
 - `prompt_prefix` (String, default `""`, multiline). Pasted in front of every prompt on its own line.
-- `auto_load_model` (bool, default `true`). Load the resolved model on the first send if it is not loaded yet. That first send then
-  pauses for as long as the load takes.
+- `auto_load_model` (bool, default `true`). Allow the first request to load the resolved model on its worker thread.
 
 #### Exports, group Presentation
-- `placeholder_text` (String, default `"Type a prompt and press enter..."`).
+- `prompt_starters` (Dictionary[String, String]). Button labels mapped to prompts; each uses the same asynchronous request path.
+- `placeholder_text` (String, default `"Ask anything…"`).
 - `greeting` (String, default `""`, multiline). First line written into the transcript at startup, attributed to the agent.
 - `show_status_bar` (bool, default `true`).
 - `show_user_messages` (bool, default `true`). Off gives a one-sided feed where the agent narrates.

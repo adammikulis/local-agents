@@ -5,6 +5,10 @@ extends SceneTree
 ## answers to one switch; the test-mass module off holds no probe.
 
 
+class LateAlways extends Node:
+	func _ready() -> void:
+		process_mode = Node.PROCESS_MODE_ALWAYS
+
 class Body extends Node3D:
 	func center() -> Vector3: return Vector3.ZERO
 	func angular_velocity_rad_s() -> float: return 0.0
@@ -23,6 +27,9 @@ var _always: Node = null
 var _writer: Node3D = null
 var _clock: CanvasLayer = null
 var _view: Node3D = null
+var _late_always: Node = null
+var _late_layer: CanvasLayer = null
+var _moved: Node3D = null
 
 
 func _claim(ok: bool, msg: String) -> void:
@@ -41,14 +48,42 @@ func _after_frame() -> bool:
 		var live: Window = (Engine.get_main_loop() as SceneTree).root
 		_build(live)
 		_switch_off()
+		_late_always = LateAlways.new()
+		_late_layer = CanvasLayer.new()
+		_module.add_child(_late_always)
+		_module.add_child(_late_layer)
 		_test_masses(live)
 		_one_switch_per_node()
+		_moved = Node3D.new()
+		_moved.process_mode = Node.PROCESS_MODE_ALWAYS
+		live.add_child(_moved)
+		LAAblate.adopt("probe_moved", _moved)
+		LAAblate.set_on("probe_moved", false)
+		_moved.reparent(_module)
+		_claim(not LAAblate.names().has("probe_moved") and not _moved.can_process() and not _moved.visible,
+			"A reparented module retained a second switch or escaped its new owner.")
 		var panels: PackedStringArray = LAAblate.panels()
 		_claim(panels.has("probe_module") and panels.has("probe_clock") and not panels.has("probe_view"),
 			"LAAblate.panels() reads %s: a module holding a CanvasLayer draws over the frame, one drawing only in the world does not." % [panels])
 		return false
-	_claim(not _writer.visible, "A root the module showed while switched off is still drawn.")
+	if _frames == 2:
+		_claim(not _writer.visible, "A root the module showed while switched off is still drawn.")
+		_claim(not _late_always.can_process() and not _late_layer.visible,
+			"A descendant added while its module is off escaped processing or visibility ownership.")
+		var live: Window = (Engine.get_main_loop() as SceneTree).root
+		_late_always.reparent(live)
+		_late_layer.reparent(live)
+		_always.reparent(_clock)
+		LAAblate.set_on("probe_module", true)
+		_claim(not _always.can_process(), "Enabling the former owner released a node held by its new module.")
+		return false
+	_claim(_late_always.can_process() and _late_layer.visible,
+		"A descendant reparented out of an off module retained its former hold.")
 	_switch_on()
+	_claim(_moved.visible and _moved.process_mode == Node.PROCESS_MODE_ALWAYS,
+		"A reparented module lost its own state during ownership transfer.")
+	_claim(_late_always.process_mode == Node.PROCESS_MODE_ALWAYS and _late_layer.visible,
+		"A dynamically added descendant did not regain its intended state.")
 	print('ABLATE_MODULES={"claims":%d,"failures":%d}' % [_claims, _fail])
 	return true
 

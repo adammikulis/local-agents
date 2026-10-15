@@ -13,7 +13,7 @@ KEYS="mach_max,momentum_mass_kg,momentum_cells,h2o_rel_drift,energy_run_drift_re
 KEYS="$KEYS,energy_stock,energy_kinetic,energy_potential"
 out="$(la_rung_report 3 "$FRAMES" "$KEYS")"
 printf '%s\n' "$out" | grep -E '^(mach_max|momentum_mass_kg|momentum_cells|h2o_rel_drift|energy_run_drift_rel|field_cells|energy_stock|energy_kinetic|energy_potential)' || true
-la_rung_require "$out" mach_max momentum_mass_kg momentum_cells h2o_rel_drift energy_run_drift_rel field_cells energy_stock energy_kinetic energy_potential || exit 2
+la_rung_require "$out" mach_max momentum_mass_kg momentum_cells h2o_rel_drift energy_run_drift_rel field_cells energy_stock energy_kinetic energy_potential || exit $?
 
 
 mach="$(la_rung_value "$out" mach_max)"

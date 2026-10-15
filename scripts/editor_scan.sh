@@ -96,7 +96,7 @@ trap 'rm -rf "$LOCK_DIR"; rm -f "$LOG" "$PARSE_LOG"' EXIT
 
 # --- phase 1: the editor scan (class_name + .gdextension registration, import) ------------------------
 scan_rc=0
-la_godot --headless --editor --quit-after "$QUIT_AFTER" --path "$PROJECT" > "$LOG" 2>&1 || scan_rc=$?
+LA_CPU_VALIDATION=1 la_godot --headless --editor --quit-after "$QUIT_AFTER" --path "$PROJECT" > "$LOG" 2>&1 || scan_rc=$?
 
 # Positive evidence that the editor actually ran. Every Godot invocation prints its banner; an empty or
 # bannerless log means the binary never got going, and the old `|| true` turned exactly that into a pass.
