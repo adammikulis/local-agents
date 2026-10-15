@@ -229,6 +229,20 @@ func run_test(_tree: SceneTree) -> bool:
 	var changed: Dictionary = {"mole_fractions": {"n2": 1.0}, "pressure_pa": 101325.000000001}
 	ok = LAFieldFill.cache_key("fixture", fill, LABodySeeds.surface_temp_c()) == LAFieldFill.cache_key("fixture", reordered, LABodySeeds.surface_temp_c()) and ok
 	ok = LAFieldFill.cache_key("fixture", fill, LABodySeeds.surface_temp_c()) != LAFieldFill.cache_key("fixture", changed, LABodySeeds.surface_temp_c()) and ok
+	var gas_field = FieldFixture.new()
+	gas_field._grid = LAVoxelGrid.new()
+	gas_field._grid.build(1, 2, 1, 1.0, Vector3.ZERO)
+	gas_field._cell_count = 2
+	gas_field._solid = PackedByteArray([0, 0])
+	gas_field._gravity = GravityFixture.new()
+	gas_field._mirrors = LAFieldMirrors.new()
+	gas_field._mirrors.alloc(PackedStringArray(LAChannels.rows().keys()), 2)
+	ok = LAFieldFill.lay_gas(gas_field, {"n2": 1.0}, LABodySeeds.surface_temp_c(), 101325.0) and ok
+	ok = gas_field._rock_fraction == PackedFloat32Array([0.0, 0.0]) and gas_field._water_fraction == PackedFloat32Array([0.0, 0.0]) and ok
+	ok = gas_field._surface_depth.size() == 2 and is_nan(gas_field._surface_depth[0]) and ok
+	var gas_job = LAFieldSeedJob3D.new()
+	var gas_context = gas_job.capture(gas_field, false)
+	ok = not gas_context.run(gravity, false).is_empty() and ok
 	if not ok:
 		push_error("worker seed publication, cancellation, device refusal or accounting failed")
 	return ok

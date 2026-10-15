@@ -155,6 +155,14 @@ bool LAFieldFill::lay_gas(Object *p_field, const Dictionary &p_mole_fractions, d
 		}
 		m->fill(s.channel, s.x * n);
 	}
+	// This declaration contains gas only: no terrain or free-liquid volume exists at the seed boundary.
+	PackedFloat32Array absent;
+	absent.resize(cc);
+	absent.fill(0.0f);
+	p_field->set("_rock_fraction", absent);
+	p_field->set("_water_fraction", absent);
+	absent.fill(NAN);
+	p_field->set("_surface_depth", absent);
 	// No lattice stands in the field; the temperature one would stand at is the mixture's.
 	PackedFloat32Array t;
 	t.resize(cc);
