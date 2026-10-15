@@ -132,15 +132,30 @@ def run_gate(g, root, ledger, stream):
                 os.killpg(proc.pid, signal.SIGTERM)
             except ProcessLookupError:
                 pass
+            except PermissionError as error:
+                read_errors.append("owned process group termination was refused: %s" % error)
             reader.join(timeout=1)
             if proc.poll() is None or reader.is_alive():
                 try:
                     os.killpg(proc.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
+                except PermissionError as error:
+                    read_errors.append("owned process group cleanup was refused: %s" % error)
+                    if proc.poll() is None:
+                        try:
+                            proc.kill()
+                        except (ProcessLookupError, PermissionError) as direct_error:
+                            read_errors.append("owned process cleanup failed: %s" % direct_error)
         else:
-            proc.kill()
-        proc.wait()
+            try:
+                proc.kill()
+            except (ProcessLookupError, PermissionError) as error:
+                read_errors.append("owned process cleanup failed: %s" % error)
+        try:
+            proc.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            read_errors.append("owned process survived the cleanup deadline")
         reader.join(timeout=1)
         chunks.append("%s printed no verdict inside %ds.\n" % (g["label"], g["timeout_s"]))
         rc = 2

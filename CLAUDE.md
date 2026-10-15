@@ -234,6 +234,9 @@ a stepped process. Success is special-case code deleted.
 
 ## Validation
 
+- Run builds and required validation directly on the local Mac. Keep GitHub Actions workflows disabled;
+  re-enable them only on explicit maintainer request. Sync verified work to GitHub without waiting for
+  Actions. Preserve affected checks, independent review and the local integration gates.
 - A verification run answers inside `docs/RUN_TIMEOUT_CEILING`; a longer run is a declared soak
   (`# SOAK: <why>`). Never raise the ceiling to make a slow arm pass.
 - One sim at a time on this machine (a machine-wide GPU lock). Never `pkill` by program name; kill by
@@ -245,7 +248,7 @@ a stepped process. Success is special-case code deleted.
 - Iterate fast: short runs while iterating; fast-forward slow-emergent phenomena; the cheapest run that
   proves the point. Do not run a test until the change is finished.
 - `scripts/agent_harness.sh sim` is the one way to run the planet; `scripts/agent_harness.sh lint` is
-  the gate CI runs; `scripts/editor_scan.sh`, never a bare `godot --headless --editor`.
+  the local integration gate; `scripts/editor_scan.sh`, never a bare `godot --headless --editor`.
 - Compare at equal simulated time, never equal frames. Measure on the physics clock.
 - Measure before you tune, and move a constant by a large factor first. A physical constant is not a
   tuning knob.

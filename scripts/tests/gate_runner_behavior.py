@@ -4,8 +4,8 @@ source_root=Path(sys.argv[1])
 r=runpy.run_path(str(source_root/"scripts/gate_runner.py"))
 with tempfile.TemporaryDirectory(prefix='la_runner_proposal.') as directory:
  root=Path(directory);cap=root/'capture';cap.mkdir();scripts=root/'scripts';scripts.mkdir();ledger=root/'all.launch';ledger.write_text('')
- def gate(name, body, **flags):
-  path=scripts/name;path.write_text('#!/usr/bin/env python3\n'+body);path.chmod(0o755)
+ def gate(name, body, shell=False, **flags):
+  path=scripts/name;path.write_text(('#!/bin/sh\n' if shell else '#!/usr/bin/env python3\n')+body);path.chmod(0o755)
   return dict(name=name,label=name,script='scripts/'+name,kind='headless',marker='OK',mutations=[],args=[],env={},needs=[],launches=False,capture_reader=False,last=False,timeout_s=5,**flags)
  def reader(name, other):
   g=gate(name, '''import os,time
@@ -57,34 +57,37 @@ print('OK')
  ext=root/globals_['EXT_REL'];(ext/'scripts').mkdir(parents=True);(ext/'thirdparty').mkdir()
  build=ext/'scripts/build_extension.sh';build.write_text('#!/bin/sh\ntouch built\n');build.chmod(0o755)
  assert r['arm_scratch'](dict(needs=['build'],last=False),str(root)) and (root/'built').exists()
- for name,body in [('silent','import time\ntime.sleep(2)\n'),
-                   ('printing','import time\nprint("progress",flush=True)\ntime.sleep(2)\n'),
-                   ('partial','import time,sys\nsys.stdout.write("partial");sys.stdout.flush()\ntime.sleep(2)\n')]:
-  serial=gate(name,body);serial['timeout_s']=.05
+ for name,body in [('silent','exec sleep 2\n'),
+                   ('printing',"printf 'PROGRESS_PAYLOAD\\n'; exec sleep 2\n"),
+                   ('partial',"printf PARTIAL_PAYLOAD; exec sleep 2\n")]:
+  serial=gate(name,body,shell=True);serial['timeout_s']=.5
   with contextlib.redirect_stdout(io.StringIO()): result=r['run_gate'](serial,str(root),str(root/(name+'.launch')),True)
   assert result[0]==2,(name,'serial deadline was not enforced',result)
+  if name=='printing': assert 'PROGRESS_PAYLOAD' in result[1], 'output control never reached its marker'
+  if name=='partial': assert 'PARTIAL_PAYLOAD' in result[1], 'partial-line control never reached its write'
   assert not any(thread.name.startswith('gate-output-') for thread in threading.enumerate()),'output reader survived deadline'
- descendants=gate('descendants', "import subprocess,sys\nsubprocess.Popen([sys.executable,'-c','import time;time.sleep(20)'])\n")
- descendants['timeout_s']=.05
+ descendants=gate('descendants', "sleep 20 &\n",shell=True)
+ descendants['timeout_s']=.5
  with contextlib.redirect_stdout(io.StringIO()):result=r['run_gate'](descendants,str(root),str(root/'descendants.launch'),True)
  assert result[0]==2 and not any(thread.name.startswith('gate-output-') for thread in threading.enumerate()),result
- timeout_gate=gate('timeout', "import time\ntime.sleep(2)\nprint('OK')\n")
- timeout_gate['timeout_s']=.05
+ timeout_gate=gate('timeout', "exec sleep 2\n",shell=True)
+ timeout_gate['timeout_s']=.5
  assert r['run_gate'](timeout_gate,str(root),str(root/'timeout.launch'),False)[0]==2
  import shutil
  globals_['stage_scratch']=lambda scratch:shutil.copytree(scripts,Path(scratch)/'scripts',dirs_exist_ok=True)
  globals_['arm_scratch']=lambda *args,**kwargs:True
  globals_['git']=lambda *args,**kwargs:None
- mutable=gate('mutable', "print('OK')\n")
- mutable['timeout_s']=.05
- mutation="python3 -c \"from pathlib import Path; Path('scripts/mutable').write_text('#!/usr/bin/env python3\\nimport time\\ntime.sleep(2)\\n')\""
+ mutable=gate('mutable', "printf 'OK\\n'\n",shell=True)
+ mutable['timeout_s']=.5
+ mutation="python3 -c \"from pathlib import Path; Path('scripts/mutable').write_text('#!/bin/sh\\nexec sleep 2\\n')\""
+ assert r['run_gate'](mutable,str(root),str(root/'mutable-baseline.launch'),False)[0]==0, 'mutable baseline did not run'
  output=io.StringIO()
  with contextlib.redirect_stdout(output): result=r['mutate_one'](mutable,mutation)
- assert result==2 and 'MUTATION_UNRUNNABLE' in output.getvalue() and 'MUTATION_KILLED' not in output.getvalue(),output.getvalue()
+ assert result==2 and 'could not run under' in output.getvalue() and 'MUTATION_KILLED' not in output.getvalue(),output.getvalue()
  output=io.StringIO()
- skipped="python3 -c \"from pathlib import Path; Path('scripts/mutable').write_text('#!/usr/bin/env python3\\nraise SystemExit(3)\\n')\""
+ skipped="python3 -c \"from pathlib import Path; Path('scripts/mutable').write_text('#!/bin/sh\\nexit 3\\n')\""
  with contextlib.redirect_stdout(output):result=r['mutate_one'](mutable,skipped)
- assert result==2 and 'MUTATION_UNRUNNABLE' in output.getvalue() and 'MUTATION_KILLED' not in output.getvalue(),output.getvalue()
+ assert result==2 and 'could not run under' in output.getvalue() and 'MUTATION_KILLED' not in output.getvalue(),output.getvalue()
  print('gate runner: captured parallel readers, serial fallbacks, strict launch rejection, final ledger ordering, array mutations, boolean validation and build preparation passed')
 
 import subprocess
