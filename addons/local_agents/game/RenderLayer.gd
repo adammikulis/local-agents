@@ -134,8 +134,8 @@ func _build_world_visuals() -> void:
 
 	for pair in [["terrain", terrain.terrain_node()], ["camera", _camera], ["sky", _sky], ["vegetation", _veg_renderer],
 			["water_surface", _water_surface],
-			["vectors", _vectors], ["heat_texture", _heat_tex], ["test_masses", _test_masses],
-			["box_outline", _outline], ["ejecta_view", _ejecta]]:
+			["vectors", _vectors], ["heat_texture", _heat_tex], ["box_outline", _outline],
+			["ejecta_view", _ejecta]]:
 		LAAblate.adopt(pair[0], pair[1])
 	# The effects level onto the ejecta view.
 	_sim.settings_applier().bind(_ejecta)

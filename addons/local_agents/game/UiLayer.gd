@@ -69,18 +69,18 @@ func build(world: Node, sim: LASimulation, render: LARenderLayer, input: LAVoxel
 	_debug.set_interaction(_interaction)
 	_thought_panel.setup(_interaction)
 	_tutorial.setup(_interaction, _hud, _game_hud, _input, _progression)
-	for pair in [["progression", _progression], ["hud", _hud], ["game_hud", _game_hud], ["time_control", _time_control],
-			["audio", _audio], ["debug", _debug], ["brush", _brush], ["interaction", _interaction],
-			["companion", _companion], ["thought_panel", _thought_panel], ["tutorial", _tutorial],
-			["vector_legend", _vector_legend]]:
-		LAAblate.adopt(pair[0], pair[1])
-	# THE SWITCHES, built last: every module has been adopted, so the list is the whole of what this run
-	# can turn off. The panel is not itself adopted — a switch that switches itself off cannot come back.
-	_build_switches()
-
 	# The input controller parses the command line in every run; its Esc menu and view-controls bar are
 	# Controls, and they hang here so no presentation node lives on the simulation side.
 	_input.build_ui(self)
+	for pair in [["progression", _progression], ["hud", _hud], ["game_hud", _game_hud], ["time_control", _time_control],
+			["audio", _audio], ["debug", _debug], ["debug_overlay", _debug.overlay()], ["brush", _brush],
+			["interaction", _interaction], ["companion", _companion], ["thought_panel", _thought_panel],
+			["tutorial", _tutorial], ["vector_legend", _vector_legend], ["view_controls", _input.view_controls()]]:
+		LAAblate.adopt(pair[0], pair[1])
+	# THE SWITCHES, built last: every module has been adopted, so the list is the whole of what this run
+	# can turn off.
+	LAAblate.adopt(LASwitchPanel.SWITCH, _build_switches())
+
 	# The stings and the status line these sim controllers accept but never require.
 	if sim.meteor_impacts() != null:
 		sim.meteor_impacts().set_presentation(camera)
@@ -90,8 +90,10 @@ func build(world: Node, sim: LASimulation, render: LARenderLayer, input: LAVoxel
 
 ## The live switch list: one CanvasLayer of its own, so nothing else's visibility decides whether the
 ## maintainer can reach a process mid-run. SwitchPanel.tscn lays it out.
-func _build_switches() -> void:
-	add_child(SwitchPanelScene.instantiate())
+func _build_switches() -> Node:
+	var panel: Node = SwitchPanelScene.instantiate()
+	add_child(panel)
+	return panel
 
 
 func step(delta: float) -> void:

@@ -23,6 +23,7 @@ const RUNNERS: Array = [
 	["shaders_compile", "res://addons/local_agents/tests/gate_shaders_compile.gd"],
 	["parse_all", "res://scripts/parse_all_scripts.gd"],
 	["hypsometry", "res://scripts/check_hypsometry.gd"],
+	["ablate_modules", "res://addons/local_agents/tests/gate_ablate_modules.gd"],
 	["llm_request_ownership", "res://addons/local_agents/tests/test_llm_request_ownership.gd"],
 	["llm_http_stream", "res://addons/local_agents/tests/check_llm_http_stream.gd"],
 ]
@@ -41,6 +42,9 @@ func _run(path: String) -> void:
 		await inst.call("run_test", self)
 	elif inst.has_method("_initialize"):
 		inst.call("_initialize")
+	if inst.has_method("_after_frame"):
+		while not bool(inst.call("_after_frame")):
+			await process_frame
 	if not (inst is RefCounted):
 		inst.free()
 

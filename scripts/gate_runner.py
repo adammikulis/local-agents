@@ -28,6 +28,16 @@ KINDS = ("text", "headless", "gpu")
 NEEDS = ("import", "capture", "body", "build")
 
 
+def mutation_of(name, m):
+    """A mutation turns the gate red. A table names the exit, and the line, of the arm it must fire."""
+    if isinstance(m, str):
+        return {"cmd": m, "exit": None, "says": None}
+    if not isinstance(m, dict) or not all(isinstance(m.get(k), t) for k, t in
+                                          (("cmd", str), ("exit", int), ("says", str))):
+        raise ValueError("%s: a mutation is a command, or a table with cmd, exit and says" % name)
+    return {"cmd": m["cmd"], "exit": m["exit"], "says": m["says"]}
+
+
 def load_gates(path=GATES_TOML):
     with open(path, "rb") as fh:
         doc = tomllib.load(fh)
@@ -57,8 +67,8 @@ def load_gates(path=GATES_TOML):
             "script": g["script"],
             "kind": g["kind"],
             "marker": g["marker"],
-            "mutations": [m for m in ([g["mutation"]] if isinstance(g.get("mutation"), str)
-                                      else g.get("mutation", [])) if m],
+            "mutations": [mutation_of(name, m) for m in ([g["mutation"]] if isinstance(g.get("mutation"), str)
+                                                        else g.get("mutation", [])) if m],
             "args": list(g.get("args", [])),
             "env": dict(g.get("env", {})),
             "needs": needs,
@@ -435,8 +445,9 @@ def cmd_mutate(args):
     return max(mutate_one(g, m) for m in g["mutations"])
 
 
-def mutate_one(g, mutation):
+def mutate_one(g, m):
     """One mutation, in its own scratch tree."""
+    mutation = m["cmd"]
     scratch = os.path.join(tempfile.mkdtemp(prefix="la_mutate_"), "tree")
     ledger = os.path.join(tempfile.mkdtemp(prefix="la_mutate_ledger."), "launches.log")
     open(ledger, "w").close()
@@ -460,6 +471,13 @@ def mutate_one(g, mutation):
             return 2
         rc1, out1, _ = run_gate(g, scratch, ledger, False)
         sys.stdout.write(out1)
+        if m["exit"] is not None:
+            if rc1 == m["exit"] and re.search(m["says"], out1, re.M):
+                print("MUTATION_KILLED: %s went %d under `%s`, the arm it declares." % (g["name"], rc1, mutation))
+                return 0
+            print("MUTATION_SURVIVED: %s went %d under `%s`, where the declared arm exits %d saying %r."
+                  % (g["name"], rc1, mutation, m["exit"], m["says"]))
+            return 1
         # A gate that could not run under the mutation reported no violation, so it caught nothing.
         if rc1 not in (0, 1):
             print("MUTATION_UNRUNNABLE: %s could not run under `%s`, which proves nothing." % (g["name"], mutation))
