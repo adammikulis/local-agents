@@ -817,6 +817,7 @@ func declare_life(mode: String) -> void:
 	if mode != LAAblate.life_full():
 		_streamer_enabled = false
 func render() -> bool: return _render
+func view_controls() -> Node: return _view_controls
 func streamer_persona() -> String: return _streamer_persona
 func streamer_avatar_flavor() -> String: return _streamer_avatar_flavor
 func shoot_path() -> String: return _shoot_path
