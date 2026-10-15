@@ -196,11 +196,6 @@ func material_field():
 	return _material
 
 
-# Back-compat accessor: fire lives in the material field now (combustion folded in).
-func fire_system():
-	return _material
-
-
 # Ground disturbance lives in LAEcologyStimulus (the broadcast bus); the impact actor calls it here.
 func disturb_ground(world_pos: Vector3, radius: float, strength: float) -> void:
 	_stimulus.disturb_ground(world_pos, radius, strength)

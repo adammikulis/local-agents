@@ -89,7 +89,7 @@ func _arm(wait_usec: float, n: int) -> Dictionary:
 	if not rig.open() or not rig.build(n, n, n, CELL):
 		printerr("gate_submit_budget: " + String(rig.error))
 		return {}
-	rig.driver.set_wait_usec(wait_usec)
+	LAFieldDriver.rig_wait_usec(wait_usec)
 	var derive: RefCounted = rig.attach(DERIVE_PATH)
 	var reduce: RefCounted = rig.attach(REDUCE_PATH)
 	if derive == null or reduce == null or reduce._rows.is_empty():
@@ -237,7 +237,7 @@ func _transport(wait_usec: float) -> Dictionary:
 	if not rig.open() or not rig.build(T_N, T_N, T_N, T_CELL):
 		printerr("gate_submit_budget: " + String(rig.error))
 		return {}
-	rig.driver.set_wait_usec(wait_usec)
+	LAFieldDriver.rig_wait_usec(wait_usec)
 	var derive: RefCounted = rig.attach(DERIVE_PATH)
 	var flux: RefCounted = rig.attach(FLUX_PATH)
 	if derive == null or flux == null:
@@ -304,7 +304,7 @@ func _floor() -> int:
 	if not rig.open() or not rig.build(4, 4, 4, CELL):
 		_say("the floor arm could not build its box: " + String(rig.error))
 		return -1
-	rig.driver.set_wait_usec(1.0e12)
+	LAFieldDriver.rig_wait_usec(1.0e12)
 	var derive: RefCounted = rig.attach(DERIVE_PATH)
 	_seed(rig)
 	var ctx: Dictionary = _ctx(0)
@@ -341,7 +341,7 @@ func _refusal() -> int:
 	if not rig.open() or not rig.build(8, 8, 8, CELL):
 		_say("the refusal arm could not build its box: " + String(rig.error))
 		return -1
-	rig.driver.set_wait_usec(1.0)
+	LAFieldDriver.rig_wait_usec(1.0)
 	var derive: RefCounted = rig.attach(DERIVE_PATH)
 	var reduce: RefCounted = rig.attach(REDUCE_PATH)
 	_seed(rig)
