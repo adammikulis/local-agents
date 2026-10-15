@@ -15,15 +15,13 @@ require_tool python3
 SCENE="addons/local_agents/examples/SliceRung1Demo.tscn"
 [ -f "$ROOT/$SCENE" ] || { echo "check_box_outline: no scene at $SCENE" >&2; exit 2; }
 # THE POSE THE FADE IS READ FROM: the one that separates a pillar's foot from its fade height by the
-# most pixels, so the two discs never overlap. Which corners it shows is the camera's business.
-POSE="${LA_BOX_OUTLINE_POSE:-6000:-40:0}"
+# most pixels, so the two discs never overlap, turned onto the two corners whose feet no relief hides.
+POSE="${LA_BOX_OUTLINE_POSE:-6000:-40:180}"
 SIZE="${LA_BOX_OUTLINE_SIZE:-1280x800}"
-# THE FRAME IS THE WORLD, NOT THE INTERFACE: every panel is dropped, and so is every module that moves
-# on its own -- a marching arrow stripe and a falling probe differ between two
-# launches wherever they stand, and the difference this gate reads must be the outline's.
+# THE FRAME IS THE WORLD, NOT THE INTERFACE: the protocol drops every panel, and this every module that
+# moves on its own -- a marching arrow stripe and a falling probe differ between two launches wherever
+# they stand, and the difference this gate reads must be the outline's.
 STILL="vectors,test_masses"
-PANELS="hud,game_hud,progression,time_control,audio,debug,brush,interaction,companion,thought_panel"
-PANELS="$PANELS,tutorial,vector_legend"
 # THE SIMULATED STEP BOTH PICTURES ARE OF: the loop halts there, so the sun and the ground are one world.
 STEP="${LA_BOX_OUTLINE_STEP:-60}"
 
@@ -37,8 +35,8 @@ shoot() {  # <name> <ablations>
 	echo $?
 }
 
-on_rc="$(shoot on "$STILL,$PANELS")"
-off_rc="$(shoot off "$STILL,$PANELS,box_outline")"
+on_rc="$(shoot on "$STILL")"
+off_rc="$(shoot off "$STILL,box_outline")"
 
 for a in on off; do
 	if grep -qE 'SHADER ERROR|Shader compilation failed' "$DIR/$a.log"; then
@@ -49,7 +47,7 @@ for a in on off; do
 done
 
 python3 - "$DIR" "$on_rc" "$off_rc" <<'PY'
-import json, os, sys
+import json, math, os, sys
 
 try:
     from PIL import Image, ImageChops, ImageDraw
@@ -70,6 +68,8 @@ GROUND_LIT = 0.6
 FAR_HOT = 0.005
 # Fractions of a pillar's fade height that count as its lit end.
 LOW_MAX = 0.25
+# Corner pillars the pose frames whole, lit end and fade height both in the picture.
+PILLARS = 2
 
 
 def log(name):
@@ -221,10 +221,25 @@ if far_frac > FAR_HOT:
     fails.append("%.2f%% of the frame away from the box differs between the two arms: the outline is "
                  "drawing somewhere the box is not" % (100.0 * far_frac))
 
-# THE PILLARS FADE, READ WHERE THE POLYLINE ACTUALLY PROJECTS. A pillar is measured only where the
-# renderer says it stands: its fade height must be in the frame and its lit end must be drawn there.
-# One this pose does not show is skipped by name: the pose belongs to the camera and may move, and the
-# fade is this gate's claim.
+# THE PILLARS FADE, READ WHERE THE POLYLINE ACTUALLY PROJECTS. Every pillar whose fade height and lit
+# end both stand in the frame is measured, and one drawn nowhere there is a box missing from the picture.
+# One the pose does not frame is skipped by name.
+ground_segs = [(run[i], run[i + 1]) for run in pub["ground"] for i in range(len(run) - 1)
+               if run[i] is not None and run[i + 1] is not None]
+
+
+def off_line(p, a, b):
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    span = dx * dx + dy * dy
+    t = 0.0 if span == 0.0 else max(0.0, min(1.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / span))
+    return math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy)
+
+
+# A sample within two discs of the ground line reads the ground line, not the pillar.
+def clear_of_ground(p):
+    return all(off_line(p, a, b) > 2 * rad for a, b in ground_segs)
+
+
 floor = float(pub["fade_floor"])
 at = [float(t) for t in pub["pillar_at"]]
 top_i = len(at) - 1
@@ -237,24 +252,28 @@ for run in pub["pillars"]:
         skipped.append("its fade height stands outside the frame")
         continue
     lows = [run[i] for i in low_i if run[i] is not None and in_frame(run[i])]
+    clear = [p for p in lows if clear_of_ground(p)]
     if not lows:
         skipped.append("its lit end stands outside the frame")
         continue
-    lit = max(disc_max(p[0], p[1]) for p in lows)
-    if lit < MIN_DIFF:
-        skipped.append("nothing of it is in the picture at its lit end (%d of 255)" % lit)
+    if not clear:
+        skipped.append("its lit end stands only on the ground line")
         continue
+    lit = max(disc_max(p[0], p[1]) for p in clear)
     top = disc_max(top_px[0], top_px[1])
     reads.append((lit, top))
-    if top > floor * lit or top >= MIN_DIFF:
+    if lit < MIN_DIFF:
+        fails.append("a corner pillar the frame holds whole is not in the picture at its lit end (%d of "
+                     "255)" % lit)
+    elif top > floor * lit or top >= MIN_DIFF:
         fails.append("a corner pillar still reads %d of 255 at the fade height against %d at its lit "
                      "end: over the declared floor of %.3f, or still in the picture at all"
                      % (top, lit, floor))
 for why in skipped:
     print("check_box_outline: a corner pillar was not measured -- %s." % why, file=sys.stderr)
-if not reads:
-    print("check_box_outline: no corner pillar was drawn anywhere this pose can read, so the fade was "
-          "never measured.", file=sys.stderr)
+if len(reads) < PILLARS:
+    print("check_box_outline: the pose frames %d corner pillar(s) whole and the fade is read on %d, so "
+          "the pose does not look at the box." % (len(reads), PILLARS), file=sys.stderr)
     sys.exit(2)
 
 print('BOX_OUTLINE_SHOT={"ground_lit":%.3f,"far_hot":%.5f,"pillars":%s,"unmeasured":%d,'

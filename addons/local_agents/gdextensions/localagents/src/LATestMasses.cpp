@@ -84,7 +84,7 @@ Vector3 LATestMasses::ground_under_site() const {
 }
 
 int LATestMasses::drop_at(const Vector3 &p_at) {
-	if (!active()) {
+	if (!active() || _off) {
 		return -1;
 	}
 	const int id = LABallistics::drop(p_at, ground_velocity(p_at), 0.0, 0.0);
@@ -136,6 +136,22 @@ void LATestMasses::on_bodies_landed(const Array &p_landed) {
 		}
 		UtilityFunctions::print("TEST_MASS_LANDED=" + JSON::stringify(out));
 	}
+}
+
+void LATestMasses::_notification(int p_what) {
+	if (p_what == NOTIFICATION_ENABLED) {
+		_off = false;
+		return;
+	}
+	if (p_what != NOTIFICATION_DISABLED) {
+		return;
+	}
+	_off = true;
+	_auto = false;
+	for (int i = 0; i < _ids.size(); i++) {
+		LABallistics::release(_ids[i]);
+	}
+	_ids.clear();
 }
 
 void LATestMasses::set_release_height_m(double p_m) {
