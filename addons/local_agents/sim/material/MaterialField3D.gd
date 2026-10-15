@@ -284,7 +284,6 @@ func activate() -> void:
 	_ejecta.setup(self)
 	add_child(_ejecta)                            # books its parcels' launches and landings
 	_capture = CaptureScript.maybe_make(self)
-	_ready_sim = true
 
 
 ## Rock fraction per cell from the terrain's signed distance; the solid flag is the half-full cell.
