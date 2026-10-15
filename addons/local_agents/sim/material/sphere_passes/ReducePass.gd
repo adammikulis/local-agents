@@ -19,6 +19,7 @@ var _failed_announced: bool = false
 var _last: Dictionary = {}              # the last drain, for the query modules that read rows directly
 var _folds: PackedInt32Array = PackedInt32Array()   # per row: how its workgroup partials combine
 var _keys: PackedStringArray = PackedStringArray()  # per row: the key its reading publishes under
+var _costs: PackedStringArray = PackedStringArray() # per row: the driver's cost key for its kind
 
 
 ## One partial per workgroup per row, plus one reference buffer per `ref` the rows name.
@@ -50,7 +51,7 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 		return
 	for row: Dictionary in LAProcessSet.reduce_rows():
 		var src: String = String(row["source"])
-		var aux: String = String(row.get("aux", ""))
+		var aux: String = String(row.get("aux", row.get("less", "")))
 		var aux2: String = String(row.get("aux2", ""))
 		var ref: String = String(row.get("ref", ""))
 		var gate: String = String(row.get("gate", ""))
@@ -76,9 +77,10 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 		_rows.append(row)
 		_folds.append(_fold_mode(int(row["op"])))
 		_keys.append(String(row["key"]))
+		_costs.append(_kind(_pc(cc, row, 0)))
 
 
-func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, _groups_in: int) -> void:
+func dispatch(rd: RenderingDevice, ctx: Dictionary, cc: int, _groups_in: int) -> void:
 	if not _dispatchable() or _sets.is_empty():
 		if not _failed_announced:
 			_failed_announced = true
@@ -88,16 +90,15 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, _groups_in
 		return
 	_step = int(ctx.get("step_index", -1))
 	# A REFERENCE IS THE STATE THE WORLD WAS BUILT WITH, so a mid-seed derive takes none.
-	_run(rd, cl, ctx, cc, not bool(ctx.get("seeding", false)))
+	_run(rd, ctx, cc, not bool(ctx.get("seeding", false)))
 
 
 ## Every row. `latch_ok` false leaves every reference where it is.
-func _run(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, latch_ok: bool) -> void:
+func _run(_rd: RenderingDevice, ctx: Dictionary, cc: int, latch_ok: bool) -> void:
 	var usets: Array = []
 	var pcs: Array = []
 	var wgs: PackedInt32Array = PackedInt32Array()
-	var args: Array = []
-	var offs: PackedInt32Array = PackedInt32Array()
+	var costs: PackedStringArray = PackedStringArray()
 	for r in _rows.size():
 		var row: Dictionary = _rows[r]
 		var ref: String = String(row.get("ref", ""))
@@ -107,11 +108,16 @@ func _run(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, latch_ok: boo
 		usets.append(_sets[r])
 		pcs.append(_pc(cc, row, r * _groups))
 		wgs.append(_groups)
-		args.append(RID())
-		offs.append(0)
+		costs.append(_costs[r])
 		if latch:
 			_latch_step[ref] = _step
-	_driver.run(cl, _pipe, usets, pcs, wgs, args, offs, true)
+	_driver.run(_pipe, usets, pcs, wgs, [], PackedInt32Array(), true, costs)
+
+
+## A row's cost key: its op, mask, weight, aux and gate words and its nbr, which choose what a cell's lane
+## does. Rows apart only in source, threshold, gate bounds or slot share one measurement.
+func _kind(pc: PackedByteArray) -> String:
+	return _label() + "/" + (pc.slice(4, 12) + pc.slice(20, 32) + pc.slice(40, 44)).hex_encode()
 
 
 ## A reduce taken BETWEEN passes: this pass runs last, so a row cannot say WHICH pass moved a total.
@@ -119,11 +125,9 @@ func _run(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, latch_ok: boo
 func checkpoint(rd: RenderingDevice, ctx: Dictionary, cc: int) -> Dictionary:
 	if not _dispatchable() or _sets.is_empty():
 		return {}
-	var cl: int = rd.compute_list_begin()
-	_run(rd, cl, ctx, cc, false)
-	rd.compute_list_end()
-	rd.submit()
-	rd.sync()
+	_driver.open()
+	_run(rd, ctx, cc, false)
+	_driver.close()
 	return _fold_rows()
 
 
@@ -164,14 +168,15 @@ func _fold_mode(op: int) -> int:
 #          float gate_lo, gate_hi; uint nbr; } — 44 bytes.
 func _pc(cc: int, row: Dictionary, base: int) -> PackedByteArray:
 	var gate: String = String(row.get("gate", ""))
-	var has_aux: int = 0
-	if String(row.get("aux", "")) != "":
+	var has_aux: int = 3 if String(row.get("less", "")) != "" else 0
+	if has_aux == 0 and String(row.get("aux", "")) != "":
 		has_aux = 2 if String(row.get("aux2", "")) != "" else 1
 	var has_gate: int = 0
 	if gate != "":
 		has_gate = 2 if String(row.get("gate_aux", "")) != "" else 1
 		has_gate += 4 if bool(row.get("gate_strict_lo", false)) else 0
 		has_gate += 8 if bool(row.get("gate_both_ends", false)) else 0
+	has_gate += 16 if LAReduceRecords.HELD_SOURCES.has(String(row["source"])) else 0
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(PC_BYTES)
 	pc.encode_u32(0, cc)

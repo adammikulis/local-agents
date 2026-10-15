@@ -5,6 +5,7 @@ extends VBoxContainer
 ## layer adopted, then LAFakes' stand-ins. A process and a module read on/off; a stand-in reads off,
 ## fake or real, so a rung the world lacks has no switch and a landed one adds a row.
 
+const SWITCH: String = "switches"        # this panel's own, never listed: it could not switch itself back on
 const REFRESH_S: float = 0.5
 const SHORTCUT_LABEL: String = "Ctrl+%d"
 const SHORTCUT_KEYS: Array = [KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9]
@@ -38,6 +39,8 @@ func build() -> void:
 	add_child(title)
 	LAFakes.states()                                     # the stand-ins take their place on the registry
 	_order = LAAblate.names()
+	if _order.has(SWITCH):
+		_order.remove_at(_order.find(SWITCH))
 	var group: String = ""
 	for i in _order.size():
 		var name: String = _order[i]

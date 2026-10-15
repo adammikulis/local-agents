@@ -44,7 +44,8 @@ const SLOT: Dictionary = {
 	# transport's own scratch
 	"flux_face_u": 139, "flux_fp_star": 140, "flux_face_uw": 141, "flux_fpw_star": 142, "flux_send": 143,
 	"flux_x_amt": 144, "flux_x_h": 145, "flux_x_q": 146, "flux_lw_emis": 147, "flux_sw_absorbed": 148,
-	"flux_sw_keep": 149, "flux_sw_src": 150, "flux_nu_t": 151, "flux_w_top": 152,
+	"flux_sw_keep": 149, "flux_sw_src": 150, "flux_nu_t": 151, "flux_w_top": 152, "flux_dm_x": 174,
+	"flux_dm_y": 175, "flux_dm_z": 176,
 	# the reduce row's slots
 	"reduce_src": 153, "reduce_aux": 154, "reduce_aux2": 155, "reduce_ref": 156, "reduce_gate": 157,
 	"reduce_gate_aux": 158, "reduce_partials": 159,
@@ -54,7 +55,7 @@ const SLOT: Dictionary = {
 	"reaction_defs": 160,
 	# the selftest probes
 	# water_rho is kg/m^3 the cell's own liquid water stands at
-	"stack_probe": 161, "enthalpy_probe": 162, "water_rho": 173, "tide_bodies": 174
+	"stack_probe": 161, "enthalpy_probe": 162, "water_rho": 173, "tide_bodies": 174, "tidal_accel": 175, "tidal_work": 176
 }
 
 ## The slots each kernel's translation unit declares, its includes with it. A pass binds this
@@ -67,20 +68,21 @@ const IN_KERNEL: Dictionary = {
 		"h2o_pore", "h2o_solid", "h2o_liquid", "h2o_vapour", "water_rho", "silicate_melt",
 		"silicate_susp_water", "silicate_susp_air", "silicate_bed", "vel_x", "vel_y", "vel_z", "speed", "gas_r",
 		"gas_gamma", "k_cond", "cap_sensible", "cap_lith", "lattice_frac", "lithic_frac", "lithic_kg",
-		"bodyf_x", "bodyf_y", "bodyf_z", "g_rest", "pe_j_m3", "rad_absorbed", "rad_emitted", "rad_w_m3",
+		"bodyf_x", "bodyf_y", "bodyf_z", "g_rest", "tidal_accel", "tidal_work", "pe_j_m3", "rad_absorbed", "rad_emitted", "rad_w_m3",
 		"radiogenic", "col_e", "strike", "sw_space", "rad_residual", "grav_phi", "grav_ref", "tlevel",
 		"level_idx", "level_args", "level_peak", "act_quiet", "act_claim", "act_queue", "act_wake",
 		"act_wake_args", "active_idx", "active_args", "flux_amount", "flux_energy", "flux_resist", "flux_drive",
 		"flux_aux", "flux_frac", "flux_h_carried", "flux_bnd_amt", "flux_bnd_h", "flux_bnd_mom_x",
 		"flux_bnd_mom_y", "flux_bnd_mom_z", "flux_bnd_q", "flux_o3", "flux_rad_table", "flux_face_u",
 		"flux_fp_star", "flux_face_uw", "flux_fpw_star", "flux_send", "flux_x_amt", "flux_x_h", "flux_x_q",
-		"flux_lw_emis", "flux_sw_absorbed", "flux_sw_keep", "flux_sw_src", "flux_nu_t", "flux_w_top"],
+		"flux_lw_emis", "flux_sw_absorbed", "flux_sw_keep", "flux_sw_src", "flux_nu_t", "flux_w_top",
+		"flux_dm_x", "flux_dm_y", "flux_dm_z"],
 	"gravity_poisson.glsl": ["nbr", "pos", "vert_up", "vert_down", "slot_off", "face_partner", "cell_edge",
 		"h2o", "silicate", "carbonate", "silica", "o2", "co2", "n2", "biomass", "fungus", "detritus", "fuel",
 		"org_h", "org_o", "fert", "metal", "olivine", "pyroxene", "plagioclase", "halite", "apatite", "h2",
 		"co", "so2", "h2s", "ch4", "h2o_pore", "gravity", "grav_phi", "grav_ref", "grav_density",
 		"grav_cellflag", "grav_moments", "grav_partials", "grav_props"],
-	"pressure.glsl": ["vert_up", "cell_edge", "solid", "pressure", "rho_bulk", "g_rest"],
+	"pressure.glsl": ["vert_up", "cell_edge", "solid", "pressure", "rho_bulk", "lithic_kg", "g_rest"],
 	"reactions_sphere3d.glsl": ["vert_up", "vert_down", "cell_edge", "h2o", "silicate", "carbonate",
 		"silica", "o2", "co2", "n2", "biomass", "fungus", "detritus", "fuel", "org_h", "org_o", "fert",
 		"e_j_m3", "regolith", "grain", "temp", "solid", "pressure", "h2o_solid", "h2o_liquid", "h2o_vapour",
@@ -88,7 +90,7 @@ const IN_KERNEL: Dictionary = {
 		"act_wake_args", "reaction_defs"],
 	"sparse_edit.glsl": ["cell_edge", "inject_idx", "inject_val", "inject_applied", "inject_src",
 		"inject_dst"],
-	"reduce.glsl": ["nbr", "vert_up", "vert_down", "slot_off", "face_partner", "cell_edge", "solid",
+	"reduce.glsl": ["nbr", "vert_up", "vert_down", "slot_off", "face_partner", "cell_edge", "solid", "rho_bulk",
 		"reduce_src", "reduce_aux", "reduce_aux2", "reduce_ref", "reduce_gate", "reduce_gate_aux",
 		"reduce_partials"],
 	"stack_selftest.glsl": ["stack_probe"],
@@ -101,7 +103,7 @@ const IN_KERNEL: Dictionary = {
 		"h2o_liquid", "h2o_vapour", "water_rho", "silicate_melt", "vel_x", "vel_y", "vel_z", "speed", "lat",
 		"alt", "mach", "gas_r", "gas_gamma", "k_cond", "cap_sensible", "cap_lith", "h_h2o", "h_h2o_vap",
 		"h_silicate", "h_sensible", "lattice_frac", "lithic_frac", "lithic_kg", "org_hc", "org_oc", "org_fresh",
-		"bodyf_x", "bodyf_y", "bodyf_z", "g_rest", "ke_j_m3", "pe_j_m3", "mom_orphan", "nonfinite", "unconverged",
+		"bodyf_x", "bodyf_y", "bodyf_z", "g_rest", "tidal_accel", "tidal_work", "ke_j_m3", "pe_j_m3", "mom_orphan", "nonfinite", "unconverged",
 		"rad_w_m3", "gravity", "grav_phi", "grav_ref", "tide_bodies", "derive_props", "level_idx", "level_args"],
 }
 

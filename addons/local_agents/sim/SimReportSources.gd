@@ -16,36 +16,36 @@ static func population(w) -> Dictionary:
 		if String(c.get("state")) == "drink":
 			drinkers += 1
 	var n_fire: int = 0
-	if w._ecology != null and w._ecology.has_method("fire_system"):
-		var fsys = w._ecology.fire_system()
+	if w._ecology != null:
+		var fsys = w._ecology.material_field()
 		if fsys != null and fsys.has_method("active_fire_count"):
 			n_fire = fsys.active_fire_count()
 	return {
 		"fires": n_fire,
-		"selectable": tree.get_nodes_in_group("selectable").size(),
+		"selectable": tree.get_node_count_in_group("selectable"),
 		"actors": w._actors_root.get_child_count() if w._actors_root != null else 0,
 		"creatures": creatures.size(),
-		"rabbit": tree.get_nodes_in_group("species_rabbit").size(),
-		"fox": tree.get_nodes_in_group("species_fox").size(),
-		"bird": tree.get_nodes_in_group("species_bird").size(),
-		"villager": tree.get_nodes_in_group("species_villager").size(),
-		"vulture": tree.get_nodes_in_group("species_vulture").size(),
-		"fish": tree.get_nodes_in_group("species_fish").size(),
-		"plants": tree.get_nodes_in_group("plant").size(),
-		"trees": tree.get_nodes_in_group("tree").size(),
-		"nests": tree.get_nodes_in_group("nest").size(),
+		"rabbit": tree.get_node_count_in_group("species_rabbit"),
+		"fox": tree.get_node_count_in_group("species_fox"),
+		"bird": tree.get_node_count_in_group("species_bird"),
+		"villager": tree.get_node_count_in_group("species_villager"),
+		"vulture": tree.get_node_count_in_group("species_vulture"),
+		"fish": tree.get_node_count_in_group("species_fish"),
+		"plants": tree.get_node_count_in_group("plant"),
+		"trees": tree.get_node_count_in_group("tree"),
+		"nests": tree.get_node_count_in_group("nest"),
 		# Aquatic web BASE (grazers) — should persist by grazing biomass now, not by restock.
-		"bug": tree.get_nodes_in_group("species_bug").size(),
-		"shrimp": tree.get_nodes_in_group("species_shrimp").size(),
+		"bug": tree.get_node_count_in_group("species_bug"),
+		"shrimp": tree.get_node_count_in_group("species_shrimp"),
 		# Land invertebrate base + pollinators.
-		"beetle": tree.get_nodes_in_group("species_beetle").size(),
-		"ant": tree.get_nodes_in_group("species_ant").size(),
-		"grasshopper": tree.get_nodes_in_group("species_grasshopper").size(),
-		"butterfly": tree.get_nodes_in_group("species_butterfly").size(),
-		"fly": tree.get_nodes_in_group("species_fly").size(),
-		"bee": tree.get_nodes_in_group("species_bee").size(),
+		"beetle": tree.get_node_count_in_group("species_beetle"),
+		"ant": tree.get_node_count_in_group("species_ant"),
+		"grasshopper": tree.get_node_count_in_group("species_grasshopper"),
+		"butterfly": tree.get_node_count_in_group("species_butterfly"),
+		"fly": tree.get_node_count_in_group("species_fly"),
+		"bee": tree.get_node_count_in_group("species_bee"),
 		# Flowers + a running count of pollination visits (bee-activity proxy) — flower spread should track it.
-		"flowers": tree.get_nodes_in_group("species_flower_daisy").size() + tree.get_nodes_in_group("species_flower_clover").size(),
+		"flowers": tree.get_node_count_in_group("species_flower_daisy") + tree.get_node_count_in_group("species_flower_clover"),
 		"pollinations": LAVegLedger.of(w._material).pollinations,
 		"min_hydration": min_hyd,
 		"drinking": drinkers,
@@ -82,7 +82,16 @@ static func disease(w) -> Dictionary:
 	}
 
 
-## Live cognition / genetics snapshot (proof the fast/slow brain + evolution are running).
+## The deepest generation alive: one field read per creature, cheap enough for a live HUD.
+static func lineage(w) -> Dictionary:
+	var max_gen: int = 0
+	for c in w.get_tree().get_nodes_in_group("creature"):
+		if is_instance_valid(c) and c.has_method("get_genome") and c.get_genome() != null:
+			max_gen = maxi(max_gen, int(c.get_genome().generation))
+	return {"max_generation": max_gen}
+
+
+## Cognition / genetics snapshot at report time (proof the fast/slow brain + evolution are running).
 static func cognition(w) -> Dictionary:
 	var creatures: Array = w.get_tree().get_nodes_in_group("creature")
 	var minds: int = 0
@@ -93,7 +102,6 @@ static func cognition(w) -> Dictionary:
 	var habits: int = 0
 	var asked: int = 0
 	var learned: int = 0
-	var max_gen: int = 0
 	var cues: int = 0
 	var aversions: int = 0    # learned AVERSIONS: cue values driven to/below the food-avoid threshold (toxin/danger
 	                          # learning, which cues_learned's positive-only count can't see). Proves affinity's aversive half.
@@ -161,7 +169,6 @@ static func cognition(w) -> Dictionary:
 				bird_n += 1
 		if c.has_method("get_genome") and c.get_genome() != null:
 			var gen = c.get_genome()
-			max_gen = maxi(max_gen, int(gen.generation))
 			if gen.has_method("decode_gene"):
 				gene_pop += 1
 				for gk in REPORTED_GENES:
@@ -211,7 +218,7 @@ static func cognition(w) -> Dictionary:
 			sched = sc.total_calls()
 	return {
 		"minds": minds, "habits": habits, "escalations": asked, "social_lessons": learned,
-		"max_generation": max_gen, "slow_brain_calls": sched, "cues_learned": cues, "vetoes": vetoed,
+		"slow_brain_calls": sched, "cues_learned": cues, "vetoes": vetoed,
 		"aversions": aversions, "learners": learners,
 		"genes": genes, "gene_pop": gene_pop, "males": males,
 		"metab": metab, "metab_exponent": snappedf(expo, 0.001), "metab_species": sn,

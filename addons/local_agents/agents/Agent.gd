@@ -8,6 +8,8 @@ signal model_output_received(text)
 signal message_emitted(role, content)
 signal action_requested(action, params)
 signal think_completed(result)
+signal reply_updated(text: String)
+signal model_load_completed(result: Dictionary)
 
 ## The native node, or a test double standing in for it so a unit test loads no model.
 var agent_node: Object = null
@@ -189,7 +191,7 @@ func _ready() -> void:
     # A llama-server keeps the weights in its own process, so an in-process preload would only load
     # them a second time for nothing.
     if preload_model and not AgentServer.is_server_backend(_merged_options({})):
-        ensure_model_loaded()
+        call_deferred("load_model_async")
 
 func _register_with_manager() -> void:
     var manager = get_node_or_null("/root/AgentManager")
@@ -306,54 +308,70 @@ func think(prompt: String, extra_opts: Dictionary = {}) -> Dictionary:
     _post_think(result)
     return result
 
+var _stream_generation: int = 0
+var _stream_active: bool = false
+var _async_pending: bool = false
+
+func load_model_async(extra_opts: Dictionary = {}) -> bool:
+    return _start_async("", extra_opts, true)
+
 func think_async(prompt: String, extra_opts: Dictionary = {}) -> bool:
+    return _start_async(prompt, extra_opts, false)
+
+func _start_async(prompt: String, extra_opts: Dictionary, load_only: bool) -> bool:
     if not _ensure_agent_node():
-        call_deferred("_emit_think_completed", {"ok": false, "error": "agent_unavailable"})
         return false
-    if _jobs.is_busy():
+    if _async_pending or _jobs.is_busy():
         return false
     _jobs.reap()
     var runtime = _agent_runtime()
     if runtime == null:
-        call_deferred("_emit_think_completed", {"ok": false, "error": "runtime_unavailable"})
         return false
     _history.apply_system_prompt(history, system_prompt, agent_node)
+    var job_history: Array = history.duplicate(true)
     if prompt != "":
-        submit_user_message(prompt)   # skip empties (the LLMClient path supplies opts.messages instead)
-    var opts: Dictionary = _merged_options(extra_opts)
-    _sync_runtime_config(runtime)     # push the node's model path / runtime dir onto the shared runtime (main thread)
+        job_history.append({"role": "user", "content": prompt})
+    var opts: Dictionary = _merged_options(extra_opts).duplicate(true)
+    _stream_generation += 1
+    _stream_active = not load_only
     var job: Dictionary = {
         "runtime": runtime,
-        "request": {"prompt": prompt, "history": history.duplicate(true), "options": opts},
+        "load_only": load_only,
+        "request": {"prompt": prompt, "history": job_history, "options": opts,
+            "stream_callback": Callable(self, "_on_reply_updated").bind(_stream_generation)},
         "opts": opts,
         "server_model_path": _resolve_llama_server_model_path(opts),
         "runtime_dir": _current_runtime_dir(),
         # Snapshotted here (main thread) so the worker never reads the node's exports while the game
         # may be writing them.
-        "agent_model_path": _per_agent_model_path(),
+        "agent_model_path": resolve_model_path(),
     }
-    _jobs.start(job, _server, Callable(self, "_emit_think_completed"))
+    if not _jobs.start(job, _server, Callable(self, "_emit_think_completed").bind(_stream_generation, load_only)):
+        _stream_active = false
+        return false
+    _async_pending = true
+    if prompt != "":
+        submit_user_message(prompt)
     return true
 
-func _emit_think_completed(result: Dictionary) -> void:
+func _on_reply_updated(text: String, generation: int) -> void:
+    if _stream_active and generation == _stream_generation:
+        reply_updated.emit(text)
+
+func _emit_think_completed(result: Dictionary, generation: int, load_only: bool) -> void:
+    if generation != _stream_generation:
+        return
+    _stream_active = false
     _jobs.reap()
-    _post_think(result)
-    emit_signal("think_completed", result)
+    if load_only:
+        model_load_completed.emit(result)
+    else:
+        _post_think(result)
+        emit_signal("think_completed", result)
+    _async_pending = false
 
 func _agent_runtime() -> Object:
     return Engine.get_singleton("AgentRuntime")
-
-# Mirror onto the shared runtime singleton the same model/dir config AgentNode.think sets each call, so
-# the worker's in-process generate can load the default model. Main thread only (reads the native node).
-func _sync_runtime_config(runtime) -> void:
-    if agent_node == null or runtime == null:
-        return
-    var dmp: String = String(agent_node.get("default_model_path"))
-    if dmp != "" and runtime.has_method("set_default_model_path"):
-        runtime.set_default_model_path(dmp)
-    var rd: String = String(agent_node.get("runtime_directory"))
-    if rd != "" and runtime.has_method("set_runtime_directory"):
-        runtime.set_runtime_directory(rd)
 
 func _merged_options(extra_opts: Dictionary) -> Dictionary:
     var opts: Dictionary = load_options.duplicate(true)
@@ -407,6 +425,8 @@ func _apply_recall(prompt: String) -> void:
 
 
 func _post_think(result: Dictionary) -> void:
+    if not bool(result.get("ok", false)):
+        return
     var text: String = String(result.get("text", ""))
     if text != "":
         _history.record_assistant_message(history, text, memory_graph)

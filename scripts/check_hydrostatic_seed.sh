@@ -12,7 +12,7 @@ KEYS="pressure_inversions,pressure_audited,pressure_empty,pressure_rest_rel,deri
 
 out="$(la_rung_report 2 "$FRAMES" "$KEYS")"
 rc=$?
-la_rung_require "$out" pressure_inversions pressure_audited pressure_empty pressure_rest_rel derive_unconverged_cells || exit 2
+la_rung_require "$out" pressure_inversions pressure_audited pressure_empty pressure_rest_rel derive_unconverged_cells || exit $?
 
 # AT REST MEANS THE DERIVE IS A FIXED POINT OF THE SEED: with nothing moving, an open cell's own EOS pressure
 # may drift from its first reading by no more than the solve's stopping tolerance per frame

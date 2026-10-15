@@ -6,7 +6,6 @@ extends Node
 ## orbit, so eccentricity, a knocked orbit and an impact winter all show up on their own.
 
 var _body: Node3D = null                  # LAPlanetBody (the planet — orbit reference + scene centre)
-var _sky_ctrl: Node = null                # LAVoxelSkyController (owns the star node + the sky sun)
 var _material = null                      # LAMaterialField3D
 var _star: Node3D = null                  # LAStar — the body this planet orbits
 var _moon: Node3D = null                  # LAMoon (set via set_moon)
@@ -38,13 +37,8 @@ func set_moon(moon: Node3D) -> void:
 	_publish_bodies()
 
 
-## Optional presentation sink: the sky cycle, told which way the sun shines each frame. Absent without --ui.
-func set_sky_controller(sky_ctrl: Node) -> void:
-	_sky_ctrl = sky_ctrl
-
-
-## Advance the orbit + moon and push the derived sun direction, position and IRRADIANCE into the scene.
-## `delta` must be the fixed physics delta — never a render delta.
+## Advance the orbit + moon and place the bodies. `delta` must be the fixed physics delta — never a render
+## delta.
 func update(delta: float) -> void:
 	if _body == null:
 		return
@@ -58,17 +52,6 @@ func update(delta: float) -> void:
 	# orbit advances on, never a render frame's.
 	_land_bodies(LABallistics.step(delta))
 	_book_drag_heat(LABallistics.drag_work())
-
-	var centre: Vector3 = _body.center()
-	# Presentation only — the sky cycle's own light/environment. Absent in a run with no presentation layer.
-	if _sky_ctrl != null and _sky_ctrl.has_method("enter_space_mode"):
-		_sky_ctrl.enter_space_mode(centre)
-
-	if _star != null and _star.light() != null and _star.has_method("irradiance_at"):
-		# W/m^2 at the top of the atmosphere. What each cell then absorbs is the band model's business:
-		# dust and cloud attenuate per cell per wavelength, never as one number over the whole planet.
-		_star.light().set_meta("irradiance_w_m2", _star.irradiance_at(centre))
-		_star.light().set_meta("xuv_w_m2", _star.xuv_irradiance_at(centre))
 
 
 # Offset of the planet-moon barycentre from the planet, in the world (planet-centred) frame. The pair swings
@@ -96,10 +79,6 @@ func _position_bodies() -> void:
 	var centre: Vector3 = _body.center()
 	if _star != null:
 		_star.global_position = centre + _barycentre() - _helio.position()
-		# Re-aim after moving: the light's basis is the field's sun direction, and setup() aimed it once from
-		# the star's ORIGINAL position, so without this the solar term drifts as the orbit advances.
-		if _star.has_method("aim_at"):
-			_star.aim_at(centre)
 	if _moon != null:
 		_moon.global_position = centre + _moon_state.position()
 

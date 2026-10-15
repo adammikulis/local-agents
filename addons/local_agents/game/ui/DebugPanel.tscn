@@ -19,10 +19,11 @@ script = ExtResource("1_debugpanel")
 
 [node name="Panel" type="PanelContainer" parent="."]
 custom_minimum_size = Vector2(172, 0)
-offset_left = 10.0
-offset_top = 120.0
-offset_right = 10.0
-offset_bottom = 120.0
+anchor_bottom = 0.5
+offset_left = 12.0
+offset_top = 110.0
+offset_right = 184.0
+offset_bottom = -4.0
 theme_override_styles/panel = SubResource("StyleBoxFlat_debugpanel")
 
 [node name="Col" type="VBoxContainer" parent="Panel"]
@@ -37,8 +38,8 @@ flat = true
 alignment = 0
 
 [node name="Scroll" type="ScrollContainer" parent="Panel/Col"]
-custom_minimum_size = Vector2(0, 460)
 layout_mode = 2
+size_flags_vertical = 3
 horizontal_scroll_mode = 0
 
 [node name="Body" type="VBoxContainer" parent="Panel/Col/Scroll"]

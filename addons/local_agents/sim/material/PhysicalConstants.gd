@@ -18,7 +18,7 @@ const IAPWS_SAT_RHO_B5: float = -45.5170352   # IAPWS SR1-86 (1992)
 const IAPWS_SAT_RHO_B6: float = -6.74694450e5   # IAPWS SR1-86 (1992)
 ## Isothermal compressibility of liquid water at 25 °C, 1/Pa (Kell 1975), and its reciprocal.
 const WATER_ISOTHERMAL_COMPRESSIBILITY_PER_PA: float = 4.525e-10
-const WATER_BULK_MODULUS_PA: float = 1.0 / WATER_ISOTHERMAL_COMPRESSIBILITY_PER_PA
+const WATER_BULK_MODULUS_T_PA: float = 1.0 / WATER_ISOTHERMAL_COMPRESSIBILITY_PER_PA
 
 ## Specific gas constant of water vapour, J/kg/K = R / molar mass.
 const VAPOUR_GAS_CONST_J_KGK: float = 461.52
@@ -59,15 +59,18 @@ const BOLIDE_FLUX_EXPONENT: float = 0.90
 const BOLIDE_FIT_KT: PackedFloat64Array = [1.0e-5, 1.0e8]
 ## One kiloton of TNT, J: 1 g of TNT is 1000 thermochemical calories of 4.184 J.
 const KILOTON_TNT_J: float = 4.184e12
-## Volumetric thermal expansivity of rock, 1/K. Skinner 1966, GSA Memoir 97, puts rocks at 15-33e-6 /°C;
-## basalt carries no quartz (3.3e-5, Fei 1995) and sits at the low end of that span.
-const ROCK_VOLUME_EXPANSION_PER_K: float = 1.5e-5
-## Isothermal bulk modulus of the basalt mineral matrix, Pa. Adam & Otheim 2013, JGR Solid Earth 118, give
-## Voigt-Reuss-Hill mineral moduli of 80.1 and 84.1 GPa on two basalt samples.
-const ROCK_BULK_MODULUS_PA: float = 8.0e10
+
+## Volumetric expansivity of gabbro and basalt, 20-100 °C, 1/K (Skinner 1966, in Robertson 1988, USGS OFR 88-441).
+const ROCK_VOLUME_EXPANSION_PER_K: float = 1.6e-5
+## Adiabatic bulk modulus of the basalt mineral matrix, Pa: the Voigt-Reuss-Hill average of acoustic mineral
+## moduli (Mavko et al. 2003) over Snake River Plain basalt B1 (Otheim 2012, Boise State MS thesis, Table 2.6;
+## Adam & Otheim 2013, JGR Solid Earth 118:840).
+const ROCK_BULK_MODULUS_S_PA: float = 8.01e10
+## Basalt BCR-1 specific heat at 298.15 K, J/kg/K (Robertson & Hemingway 1995, USGS OFR 95-622, Table 2).
+const ROCK_SPECIFIC_HEAT_J_KGK: float = 738.3
 ## Uniaxial tensile strength of intact basalt, Pa (Schultz 1995, Rock Mech. Rock Eng. 28:1, 14.5±3.3 MPa).
 const BASALT_TENSILE_STRENGTH_PA: float = 1.45e7
-const ROCK_SPECIFIC_HEAT_J_KGK: float = 840.0
+
 const VOL_HEAT_CAP_AIR_J_M3K: float = AIR_DENSITY_KG_M3 * AIR_SPECIFIC_HEAT_J_KGK
 const VOL_HEAT_CAP_WATER_J_M3K: float = WATER_DENSITY_KG_M3 * WATER_SPECIFIC_HEAT_J_KGK
 
@@ -128,8 +131,14 @@ const ALBEDO_SNOW_ICE: float = 0.65
 ## Molar density of an ideal gas at STP (0 degC, 1 atm), mol/m^3: p / (R T).
 const STP_MOLAR_DENSITY_MOL_M3: float = STANDARD_PRESSURE_PA / (GAS_CONSTANT_J_MOL_K * KELVIN_OFFSET)
 
-const REGOLITH_SURFACE_POROSITY: float = 0.40
-const COMPACTION_LENGTH_M: float = 2500.0
+## Porosity of impact-fractured igneous crust, phi = phi_0 exp(-sigma' / P_c): the lunar megaregolith's
+## phi_0 exp(-z / K) (Binder & Lange 1980, JGR 85:3194; Clifford 1993, JGR 98:10973, eq. 1) read as the load
+## the lunar crust carries at depth z, P_c = rho g_Moon K.
+const CRUST_SURFACE_POROSITY: float = 0.20   # Binder & Lange 1980; Clifford 1993
+const LUNAR_POROSITY_DECAY_M: float = 6500.0   # Binder & Lange 1980; Clifford 1993
+const LUNAR_GRAVITY_M_S2: float = 1.62   # Clifford 1993
+const LUNAR_CRUST_BULK_DENSITY_KG_M3: float = 2550.0   # Wieczorek et al. 2013, Science 339:671
+const CRUST_POROSITY_CLOSURE_PA: float = LUNAR_CRUST_BULK_DENSITY_KG_M3 * LUNAR_GRAVITY_M_S2 * LUNAR_POROSITY_DECAY_M
 
 const GRAIN_D_UPLAND_M: float = 6.0e-5      # very fine sand / coarse silt
 const GRAIN_D_LOWLAND_M: float = 4.0e-3     # fine gravel
@@ -162,8 +171,8 @@ const CALCITE_DENSITY_KG_M3: float = 2710.0          # calcite, 2.71 g/cm^3
 ## Volumetric thermal expansivity at 300 K, 1/K (Fei 1995, AGU Reference Shelf 2:29).
 const QUARTZ_VOLUME_EXPANSION_PER_K: float = 3.3e-5
 const CALCITE_VOLUME_EXPANSION_PER_K: float = 1.4e-5
-## Adiabatic bulk modulus of alpha-quartz, Pa (Bass 1995, AGU Reference Shelf 2:45).
-const QUARTZ_BULK_MODULUS_PA: float = 3.78e10
+## Isothermal bulk modulus of alpha-quartz, Pa (Angel et al. 1997, J. Appl. Cryst. 30:461).
+const QUARTZ_BULK_MODULUS_T_PA: float = 3.712e10
 
 # Formation enthalpy and standard molar entropy at 298.15 K, 1 bar (Robie & Hemingway 1995; CODATA for CO2).
 const FORMATION_ENTHALPY_CASIO3_J_MOL: float = -1634900.0   # wollastonite
@@ -178,7 +187,7 @@ const ICE_DENSITY_KG_M3: float = 916.7
 ## Volumetric thermal expansivity of ice Ih near 265 K, 1/K (Röttger et al. 1994, Acta Cryst B50:644).
 const ICE_VOLUME_EXPANSION_PER_K: float = 1.6e-4
 ## Isothermal bulk modulus of ice Ih at 273 K, Pa (Neumeier 2018, J. Phys. Chem. Ref. Data 47:033101).
-const ICE_BULK_MODULUS_PA: float = 8.4e9
+const ICE_BULK_MODULUS_T_PA: float = 8.4e9
 
 const ROCK_POROSITY_NEAR_SURFACE: float = 0.05
 
@@ -221,8 +230,6 @@ const LATENT_HEAT_FUSION_J_KG: float = 3.337e5
 
 ## Basalt enthalpy of crystallisation, J/kg (Lange, Cashman & Navrotsky 1994, CMP 118:169).
 const BASALT_LATENT_HEAT_CRYSTALLISATION_J_KG: float = 4.0e5
-## Basaltic melt at its liquidus, kg/m^3 (Lange & Carmichael 1987, Rev. Mineral. 24:25).
-const BASALT_MELT_DENSITY_KG_M3: float = 2650.0
 
 const BASALT_EMISSIVITY: float = 0.95
 
@@ -247,7 +254,18 @@ const WATER_TRIPLE_T_C: float = 0.01                 # IAPWS, 273.16 K exactly b
 const WATER_TRIPLE_P_PA: float = 611.657              # IAPWS triple-point pressure
 const WATER_CRITICAL_T_C: float = 373.946            # IAPWS-95 critical temperature, 647.096 K
 const WATER_CRITICAL_P_PA: float = 2.2064e7          # IAPWS-95 critical pressure, 220.64 bar
+# Peng & Robinson 1976, Ind. Eng. Chem. Fundam. 15:59: a_c = PR_OMEGA_A R^2 Tc^2 / pc, b = PR_OMEGA_B R Tc / pc,
+# kappa = PR_KAPPA_0 + PR_KAPPA_1 omega - PR_KAPPA_2 omega^2.
+const PR_OMEGA_A: float = 0.45724
+const PR_OMEGA_B: float = 0.07780
+const PR_KAPPA_0: float = 0.37464
+const PR_KAPPA_1: float = 1.54226
+const PR_KAPPA_2: float = 0.26992
+const WATER_ACENTRIC_FACTOR: float = 0.3443  # Pitzer omega on the reference EOS, Wagner & Pruss 2002, J. Phys. Chem. Ref. Data 31:387
 const STANDARD_PRESSURE_PA: float = 101325.0         # one standard atmosphere, the reference boil_c is quoted at
+## The thermochemical standard state every enthalpy ladder is anchored at, 298.15 K and 1 bar (IUPAC, exact).
+const STANDARD_STATE_T_C: float = 25.0
+const STANDARD_STATE_P_PA: float = 1.0e5
 const WATSON_LATENT_EXPONENT: float = 0.38           # Watson correlation exponent for the latent-heat curve
 
 const EV_TO_J_PER_MOL: float = 96485.33              # CODATA Faraday constant, J/(mol*V)
@@ -317,6 +335,12 @@ const N2_TRIPLE_T_C: float = -210.0                  # triple point 63.15 K
 const N2_TRIPLE_P_PA: float = 12520.0                # triple-point pressure 12.52 kPa
 const N2_CRITICAL_T_C: float = -146.958              # critical point 126.192 K
 const N2_CRITICAL_P_PA: float = 3.3958e6             # critical pressure 3.3958 MPa
+const N2_ACENTRIC_FACTOR: float = 0.0372  # Pitzer omega on the reference EOS, Span et al. 2000, J. Phys. Chem. Ref. Data 29:1361
+# Melting line p = p0 (1 + a1 ((T/T0)^c1 - 1)), Span et al. 2000, J. Phys. Chem. Ref. Data 29:1361 (via CoolProp).
+const N2_MELT_T0_K: float = 63.151
+const N2_MELT_P0_PA: float = 12523.0
+const N2_MELT_A1: float = 12798.61
+const N2_MELT_C1: float = 1.78963
 const VAP_ENTHALPY_N2_J_MOL: float = 5577.0          # dHvap at 77.355 K
 const FUS_ENTHALPY_N2_J_MOL: float = 710.0           # dHfus at the triple point (CRC Handbook, 97th ed.)
 const LATENT_HEAT_VAPORISATION_N2_J_KG: float = VAP_ENTHALPY_N2_J_MOL / MOLAR_MASS_N2_KG_MOL
@@ -333,6 +357,13 @@ const O2_TRIPLE_T_C: float = -218.789                # triple point 54.361 K
 const O2_TRIPLE_P_PA: float = 146.3                  # triple-point pressure
 const O2_CRITICAL_T_C: float = -118.569              # critical point 154.581 K
 const O2_CRITICAL_P_PA: float = 5.043e6
+const O2_ACENTRIC_FACTOR: float = 0.0222  # Pitzer omega on the reference EOS, Schmidt & Wagner 1985, Fluid Phase Equilib. 19:175
+# Melting line p = p0 + a1 ((T/T0)^c1 - 1), Younglove 1982, J. Phys. Chem. Ref. Data 11 Suppl. 1 (via CoolProp).
+# Accuracy at the triple point: the published curve's own.
+const O2_MELT_T0_K: float = 1.0
+const O2_MELT_P0_PA: float = -266999247.652
+const O2_MELT_A1: float = 227606.348
+const O2_MELT_C1: float = 1.769
 const VAP_ENTHALPY_O2_J_MOL: float = 6820.0          # dHvap at 90.188 K
 const FUS_ENTHALPY_O2_J_MOL: float = 444.0           # dHfus at the triple point (CRC 97th ed.)
 const LATENT_HEAT_VAPORISATION_O2_J_KG: float = VAP_ENTHALPY_O2_J_MOL / MOLAR_MASS_O2_KG_MOL
@@ -346,6 +377,15 @@ const CO2_TRIPLE_T_C: float = -56.558                # triple point 216.592 K
 const CO2_TRIPLE_P_PA: float = 5.1795e5              # 0.51795 MPa: above 1 atm, so dry ice sublimes
 const CO2_CRITICAL_T_C: float = 30.978               # critical point 304.128 K
 const CO2_CRITICAL_P_PA: float = 7.3773e6
+const CO2_ACENTRIC_FACTOR: float = 0.22394  # Pitzer omega on the reference EOS, Span & Wagner 1996, J. Phys. Chem. Ref. Data 25:1509
+# Melting line p = p0 (1 + a1 th + a2 th^2), th = T/T0 - 1, Span & Wagner 1996, J. Phys. Chem. Ref. Data
+# 25:1509 (via CoolProp).
+const CO2_MELT_T0_K: float = 216.592
+const CO2_MELT_P0_PA: float = 517950.0
+const CO2_MELT_A1: float = 1955.539
+const CO2_MELT_C1: float = 1.0
+const CO2_MELT_A2: float = 2055.4593
+const CO2_MELT_C2: float = 2.0
 # CO2 has no 1-atm boiling point; the vapour curve's second measured anchor is saturation at 0 C.
 const CO2_SAT_REF_T_C: float = 0.0
 const CO2_SAT_REF_P_PA: float = 3.4851e6
@@ -356,19 +396,20 @@ const MOLAR_HEAT_CAP_CO2_GAS_J_MOLK: float = 37.129  # cp of the gas at 298.15 K
 const CO2_GAS_SPECIFIC_HEAT_J_KGK: float = MOLAR_HEAT_CAP_CO2_GAS_J_MOLK / MOLAR_MASS_CO2_KG_MOL
 const CO2_LIQUID_SPECIFIC_HEAT_J_KGK: float = 1962.0 # saturated liquid at 220 K
 const DRY_ICE_DENSITY_KG_M3: float = 1562.0          # solid CO2 at 194.7 K (CRC 97th ed.)
+const CO2_LIQUID_DENSITY_KG_M3: float = 1178.46      # saturated liquid at the triple point
+const CO2_LIQUID_EXPANSION_PER_K: float = 3.09e-3    # 0.6 MPa, between the 216.7 K and 217 K isotherms (NIST WebBook)
+const CO2_LIQUID_BULK_MODULUS_T_PA: float = 5.61e8   # K_T on the 216.7 K isotherm, 0.6-0.8 MPa (NIST WebBook)
+const CO2_LIQUID_BULK_MODULUS_T_DERIV: float = 10.0  # dK_T/dP on the 216.7 K and 217 K isotherms (NIST WebBook)
 
 # Dihydrogen, NIST Chemistry WebBook (CAS 1333-74-0); liquid cp from Leachman et al. 2009,
 # J. Phys. Chem. Ref. Data 38:721.
 const MOLAR_MASS_H2_KG_MOL: float = 2.0 * MOLAR_MASS_HYDROGEN_KG_MOL
 const H2_BOIL_C: float = -252.879                    # normal boiling point 20.271 K
-const H2_TRIPLE_T_C: float = -259.347                # triple point 13.803 K
-const H2_TRIPLE_P_PA: float = 7041.0
 const H2_CRITICAL_T_C: float = -240.005              # critical point 33.145 K
 const H2_CRITICAL_P_PA: float = 1.2964e6
+const H2_ACENTRIC_FACTOR: float = -0.219  # Pitzer omega on the reference EOS, Leachman et al. 2009, J. Phys. Chem. Ref. Data 38:721
 const VAP_ENTHALPY_H2_J_MOL: float = 898.8           # dHvap at 20.271 K
-const FUS_ENTHALPY_H2_J_MOL: float = 117.0           # dHfus at the triple point (CRC 97th ed.)
 const LATENT_HEAT_VAPORISATION_H2_J_KG: float = VAP_ENTHALPY_H2_J_MOL / MOLAR_MASS_H2_KG_MOL
-const LATENT_HEAT_FUSION_H2_J_KG: float = FUS_ENTHALPY_H2_J_MOL / MOLAR_MASS_H2_KG_MOL
 const MOLAR_HEAT_CAP_H2_GAS_J_MOLK: float = 28.836   # cp of the gas at 298.15 K, 1 bar
 const H2_GAS_SPECIFIC_HEAT_J_KGK: float = MOLAR_HEAT_CAP_H2_GAS_J_MOLK / MOLAR_MASS_H2_KG_MOL
 const H2_LIQUID_SPECIFIC_HEAT_J_KGK: float = 9770.0  # saturated liquid at 20.3 K
@@ -383,6 +424,13 @@ const CO_TRIPLE_T_C: float = -205.02                 # triple point 68.13 K
 const CO_TRIPLE_P_PA: float = 15400.0
 const CO_CRITICAL_T_C: float = -140.29               # critical point 132.86 K
 const CO_CRITICAL_P_PA: float = 3.494e6
+const CO_ACENTRIC_FACTOR: float = 0.0497  # Pitzer omega on the reference EOS, Lemmon & Span 2006, J. Chem. Eng. Data 51:785
+# Melting line p = p0 + a1 ((T/T0)^c1 - 1), Barreiros et al. 1982, J. Chem. Thermodyn. (via CoolProp).
+# Accuracy at the triple point: the published curve's own.
+const CO_MELT_T0_K: float = 1.0
+const CO_MELT_P0_PA: float = -142921439.2
+const CO_MELT_A1: float = 19560.8
+const CO_MELT_C1: float = 2.10747
 const VAP_ENTHALPY_CO_J_MOL: float = 6040.0          # dHvap at 81.64 K
 const FUS_ENTHALPY_CO_J_MOL: float = 833.0           # dHfus at the triple point (CRC 97th ed.)
 const LATENT_HEAT_VAPORISATION_CO_J_KG: float = VAP_ENTHALPY_CO_J_MOL / MOLAR_MASS_CO_KG_MOL
@@ -398,14 +446,11 @@ const ATOMISATION_CO_J_MOL: float = 1.07639e6        # dfH(C,g) + dfH(O,g) - dfH
 # Sulfur dioxide, NIST Chemistry WebBook (CAS 7446-09-5).
 const MOLAR_MASS_SO2_KG_MOL: float = MOLAR_MASS_S_KG_MOL + 2.0 * MOLAR_MASS_OXYGEN_KG_MOL
 const SO2_BOIL_C: float = -10.05                     # normal boiling point 263.10 K
-const SO2_TRIPLE_T_C: float = -75.51                 # triple point 197.64 K
-const SO2_TRIPLE_P_PA: float = 1670.0
 const SO2_CRITICAL_T_C: float = 157.49               # critical point 430.64 K
 const SO2_CRITICAL_P_PA: float = 7.884e6
+const SO2_ACENTRIC_FACTOR: float = 0.2561  # Pitzer omega on the reference EOS, Gao et al. 2016, J. Chem. Eng. Data 61:2859
 const VAP_ENTHALPY_SO2_J_MOL: float = 24940.0        # dHvap at 263.10 K
-const FUS_ENTHALPY_SO2_J_MOL: float = 7400.0         # dHfus at the triple point (CRC 97th ed.)
 const LATENT_HEAT_VAPORISATION_SO2_J_KG: float = VAP_ENTHALPY_SO2_J_MOL / MOLAR_MASS_SO2_KG_MOL
-const LATENT_HEAT_FUSION_SO2_J_KG: float = FUS_ENTHALPY_SO2_J_MOL / MOLAR_MASS_SO2_KG_MOL
 const MOLAR_HEAT_CAP_SO2_GAS_J_MOLK: float = 39.87   # cp of the gas at 298.15 K, 1 bar
 const SO2_GAS_SPECIFIC_HEAT_J_KGK: float = MOLAR_HEAT_CAP_SO2_GAS_J_MOLK / MOLAR_MASS_SO2_KG_MOL
 const SO2_LIQUID_SPECIFIC_HEAT_J_KGK: float = 1360.0 # saturated liquid at 263 K
@@ -417,14 +462,11 @@ const ATOMISATION_SO2_J_MOL: float = 1.07234e6       # dfH(S,g) + 2 dfH(O,g) - d
 # Hydrogen sulfide, NIST Chemistry WebBook (CAS 7783-06-4); critical point Goodwin 1983, NBSIR 83-1694.
 const MOLAR_MASS_H2S_KG_MOL: float = MOLAR_MASS_S_KG_MOL + 2.0 * MOLAR_MASS_HYDROGEN_KG_MOL
 const H2S_BOIL_C: float = -60.28                     # normal boiling point 212.87 K
-const H2S_TRIPLE_T_C: float = -85.49                 # triple point 187.66 K
-const H2S_TRIPLE_P_PA: float = 23200.0
 const H2S_CRITICAL_T_C: float = 100.25               # critical point 373.4 K
 const H2S_CRITICAL_P_PA: float = 8.963e6
+const H2S_ACENTRIC_FACTOR: float = 0.1005  # Pitzer omega on the reference EOS, Lemmon & Span 2006, J. Chem. Eng. Data 51:785
 const VAP_ENTHALPY_H2S_J_MOL: float = 18670.0        # dHvap at 212.87 K
-const FUS_ENTHALPY_H2S_J_MOL: float = 2377.0         # dHfus at the triple point (CRC 97th ed.)
 const LATENT_HEAT_VAPORISATION_H2S_J_KG: float = VAP_ENTHALPY_H2S_J_MOL / MOLAR_MASS_H2S_KG_MOL
-const LATENT_HEAT_FUSION_H2S_J_KG: float = FUS_ENTHALPY_H2S_J_MOL / MOLAR_MASS_H2S_KG_MOL
 const MOLAR_HEAT_CAP_H2S_GAS_J_MOLK: float = 34.19   # cp of the gas at 298.15 K, 1 bar (NIST-JANAF)
 const H2S_GAS_SPECIFIC_HEAT_J_KGK: float = MOLAR_HEAT_CAP_H2S_GAS_J_MOLK / MOLAR_MASS_H2S_KG_MOL
 const H2S_LIQUID_SPECIFIC_HEAT_J_KGK: float = 2000.0 # saturated liquid at 212.9 K (Goodwin 1983)
@@ -441,6 +483,12 @@ const CH4_TRIPLE_T_C: float = -182.456               # triple point 90.694 K
 const CH4_TRIPLE_P_PA: float = 11696.0
 const CH4_CRITICAL_T_C: float = -82.586              # critical point 190.564 K
 const CH4_CRITICAL_P_PA: float = 4.5992e6
+const CH4_ACENTRIC_FACTOR: float = 0.01142  # Pitzer omega on the reference EOS, Setzmann & Wagner 1991, J. Phys. Chem. Ref. Data 20:1061
+# Melting line p = p0 + a1 ((T/T0)^c1 - 1), Abramson 2011, High Press. Res. (via CoolProp).
+const CH4_MELT_T0_K: float = 90.6941
+const CH4_MELT_P0_PA: float = 11700.0
+const CH4_MELT_A1: float = 2.08e8
+const CH4_MELT_C1: float = 1.698
 const VAP_ENTHALPY_CH4_J_MOL: float = 8190.0         # dHvap at 111.667 K
 const FUS_ENTHALPY_CH4_J_MOL: float = 940.0          # dHfus at the triple point (CRC 97th ed.)
 const LATENT_HEAT_VAPORISATION_CH4_J_KG: float = VAP_ENTHALPY_CH4_J_MOL / MOLAR_MASS_CH4_KG_MOL

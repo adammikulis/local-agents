@@ -221,20 +221,35 @@ prints one summary line naming how the escalations were actually resolved. This 
 
 `addons/local_agents/sim/SimWorld.gd`, extends `Node3D`, `@tool`.
 
-The one-node facade for a self-contained ecosystem sim. Pick a `world_type`, set its bounds, and call `spawn_world()`, or let it run
-on `_ready()`. It composes the existing controllers behind a small export surface and adds no behaviour of its own. `@tool` is only
-for the configuration warnings: every lifecycle callback returns early in the editor, so dropping the node in a scene never starts
-building a planet.
+The one-node facade for a self-contained world. Pick a `world_type`, set its bounds, and call `spawn_world()`, or let it run on
+`_ready()`. It composes the controllers the game's simulation composes behind a small export surface, and drives them with its own
+`LASimLoop`. Instance `LASimWorldView` under it for its look. `@tool` is only for the configuration warnings: every lifecycle
+callback returns early in the editor, so dropping the node in a scene never starts building a planet.
+
+A SPHERE world is a planet body, its star, a field box around the body, the orbit and the ecology. The loop holds simulated time while
+the field seeds, then each step turns the body on its measured spin, advances the orbit, which places the star and publishes its
+irradiance at the body, steps the field and steps the ecology. The field's solar input is that star's light, so the insolation physics
+is the game's. The field steps on a compute device, so SPHERE needs a RenderingDevice: without one, which is every `--headless` run,
+`spawn_world()` pushes `GPU_REQUIRED` and builds nothing. A FLAT world is a ground plane and a box field volume; its loop steps the
+ecology, and nothing seeds or steps its field.
 
 godot_voxel is optional, and this node is where that is enforced. SPHERE is built out of the `zylann.voxel` GDExtension. FLAT is
 not, and keeps working in a project that never installed it. Asking for SPHERE without the extension builds nothing and pushes a
 `VOXEL_BACKEND_REQUIRED` error, because the repo convention is an explicit typed failure over silent degradation. The enum is
 `WorldType { SPHERE, FLAT }`.
 
+#### Signal
+- `world_built`. `spawn_world()` finished: `terrain()`, `material_field()` and `ecology()` are live.
+
 #### Exports, group World
-- `world_type` (WorldType, default `SPHERE`). SPHERE grows a cubed-sphere planet and needs godot_voxel. FLAT builds a ground plane
-  plus a box field volume and needs nothing beyond this addon.
+- `world_type` (WorldType, default `SPHERE`). SPHERE builds a planet from godot_voxel's signed-distance terrain inside a Cartesian
+  field box. FLAT builds a ground plane plus a box field volume and needs nothing beyond this addon.
 - `build_on_ready` (bool, default `true`).
+- `world_seed` (int, default `1337`). Terrain generation and every random draw this node makes derive from it.
+
+The processes a world contains are settled before it is built: an explicit process set on the command line, else the rung that
+`--rung=N`, the project setting `local_agents/sim/process_rung`, `LA_RUNG` or `res://docs/PLAYABLE_RUNG` names, in that order. A
+project with none of them runs every process.
 
 #### Exports, group Sphere bounds, subgroup Shape
 - `body_seed` (String, default `planet`). Which row of `LABodySeeds` the world is built from. The radius is not an export: it
@@ -242,11 +257,22 @@ not, and keeps working in a project that never installed it. Asking for SPHERE w
 - `caves_enabled` (bool, default `true`).
 
 #### Exports, group Sphere bounds, subgroup Field grid
-- `grid_res` (int, default `20`, range 8 to 64, suffix cells). Field cells along one edge of the box. Doubling it multiplies the
-  grid by eight.
+- `grid_res` (int, default `20`, range 8 to 64, suffix cells). Root cells along one edge of the box. Where `res://docs/CELL_BUDGET`
+  declares a budget, as this repository does, the build refines the band around the surface, halving its cells while the total stays
+  under that budget.
 
-#### Exports, group Sphere bounds, subgroup Lighting
-- `sun_enabled` (bool, default `true`). Add a fixed DirectionalLight3D so the field's solar pass has a real sun. SPHERE only.
+#### Exports, group Sphere bounds, subgroup Slice
+- `slice_cells` (Vector3i, default `Vector3i.ZERO`). Cells per axis of a slice box laid on the body instead of a box around the
+  whole planet. Zero lays no slice here, and the project setting or `LA_SLICE_BOX` can still configure one; the node wins when set.
+- `slice_cell_size_m` (float, default `4000.0`, suffix m). The slice box's coarsest cell edge.
+- `slice_fine_m` (float, default `4000.0`, suffix m). The finest edge the slice refines to: `slice_cell_size_m` halved a whole
+  number of times.
+- `slice_offset_m` (Vector3, default `Vector3.ZERO`). The slice box's centre from the body centre in the body frame. Its direction is
+  the slice's local vertical, so it must be nonzero.
+
+#### Exports, group Wiring
+- `star` (LAStar, default `null`). The star the body orbits. SPHERE only. Left unset, the build makes the star `LABodySeeds`
+  declares, as a child named `Star`, and sets it here.
 
 #### Exports, group Flat bounds
 - `flat_extent` (Vector3, default `Vector3(120.0, 40.0, 120.0)`, range 1 to 2000 or greater per axis, suffix m). Size of the box
@@ -271,6 +297,8 @@ static func has_voxel_backend() -> bool
 func spawn_world() -> void
 func spawn_life() -> void
 func planned_cell_count() -> int
+func seed_radius() -> float
+func field_cell_size_m() -> float
 func material_field() -> Variant
 func ecology() -> Variant
 func terrain() -> Variant
@@ -281,94 +309,128 @@ func has_spawned() -> bool
 ```
 
 `has_voxel_backend()` is `ClassDB.class_exists("VoxelLodTerrain")` and is safe to call from the editor. `spawn_world()` is
-idempotent, and refuses with an error for SPHERE without godot_voxel and for a non-positive `flat_cell_size`. `spawn_life()` places
-the founding population now, bypassing the auto gate. A SPHERE spawn otherwise waits for the top-of-planet patch to mesh and
-collide, plus a few settle ticks.
+idempotent, and refuses with an error for SPHERE without godot_voxel or a RenderingDevice, for a non-positive `flat_cell_size`, for
+a slice that does not fit and for a grid whose neighbour links are not reciprocal. `spawn_life()` places the founding population now,
+bypassing the auto gate. A SPHERE spawn otherwise waits for the body to have a radius, plus a few settle ticks.
 
-`planned_cell_count()` is `grid_res ** 3` for SPHERE, and the extent divided by the cell size on each axis
-for FLAT, so a host can size a world before building it. It returns 0 when the settings cannot produce a grid. The five accessors
-return null until `spawn_world()` succeeds, and `terrain()` is duck-typed: a voxel terrain service for SPHERE, a flat ground adapter
-for FLAT.
+`planned_cell_count()` is `grid_res ** 3` for SPHERE, the root lattice before any refinement, and the extent divided by the cell size
+on each axis for FLAT. It returns 0 when the settings cannot produce a grid. `seed_radius()` is the radius the seeded matter fills
+before it is laid down, and `field_cell_size_m()` is the root cell edge in metres. The five accessors return null until
+`spawn_world()` succeeds, and `terrain()` is duck-typed: a voxel terrain service for SPHERE, a flat ground adapter for FLAT.
 
 #### Configuration warnings
 - World Type is Sphere but godot_voxel is not installed.
 - Flat Cell Size is 0 or less.
 - Flat Extent has a zero or negative component.
 - Auto Spawn is on but Build On Ready is off.
+- Star is set but World Type is Flat.
 - The settings ask for more than `SLOW_BUILD_CELLS` (250000) field cells, naming the count.
 
 ### LocalAgentFieldBox
 
 `addons/local_agents/sim/material/FieldBox.gd`, extends `Node3D`.
 
-The material field sandbox as a node. Drag it in, press play, and you get a volumetric field in box mode with a heat source at its
-floor and a plane of cubes tinted by the live temperature, so you can watch warmth diffuse and rise. It owns a material field as a
-child rather than extending it, so the inspector surface lives out here and the field hub stays untouched. Coordinates are local to
-this node, so the box and its cubes move with its transform.
+The material field in box mode as a node. It owns a material field as a child rather than extending it, so the inspector surface lives
+out here and the field hub stays untouched. Instance `LAFieldBoxSliceView` under it to draw a plane of its cells. The box is laid
+once, when the node starts, axis-aligned and centred on the node's global position in X and Z with its floor at the node's height.
+Moving the node later does not move the box.
 
-Box mode is a pure CPU substrate and runs anywhere, headless included. Only the slice visual needs a display, and it is skipped and
-reported when there is none. Pair the node with a `LocalAgentDemoHarness` whose `report_source` is this node for the standard `--
---run-frames=N` report line.
+The box holds no matter. Nothing seeds, activates or steps a box-mode field, so `add_heat_energy()` adds nothing and returns 0, and
+`temp_at()` reads NAN in every cell. Pair the node with a `LocalAgentDemoHarness` whose `report_source` is this node for the standard
+`-- --run-frames=N` report line.
 
 #### Exports, group Volume
 Every property in this group is read once when the node starts. Changing one later does not resize a running field.
 
-- `extent` (Vector3, default `Vector3(60.0, 40.0, 60.0)`). Size of the simulated box in world units.
-- `cell_size` (float, default `5.0`, range 0.5 to 20.0, suffix m). Cells per axis is `extent / cell_size`, so smaller is finer and
-  slower.
-- `origin_offset` (Vector3, default `Vector3.ZERO`). At zero the box is centred on X and Z with the centres of its floor cells at y
-  = 0.
+- `extent` (Vector3, default `Vector3(60.0, 40.0, 60.0)`). Size of the box in world units.
+- `cell_size` (float, default `5.0`, range 0.5 to 20.0, suffix m). Cells per axis is `extent / cell_size`, rounded, at least one.
+- `origin_offset` (Vector3, default `Vector3.ZERO`). Shifts the box from the node, in world units. At zero the box is centred on the
+  node in X and Z with its floor at the node's height.
 
 #### Exports, group Heat source
-- `heat_enabled` (bool, default `true`). Off gives an inert volume you drive yourself by calling `add_heat_energy()` on `field()`.
+- `heat_enabled` (bool, default `true`). Off leaves the volume to whatever you drive through `field()`.
 - `heat_source_w` (float, default `2000.0`, range 0.0 to 1e6, suffix W). Power per source cell.
-- `heat_burst_s` (float, default `10.0`, range 0.0 to 6000.0, suffix s). Simulated seconds the source runs before switching off. 0 never
-  stops.
+- `heat_burst_s` (float, default `10.0`, range 0.0 to 6000.0, suffix s). Seconds of the physics clock the source runs before
+  switching off. 0 never stops.
 - `heat_source_cells` (Vector3i, default `Vector3i(3, 1, 3)`). Source footprint in cells, centred on the floor.
 
-Heat goes in on the physics clock, which is the clock the field steps on, so the energy deposited by a given run does not vary with
-the display framerate.
-
-#### Exports, group Slice view
-- `show_slice` (bool, default `true`). The plane of cubes that makes the field visible.
-- `slice_axis` (String, default `"Z"`, `@export_enum("X", "Y", "Z")`). Z gives a vertical wall facing the camera, Y gives a
-  horizontal floor plan.
-- `slice_position` (float, default `0.5`, range 0.0 to 1.0). 0 is the low face of the box, 1 the high face.
-- `cube_fill` (float, default `0.85`, range 0.05 to 1.0). Cube edge as a fraction of `cell_size`. 1.0 makes the cubes touch.
-- `color_span` (float, default `60.0`, range 1.0 to 400.0, suffix C). Temperature above ambient that reaches `hot_color`. Smaller is
-  a more sensitive display.
-- `cold_color` (Color, default `Color(0.15, 0.2, 0.5)`). A cell at ambient.
-- `hot_color` (Color, default `Color(1.0, 0.35, 0.1)`). A cell `color_span` degrees above ambient, or hotter.
-
-The whole slice is one MultiMeshInstance3D, so it costs one draw call however many cells it covers.
+Each physics tick the source asks `add_heat_energy()` for `heat_source_w` times the tick's length in every source cell.
 
 #### Methods
 ```gdscript
 func field() -> Node
-func cell_dims() -> Vector3i
+func dims() -> Vector3i
+func cell_point(ix: int, iy: int, iz: int) -> Vector3
 func demo_report() -> Dictionary
 ```
 
-`field()` returns the material field this node owns, so you can drive the volume yourself:
+`field()` returns the material field this node owns, and `dims()` its cells along X, Y and Z, zero before the field is built. The
+field takes world positions:
 
 ```gdscript
 func add_heat_energy(world_pos: Vector3, joules: float, radius: float = 0.0) -> float
 func temp_at(pos: Vector3) -> float
 ```
 
-Both take a position in the field's frame, which is this node's local space, with the floor of the box at
-y = 0 and the box centred on X and Z unless Origin Offset moves it. To go between positions and cells,
-`cell_world_pos(ix, iy, iz) -> Vector3` gives the position of a cell and `world_to_cell(pos) -> int` gives
-the linear index of a position, so a point from `cell_world_pos()` handed to `temp_at()` lands on exactly
-the cell it came from.
+`cell_point(ix, iy, iz)` is the world centre of a cell straight from the field, so `temp_at()` or `add_heat_energy()` at that point
+lands on exactly that cell. The field's own `world_to_cell(pos) -> int` gives the linear index of a position.
 
-`add_heat_energy()`'s `radius` argument does nothing in box mode. The radius walk needs the cubed-sphere neighbour table, so a box field
-heats the single cell at `world_pos` whatever radius you pass. Loop over the cells you want instead.
+`demo_report()` returns `frames`, `cells`, `dims` (a `"WxHxD"` string), `top_start`, `top_now`, `bottom_now` and `flowed` (true when
+the top is more than 0.5 degrees above where it started). Temperatures are snapped to two decimals. Before the field exists the report
+carries `frames` and `cells` only. This node has no configuration warnings.
 
-`demo_report()` returns `frames`, `cells`, `dims` (a `"WxHxD"` string), `top_start`, `top_now`, `bottom_now`, `flowed` (true when
-the top is more than 0.5 degrees above where it started), `slice_instances`, and `slice_skipped` (the reason string, empty when the
-visual was drawn). Temperatures are snapped to two decimals. Before the field exists the report omits `dims`, `slice_instances` and
-`slice_skipped`. This node has no configuration warnings.
+## Views
+
+A view is a scene under `game/render/` that reads a simulation node's state and draws it.
+
+### LASimWorldView
+
+`addons/local_agents/game/render/SimWorldView.gd`, extends `Node3D`, `@tool`. Instance `game/render/SimWorldView.tscn`, which
+authors the `Sun` light and sets Terrain Material to `game/render/VoxelTerrainMaterial.tres`.
+
+A `LocalAgentSimWorld`'s look. When the world is built it hands the terrain its material and hides the star's own light, and every
+frame it aims `Sun` the way the star's light travels, star to body. A FLAT world has no star, so `Sun` keeps its authored pose.
+
+#### Exports, group Wiring
+- `sim_world` (LocalAgentSimWorld, default `null`). The world this view dresses.
+
+#### Exports, group Terrain
+- `terrain_material` (ShaderMaterial, default `null`, set by the scene). The planet's surface material. `VoxelTerrainMaterial.tres`
+  is local to scene, so each instance draws its own copy and a uniform set on one world's terrain stays that world's. The game's
+  `LARenderLayer` takes the same file.
+
+#### Configuration warnings
+- Sim World is unset.
+- Terrain Material is unset.
+- No DirectionalLight3D named `Sun` under the view.
+
+### LAFieldBoxSliceView
+
+`addons/local_agents/game/render/FieldBoxSliceView.gd`, extends `MultiMeshInstance3D`, `@tool`. Instance
+`game/render/FieldBoxSliceView.tscn`, which authors the MultiMesh, its cube and the unshaded vertex-colour material.
+
+One plane of a `LocalAgentFieldBox`'s cells, a cube per cell tinted by its temperature above `LABodySeeds.surface_temp_c()`, in one
+draw call however many cells it covers. It lays each cube on the field's own cell centre in its own frame and lays out again when it
+moves. Hide the node to stop it reading the field.
+
+#### Exports, group Wiring
+- `field_box` (LocalAgentFieldBox, default `null`). The box whose field this view draws.
+
+#### Exports, group Slice
+- `slice_axis` (String, default `"Z"`, `@export_enum("X", "Y", "Z")`). Z gives a vertical wall facing the camera, Y a horizontal
+  floor plan.
+- `slice_position` (float, default `0.5`, range 0.0 to 1.0). 0 is the low face of the box, 1 the high face.
+- `cube_fill` (float, default `0.85`, range 0.05 to 1.0). Cube edge as a fraction of the field's cell edge. 1.0 makes the cubes
+  touch.
+
+#### Exports, group Colour
+- `color_span` (float, default `60.0`, range 1.0 to 400.0, suffix C). Degrees above ambient that reach `hot_color`.
+- `cold_color` (Color, default `Color(0.15, 0.2, 0.5)`). A cell at ambient.
+- `hot_color` (Color, default `Color(1.0, 0.35, 0.1)`). A cell `color_span` degrees above ambient, or hotter.
+
+#### Configuration warnings
+- Field Box is unset.
+- No MultiMesh to draw into.
 
 ---
 

@@ -13,11 +13,12 @@ SH="$ROOT/addons/local_agents/gdextensions/localagents/include/LASubstances.hpp"
 GM="$ROOT/addons/local_agents/sim/material/kernels3d/mixture_enthalpy.glsli"
 SM="$ROOT/addons/local_agents/gdextensions/localagents/src/LAMixtureEnthalpy.cpp"
 SW="$ROOT/addons/local_agents/gdextensions/localagents/src/LAWaterCurves.cpp"
-for f in "$G" "$P" "$S" "$SH" "$GM" "$SM" "$SW"; do
+SE="$ROOT/addons/local_agents/gdextensions/localagents/src/LAPhaseEos.cpp"
+for f in "$G" "$P" "$S" "$SH" "$GM" "$SM" "$SW" "$SE"; do
   [ -f "$f" ] || { echo "check_enthalpy_ssot: MISSING $f" >&2; exit 2; }
 done
 
-python3 - "$G" "$P" "$S" "$SH" "$GM" "$SM" "$SW" <<'PY'
+python3 - "$G" "$P" "$S" "$SH" "$GM" "$SM" "$SW" "$SE" <<'PY'
 import re, sys
 glsl = open(sys.argv[1]).read()
 gd = open(sys.argv[2]).read()
@@ -28,6 +29,8 @@ sub_mix = open(sys.argv[6]).read()
 # Water's phase boundaries live beside LASubstances, not in it: the ladder calls them, so the rung check
 # has to see both files as one native side.
 sub_water = open(sys.argv[7]).read()
+# So does the melting rule both phases read.
+sub_eos = open(sys.argv[8]).read()
 
 # --- the authority ----------------------------------------------------------------------------------------
 # A literal `const X: float = 4184.0` is comparable. A const whose value is an EXPRESSION is not, and a GLSL
@@ -94,7 +97,7 @@ RUNGS = [
     ("no liquid below the triple point", "la_sublimes_at",         "sublimes_at",             "ladder"),
     ("the frost point",                  "la_sublimation_c_at",    "sublimation_c_at",        "ladder"),
     ("the sublimation latent heat",      "la_latent_sublimation",  "latent_sublimation_j_kg", "ladder"),
-    ("the melting INTERVAL",             "la_liquidus_c_at",       "liquidus_c_at",           "ladder"),
+    ("the melting INTERVAL",             "la_liquidus_over",       "liquidus_c_at",           "ladder"),
     ("water's saturation curve",         "la_iapws_saturation_t_k", "iapws_saturation_t_k",   "ladder"),
     ("water's sublimation curve",        "la_iapws_sublimation_t_k", "iapws_sublimation_t_k", "ladder"),
     ("the ice Ih melting curve",         "la_iapws_melting_ih_t_k", "iapws_melting_ih_t_k",   "ladder"),
@@ -116,7 +119,7 @@ MIX_RUNGS = [
 
 # One canonical spelling per quantity, so the two languages' syntax does not count as a difference.
 ALIAS = [(r'\bs\.', ''), (r'\bPC\.', ''), (r'\bLA_KELVIN_OFFSET\b', 'KELVIN_OFFSET'),
-         (r'\bmelt\b', 'melt_c'), (r'\bfloat\b', ''), (r'\bvar\b', '')]
+         (r'\bmelt\b', 'melt_c'), (r'\bfloat\b', ''), (r'\bvar\b', ''), (r'\bla_anchor_', 'anchor_')]
 
 
 def body(txt, opener):
@@ -209,7 +212,7 @@ def reachable(root, funcs):
     return seen
 
 
-g_funcs, d_funcs = bodies_of(glsl, "glsl"), bodies_of(sub + "\n" + sub_water, "cpp")
+g_funcs, d_funcs = bodies_of(glsl, "glsl"), bodies_of(sub + "\n" + sub_water + "\n" + sub_eos, "cpp")
 gm_funcs, sm_funcs = bodies_of(glsl_mix, "glsl"), bodies_of(sub_mix, "cpp")
 if "la_mix_state" not in gm_funcs or "state" not in sm_funcs:
     print("check_enthalpy_ssot: could not find la_mix_state / LAMixtureEnthalpy::state — the mixture "

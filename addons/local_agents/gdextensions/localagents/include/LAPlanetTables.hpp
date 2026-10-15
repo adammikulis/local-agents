@@ -10,8 +10,8 @@ namespace godot {
 
 // Elemental composition of the planet's reservoirs, kg of element per kg of reservoir.
 // McDonough 2003, Treatise on Geochemistry 2.15 (Tables 1-4); silicate Earth cross-checked against
-// McDonough & Sun 1995, Chem. Geol. 120:223, Table 5. Ported from GDScript per HANDOFF item 5;
-// PhysicalConstants.gd stays the SSOT for every constant this reads.
+// McDonough & Sun 1995, Chem. Geol. 120:223, Table 5. PhysicalConstants.gd stays the SSOT for every
+// constant this reads.
 class LAElementAbundances : public RefCounted {
 	GDCLASS(LAElementAbundances, RefCounted);
 
@@ -55,9 +55,11 @@ public:
 	static PackedFloat32Array surface_depth(Object *p_grid, Object *p_terrain, const Vector3 &p_centre);
 	static double sea_level_m(double p_r_m, double p_ocean_m3, const PackedFloat64Array &p_area_below, const PackedFloat64Array &p_elevation_m);
 	// THE WATER TABLE, m above the sea: the one equipotential a connected aquifer stands at, solved so the
-	// pore space it saturates over the sea holds p_groundwater_m3. Capped at the ground by its consumer.
+	// pore space it saturates over the sea holds p_groundwater_m3, grains at p_rho_grain under p_g. Capped
+	// at the ground by its consumer. NAN where the crust has no frame to weigh.
 	static double water_table_m(double p_r_m, double p_groundwater_m3, double p_sea_level_m,
-			const PackedFloat64Array &p_area_below, const PackedFloat64Array &p_elevation_m);
+			const PackedFloat64Array &p_area_below, const PackedFloat64Array &p_elevation_m, double p_g,
+			double p_rho_grain, double p_rho_water);
 	// The crust under a square footprint at one direction: highest over the settled level, deepest under
 	// it, and the share of the reading under it. `p_surface` answers surface_radius(dir).
 	static Dictionary footprint_ground(Object *p_surface, const Vector3 &p_dir, double p_body_r_m,
@@ -78,7 +80,10 @@ public:
 	static Dictionary body_field(Object *p_grid, const Vector3 &p_centre, double p_radius_m, double p_t_c);
 	static Dictionary upload_body_field(RenderingDevice *p_rd, const Dictionary &p_bufs, Object *p_grid,
 			const Vector3 &p_centre, double p_radius_m, double p_t_c);
-	static PackedFloat32Array geotherm_k(double p_radius_m, double p_t_c);
+	// Each cell's temperature, C: the seeding geotherm averaged over the depths it spans below its ground,
+	// p_depth its centre's depth and p_edge its edge, both metres.
+	static PackedFloat32Array geotherm_c_cells(double p_radius_m, double p_t_c, const PackedFloat32Array &p_depth,
+			const PackedFloat32Array &p_edge);
 	// W/m^2 the body's own radiogenic decay drives through its surface.
 	static double surface_heat_flux_w_m2(double p_mass_kg, double p_radius_m);
 	// Peridotite's solidus and liquidus at the potential-temperature reference pressure, C, and the

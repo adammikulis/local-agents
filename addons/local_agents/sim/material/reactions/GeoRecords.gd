@@ -16,7 +16,7 @@ static func _rate_k_per_s(ea_over_r_k: float) -> float:
 static func _segregation_pa_per_k() -> float:
 	var s: Dictionary = LASubstances.table()["h2o"]
 	var t_m: float = LAPhysical.WATER_FREEZE_C + LAPhysical.KELVIN_OFFSET
-	return float(s.get("density_solid", 0.0)) * float(s.get("latent_fusion_j_kg", 0.0)) / t_m
+	return LASubstances.solid_density("h2o") * float(s.get("latent_fusion_j_kg", 0.0)) / t_m
 
 
 ## Temperature at which segregation-ice pressure passes the rock's tensile strength, C.
@@ -34,7 +34,7 @@ static func _frost_k_per_k() -> float:
 	var dz: float = cell_height_m()
 	if dz <= 0.0:
 		return 0.0
-	var phi: float = LAPhysical.REGOLITH_SURFACE_POROSITY
+	var phi: float = LAPhysical.CRUST_SURFACE_POROSITY
 	var kappa_m2: float = phi * phi * phi * LAPhysical.GRAIN_D_UPLAND_M * LAPhysical.GRAIN_D_UPLAND_M \
 		/ (LAPhysical.KOZENY_CARMAN_C * (1.0 - phi) * (1.0 - phi))
 	var q_m_s_per_k: float = kappa_m2 * _segregation_pa_per_k() \

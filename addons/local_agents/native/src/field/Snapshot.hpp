@@ -9,6 +9,7 @@ namespace la {
 // LAFieldSnapshot's save layout, version 1: 'LAFS', u32 version, u32 cell_count, u32 channel_count,
 // length-prefixed world key, length-prefixed channel names, channel-major f32 cells.
 struct Snapshot {
+	uint64_t content_hash = 0;
 	uint32_t version = 0;
 	uint32_t cells = 0;
 	std::string world_key;

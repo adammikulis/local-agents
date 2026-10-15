@@ -15,6 +15,10 @@ set(LLAMA_CPP_DIR "" CACHE PATH "Path to llama.cpp sources")
 set(LA_DEPS_ENTRY "" CACHE PATH "Cache entry root the built dependencies are staged into")
 set(GODOTCPP_API_VERSION "4.7" CACHE STRING "Godot API version; must be one the pinned godot-cpp carries")
 
+if (MSVC)
+    set(GODOTCPP_USE_STATIC_CPP OFF CACHE BOOL "Use the DLL runtime shared with llama.cpp and vcpkg" FORCE)
+endif()
+
 set(LLAMA_BUILD_COMMON ON CACHE BOOL "llama: build common utils" FORCE)
 set(LLAMA_BUILD_TOOLS ON CACHE BOOL "llama: build tools (llama-cli, etc.)" FORCE)
 set(LLAMA_BUILD_SERVER ON CACHE BOOL "llama: build server example" FORCE)
@@ -50,12 +54,13 @@ foreach(t IN LISTS LA_DEP_TARGETS)
     if (TARGET ${t})
         string(REPLACE "-" "_" var "${t}")
         string(APPEND LA_DEPS_CONTENT
-            "set(LA_DEP_${var} \"\${CMAKE_CURRENT_LIST_DIR}/lib/$<TARGET_FILE_NAME:${t}>\")\n")
+            "set(LA_DEP_${var} \"\${CMAKE_CURRENT_LIST_DIR}/lib/$<TARGET_LINKER_FILE_NAME:${t}>\")\n")
     endif()
 endforeach()
 # godot-cpp's usage requirements, resolved. A binding compiled against different definitions than the
 # library is an ABI mismatch that links and then crashes, so these travel with the artifact.
 string(APPEND LA_DEPS_CONTENT
+    "set(LA_GODOT_CPP_MSVC_RUNTIME \"$<TARGET_PROPERTY:godot-cpp,MSVC_RUNTIME_LIBRARY>\")\n"
     "set(LA_GODOT_CPP_DEFS \"$<TARGET_PROPERTY:godot-cpp,INTERFACE_COMPILE_DEFINITIONS>\")\n"
     "set(LA_GODOT_CPP_OPTIONS \"$<TARGET_PROPERTY:godot-cpp,INTERFACE_COMPILE_OPTIONS>\")\n"
     "set(LA_GODOT_CPP_INCLUDES \"\${CMAKE_CURRENT_LIST_DIR}/include/godot-cpp;\${CMAKE_CURRENT_LIST_DIR}/include/godot-cpp-gen\")\n"
@@ -84,5 +89,12 @@ foreach(t IN LISTS LA_DEP_TARGETS)
     if (TARGET ${t})
         add_custom_command(TARGET la_deps POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:${t}>" "${LA_DEPS_ENTRY}/lib/")
+        if (WIN32)
+            get_target_property(dep_type ${t} TYPE)
+            if (dep_type STREQUAL "SHARED_LIBRARY")
+                add_custom_command(TARGET la_deps POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_LINKER_FILE:${t}>" "${LA_DEPS_ENTRY}/lib/")
+            endif()
+        endif()
     endif()
 endforeach()

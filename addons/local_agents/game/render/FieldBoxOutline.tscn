@@ -1,0 +1,21 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/game/render/FieldBoxOutline.gd" id="1_fieldboxoutline"]
+[ext_resource type="Shader" path="res://addons/local_agents/game/render/FieldBoxOutline.gdshader" id="2_outlineshader"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_glow"]
+shader = ExtResource("2_outlineshader")
+
+[sub_resource type="BoxMesh" id="BoxMesh_edge"]
+
+[sub_resource type="MultiMesh" id="MultiMesh_edges"]
+resource_local_to_scene = true
+transform_format = 1
+use_custom_data = true
+mesh = SubResource("BoxMesh_edge")
+
+[node name="FieldBoxOutline" type="MultiMeshInstance3D"]
+cast_shadow = 0
+material_override = SubResource("ShaderMaterial_glow")
+multimesh = SubResource("MultiMesh_edges")
+script = ExtResource("1_fieldboxoutline")

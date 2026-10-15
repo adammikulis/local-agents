@@ -11,6 +11,7 @@
 #include <godot_cpp/variant/vector3.hpp>
 
 namespace godot {
+class LAFieldDriver;
 
 // EVERY FREE BODY, ONE INTEGRATOR. A meteor, an ejecta parcel and a dropped test mass are the same thing:
 // mass at a position with a velocity, coasting under g. Nothing here knows which is which.
@@ -54,14 +55,15 @@ public:
 	// body from slot 4 on — the offset from the frame body's centre, then GM. Sized for tide_rows().
 	static PackedFloat32Array tide_table();
 	// That table into a device buffer. A world whose gravity is switched off uploads a table of no rows.
-	static void upload_tide(RenderingDevice *p_rd, const RID &p_buffer);
+	static bool upload_tide(RenderingDevice *p_rd, const RID &p_buffer, int p_elements, LAFieldDriver *p_driver);
 
 	// The field's own state, republished when it re-solves: the grid, the drained gravity mirror
-	// (flat cell*3, m/s^2), the solid mask (1 = rock), LAFieldCellMass3D.mirrors() for the medium's
-	// mass density, and the frame the grid is laid in (body -> world, about p_pivot).
+	// (flat cell*3, m/s^2), the solid mask (1 = rock), the field's LAFieldMirrors with
+	// LAFieldCellMass3D.mass_channels() for the medium's mass density, read at the cell asked, and the
+	// frame the grid is laid in (body -> world, about p_pivot).
 	static void set_field(Object *p_grid, const PackedFloat32Array &p_gravity,
-			const PackedByteArray &p_solid, const Array &p_mass_mirrors, const Basis &p_frame,
-			const Vector3 &p_pivot);
+			const PackedByteArray &p_solid, Object *p_mass_mirrors, const Array &p_mass_channels,
+			const Basis &p_frame, const Vector3 &p_pivot);
 	static void clear_field();
 	static bool has_field();
 

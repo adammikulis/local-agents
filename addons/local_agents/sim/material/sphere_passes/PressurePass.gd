@@ -13,11 +13,11 @@ func _setup(bufs: Dictionary, _cc: int) -> void:
 	_set = _uset(_pipe, LABindings.set_for("pressure.glsl", bufs, {}))
 
 
-func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:
+func dispatch(_rd: RenderingDevice, ctx: Dictionary, cc: int, groups: int) -> void:
 	if not _dispatchable() or not _set.is_valid():
 		return
-	_driver.run(cl, _pipe, [_set], [_push(ctx, cc)], PackedInt32Array([groups]), [RID()],
-		PackedInt32Array([0]), false)
+	_driver.run(_pipe, [_set], [_push(ctx, cc)], PackedInt32Array([groups]), [RID()],
+		PackedInt32Array([0]), false, PackedStringArray([_label() + "/column"]))
 
 
 func _push(ctx: Dictionary, cc: int) -> PackedByteArray:

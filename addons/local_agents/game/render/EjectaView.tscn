@@ -1,0 +1,28 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/game/render/EjectaView.gd" id="1_ejectaview"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ember"]
+shading_mode = 0
+albedo_color = Color(1, 0.45, 0.12, 1)
+emission_enabled = true
+emission = Color(1, 0.5, 0.15, 1)
+emission_energy_multiplier = 4.0
+
+[sub_resource type="SphereMesh" id="SphereMesh_ember"]
+material = SubResource("StandardMaterial3D_ember")
+radius = 1.2
+height = 2.4
+radial_segments = 6
+rings = 3
+
+[sub_resource type="MultiMesh" id="MultiMesh_embers"]
+transform_format = 1
+instance_count = 256
+visible_instance_count = 0
+mesh = SubResource("SphereMesh_ember")
+
+[node name="EjectaView" type="MultiMeshInstance3D"]
+cast_shadow = 0
+multimesh = SubResource("MultiMesh_embers")
+script = ExtResource("1_ejectaview")

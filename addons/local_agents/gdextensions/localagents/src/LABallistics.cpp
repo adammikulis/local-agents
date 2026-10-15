@@ -1,7 +1,9 @@
 #include "LABallistics.hpp"
+#include "LAFieldDriver.hpp"
 
 #include "LABodySystem.hpp"
 #include "LAFieldCellMass.hpp"
+#include "LAFieldMirrors.hpp"
 #include "LAFieldLithostaticSeed.hpp"
 #include "LAGridGeometry.hpp"
 #include "LAPhysicalRead.hpp"
@@ -76,7 +78,8 @@ struct Table {
 	Frame frame;
 	PackedFloat32Array gravity;
 	PackedByteArray solid;
-	Array mass_mirrors;
+	Ref<LAFieldMirrors> mass_mirrors;
+	Array mass_channels;
 	PackedVector3Array centres;
 	PackedByteArray levels;
 	double cell_size = 0.0;
@@ -308,12 +311,20 @@ void LABallistics::set_system(const Array &p_bodies) {
 	}
 }
 
-void LABallistics::upload_tide(RenderingDevice *p_rd, const RID &p_buffer) {
-	if (p_rd == nullptr || !p_buffer.is_valid()) {
-		return;
-	}
+bool LABallistics::upload_tide(RenderingDevice *p_rd, const RID &p_buffer, int p_elements, LAFieldDriver *p_driver) {
 	const PackedByteArray bytes = tide_table().to_byte_array();
-	p_rd->buffer_update(p_buffer, 0, bytes.size(), bytes);
+	String error;
+	if (!p_rd || !p_buffer.is_valid() || !p_driver) {
+		error = "tide/buffer_absent";
+	} else if (bytes.size() > int64_t(p_elements) * 4) {
+		error = "tide/buffer_capacity";
+	} else if (p_rd->buffer_update(p_buffer, 0, bytes.size(), bytes) != OK) {
+		error = "tide/buffer_update";
+	}
+	if (error.is_empty()) { return true; }
+	if (p_driver) { p_driver->fail(error); }
+	else { UtilityFunctions::push_error(error); }
+	return false;
 }
 
 int LABallistics::system_size() {
@@ -462,7 +473,7 @@ double LABallistics::tidal_potential_at(const Vector3 &p_at) {
 }
 
 int LABallistics::tide_rows() {
-	return MAX(LABodySeeds::rows().size() - 1, 1);
+	return int(tb().system.size()) - (frame_index() >= 0 ? 1 : 0);
 }
 
 PackedFloat32Array LABallistics::tide_table() {
@@ -477,7 +488,7 @@ PackedFloat32Array LABallistics::tide_table() {
 	}
 	const Dvec c = tb().system[fr].centre;
 	int k = 0;
-	for (size_t i = 0; i < tb().system.size() && k < p_rows; i++) {
+	for (size_t i = 0; i < tb().system.size(); i++) {
 		if (int(i) == fr) {
 			continue;
 		}
@@ -494,12 +505,13 @@ PackedFloat32Array LABallistics::tide_table() {
 }
 
 void LABallistics::set_field(Object *p_grid, const PackedFloat32Array &p_gravity,
-		const PackedByteArray &p_solid, const Array &p_mass_mirrors, const Basis &p_frame,
-		const Vector3 &p_pivot) {
+		const PackedByteArray &p_solid, Object *p_mass_mirrors, const Array &p_mass_channels,
+		const Basis &p_frame, const Vector3 &p_pivot) {
 	tb().grid = p_grid;
 	tb().gravity = p_gravity;
 	tb().solid = p_solid;
-	tb().mass_mirrors = p_mass_mirrors;
+	tb().mass_mirrors = Ref<LAFieldMirrors>(Object::cast_to<LAFieldMirrors>(p_mass_mirrors));
+	tb().mass_channels = p_mass_channels;
 	const Basis inv = p_frame.inverse();
 	for (int r = 0; r < 3; r++) {
 		for (int k = 0; k < 3; k++) {
@@ -526,7 +538,7 @@ void LABallistics::set_field(Object *p_grid, const PackedFloat32Array &p_gravity
 }
 
 void LABallistics::clear_field() {
-	set_field(nullptr, PackedFloat32Array(), PackedByteArray(), Array(), Basis(), Vector3());
+	set_field(nullptr, PackedFloat32Array(), PackedByteArray(), nullptr, Array(), Basis(), Vector3());
 }
 
 bool LABallistics::has_field() {
@@ -591,14 +603,14 @@ Vector3 LABallistics::g_at(const Vector3 &p_at) {
 }
 
 double LABallistics::medium_density_at(const Vector3 &p_at) {
-	if (!tb().grid || tb().mass_mirrors.size() == 0) {
+	if (!tb().grid || tb().mass_mirrors.is_null() || tb().mass_channels.is_empty()) {
 		return 0.0;
 	}
 	const int c = cell_of(Dvec(p_at));
 	if (c < 0) {
 		return 0.0;
 	}
-	return LAFieldCellMass3D::kg_m3_at(tb().mass_mirrors, c);
+	return LAFieldCellMass3D::kg_m3_at(tb().mass_mirrors.ptr(), tb().mass_channels, c);
 }
 
 double LABallistics::read_check(int p_samples) {
@@ -765,10 +777,10 @@ void LABallistics::_bind_methods() {
 			&LABallistics::tidal_potential_at);
 	ClassDB::bind_static_method("LABallistics", D_METHOD("tide_rows"), &LABallistics::tide_rows);
 	ClassDB::bind_static_method("LABallistics", D_METHOD("tide_table"), &LABallistics::tide_table);
-	ClassDB::bind_static_method("LABallistics", D_METHOD("upload_tide", "rd", "buffer"),
+	ClassDB::bind_static_method("LABallistics", D_METHOD("upload_tide", "rd", "buffer", "elements", "driver"),
 			&LABallistics::upload_tide);
 	ClassDB::bind_static_method("LABallistics",
-			D_METHOD("set_field", "grid", "gravity", "solid", "mass_mirrors", "frame", "pivot"),
+			D_METHOD("set_field", "grid", "gravity", "solid", "mass_mirrors", "mass_channels", "frame", "pivot"),
 			&LABallistics::set_field);
 	ClassDB::bind_static_method("LABallistics", D_METHOD("clear_field"), &LABallistics::clear_field);
 	ClassDB::bind_static_method("LABallistics", D_METHOD("has_field"), &LABallistics::has_field);

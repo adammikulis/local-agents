@@ -100,12 +100,10 @@ func _arm(p: RefCounted, depth: float, sun: Vector3, xuv_w_m2: float = 0.0) -> D
 	for key in _bufs:
 		if String(key).begins_with("bnd_"):
 			_rd.buffer_clear(_bufs[key], 0, _cc * 4)
-	var cl: int = _rd.compute_list_begin()
-	p.dispatch(_rd, cl, {"cell_size": CELL, "sun_dir": sun, "dt_s": DT, "xuv_w_m2": xuv_w_m2},
+	p._driver.open()
+	p.dispatch(_rd, {"cell_size": CELL, "sun_dir": sun, "dt_s": DT, "xuv_w_m2": xuv_w_m2},
 		_cc, int(ceil(float(_cc) / 64.0)))
-	_rd.compute_list_end()
-	_rd.submit()
-	_rd.sync()
+	p._driver.close()
 	var out: Dictionary = {}
 	for gas: String in ["h2", "n2", "o2", "co2"]:
 		out[gas] = [_sum(gas) - N_GAS * float(_cc), _sum("bnd_" + gas)]
@@ -176,7 +174,7 @@ func _init() -> void:
 			RenderingDevice.STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT if indirect else 0)
 		owned.append(r)
 		_bufs[String(key)] = r
-	p.setup(_rd, _bufs, _cc)
+	p.setup(_rd, LAFieldDriver.on(_rd), _bufs, _cc)
 	var stub: StubGpu = StubGpu.new()
 	stub._rd = _rd
 	stub._bufs = _bufs

@@ -17,14 +17,13 @@ func setup(field) -> void:
 	_f = field
 
 
-## Every SOLVE_EVERY steps the potential is re-solved from the mass that moved, warm-started. With the
-## switch off nothing is solved, and the pass zeroes what it published; the first step back re-solves.
+## Every SOLVE_EVERY steps the potential is re-solved from the mass that moved, warm-started; a slice's is
+## the declared body's, which no step moves. With the switch off nothing is solved, and the pass zeroes
+## what it published; the first step back re-solves.
 func solve_step(step_index: int) -> void:
 	_bind()
 	var on: bool = _pass != null and LAProcessSet.is_active("pass", PASS_FILE)
-	# The bodies moved, so the tide they raise moved: refilled before the derive reads it.
-	LABallistics.upload_tide(_f._gpu._rd, _f._gpu._bufs.get("tide_bodies", RID()))
-	if on and (_switched_off or step_index % _pass.SOLVE_EVERY == 0):
+	if on and (_switched_off or (_f._slice == null and step_index % _pass.SOLVE_EVERY == 0)):
 		solve()
 	_switched_off = not on
 
@@ -39,7 +38,7 @@ func solve() -> void:
 		return
 	_pass.set_datum(0.5 * float(_f._grid.nx) * _f._grid.cell_size)
 	var rel: float = _pass.solve_converged(_f._gpu._rd, _f._grid, _f._gpu._cc, _f._gpu._groups)
-	if rel > _pass.RESIDUAL_TOLERANCE:
+	if rel > _pass.RESIDUAL_TOLERANCE and _f._gpu._driver.aborted() == "":
 		push_error(("The gravity solve did not converge: the discrete Poisson residual is still %f of its "
 			+ "source. Every `above`/`below` walk below this — pressure, the regolith burial march, the "
 			+ "lake flood, the surface seed — is reading a direction the solve has not yet produced.") % rel)
@@ -85,11 +84,9 @@ func _solve_slice() -> void:
 	_phi_slab = bf["phi"]
 	_phi_datum_slab = float(bf["phi_datum"])
 	var rd: RenderingDevice = _f._gpu._rd
-	var cl: int = rd.compute_list_begin()
-	_pass.dispatch_slab(rd, cl, _f._gpu._cc, _f._gpu._groups)
-	rd.compute_list_end()
-	rd.submit()
-	rd.sync()
+	_f._gpu._driver.open()
+	_pass.dispatch_slab(rd, _f._gpu._cc, _f._gpu._groups)
+	_f._gpu._driver.close()
 	_pass._drain(rd)
 
 

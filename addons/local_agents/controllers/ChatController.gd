@@ -3,6 +3,7 @@ extends Control
 class_name LAChatController
 
 signal prompt_input_received(text)
+signal configuration_requested(section: String)
 
 const DEFAULT_STORE: GDScript = preload("res://addons/local_agents/controllers/ConversationStore.gd")
 const ConversationSessionService: GDScript = preload("res://addons/local_agents/controllers/services/ConversationSessionService.gd")
@@ -42,6 +43,12 @@ var _conversation_history_service
 var _manager: LocalAgentManager
 var _agent: LocalAgent
 var _is_generating: bool = false
+var _request_generation: int = 0
+var _request_conversation: int = -1
+var _completion: Callable
+var _progress: Callable
+var _request_transcript: String = ""
+var _loading_model: bool = false
 var _status_text: String = "Idle"
 
 func _ready() -> void:
@@ -109,7 +116,7 @@ func _open_configuration_panel(section: String) -> void:
 	if not is_instance_valid(_configuration_panel):
 		_configuration_panel = _get_configuration_panel()
 	if not _tab_container or not _configuration_panel:
-		push_warning("Configuration tab unavailable")
+		configuration_requested.emit(section)
 		return
 	_configuration_panel.refresh_configs()
 	var tab_index: int = _tab_container.get_tab_idx_from_control(_configuration_panel)
@@ -122,17 +129,32 @@ func _open_configuration_panel(section: String) -> void:
 			_configuration_panel.focus_inference()
 
 func _on_agent_ready(agent: LocalAgent) -> void:
-	if _agent:
-		if _agent.model_output_received.is_connected(_on_model_output_received):
-			_agent.model_output_received.disconnect(_on_model_output_received)
-		if _agent.message_emitted.is_connected(_on_agent_message):
-			_agent.message_emitted.disconnect(_on_agent_message)
+	if _agent == agent:
+		return
+	_disconnect_request()
+	_request_generation += 1
+	if _is_generating:
+		_is_generating = false
+		_update_status("Generation interrupted: agent replaced")
+	_loading_model = false
 	_agent = agent
 	if _agent:
-		_agent.model_output_received.connect(_on_model_output_received)
-		_agent.message_emitted.connect(_on_agent_message)
 		_sync_agent_with_current_conversation()
 	_update_state_labels()
+
+func _disconnect_request() -> void:
+	if is_instance_valid(_agent) and _completion.is_valid() and _agent.think_completed.is_connected(_completion):
+		_agent.think_completed.disconnect(_completion)
+	if is_instance_valid(_agent) and _progress.is_valid() and _agent.reply_updated.is_connected(_progress):
+		_agent.reply_updated.disconnect(_progress)
+	if is_instance_valid(_agent) and _completion.is_valid() and _agent.model_load_completed.is_connected(_completion):
+		_agent.model_load_completed.disconnect(_completion)
+	_completion = Callable()
+	_progress = Callable()
+
+func _exit_tree() -> void:
+	_disconnect_request()
+	_request_generation += 1
 
 func _refresh_configs() -> void:
 	if not _manager:
@@ -147,7 +169,7 @@ func _refresh_configs() -> void:
 func _populate_option_button(button: OptionButton, configs: Array, label_field: String) -> void:
 	button.clear()
 	if configs.is_empty():
-		button.add_item("No presets", -1)
+		button.add_item("Project model" if button == _model_option else "Default generation", -1)
 		button.disabled = true
 		return
 	button.disabled = false
@@ -199,25 +221,27 @@ func _on_inference_selected(index: int) -> void:
 	_manager.apply_inference_config(configs[index])
 
 func _on_load_model_pressed() -> void:
-	if not _agent:
-		_update_status("Agent is not ready")
+	if _is_generating or not _agent:
 		return
-	if _agent.agent_node == null:
-		_update_status("Agent runtime unavailable")
-		return
-	var default_model: String = _agent.agent_node.get_default_model_path()
-	if default_model.strip_edges() == "":
-		_update_status("No default model configured")
-		return
-	var ok: bool = _agent.agent_node.load_model(default_model, {})
-	var status_text: String = "Model loaded" if ok else "Failed to load model"
-	_update_status(status_text)
-	_update_state_labels()
+	_is_generating = true
+	_loading_model = true
+	_request_generation += 1
+	_request_conversation = _conversation_session_service.get_selected_conversation_id()
+	_request_transcript = _history_label.text
+	_update_status("Loading model…")
+	_update_send_button_state()
+	if _agent.load_model_async():
+		_completion = Callable(self, "_on_think_completed").bind(_request_generation)
+		_agent.model_load_completed.connect(_completion)
+	else:
+		_on_think_completed({"ok": false, "error": "request_not_started"}, _request_generation)
 
 func _on_saved_chats_pressed() -> void:
 	_saved_chats_window.popup()
 
 func _on_conversation_selected(index: int) -> void:
+	if _is_generating:
+		return
 	var conversation_id: int = _conversation_session_service.select_conversation_by_list_index(index)
 	if conversation_id == -1:
 		return
@@ -227,6 +251,8 @@ func _on_conversation_activated(index: int) -> void:
 	_on_conversation_selected(index)
 
 func _on_new_conversation_pressed() -> void:
+	if _is_generating:
+		return
 	_conversation_session_service.create_conversation()
 	_refresh_conversations()
 
@@ -240,6 +266,8 @@ func _on_rename_conversation_pressed() -> void:
 	_rename_line_edit.grab_focus()
 
 func _on_rename_confirmed() -> void:
+	if _is_generating:
+		return
 	var selected_conversation_id: int = _conversation_session_service.get_selected_conversation_id()
 	if selected_conversation_id == -1:
 		_rename_window.hide()
@@ -253,6 +281,8 @@ func _on_rename_confirmed() -> void:
 	_rename_window.hide()
 
 func _on_delete_conversation_pressed() -> void:
+	if _is_generating:
+		return
 	var result: Dictionary = _conversation_session_service.delete_selected_conversation()
 	if not result.get("ok", false):
 		var error_value: Variant = result.get("error", "")
@@ -272,7 +302,7 @@ func _on_send_pressed() -> void:
 	_update_send_button_state()
 	emit_signal("prompt_input_received", text)
 	_add_message_to_store("user", text, false)
-	_append_to_history("[b]You[/b]: %s" % text)
+	_append_to_history("[color=#91b9ff][b]You[/b][/color]\n%s\n" % text.replace("[", "[lb]"))
 	_invoke_agent(text)
 
 func _on_clear_pressed() -> void:
@@ -281,6 +311,16 @@ func _on_clear_pressed() -> void:
 
 func _update_send_button_state() -> void:
 	_send_button.disabled = _prompt_edit.text.strip_edges().is_empty() or _is_generating
+	_send_button.text = "Generating…" if _is_generating else "Send  →"
+	_prompt_edit.editable = not _is_generating
+	_conversation_list.mouse_filter = Control.MOUSE_FILTER_IGNORE if _is_generating else Control.MOUSE_FILTER_STOP
+	_conversation_list.focus_mode = Control.FOCUS_NONE if _is_generating else Control.FOCUS_ALL
+	if _is_generating:
+		_conversation_list.release_focus()
+	for button: Button in [_new_conversation_button, _rename_conversation_button, _delete_conversation_button, _load_model_button, _manage_model_button, _manage_inference_button, _saved_chats_button]:
+		button.disabled = _is_generating or (button == _load_model_button and _agent == null)
+	_model_option.disabled = _is_generating or _model_option.item_count == 0 or _model_option.get_item_id(0) == -1
+	_inference_option.disabled = _is_generating or _inference_option.item_count == 0 or _inference_option.get_item_id(0) == -1
 
 func _on_prompt_gui_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
@@ -293,20 +333,47 @@ func _invoke_agent(prompt: String) -> void:
 		_refresh_graph()
 		return
 	_is_generating = true
-	_update_status("Thinking…")
+	_update_status("Preparing reply…")
 	_update_send_button_state()
-	var result: Dictionary = _agent.think(prompt)
-	if result.get("ok", false):
-		var text_value: Variant = result.get("text", "")
-		var text: String = text_value as String if text_value is String else str(text_value)
-		text = text.strip_edges()
+	_request_generation += 1
+	_request_conversation = _conversation_session_service.get_selected_conversation_id()
+	_request_transcript = _history_label.text
+	if _agent.think_async(prompt):
+		_completion = Callable(self, "_on_think_completed").bind(_request_generation)
+		_agent.think_completed.connect(_completion)
+		_progress = Callable(self, "_on_reply_updated").bind(_request_generation)
+		_agent.reply_updated.connect(_progress)
+	else:
+		_on_think_completed({"ok": false, "error": "request_not_started"}, _request_generation)
+
+func _on_reply_updated(text: String, generation: int) -> void:
+	if _is_generating and generation == _request_generation and _request_conversation == _conversation_session_service.get_selected_conversation_id():
+		_update_status("Generating reply…")
+		_history_label.text = _request_transcript + "[color=#91b9ff][b]Agent[/b][/color]\n" + text.replace("[", "[lb]")
+
+func _on_think_completed(result: Dictionary, generation: int) -> void:
+	if not _is_generating or generation != _request_generation:
+		return
+	_disconnect_request()
+	_history_label.text = _request_transcript
+	_is_generating = false
+	if _request_conversation != _conversation_session_service.get_selected_conversation_id():
+		_update_status("Generation interrupted: conversation changed")
+		_update_send_button_state()
+		return
+	if _loading_model:
+		_loading_model = false
+		_update_status("Model ready" if bool(result.get("ok", false)) else "Model load failed: %s" % result.get("error", "unknown"))
+		_update_state_labels()
+		return
+	if bool(result.get("ok", false)):
+		var text: String = String(result.get("text", "")).strip_edges()
 		if not text.is_empty():
 			_add_message_to_store("assistant", text)
-			_append_to_history("[color=#6ab0ff][b]Agent[/b][/color]: %s" % text)
+			_append_to_history("[color=#91b9ff][b]Agent[/b][/color]\n%s\n" % text.replace("[", "[lb]"))
+		_update_status("Ready" if not text.is_empty() else "The model returned an empty reply.")
 	else:
 		_update_status("Generation failed: %s" % result.get("error", "unknown"))
-	_is_generating = false
-	_update_status("Idle")
 	_update_send_button_state()
 	_refresh_graph()
 
@@ -317,18 +384,6 @@ func _add_message_to_store(role: String, content: String, update_graph: bool = t
 
 func _append_to_history(text: String) -> void:
 	_conversation_history_service.append_to_history(_history_label, text)
-
-func _on_model_output_received(text: String) -> void:
-	if text.strip_edges().is_empty():
-		return
-	_append_to_history("[color=#6ab0ff][b]Agent[/b][/color]: %s" % text)
-	_add_message_to_store("assistant", text)
-
-func _on_agent_message(role: String, content: String) -> void:
-	if role == "system":
-		return
-	var label: String = "Agent" if role == "assistant" else role.capitalize()
-	_append_to_history("[b]%s[/b]: %s" % [label, content])
 
 func _load_conversation(conversation_id: int) -> void:
 	var convo: Dictionary = _conversation_session_service.load_conversation(conversation_id)
@@ -365,6 +420,8 @@ func _refresh_graph_with_conversation(convo: Dictionary) -> void:
 		item.set_metadata(0, message)
 
 func _on_saved_chat_selected(conversation_id: int) -> void:
+	if _is_generating:
+		return
 	var index: int = _conversation_session_service.find_list_index_for_conversation_id(conversation_id)
 	if index != -1:
 		_conversation_list.select(index)
@@ -372,6 +429,8 @@ func _on_saved_chat_selected(conversation_id: int) -> void:
 	_saved_chats_window.hide()
 
 func _on_saved_chat_deleted(conversation_id: int) -> void:
+	if _is_generating:
+		return
 	_conversation_session_service.delete_conversation(conversation_id)
 	_refresh_conversations()
 

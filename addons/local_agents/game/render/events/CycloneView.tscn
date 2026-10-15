@@ -1,0 +1,49 @@
+[gd_scene format=3]
+
+[ext_resource type="PackedScene" path="res://addons/local_agents/game/render/events/EventView.tscn" id="1_eventview"]
+[ext_resource type="Script" path="res://addons/local_agents/game/render/events/CycloneView.gd" id="2_cycloneview"]
+
+[sub_resource type="Gradient" id="Gradient_cloud"]
+offsets = PackedFloat32Array(0, 0.2, 0.7, 1)
+colors = PackedColorArray(0.66, 0.69, 0.74, 0, 0.7, 0.73, 0.78, 0.62, 0.4, 0.43, 0.5, 0.46, 0.3, 0.33, 0.4, 0)
+
+[sub_resource type="GradientTexture1D" id="GradientTexture1D_cloud"]
+gradient = SubResource("Gradient_cloud")
+
+[sub_resource type="ParticleProcessMaterial" id="ParticleProcessMaterial_ring"]
+emission_shape = 6
+emission_ring_axis = Vector3(0, 1, 0)
+emission_ring_height = 0.5
+emission_ring_radius = 4.0
+emission_ring_inner_radius = 1.0
+spread = 10.0
+initial_velocity_max = 0.05
+gravity = Vector3(0, -0.001, 0)
+radial_accel_min = -0.05
+radial_accel_max = -0.02
+tangential_accel_min = 0.05
+tangential_accel_max = 0.1
+color_ramp = SubResource("GradientTexture1D_cloud")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_cloud"]
+transparency = 1
+shading_mode = 0
+vertex_color_use_as_albedo = true
+billboard_mode = 3
+
+[sub_resource type="QuadMesh" id="QuadMesh_puff"]
+material = SubResource("StandardMaterial3D_cloud")
+size = Vector2(1.5, 1.5)
+
+[node name="CycloneView" instance=ExtResource("1_eventview")]
+script = ExtResource("2_cycloneview")
+ablation_name = "cyclone_view"
+
+[node name="Particles" parent="." index="1"]
+emitting = true
+amount = 660
+lifetime = 9.0
+local_coords = true
+visibility_aabb = AABB(-6, -2, -6, 12, 4, 12)
+process_material = SubResource("ParticleProcessMaterial_ring")
+draw_pass_1 = SubResource("QuadMesh_puff")

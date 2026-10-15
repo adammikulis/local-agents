@@ -5,9 +5,11 @@ class_name LocalAgentConversation
 
 
 signal turn_taken(speaker: String, text: String)
+signal turn_updated(speaker: String, text: String)
 ## Emitted when `max_turns` has been reached. Never emitted when `max_turns` is 0.
 signal conversation_finished()
 
+const RequestSignals: GDScript = preload("res://addons/local_agents/runtime/RequestSignals.gd")
 const Status: GDScript = preload("res://addons/local_agents/runtime/AgentStatus.gd")
 
 # A literal, not PackedStringArray([...]): a const cannot hold a CONSTRUCTOR CALL. A typed const
@@ -78,7 +80,10 @@ var _busy: bool = false
 var _finished: bool = false
 var _pending_speaker: int = -1
 var _timer: Timer = null
-var _connected_agents: Dictionary = {}
+var _request_generation: int = 0
+var _pending_agent: LocalAgent
+var _completion: Callable
+var _progress: Callable
 
 
 func _ready() -> void:
@@ -116,20 +121,25 @@ func next_turn() -> bool:
 
     _busy = true
     _pending_speaker = index
-    if not _connected_agents.has(agent.get_instance_id()):
-        agent.think_completed.connect(_on_think_completed)
-        _connected_agents[agent.get_instance_id()] = true
+    _request_generation += 1
     if not agent.think_async(_build_prompt(speaker)):
-        # think_async only returns false after deferring a failure result, or when that agent is
-        # already generating for someone else — either way a think_completed reaches us and clears
-        # the busy flag, so nothing is stranded here.
-        pass
+        _busy = false
+        _pending_speaker = -1
+        return false
+    _pending_agent = agent
+    _completion = Callable(self, "_on_think_completed").bind(_request_generation)
+    _progress = Callable(self, "_on_reply_updated").bind(_request_generation)
+    agent.think_completed.connect(_completion)
+    agent.reply_updated.connect(_progress)
     return true
+
 
 
 ## Forget the transcript, the turn counter and the memory graph, and allow the conversation to run
 ## again from the top. The graph resource is emptied in place, not replaced.
 func reset() -> void:
+    _disconnect_request()
+    _request_generation += 1
     _turn = 0
     _lines = PackedStringArray()
     _last_node_id = -1
@@ -148,7 +158,6 @@ func transcript() -> PackedStringArray:
 
 
 ## True when a real model will produce the next line, false when `canned_lines` will.
-## The first call can pause briefly: a model that is present but not loaded is loaded here.
 func is_using_model() -> bool:
     if _valid_agents().is_empty():
         return false
@@ -156,7 +165,7 @@ func is_using_model() -> bool:
     if blockers.is_empty():
         return true
     if blockers.size() == 1 and String(blockers[0]) == Status.BLOCK_MODEL_NOT_LOADED:
-        return Status.ensure_model_loaded()
+        return Status.resolve_model_path() != ""
     return false
 
 
@@ -180,10 +189,28 @@ func _on_turn_timer() -> void:
     next_turn()
 
 
-func _on_think_completed(result: Dictionary) -> void:
-    if not _busy or _pending_speaker < 0:
+func _disconnect_request() -> void:
+    RequestSignals.disconnect_reply(_pending_agent, _completion, _progress)
+    _pending_agent = null
+    _completion = Callable()
+    _progress = Callable()
+
+
+func _exit_tree() -> void:
+    _disconnect_request()
+    _request_generation += 1
+
+
+func _on_reply_updated(text: String, generation: int) -> void:
+    if _busy and generation == _request_generation and _pending_speaker >= 0:
+        turn_updated.emit(_speaker_name(_pending_speaker), text)
+
+
+func _on_think_completed(result: Dictionary, generation: int) -> void:
+    if not _busy or _pending_speaker < 0 or generation != _request_generation:
         return   # a reply for some other driver of this same agent
     var speaker: String = _speaker_name(_pending_speaker)
+    _disconnect_request()
     _busy = false
     _pending_speaker = -1
     var text: String = String(result.get("text", "")).strip_edges()

@@ -99,11 +99,9 @@ func queue_sparse(ops: Array) -> void:
 
 
 func _dispatch() -> void:
-	var cl: int = _rd.compute_list_begin()
-	_pass.dispatch(_rd, cl, {}, _cc, int(ceil(float(_cc) / 64.0)))
-	_rd.compute_list_end()
-	_rd.submit()
-	_rd.sync()
+	_pass._driver.open()
+	_pass.dispatch(_rd, {}, _cc, int(ceil(float(_cc) / 64.0)))
+	_pass._driver.close()
 	_pass._drain(_rd)
 
 
@@ -264,7 +262,7 @@ func _init() -> void:
 	_pass.ghost_count = 0
 	_pass.grid_dims = Vector3i(N, N, N)
 	_pass.grid_cell_size = CELL
-	_pass.setup(_rd, _bufs, _cc)
+	_pass.setup(_rd, LAFieldDriver.on(_rd), _bufs, _cc)
 
 	_arm_add()
 	_arm_ceiling()

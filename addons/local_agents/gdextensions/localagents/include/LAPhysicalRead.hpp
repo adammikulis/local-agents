@@ -10,6 +10,8 @@
 #include <godot_cpp/variant/string.hpp>
 
 #include <cmath>
+#include <string>
+#include <unordered_map>
 
 namespace godot {
 
@@ -26,11 +28,19 @@ inline Dictionary la_physical_map() {
 	return constants;
 }
 
+// Each thread keeps the values it has read: a constant never changes, and the map lookup is the cost.
 inline double la_physical(const char *p_name) {
+	thread_local std::unordered_map<std::string, double> read;
+	const auto hit = read.find(p_name);
+	if (hit != read.end()) {
+		return hit->second;
+	}
 	const Dictionary constants = la_physical_map();
 	ERR_FAIL_COND_V_MSG(!constants.has(p_name), NAN,
 			String("LAPhysical carries no ") + p_name + ".");
-	return double(constants[p_name]);
+	const double v = double(constants[p_name]);
+	read.emplace(p_name, v);
+	return v;
 }
 
 // A declared table of numbers, in doubles. Empty and named on a miss.

@@ -44,12 +44,15 @@ class StubInject extends RefCounted:
 ## The one cell the parcels are thrown out of, and a coarser cell everywhere else — the graded grid on
 ## which sizing a parcel at its destination gives a different answer from sizing it at its source.
 class StubField extends RefCounted:
-	var _origin: Vector3 = Vector3.ZERO
 	var _grid: StubGrid = null
 	var _inject: StubInject = null
 	var _silicate: PackedFloat32Array = PackedFloat32Array()
 	var _cell_count: int = 2
 	var launch: Vector3 = Vector3.ZERO
+
+	## The body centre, under the floor straight below the launch.
+	func centre() -> Vector3:
+		return Vector3.ZERO
 
 	func world_to_cell(pos: Vector3) -> int:
 		return SRC_CELL if pos.distance_to(launch) < 0.5 else DST_CELL
@@ -148,7 +151,7 @@ func _partition_arm() -> String:
 func _parcel_arm() -> String:
 	LABallistics.clear()
 	_floor = _build_floor()
-	LABallistics.set_field(_floor, _floor_gravity(), _floor_solid(), [], Basis.IDENTITY, Vector3.ZERO)
+	LABallistics.set_field(_floor, _floor_gravity(), _floor_solid(), null, [], Basis.IDENTITY, Vector3.ZERO)
 	var grid: StubGrid = StubGrid.new()
 	grid.vols = PackedFloat32Array([SRC_VOLUME_M3, DST_VOLUME_M3])
 	var inject: StubInject = StubInject.new()

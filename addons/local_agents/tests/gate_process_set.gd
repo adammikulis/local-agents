@@ -97,8 +97,14 @@ func _init() -> void:
 		labels[label] = true
 		_one("transport", label, "transport row")
 
+	var keys: Dictionary = {}
 	for row: Dictionary in LAReduceRecords.rows():
-		_one("reduce", String(row["key"]), "reduce row")
+		var key: String = String(row["key"])
+		if keys.has(key):
+			_duplicate += 1
+			_say("Two reduce rows are keyed \"%s\"." % key)
+		keys[key] = true
+		_one("reduce", key, "reduce row")
 
 	for path in LAMaterialReactions3D.RECORD_MODULES:
 		_one("reactions", String(path).get_file(), "reaction module")

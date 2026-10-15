@@ -161,6 +161,9 @@
 #define LA_BIND_FLUX_SW_SRC         150
 #define LA_BIND_FLUX_NU_T           151
 #define LA_BIND_FLUX_W_TOP          152
+#define LA_BIND_FLUX_DM_X           174
+#define LA_BIND_FLUX_DM_Y           175
+#define LA_BIND_FLUX_DM_Z           176
 #define LA_BIND_REDUCE_SRC          153
 #define LA_BIND_REDUCE_AUX          154
 #define LA_BIND_REDUCE_AUX2         155
@@ -178,5 +181,8 @@
 #define LA_BIND_ENTHALPY_PROBE      162
 #define LA_BIND_WATER_RHO           173
 #define LA_BIND_TIDE_BODIES         174
+
+#define LA_BIND_TIDAL_ACCEL 175
+#define LA_BIND_TIDAL_WORK 176
 
 #endif
