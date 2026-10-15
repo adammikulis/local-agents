@@ -12,6 +12,7 @@ class Source extends Node:
 class Capture extends LocalAgentDemoHarness:
 	var deadline_ms: int = 0
 	var captures: Array[String] = []
+	var exit_code: int = -1
 
 	func _shot_deadline_ms() -> int:
 		return deadline_ms
@@ -19,8 +20,8 @@ class Capture extends LocalAgentDemoHarness:
 	func _capture(path: String, _tag: String = "") -> void:
 		captures.append(path)
 
-	func _quit(_code: int) -> void:
-		pass
+	func _quit(code: int) -> void:
+		exit_code = code
 
 
 func run_test(tree: SceneTree) -> bool:
@@ -43,7 +44,17 @@ func run_test(tree: SceneTree) -> bool:
 			harness._process(0.0)
 		harness._process(0.0)
 		harness._process(0.0)
-	ok = harness.captures.size() == 3 and harness._done and ok
+	ok = harness.captures.size() == 3 and harness._done and harness.exit_code == 0 and ok
+	harness._done = false
+	harness.captures.clear()
+	harness.exit_code = -1
+	harness._pose_index = 0
+	harness._pose_applied = -1
+	harness.deadline_ms = Time.get_ticks_msec() - 1
+	source.ready_for_capture = false
+	harness._process(0.0)
+	harness._process(0.0)
+	ok = harness.captures.size() == 1 and harness._done and harness.exit_code == 2 and ok
 	source.free()
 	if not ok:
 		push_error("capture protocol spent the first pose budget on world initialization")
