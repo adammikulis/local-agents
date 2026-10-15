@@ -9,8 +9,6 @@
 #error "include enthalpy.glsli before mixture_enthalpy.glsli"
 #endif
 
-#define LA_MIX_MAX 4
-
 // The temperature the last condensed phase leaves at: the frost point below the triple-point pressure,
 // the boiling point above it. `has` is false when the substance has no vapour boundary at all.
 float la_mix_vapour_boundary_c(SubstanceTh s, float p_pa, out bool has) {
@@ -36,8 +34,9 @@ float la_mix_vapour_share(SubstanceTh s, float t_c, float m_kg, float room_m3, f
 	if (m_kg <= 0.0 || !s.has_boil) { return 0.0; }
 	if (t_c >= s.crit_t_c) { return 1.0; }
 	if (room_m3 <= 0.0 || s.molar_mass <= 0.0 || p_v <= 0.0) { return 0.0; }
-	float t_k = max(t_c + LA_KELVIN_OFFSET, 1.0);
-	return min(p_v * room_m3 / (LA_R_J_MOL_K * t_k) * s.molar_mass / m_kg, 1.0);
+	float t_k = t_c + LA_KELVIN_OFFSET;
+	float z = la_pr_vapour_z(s, t_k, p_v);
+	return min(p_v * room_m3 / (z * LA_R_J_MOL_K * t_k) * s.molar_mass / m_kg, 1.0);
 }
 
 float la_mix_vapour_fraction(SubstanceTh s, float t_c, float p_pa, float m_kg, float room_m3,
@@ -61,35 +60,49 @@ float la_mix_specific_enthalpy(SubstanceTh s, float t_c, float p_pa, float m_kg,
 	return mix(h_cond, h_vap, f_v);
 }
 
-float la_mix_enthalpy_at(SubstanceTh subs[LA_MIX_MAX], float mass[LA_MIX_MAX], int n, float t_c,
-		float p_pa, float room_m3, float molality_mol_kg) {
+// THE WHOLE CELL, from here down. A shader that solves one declares LA_MIX_SLOTS, the most entries a
+// cell may hold, and defines the three hooks below; one that only asks about a single substance takes
+// the per-substance half above and stops here.
+#ifdef LA_MIX_SLOTS
+
+// Solidus, liquidus and the vapour boundary, per entry.
+#define LA_MIX_PTS (3 * LA_MIX_SLOTS)
+
+// The includer's cell: its live entries, each substance's own table row and its mass in the reservoir
+// being solved. The solver holds no fixed register set, so the entry count is the cell's.
+int la_mix_n();
+SubstanceTh la_mix_sub(int k);
+float la_mix_mass(int k);
+
+float la_mix_enthalpy_at(float t_c, float p_pa, float room_m3, float molality_mol_kg) {
 	float h = 0.0;
-	for (int i = 0; i < LA_MIX_MAX; ++i) {
+	int n = la_mix_n();
+	for (int i = 0; i < LA_MIX_SLOTS; ++i) {
 		if (i >= n) { break; }
-		if (mass[i] > 0.0) {
-			h += mass[i] * la_mix_specific_enthalpy(subs[i], t_c, p_pa, mass[i], room_m3,
-				molality_mol_kg);
+		float m = la_mix_mass(i);
+		if (m > 0.0) {
+			h += m * la_mix_specific_enthalpy(la_mix_sub(i), t_c, p_pa, m, room_m3, molality_mol_kg);
 		}
 	}
 	return h;
 }
 
-// Every phase boundary of every substance present, ascending. Insertion sort: the list is at most four
+// Every phase boundary of every substance present, ascending. Insertion sort: the list is at most three
 // entries per substance and the walk needs them in the order a warming cell crosses them.
-int la_mix_breakpoints(SubstanceTh subs[LA_MIX_MAX], float mass[LA_MIX_MAX], int n, float p_pa,
-		float molality_mol_kg, out float pts[4 * LA_MIX_MAX]) {
+int la_mix_breakpoints(float p_pa, float molality_mol_kg, out float pts[LA_MIX_PTS]) {
 	int count = 0;
-	for (int i = 0; i < LA_MIX_MAX; ++i) {
+	int n = la_mix_n();
+	for (int i = 0; i < LA_MIX_SLOTS; ++i) {
 		if (i >= n) { break; }
-		if (mass[i] <= 0.0) { continue; }
+		if (la_mix_mass(i) <= 0.0) { continue; }
+		SubstanceTh s = la_mix_sub(i);
 		bool has = false;
-		float cand[3] = float[3](
-			subs[i].has_melt ? la_melt_c_at(subs[i], p_pa, molality_mol_kg) : 0.0,
-			subs[i].has_melt ? la_liquidus_c_at(subs[i], p_pa, molality_mol_kg) : 0.0,
-			la_mix_vapour_boundary_c(subs[i], p_pa, has));
-		bool live[3] = bool[3](subs[i].has_melt, subs[i].has_melt, has);
+		float melt = s.has_melt ? la_melt_c_at(s, p_pa, molality_mol_kg) : 0.0;
+		float cand[3] = float[3](melt, s.has_melt ? la_liquidus_over(s, melt) : 0.0,
+			la_mix_vapour_boundary_c(s, p_pa, has));
+		bool live[3] = bool[3](s.has_melt, s.has_melt, has);
 		for (int k = 0; k < 3; ++k) {
-			if (!live[k] || count >= 4 * LA_MIX_MAX) { continue; }
+			if (!live[k] || count >= LA_MIX_PTS) { continue; }
 			bool dup = false;
 			for (int j = 0; j < count; ++j) { if (pts[j] == cand[k]) { dup = true; } }
 			if (!dup) { pts[count++] = cand[k]; }
@@ -111,7 +124,7 @@ float la_mix_jump_of(SubstanceTh s, float m_kg, float t_b, float p_pa, float roo
 	if (m_kg <= 0.0) { return 0.0; }
 	float total = 0.0;
 	float solidus = la_melt_c_at(s, p_pa, molality_mol_kg);
-	float liquidus = la_liquidus_c_at(s, p_pa, molality_mol_kg);
+	float liquidus = la_liquidus_over(s, solidus);
 	if (s.has_melt && solidus == t_b && liquidus == t_b) {
 		float f_v = la_mix_vapour_fraction(s, t_b, p_pa, m_kg, room_m3, molality_mol_kg);
 		total += m_kg * (1.0 - f_v) * s.l_fus;
@@ -119,72 +132,73 @@ float la_mix_jump_of(SubstanceTh s, float m_kg, float t_b, float p_pa, float roo
 	return total;
 }
 
-float la_mix_jump_at(SubstanceTh subs[LA_MIX_MAX], float mass[LA_MIX_MAX], int n, float t_b, float p_pa,
-		float room_m3, float molality_mol_kg) {
+float la_mix_jump_at(float t_b, float p_pa, float room_m3, float molality_mol_kg) {
 	float total = 0.0;
-	for (int i = 0; i < LA_MIX_MAX; ++i) {
+	int n = la_mix_n();
+	for (int i = 0; i < LA_MIX_SLOTS; ++i) {
 		if (i >= n) { break; }
-		total += la_mix_jump_of(subs[i], mass[i], t_b, p_pa, room_m3, molality_mol_kg);
+		total += la_mix_jump_of(la_mix_sub(i), la_mix_mass(i), t_b, p_pa, room_m3, molality_mol_kg);
 	}
 	return total;
 }
 
 // Illinois false position over a bracket the boundary walk already proved. Exact in one step where the
 // segment is linear; the halving stops an end sticking where the saturation split makes it curve.
-float la_mix_solve(SubstanceTh subs[LA_MIX_MAX], float mass[LA_MIX_MAX], int n, float h_total_j,
-		float p_pa, float room_m3, float molality_mol_kg, float lo, float hi) {
+float la_mix_solve(float h_total_j, float p_pa, float room_m3, float molality_mol_kg, float lo, float hi) {
 	float a = lo;
 	float b = hi;
-	float f_a = la_mix_enthalpy_at(subs, mass, n, a, p_pa, room_m3, molality_mol_kg) - h_total_j;
-	float f_b = la_mix_enthalpy_at(subs, mass, n, b, p_pa, room_m3, molality_mol_kg) - h_total_j;
+	float f_a = la_mix_enthalpy_at(a, p_pa, room_m3, molality_mol_kg) - h_total_j;
+	float f_b = la_mix_enthalpy_at(b, p_pa, room_m3, molality_mol_kg) - h_total_j;
 	float t = a;
 	float width = b - a;
+	// A NaN end is the unmeasured region below: halve up out of it; no root between measured ends is NaN.
+	if (isnan(f_b)) { return f_b; }
 	for (int i = 0; i < 24; ++i) {
 		float denom = f_b - f_a;
-		t = abs(denom) > 0.0 ? a - f_a * (b - a) / denom : 0.5 * (a + b);
+		t = (!isnan(denom) && abs(denom) > 0.0) ? a - f_a * (b - a) / denom : 0.5 * (a + b);
 		t = clamp(t, a, b);
-		float f_t = la_mix_enthalpy_at(subs, mass, n, t, p_pa, room_m3, molality_mol_kg) - h_total_j;
-		if (f_t > 0.0) {
-			b = t;
-			f_b = f_t;
-			f_a *= 0.5;
-		} else {
+		float f_t = la_mix_enthalpy_at(t, p_pa, room_m3, molality_mol_kg) - h_total_j;
+		if (isnan(f_t) || f_t <= 0.0) {
 			a = t;
 			f_a = f_t;
 			f_b *= 0.5;
+		} else {
+			b = t;
+			f_b = f_t;
+			f_a *= 0.5;
 		}
 		// The bracket stopped shrinking: every further evaluation returns the same temperature.
 		if (b - a >= width) { break; }
 		width = b - a;
 	}
-	return t;
+	return isnan(f_a) ? f_a : t;
 }
 
 // THE CELL'S TEMPERATURE from its total enthalpy. `pinned` reports that the enthalpy landed inside a jump,
 // and `progress` where in that jump it sits.
-float la_mix_state(SubstanceTh subs[LA_MIX_MAX], float mass[LA_MIX_MAX], int n, float h_total_j,
-		float p_pa, float room_m3, float molality_mol_kg, out bool pinned, out float progress) {
+float la_mix_state(float h_total_j, float p_pa, float room_m3, float molality_mol_kg,
+		out bool pinned, out float progress) {
 	pinned = false;
 	progress = 0.0;
-	float pts[4 * LA_MIX_MAX];
-	int count = la_mix_breakpoints(subs, mass, n, p_pa, molality_mol_kg, pts);
+	if (isnan(h_total_j) || isnan(p_pa)) { return uintBitsToFloat(0x7fc00000u); }
+	float pts[LA_MIX_PTS];
+	int count = la_mix_breakpoints(p_pa, molality_mol_kg, pts);
+	// Absolute zero bounds the walk; the ladder is read only where the state stands.
 	float lo = -LA_KELVIN_OFFSET;
-	if (h_total_j <= la_mix_enthalpy_at(subs, mass, n, lo, p_pa, room_m3, molality_mol_kg)) {
-		return lo;
-	}
 	float hi = lo;
 	bool bracketed = false;
-	for (int i = 0; i < 4 * LA_MIX_MAX; ++i) {
+	for (int i = 0; i < LA_MIX_PTS; ++i) {
 		if (i >= count) { break; }
 		float t_b = pts[i];
 		if (t_b <= lo) { continue; }
-		float h_b = la_mix_enthalpy_at(subs, mass, n, t_b, p_pa, room_m3, molality_mol_kg);
+		float h_b = la_mix_enthalpy_at(t_b, p_pa, room_m3, molality_mol_kg);
+		if (isnan(h_b)) { lo = t_b; continue; }
 		if (h_total_j <= h_b) {
 			hi = t_b;
 			bracketed = true;
 			break;
 		}
-		float jump = la_mix_jump_at(subs, mass, n, t_b, p_pa, room_m3, molality_mol_kg);
+		float jump = la_mix_jump_at(t_b, p_pa, room_m3, molality_mol_kg);
 		if (h_total_j < h_b + jump) {
 			pinned = true;
 			progress = jump > 0.0 ? (h_total_j - h_b) / jump : 0.0;
@@ -197,13 +211,17 @@ float la_mix_state(SubstanceTh subs[LA_MIX_MAX], float mass[LA_MIX_MAX], int n, 
 		float span = 100.0;
 		for (int i = 0; i < 64; ++i) {
 			hi = lo + span;
-			if (la_mix_enthalpy_at(subs, mass, n, hi, p_pa, room_m3, molality_mol_kg) >= h_total_j) {
+			float h_hi = la_mix_enthalpy_at(hi, p_pa, room_m3, molality_mol_kg);
+			if (isnan(h_hi)) { return h_hi; }
+			if (h_hi >= h_total_j) {
 				break;
 			}
 			span *= 2.0;
 		}
 	}
-	return la_mix_solve(subs, mass, n, h_total_j, p_pa, room_m3, molality_mol_kg, lo, hi);
+	return la_mix_solve(h_total_j, p_pa, room_m3, molality_mol_kg, lo, hi);
 }
+
+#endif   // LA_MIX_SLOTS
 
 #endif

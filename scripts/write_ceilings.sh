@@ -51,7 +51,8 @@ bank_from_lint() {
 	line=""
 	# THIS TREE'S OWN LINT. LOG_DIR is machine-wide and every lane writes into it.
 	while IFS= read -r log; do
-		rg -N -q -e "^LINT_TREE=$TREE\$" "$log" 2>/dev/null || continue
+		grep -Fxq "LINT_TREE=$TREE" "$log" 2>/dev/null || continue
+		grep -Fxq "LINT_BANKABLE=1" "$log" 2>/dev/null || continue
 		line="$(rg -N -m1 -e "^$2=" "$log" 2>/dev/null || true)"
 		[ -n "$line" ] && break
 	done < <(ls -t "$dir"/agent_harness_lint_*.log 2>/dev/null)
@@ -119,6 +120,22 @@ lower INVENTED_QUERY_CEILING "$(field "$inv" count)"
 blk="$(cd "$TREE" && bash scripts/check_comment_block.sh 2>&1 | rg -N '^COMMENT_BLOCK=' || true)"
 [ -n "$blk" ] || { echo "write_ceilings: check_comment_block.sh printed no COMMENT_BLOCK= line." >&2; exit 2; }
 lower COMMENT_BLOCK_CEILING "$(field "$blk" count)"
+
+pres="$(cd "$TREE" && bash scripts/check_presentation_in_sim.sh 2>&1 | rg -N '^PRESENTATION_IN_SIM=' || true)"
+[ -n "$pres" ] || { echo "write_ceilings: check_presentation_in_sim.sh printed no PRESENTATION_IN_SIM= line." >&2; exit 2; }
+lower PRESENTATION_IN_SIM_CEILING "$(field "$pres" count)"
+
+mp="$(cd "$TREE" && bash scripts/check_model_parameters.sh 2>&1 | rg -N '^MODEL_PARAMETERS=' || true)"
+[ -n "$mp" ] || { echo "write_ceilings: check_model_parameters.sh printed no MODEL_PARAMETERS= line." >&2; exit 2; }
+mp_have="$(field "$mp" declared)"
+mp_cur="$(field "$mp" ceiling)"
+if [ "$mp_have" -gt "$mp_cur" ]; then
+	echo "write_ceilings: MAX_DECLARED would RISE $mp_cur -> $mp_have. Refusing; fix the tree." >&2
+	fail=1
+elif [ "$mp_have" -lt "$mp_cur" ]; then
+	perl -pi -e "s/MAX_DECLARED: $mp_cur\\b/MAX_DECLARED: $mp_have/" "$TREE/docs/MODEL_PARAMETERS.md"
+	echo "write_ceilings: MAX_DECLARED $mp_cur -> $mp_have" >&2
+fi
 
 # Uncited values in the authority files, which check_model_parameters.sh exempts from its own registry.
 # READ THE MACHINE LINES, not a prose message: the gate prints both counts unconditionally, pass or fail.

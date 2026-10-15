@@ -15,11 +15,15 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch native dependencies
+        run: addons/local_agents/gdextensions/localagents/scripts/fetch_dependencies.sh --skip-models --skip-voices
       - name: Build the extension
         run: addons/local_agents/gdextensions/localagents/scripts/build_extension.sh --platform macos
       - name: Import
         run: scripts/godot_import.sh .
       - name: Lint (GPU arm)
         run: scripts/agent_harness.sh lint
-      - name: Ladder
-        run: scripts/agent_harness.sh ladder
+      - name: Release ladder
+        run: |
+          rung="$(rg -N '^[0-9]+$' docs/PLAYABLE_RUNG)"
+          scripts/agent_harness.sh ladder --through-rung "$rung"

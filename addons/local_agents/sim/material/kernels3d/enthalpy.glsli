@@ -11,7 +11,7 @@ const int LA_ATOMS  = 3;             // LASubstances.ATOMS
 const int LA_PLASMA = 4;             // LASubstances.PLASMA
 const int LA_SUPERCRITICAL = 5;      // LASubstances.SUPERCRITICAL
 
-#define LA_MAX_EL 3
+#define LA_MAX_EL 5
 
 const float LA_KELVIN_OFFSET    = 273.15;             // LAPhysical.KELVIN_OFFSET
 const float LA_WATSON_EXP       = 0.38;               // LAPhysical.WATSON_LATENT_EXPONENT
@@ -29,8 +29,8 @@ struct SubstanceTh {
 	float c_sol;
 	float c_liq;
 	float c_gas;
-	float rho_sol;
-	float rho_liq;
+	float fusion_a1;         // the melting line's first coefficient, LACondensedEos.fusion_a1
+	float fusion_p0;         // Pa
 	float melt_c;
 	float liquidus_c;
 	float boil_ref_c;
@@ -56,6 +56,17 @@ struct SubstanceTh {
 	float el_chi_ev[LA_MAX_EL];
 	float el_g0[LA_MAX_EL];
 	float el_g1[LA_MAX_EL];
+	// The melting line's form and its remaining coefficients, LACondensedEos.fusion_*.
+	int fusion_kind;
+	float fusion_t0_k;
+	float fusion_c1;
+	float fusion_a2;
+	float fusion_c2;
+	// The standard state the ladder is integrated from, LAPhaseEosFn::anchor.
+	int anchor_phase;
+	float anchor_t_c;
+	float fusion_p_ref;      // Pa below which the melting line has not begun
+	float pr_kappa;          // Peng-Robinson kappa; NaN where the table gives no acentric factor
 };
 
 // LASubstances.table()["h2o"], thermal half. Values are gate-bound to LAPhysical / LASubstances.
@@ -64,8 +75,8 @@ SubstanceTh la_h2o() {
 		2090.0,             // LAPhysical.ICE_SPECIFIC_HEAT_J_KGK
 		4184.0,             // LAPhysical.WATER_SPECIFIC_HEAT_J_KGK
 		1996.0,             // LAPhysical.VAPOUR_SPECIFIC_HEAT_J_KGK
-		916.7,              // LAPhysical.ICE_DENSITY_KG_M3
-		997.0,              // LAPhysical.WATER_DENSITY_KG_M3
+		0.0,
+		611.657,            // LAPhysical.WATER_TRIPLE_P_PA
 		0.01,               // LAPhysical.WATER_TRIPLE_T_C
 		0.01,               // LAPhysical.WATER_TRIPLE_T_C
 		0.0,
@@ -87,55 +98,63 @@ SubstanceTh la_h2o() {
 		true,
 		true,
 		2,
-		float[LA_MAX_EL](2.0, 1.0, 0.0),
+		float[LA_MAX_EL](2.0, 1.0, 0.0, 0.0, 0.0),
 		float[LA_MAX_EL](
 			13.598,         // LAPhysical.IONISATION_EV_H
 			13.618,         // LAPhysical.IONISATION_EV_O
-			0.0),
+			0.0, 0.0, 0.0),
 		float[LA_MAX_EL](
 			2.0,            // LAPhysical.DEGEN_H_0
 			9.0,            // LAPhysical.DEGEN_O_0
-			0.0),
+			0.0, 0.0, 0.0),
 		float[LA_MAX_EL](
 			1.0,            // LAPhysical.DEGEN_H_1
 			4.0,            // LAPhysical.DEGEN_O_1
-			0.0)
+			0.0, 0.0, 0.0),
+		0, 0.0, 0.0, 0.0, 0.0,
+		1,
+		25.0,               // LAPhysical.STANDARD_STATE_T_C
+		611.657,            // LAPhysical.WATER_TRIPLE_P_PA
+		PR_KAPPA_0 + PR_KAPPA_1 * 0.3443    // LAPhysical.WATER_ACENTRIC_FACTOR
+			- PR_KAPPA_2 * 0.3443           // LAPhysical.WATER_ACENTRIC_FACTOR
+			* 0.3443                        // LAPhysical.WATER_ACENTRIC_FACTOR
 	);
 }
 
-// LASubstances.table()["silicate"]. Rock melts over solidus -> liquidus and has no vapour boundary here.
-SubstanceTh la_silicate() {
-	return SubstanceTh(
-		840.0,              // LAPhysical.ROCK_SPECIFIC_HEAT_J_KGK
-		840.0,              // LAPhysical.ROCK_SPECIFIC_HEAT_J_KGK
-		840.0,              // LAPhysical.ROCK_SPECIFIC_HEAT_J_KGK
-		2900.0,             // LAPhysical.ROCK_DENSITY_KG_M3
-		2650.0,             // LAPhysical.BASALT_MELT_DENSITY_KG_M3
-		1000.0,             // LAPhysical.BASALT_SOLIDUS_C
-		1200.0,             // LAPhysical.BASALT_LIQUIDUS_C
-		0.0,
-		101325.0,           // LAPhysical.STANDARD_PRESSURE_PA
-		0.0,
-		0.0,
-		0.0,
-		0.0,
-		400000.0,           // LAPhysical.BASALT_LATENT_HEAT_CRYSTALLISATION_J_KG
-		0.0,
-		0.0,
-		0.1161612,          // LAPhysical.MOLAR_MASS_CASIO3_KG_MOL
-		0.0,
-		81.69,              // LAPhysical.ENTROPY_CASIO3_J_MOL_K
-		0.0,
-		5.0,
-		true,
-		false,
-		false,
-		0,
-		float[LA_MAX_EL](0.0, 0.0, 0.0),
-		float[LA_MAX_EL](0.0, 0.0, 0.0),
-		float[LA_MAX_EL](0.0, 0.0, 0.0),
-		float[LA_MAX_EL](0.0, 0.0, 0.0)
-	);
+// LA_APPROX: peng_robinson_fluid
+// Peng-Robinson a_c and b off the critical point, kelvin and pascals. Native twin build_fluid.
+float la_pr_a_c(float tc_k, float pc_pa) {
+	return PR_OMEGA_A * LA_R_J_MOL_K * LA_R_J_MOL_K * tc_k * tc_k / pc_pa;
+}
+
+float la_pr_b(float tc_k, float pc_pa) {
+	return PR_OMEGA_B * LA_R_J_MOL_K * tc_k / pc_pa;
+}
+
+// The pure vapour's compressibility factor Z = pv/RT at (T, p): the largest root of the Peng-Robinson
+// cubic, Newton from the ideal gas. NaN where it does not converge or the row has no acentric factor.
+// Native twin LAPhaseEosFn::vapour_z.
+const int LA_PR_Z_STEPS = 20;      // LAPhaseEosFn::PR_Z_STEPS
+float la_pr_vapour_z(SubstanceTh s, float t_k, float p_pa) {
+	float tc = s.crit_t_c + LA_KELVIN_OFFSET;
+	float u = 1.0 + s.pr_kappa * (1.0 - sqrt(t_k / tc));
+	float rt = LA_R_J_MOL_K * t_k;
+	float a = la_pr_a_c(tc, s.crit_p_pa) * u * u * p_pa / (rt * rt);
+	float b = la_pr_b(tc, s.crit_p_pa) * p_pa / rt;
+	float c2 = -(1.0 - b);
+	float c1 = a - 3.0 * b * b - 2.0 * b;
+	float c0 = -(a * b - b * b - b * b * b);
+	float z = 1.0;
+	for (int i = 0; i < LA_PR_Z_STEPS; ++i) {
+		float f = ((z + c2) * z + c1) * z + c0;
+		float d = (3.0 * z + 2.0 * c2) * z + c1;
+		float step = f / d;
+		z -= step;
+		if (abs(step) <= exp2(-21.0) * z) {   // four float32 epsilons
+			return z;
+		}
+	}
+	return uintBitsToFloat(0x7FC00000u);
 }
 
 // Watson: the vaporisation enthalpy falls to zero at the critical point.
@@ -398,16 +417,43 @@ bool la_sublimes_at(SubstanceTh s, float p_pa) {
 	return s.triple_p_pa > 0.0 && p_pa < s.triple_p_pa;
 }
 
-// Clapeyron for the solid-liquid boundary, plus freezing-point depression by dissolved solute.
+// The melting line at p, C: LAMeltingLine.hpp's kinds, steps and convergence test, in float.
+const int LA_FUSION_STEPS = 20;    // la_melt_line::STEPS
+float la_fusion_c(SubstanceTh s, float p_pa) {
+	if (p_pa <= s.fusion_p_ref) {
+		return s.melt_c;
+	}
+	if (s.fusion_kind == 0) {
+		return s.melt_c + s.fusion_a1 * (p_pa - s.fusion_p0);
+	}
+	if (s.fusion_kind == 1) {
+		return s.fusion_t0_k * pow((p_pa - s.fusion_p0) / s.fusion_a1 + 1.0, 1.0 / s.fusion_c1) - LA_KELVIN_OFFSET;
+	}
+	bool poly = s.fusion_kind == 2;
+	float y = p_pa / s.fusion_p0 - 1.0;
+	float x = poly ? pow(y / s.fusion_a1, 1.0 / s.fusion_c1) : pow(1.0 + y / s.fusion_a1, 1.0 / s.fusion_c1) - 1.0;
+	for (int i = 0; i < LA_FUSION_STEPS; ++i) {
+		float b = poly ? x : 1.0 + x;
+		float f = s.fusion_a1 * (pow(b, s.fusion_c1) - (poly ? 0.0 : 1.0))
+			+ s.fusion_a2 * (pow(b, s.fusion_c2) - (poly ? 0.0 : 1.0)) - y;
+		float d = s.fusion_a1 * s.fusion_c1 * pow(b, s.fusion_c1 - 1.0) + s.fusion_a2 * s.fusion_c2 * pow(b, s.fusion_c2 - 1.0);
+		float step = f / d;
+		x -= step;
+		if (abs(step) <= exp2(-21.0) * (1.0 + abs(x))) {   // four float32 epsilons
+			return s.fusion_t0_k * (1.0 + x) - LA_KELVIN_OFFSET;
+		}
+	}
+	return uintBitsToFloat(0x7FC00000u);
+}
+
+// The solid-liquid boundary, plus freezing-point depression by dissolved solute.
 precise float la_melt_c_at(SubstanceTh s, float p_pa, float molality_mol_kg) {
 	if (!s.has_melt) { return 0.0; }
 	precise float t_c = s.melt_c;
 	if (s.iapws) {
 		t_c = la_iapws_melting_ih_t_k(s, p_pa) - LA_KELVIN_OFFSET;
-	} else if (s.rho_liq > 0.0 && s.rho_sol > 0.0 && s.l_fus > 0.0) {
-		float dv = (1.0 / s.rho_liq) - (1.0 / s.rho_sol);
-		float p_ref = s.triple_p_pa > 0.0 ? s.triple_p_pa : LA_P_STD;
-		t_c += (p_pa - p_ref) * (s.melt_c + LA_KELVIN_OFFSET) * dv / s.l_fus;
+	} else {
+		t_c = la_fusion_c(s, p_pa);
 	}
 	// van 't Hoff, about the PURE solvent's melting point at this pressure: K_f = R T_m^2 / L_fus.
 	if (molality_mol_kg > 0.0 && s.l_fus > 0.0) {
@@ -418,9 +464,14 @@ precise float la_melt_c_at(SubstanceTh s, float p_pa, float molality_mol_kg) {
 }
 
 // The LIQUIDUS at pressure. The interval keeps its width: both boundaries ride the same Clapeyron slope.
-precise float la_liquidus_c_at(SubstanceTh s, float p_pa, float molality_mol_kg) {
-	precise float t = la_melt_c_at(s, p_pa, molality_mol_kg) + max(s.liquidus_c - s.melt_c, 0.0);
+// The liquidus over a solidus already read at this pressure.
+precise float la_liquidus_over(SubstanceTh s, float melt_c) {
+	precise float t = melt_c + max(s.liquidus_c - s.melt_c, 0.0);
 	return t;
+}
+
+precise float la_liquidus_c_at(SubstanceTh s, float p_pa, float molality_mol_kg) {
+	return la_liquidus_over(s, la_melt_c_at(s, p_pa, molality_mol_kg));
 }
 
 // Ionisation energy per kg, summed over the free atoms the molecule carries.
@@ -479,6 +530,7 @@ float la_ionised_fraction(SubstanceTh s, float t_k, float p_pa) {
 	for (int i = 0; i < LA_MAX_EL; ++i) {
 		if (i >= s.n_el) { break; }
 		atoms += s.el_n[i];
+		if (s.el_chi_ev[i] <= 0.0 || s.el_g1[i] <= 0.0) { continue; }
 		float chi = s.el_chi_ev[i] * LA_EV_TO_J_PER_MOL / LA_AVOGADRO;
 		float ratio = 2.0 * s.el_g1[i] / max(s.el_g0[i], 1.0);
 		float ln_big = log(max(ratio, 1.0e-30)) + ln_lam - chi / kt - log(max(n_m3, 1.0));
@@ -538,27 +590,44 @@ vec4 la_gas_state(SubstanceTh s, float h_j_kg, float p_pa, float ref_t_c, float 
 	return vec4(t_gas, ph, melted, 1.0);
 }
 
+// THE LADDER'S ANCHOR: every phase is integrated outward from the row's standard state, where its sensible
+// enthalpy is zero. Its energy where the solid starts to melt, J/kg. Twin LASubstances anchor_melt_start.
+float la_anchor_melt_start(int anchor, float t_ref, float c_sol, float c_liq, float c_gas, float melt, float boil,
+		float l_fus, float l_vap) {
+	if (anchor == 0) { return c_sol * (melt - t_ref); }
+	if (anchor == 1) { return c_liq * (melt - t_ref) - l_fus; }
+	return c_gas * (boil - t_ref) - l_vap - c_liq * (boil - melt) - l_fus;
+}
+
+// Below the triple pressure: the solid's energy at the frost point, J/kg. Twin anchor_sub_start.
+float la_anchor_sub_start(int anchor, float t_ref, float c_sol, float c_liq, float c_gas, float t_sub,
+		float l_sub, float t_triple, float l_fus) {
+	if (anchor == 0) { return c_sol * (t_sub - t_ref); }
+	if (anchor == 2) { return c_gas * (t_sub - t_ref) - l_sub; }
+	return c_liq * (t_triple - t_ref) - l_fus - c_sol * (t_triple - t_sub);
+}
+
 // Temperature and phase from SPECIFIC enthalpy. Returns (t_c, phase, melted, vaporised).
 vec4 la_enthalpy_to_state(SubstanceTh s, float h_j_kg, float p_pa, float molality_mol_kg) {
-	float melt = la_melt_c_at(s, p_pa, molality_mol_kg);
-	float liquidus = la_liquidus_c_at(s, p_pa, molality_mol_kg);
-	float boil = la_boil_c_at(s, p_pa);
-	float l_vap = la_latent_vaporisation_at(s, boil);
+	int anchor = s.anchor_phase;
+	float t_ref = s.anchor_t_c;
+	float t_triple = s.triple_t_c;
+	// A row with no solid is liquid from absolute zero: its fusion rung stands at 0 K and costs nothing.
+	float melt = s.has_melt ? la_melt_c_at(s, p_pa, molality_mol_kg) : -LA_KELVIN_OFFSET;
+	float liquidus = s.has_melt ? la_liquidus_over(s, melt) : -LA_KELVIN_OFFSET;
+	float l_fus = s.has_melt ? s.l_fus : 0.0;
 
-	if (!s.has_melt) {
-		float c = s.c_sol > 0.0 ? s.c_sol : s.c_liq;
-		float t = c > 0.0 ? (h_j_kg / c) - LA_KELVIN_OFFSET : 0.0;
-		return vec4(t, float(LA_SOLID), 0.0, 0.0);
+	if (!s.has_melt && !s.has_boil) {
+		return vec4(t_ref + h_j_kg / s.c_sol, float(LA_SOLID), 0.0, 0.0);
 	}
 
 	// NO LIQUID BELOW THE TRIPLE POINT: the plateau crossed is SUBLIMATION at the frost point.
 	if (la_sublimes_at(s, p_pa)) {
 		float t_sub = la_sublimation_c_at(s, p_pa);
 		float l_sub = la_latent_sublimation(s);
-		float h_sub_start = s.c_sol * (t_sub + LA_KELVIN_OFFSET);
+		float h_sub_start = la_anchor_sub_start(anchor, t_ref, s.c_sol, s.c_liq, s.c_gas, t_sub, l_sub, t_triple, l_fus);
 		if (h_j_kg <= h_sub_start) {
-			float t = s.c_sol > 0.0 ? (h_j_kg / s.c_sol) - LA_KELVIN_OFFSET : t_sub;
-			return vec4(t, float(LA_SOLID), 0.0, 0.0);
+			return vec4(t_sub - (h_sub_start - h_j_kg) / s.c_sol, float(LA_SOLID), 0.0, 0.0);
 		}
 		float h_sub_end = h_sub_start + l_sub;
 		if (h_j_kg < h_sub_end) {
@@ -568,30 +637,33 @@ vec4 la_enthalpy_to_state(SubstanceTh s, float h_j_kg, float p_pa, float molalit
 		return la_gas_state(s, h_j_kg, p_pa, t_sub, h_sub_end, 0.0);
 	}
 
-	float h_melt_start = s.c_sol * (melt + LA_KELVIN_OFFSET);
+	// The boiling line is read only where the ladder reaches it: a gas anchor, or past the liquidus.
+	float boil = anchor == 2 ? la_boil_c_at(s, p_pa) : 0.0;
+	float l_vap = anchor == 2 ? la_latent_vaporisation_at(s, boil) : 0.0;
+	float h_melt_start = la_anchor_melt_start(anchor, t_ref, s.c_sol, s.c_liq, s.c_gas, melt, boil, l_fus, l_vap);
 	if (h_j_kg <= h_melt_start) {
-		float t = s.c_sol > 0.0 ? (h_j_kg / s.c_sol) - LA_KELVIN_OFFSET : melt;
-		return vec4(t, float(LA_SOLID), 0.0, 0.0);
+		return vec4(melt - (h_melt_start - h_j_kg) / s.c_sol, float(LA_SOLID), 0.0, 0.0);
 	}
-	float h_melt_end = h_melt_start + s.l_fus + s.c_liq * (liquidus - melt);
+	float h_melt_end = h_melt_start + l_fus + s.c_liq * (liquidus - melt);
 	if (h_j_kg < h_melt_end) {
-		// Lever rule across the mush, solved for the melt fraction so a zero-width interval stays a
-		// plateau instead of dividing by nothing.
+		// Lever rule across the mush, solved for the melt fraction; a zero-width interval is a plateau.
 		float dh = h_j_kg - h_melt_start;
 		float dt = liquidus - melt;
 		float a2 = (s.c_liq - s.c_sol) * dt;
-		float a1 = s.c_sol * dt + s.l_fus;
-		float phi = 2.0 * dh / (a1 + sqrt(a1 * a1 + 4.0 * a2 * dh));
+		float a1 = s.c_sol * dt + l_fus;
+		float phi = dt > 0.0 ? 2.0 * dh / (a1 + sqrt(a1 * a1 + 4.0 * a2 * dh)) : dh / l_fus;
 		return vec4(melt + phi * dt, float(LA_SOLID), phi, 0.0);
 	}
 	if (!s.has_boil) {
-		float t = s.c_liq > 0.0 ? liquidus + (h_j_kg - h_melt_end) / s.c_liq : liquidus;
-		return vec4(t, float(LA_LIQUID), 1.0, 0.0);
+		return vec4(liquidus + (h_j_kg - h_melt_end) / s.c_liq, float(LA_LIQUID), 1.0, 0.0);
+	}
+	if (anchor != 2) {
+		boil = la_boil_c_at(s, p_pa);
+		l_vap = la_latent_vaporisation_at(s, boil);
 	}
 	float h_boil_start = h_melt_end + s.c_liq * (boil - liquidus);
 	if (h_j_kg <= h_boil_start) {
-		float t = s.c_liq > 0.0 ? liquidus + (h_j_kg - h_melt_end) / s.c_liq : liquidus;
-		return vec4(t, float(LA_LIQUID), 1.0, 0.0);
+		return vec4(liquidus + (h_j_kg - h_melt_end) / s.c_liq, float(LA_LIQUID), 1.0, 0.0);
 	}
 	float h_boil_end = h_boil_start + l_vap;
 	if (h_j_kg < h_boil_end) {
@@ -603,30 +675,39 @@ vec4 la_enthalpy_to_state(SubstanceTh s, float h_j_kg, float p_pa, float molalit
 
 // The forward curve: SPECIFIC enthalpy at a temperature, rung for rung the inverse of the above.
 float la_state_to_enthalpy(SubstanceTh s, float t_c, float p_pa, float molality_mol_kg) {
-	float t_k = t_c + LA_KELVIN_OFFSET;
-	if (!s.has_melt) {
-		float c = s.c_sol > 0.0 ? s.c_sol : s.c_liq;
-		return c * t_k;
+	int anchor = s.anchor_phase;
+	float t_ref = s.anchor_t_c;
+	float t_triple = s.triple_t_c;
+	if (!s.has_melt && !s.has_boil) {
+		return s.c_sol * (t_c - t_ref);
 	}
+	float melt = s.has_melt ? la_melt_c_at(s, p_pa, molality_mol_kg) : -LA_KELVIN_OFFSET;
+	float l_fus = s.has_melt ? s.l_fus : 0.0;
 	if (la_sublimes_at(s, p_pa)) {
 		float t_sub = la_sublimation_c_at(s, p_pa);
-		if (t_c <= t_sub) { return s.c_sol * t_k; }
-		float h_sub = s.c_sol * (t_sub + LA_KELVIN_OFFSET) + la_latent_sublimation(s);
-		return la_gas_enthalpy_at(s, t_c, p_pa, t_sub, h_sub);
+		float l_sub = la_latent_sublimation(s);
+		float h_sub_start = la_anchor_sub_start(anchor, t_ref, s.c_sol, s.c_liq, s.c_gas, t_sub, l_sub, t_triple, l_fus);
+		if (t_c <= t_sub) { return t_c == t_sub ? h_sub_start : h_sub_start - s.c_sol * (t_sub - t_c); }
+		return la_gas_enthalpy_at(s, t_c, p_pa, t_sub, h_sub_start + l_sub);
 	}
-	float melt = la_melt_c_at(s, p_pa, molality_mol_kg);
-	float liquidus = la_liquidus_c_at(s, p_pa, molality_mol_kg);
-	if (t_c <= melt) { return s.c_sol * t_k; }
-	float h_start = s.c_sol * (melt + LA_KELVIN_OFFSET);
-	float h_end = h_start + s.l_fus + s.c_liq * (liquidus - melt);
+	float liquidus = s.has_melt ? la_liquidus_over(s, melt) : -LA_KELVIN_OFFSET;
+	// The boiling line is read only where the ladder reaches it: a gas anchor, or past the liquidus.
+	float boil = anchor == 2 ? la_boil_c_at(s, p_pa) : 0.0;
+	float l_vap = anchor == 2 ? la_latent_vaporisation_at(s, boil) : 0.0;
+	float h_start = la_anchor_melt_start(anchor, t_ref, s.c_sol, s.c_liq, s.c_gas, melt, boil, l_fus, l_vap);
+	if (t_c <= melt) { return t_c == melt ? h_start : h_start - s.c_sol * (melt - t_c); }
+	float h_end = h_start + l_fus + s.c_liq * (liquidus - melt);
 	if (t_c < liquidus) {
 		float x = t_c - melt;
 		float phi = x / (liquidus - melt);
-		return h_start + s.c_sol * x + phi * (s.l_fus + (s.c_liq - s.c_sol) * x);
+		return h_start + s.c_sol * x + phi * (l_fus + (s.c_liq - s.c_sol) * x);
 	}
-	float boil = la_boil_c_at(s, p_pa);
+	if (anchor != 2) {
+		boil = la_boil_c_at(s, p_pa);
+		l_vap = la_latent_vaporisation_at(s, boil);
+	}
 	if (!s.has_boil || t_c <= boil) { return h_end + s.c_liq * (t_c - liquidus); }
-	float h_top = h_end + s.c_liq * (boil - liquidus) + la_latent_vaporisation_at(s, boil);
+	float h_top = h_end + s.c_liq * (boil - liquidus) + l_vap;
 	return la_gas_enthalpy_at(s, t_c, p_pa, boil, h_top);
 }
 

@@ -16,9 +16,6 @@ var _f = null                                            # back-reference to the
 var _extremes = null                                     # LAMaterialFieldExtremes3D — min/max-ever register
 var _swing = null                                        # LAMaterialFieldClimateSwing3D — diurnal + seasonal range
 var _momentum = null                             # LAMaterialFieldMomentumLedger3D — Σ m*v stock + its books
-# The cross-book carbon baseline, latched at the seal.
-var _first_element_c: float = NAN
-var _first_element_o: float = NAN
 var _conservation = null                         # LAMaterialFieldConservation3D — the law, enforced
 var _seal = null                                 # LAMaterialFieldSeal3D — SEEDING -> SEALED, the line the books start at
 var _seal_announced: bool = false                # WORLD_SEALED printed once, from the step-driven phase
@@ -112,11 +109,11 @@ func surface_climate() -> Dictionary:
 
 
 ## Open-cell temperature spread, plus the all-cell max that exposes the deep rock the open-only rows hide.
-## Four reduced rows; the mean is the open-cell sum over the open-cell count, the same population. null and
+## The mean is the sum over the open cells that hold matter, over their count: the same population. null and
 ## -1 where the device reduced nothing, because an absent reading is not a cold one.
 func _open_temp_stats() -> Dictionary:
 	var q: LAMaterialFieldQueries3D = _f._queries
-	var n: int = q.open_cells()
+	var n: int = q.row_n("open_temp_n")
 	var sum = q.row_v("open_temp_sum", false)
 	var gn = q.row_v("ground_cells", true)
 	var gsum = q.row_v("temp_ground_sum", false)
@@ -129,11 +126,15 @@ func _open_temp_stats() -> Dictionary:
 			if gn != null and int(gn) > 0 and gsum != null else null}
 
 
-## Per-step ledger folds on the field clock; report() only publishes what these accumulated.
+## Per-step ledger folds on the field clock, and the audit of the books each fold leaves; report() only
+## publishes what these accumulated. A step that folded no drain moved no book, so nothing is audited.
 func sample_ledgers() -> void:
-	_momentum.sample(int(_f._gpu._step_index) if _f._gpu != null else 0)
-	if _f._ledger != null:
-		_f._ledger.sample()
+	_momentum.sample()
+	if _f._ledger == null:
+		return
+	var books: int = _f._ledger.sample()
+	if books >= 0:
+		_conservation.check(_f._ledger.report(books), books)
 
 
 func report() -> Dictionary:
@@ -197,9 +198,8 @@ func report() -> Dictionary:
 	r.merge(_extremes.report())
 	if _seal != null:
 		r.merge(_seal.report())
-	# THE LAW, CHECKED LAST. It reads what the ledger has published, so it must run after it.
 	if _conservation != null:
-		r.merge(_conservation.check(r))
+		r.merge(_conservation.block())
 	return r
 
 
@@ -235,48 +235,5 @@ func _heavy_block() -> Dictionary:
 	# The radiative books ride in with the ledger: they are reduce rows off the device, not a CPU scan.
 	if _f._ledger != null:
 		d.merge(_f._ledger.report(step))
-	# BOTH SIDES MASK-FREE. `element_C` is the open-cell sum.
-	if d.has("element_C_all") and d.has("lith_element_C"):
-		var c_total: float = float(d["element_C_all"]) + float(d["lith_element_C"])
-		d["element_C_total"] = snappedf(c_total, 0.01)
-		if _seal != null and _seal.sealed():
-			var step_now: int = int(_f._gpu._step_index) if _f._gpu != null else 0
-			# The baseline latches only when BOTH sides of the sum are LIVE.
-			var c_live: bool = _all_live(d.get("mass_live", {})) and _all_live(d.get("mineral_live", {}))
-			d["element_C_first_live"] = c_live
-			if is_nan(_first_element_c) and c_live:
-				_first_element_c = c_total
-				_seal.note_seed({"element_C_mol": c_total})
-			# No baseline, no baseline-derived keys.
-			if not is_nan(_first_element_c):
-				d["element_C_total_first"] = snappedf(_first_element_c, 0.01)
-				d["element_C_total_drift"] = snappedf(c_total - _first_element_c, 0.01)
-				if _first_element_c != 0.0:
-					d["element_C_total_rel_drift"] = snappedf((c_total - _first_element_c) / _first_element_c, 1e-9)
-	# Elemental O over every pool, the h2o stock included: chemistry conserves the ATOM, never the O2
-	# molecule, which photosynthesis creates and respiration consumes.
-	if d.has("element_O_all") and d.has("lith_element_O") and d.get("h2o_total") is float:
-		var o_total: float = float(d["element_O_all"]) + float(d["lith_element_O"]) + float(d["h2o_total"])
-		d["element_O_total"] = snappedf(o_total, 0.01)
-		if _seal != null and _seal.sealed():
-			var o_live: bool = _all_live(d.get("mass_live", {})) and _all_live(d.get("mineral_live", {}))
-			if is_nan(_first_element_o) and o_live:
-				_first_element_o = o_total
-				_seal.note_seed({"element_O_mol": o_total})
-			if not is_nan(_first_element_o):
-				d["element_O_total_first"] = snappedf(_first_element_o, 0.01)
-				d["element_O_total_drift"] = snappedf(o_total - _first_element_o, 0.01)
-				if _first_element_o != 0.0:
-					d["element_O_total_rel_drift"] = snappedf((o_total - _first_element_o) / _first_element_o, 1e-9)
 	_heavy_cache = d
 	return d
-
-
-## True when a ledger `live` map is non-empty and every leg in it arrived from the drain probe.
-func _all_live(m: Dictionary) -> bool:
-	if m.is_empty():
-		return false
-	for k in m:
-		if not bool(m[k]):
-			return false
-	return true

@@ -1,7 +1,8 @@
 # PHYSICS TODO — the one list
 
-**This is the only list of physics work that is left.** Work comes from here, and anything found goes in
-here. An item leaves this file when it is implemented and verified, never when it is worked around.
+**This is the only list of physics requirements.** The [0.4 release scope](0.4_RELEASE_SCOPE.md)
+selects which active paths must ship. Preserve every other requirement for planet development.
+An item leaves this file when it is implemented and verified, never when it is worked around.
 
 **A departure from real physics may not be added to close an item.** If an item cannot be done correctly,
 it stays open and the maintainer is asked. See `CLAUDE.md`.
@@ -25,15 +26,13 @@ rock record can confirm beats seeding one at an epoch only models describe. Iron
 planet's mass; it starts in a core instead of forming one. A magma ocean also gives the built substrate —
 rivers, weathering, sediment, aquifers — nothing to act on.
 
-Free O2 at zero is correct. There is no photosynthesis, no biological nitrogen fixation, no litter and no
-biosphere — LIVING THINGS AND THEIR BEHAVIOUR are 0.5 work, and nothing else is. Radiogenic abundances
-belong at formation, not today. An item is open here only if it is wrong for a lifeless planet of that age.
+Free O2 at zero is correct for the lifeless referent. There is no photosynthesis, biological nitrogen
+fixation, litter or biosphere. Radiogenic abundances belong at formation, not today.
+An item is open here only if it is wrong for a lifeless planet of that age.
 
-**ALL OF THE PLANET'S MASS IS SEEDED IN 0.4, AND ITS ELEMENTAL COMPOSITION MUST BE THE REAL ONE.** No
-element waits for a later version. The tell that this was misread: "a biosphere is 0.5" was taken to mean
-"carbon is 0.5", and the planet ended up made of one mineral. Chemistry is not biology — a process runs in
-0.4 unless it needs a living organism to catalyse it. Weathering, clay formation, serpentinization,
-outgassing, ore concentration and abiotic organic synthesis are all 0.4.
+The comprehensive planet model requires its real elemental composition. Chemistry is not biology:
+weathering, clay formation, serpentinization, outgassing, ore concentration and abiotic organic
+synthesis remain planet requirements. Their release timing follows [the release scope](0.4_RELEASE_SCOPE.md).
 
 ## The grid is Cartesian with axis-aligned refinement, and this is SETTLED
 
@@ -115,18 +114,19 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
 - [ ] **`t_k()` floors every temperature at 1 K** in `closures.glsli`, `enthalpy.glsli`, `state_derive.glsl`
       and `reactions_sphere3d.glsl`: a cell whose energy solve lands below absolute zero reads 1 K instead of
       failing. Delete the floor; count such cells in a detector row gated to zero.
-- [ ] **`carbonate` has an expansivity and no bulk modulus, and `cellulose` has neither,** so their
-      cells report an incompressible volume in the equation of state. Cite both moduli in `LASubstances`.
-- [ ] **No phase carries a measured `bulk_modulus_deriv`,** so every one of them compresses on `K0' = 4` —
-      the value at which third-order Birch-Murnaghan collapses to second order. That is the standard
-      treatment where `K0'` is unmeasured rather than an invented number, and it is declared as
-      `second_order_birch_murnaghan`, but a phase whose real `K0'` is larger stiffens faster than the
-      table says. The field is read already; only the cited data per phase is missing.
 - [ ] **Solid polymorphs** — ice I…VII, and olivine → wadsleyite → perovskite with depth. A planet's mantle
       structure IS these transitions, each with its own enthalpy and density jump. Maintainer asked for the
       structure to be built.
 - [ ] **Glass vs crystalline.** Quenched basalt releases different heat than slow-cooled; `latent_rock` is
       one number.
+- [ ] **Apatite never melts.** Its row carries no melting point, latent heat or melt. Reading:
+      `LASubstances.table()["apatite"]` has no `melt_c`.
+- [ ] **Five gases have no solid heat capacity.** N2, O2, CO, CH4 and CO2 carry melting lines but no
+      `specific_heat_solid`, so any state below their melting line is NaN. Reading:
+      `LASubstances.table()["n2"]` has no `specific_heat_solid`.
+- [ ] **Dissolved fixed nitrogen weighs and warms like basalt.** Its row's density and heat capacity move
+      with every change to the rock's. Reading: `fixed_n_entry` reads `ROCK_DENSITY_KG_M3` and
+      `ROCK_SPECIFIC_HEAT_J_KGK`.
 - [ ] **Metastability** — supercooled water, superheated liquid. Real, and arguably beyond this granularity.
 
 ## B. The substrate's state
@@ -177,7 +177,10 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
 - [ ] **Direction is derived for dissolution and coal dehydration; the rest lack standard-state data.**
       Decarboxylation and combustion produce FERT, and `fixed_n` has no formation enthalpy or entropy until
       the fixed-N compound is decided; the five bio records run on cellulose, which has neither datum.
-      Add the data (cited) and pass each record through `LAReactionThermo.reversible`.
+      Add the data (cited) and pass each record through `LAReactionThermo.reversible`. A world holding
+      `fert` fails its error census: `LA_RUNG=5 scripts/check_active_rows.sh` prints `LASubstances gives
+      "fixed_n" no specific heat`.
+      Reading: `channel_specific_heat` in `MatterChannels.gd` asks a dissolved row for `specific_heat`.
 - [ ] **Decay has no temperature dependence and production has an optimum.** Decomposition and respiration
       are `RM_BILINEAR` in their two reactants, so litter rots at the same rate at −40 °C and +40 °C, wet or
       bone dry, while photosynthesis carries `RM_OPTIMUM_BAND`. Michaelis–Menten and a Q₁₀ (or the
@@ -195,8 +198,7 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
       that replaced the deleted `sediment_total` gauge. **Reproduce:** `scripts/agent_harness.sh sim
       --frames 200` and read whether either share is ever non-zero away from a slump.
 - [ ] **Five matter rows trip the conservation gate on a clean tree** — h2o, nitrogen, mineral, oxidant and
-      element_C — and the energy row reads UNMEASURED rather than conserved. **Reproduce:**
-      `scripts/check_conservation.sh`.
+      element_C. **Reproduce:** `scripts/check_conservation.sh`.
 
 - [ ] **The wind is supersonic and always has been**, against a real jet stream of ~70 m/s. `MAX_WIND` was
       deleted on purpose (wind speed is an output), so this is the momentum equation, not a missing clamp.
@@ -216,17 +218,12 @@ The planet is lifeless — no seeded litter, no dead plant pool, no biomass→fu
 
 ## F. Prescribed where it should emerge
 
-- [ ] **The geotherm's adiabats use the expansivity at one atmosphere.** `FieldGeothermSeed3D.gd`
-      integrates both adiabats with each substance's STP `expansion_per_k`, so the inner core seeds far above
-      the real ~6000 K. The Anderson-Gruneisen relation alpha(P) = alpha0 K0 / K(P) off the same compression
-      the EOS carries is the law; cite it.
 - [ ] **The core is seeded, and the seeded phases cannot yet move or melt on the GPU.** The planet now
       seeds differentiated — a metal core whose radius follows from the core mass fraction, one silicate
       shell of the registry's own mineral mix (maintainer's decision: differentiation at ~10^13 steps is
-      not computable). What remains for the core to LIVE rather than sit: **the six new phases are
-      sensible-heat entries**, so metal, olivine, pyroxene, plagioclase, halite and apatite never melt in
-      `state_derive.glsl` — no liquid outer core, no mantle melt beyond the wollastonite share — and
-      **none has a transport row**, so none of them erodes, slumps or percolates.
+      not computable). What remains for the core to LIVE rather than sit: metal, olivine, pyroxene,
+      plagioclase, halite and apatite have **no transport row**, so none of them erodes, slumps or
+      percolates.
 - [ ] **Trace elements ride their host phase uniformly, and nothing can ever concentrate them.** Each
       shell mineral carries the registry's traces as fixed kg/kg. Real ore bodies form when partition
       coefficients move trace mass between silicate melt, sulfide melt and aqueous brine; that needs the

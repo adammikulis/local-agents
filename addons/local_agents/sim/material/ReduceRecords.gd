@@ -15,6 +15,9 @@ enum Mask { ALL, OPEN, SOLID, GROUND, AIR, BEDDED }
 ## or the two faces of one grid axis. Generated into reduce.glsl as NBR_*.
 enum Nbr { NONE, SOLID_COUNT, BELOW, ABOVE, GRAD_X, GRAD_Y, GRAD_Z }
 
+## Counted only where rho_bulk > 0, at both ends of a BELOW/ABOVE pair.
+const HELD_SOURCES: PackedStringArray = ["temp", "temp_lith"]
+
 ## Channels whose stock the conservation ledger books, mask-free and open-only.
 const AMOUNTS: PackedStringArray = ["h2o", "h2o_pore", "silicate", "carbonate", "silica",
 	"co2", "o2", "n2", "h2", "co", "so2", "h2s", "ch4",
@@ -39,9 +42,9 @@ static func row(key: String) -> Dictionary:
 	return _by_key.get(key, {})
 
 
-## Value per cell is `source` * (`aux` + `aux2`), read against `nbr`; `weight` = cell volume, m^3; `ref` is
-## the diff base. `gate`(* `gate_aux`) admits [`gate_lo`, `gate_hi`), strict low under `gate_strict_lo`; a
-## BELOW/ABOVE row gates on the PAIR's larger value, or its smaller under `gate_both_ends`.
+## Value per cell is `source` * (`aux` + `aux2`), or `source` - `less`, read against `nbr`; `weight` = cell
+## volume, m^3; `ref` is the diff base. `gate`(* `gate_aux`) admits [`gate_lo`, `gate_hi`), strict low under
+## `gate_strict_lo`; a BELOW/ABOVE row gates on the PAIR's larger value, or its smaller under `gate_both_ends`.
 static func rows() -> Array:
 	var out: Array = []
 	for name in AMOUNTS:

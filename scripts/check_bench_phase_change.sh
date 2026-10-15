@@ -177,7 +177,7 @@ if LA_BENCH_SELFTEST=broken python3 "$JUDGE" >/dev/null 2>&1; then
 fi
 
 # THE RIG RIDES THE SHARED DEVICE BATCH: one launch holds every rig that only needs a device.
-out="$(la_rig bench_phase_change '^BENCH_RAW_PHASE_CHANGE=' "res://$PROBE")"
+out="$(la_rig bench_phase_change '^BENCH_RAW_PHASE_CHANGE=' "res://$PROBE")" || { rig_result=$?; printf '%s\n' "$out" >&2; exit "$rig_result"; }
 raw="$(printf '%s\n' "$out" | grep -m1 '^BENCH_RAW_PHASE_CHANGE=')"
 if [ -z "$raw" ]; then
   echo "ERROR: the rig published no BENCH_RAW_PHASE_CHANGE line." >&2
@@ -189,12 +189,136 @@ rc=$?
 [ "$rc" -eq 1 ] && exit 1
 [ "$rc" -eq 0 ] || exit 2
 
+# ARM 1b -- IRON AND FORSTERITE. Each melts at a POINT, so its caloric curve has a plateau: the solid
+# branch and the melt branch are straight lines in (T, E) whose extrapolations to it are apart by exactly
+# the enthalpy of fusion of the mass present. The plateau and both branches come off the swept curve.
+MELT_JUDGE="$(mktemp "${TMPDIR:-/tmp}/bench_melt.XXXXXX.py")"
+trap 'rm -f "$JUDGE" "$MELT_JUDGE"' EXIT INT TERM
+cat > "$MELT_JUDGE" <<'PYEOF'
+import json, math, os, sys
+
+# Iron: melts at 1538 C, dHfus 13.81 kJ/mol over 55.845 g/mol = 2.473e5 J/kg (Desai 1986, J. Phys. Chem.
+# Ref. Data 15:967; CRC 97th ed.). Forsterite: 2163 K = 1890 C, dHfus 142 kJ/mol (Bowen & Andersen 1914;
+# Richet et al. 1993, GRL 20:1675) -- per mole, so the mass basis is the swept row's own molar mass.
+CITED = {"metal": (1538.0, 2.473e5, None), "olivine": (1890.0, None, 1.42e5)}
+
+
+def synth(sub, shift):
+    """The caloric curve the cited numbers themselves describe: solid, plateau, melt."""
+    t_melt, l_kg, l_mol = CITED[sub]
+    mm, kg, n = 0.055845 if sub == "metal" else 0.1406931, 3500.0, 2048
+    lat = kg * (l_kg if l_kg is not None else l_mol / mm) * (1.0 + shift)
+    c_sol, c_liq, span = kg * 449.0, kg * 824.0, 300.0
+    e0 = c_sol * (t_melt + 273.15)
+    lo, hi = e0 - c_sol * span, e0 + lat + c_liq * span
+    rows = []
+    for i in range(n):
+        e = lo + (hi - lo) * i / (n - 1)
+        if e < e0:
+            rows.append([e, t_melt - (e0 - e) / c_sol])
+        elif e < e0 + lat:
+            rows.append([e, t_melt])
+        else:
+            rows.append([e, t_melt + (e - e0 - lat) / c_liq])
+    return {"substance": sub, "kg_per_m3": kg, "cells": n, "molar_mass_kg_mol": mm,
+            "columns": ["e_j_m3", "temp_c"], "rows": rows}
+
+
+MODE = os.environ.get("LA_BENCH_SELFTEST", "")
+if MODE:
+    sweeps = [synth(s, 0.1 if MODE == "broken" else 0.0) for s in CITED]
+else:
+    sweeps = [json.loads(l.split("=", 1)[1]) for l in sys.stdin.read().splitlines()
+              if l.startswith("BENCH_RAW_MELT_LADDER=")]
+
+fails, out = [], {}
+for d in sweeps:
+    sub = d["substance"]
+    if sub not in CITED:
+        fails.append("the rig swept %s, which this gate cites nothing for." % sub)
+        continue
+    t_melt, l_kg, l_mol = CITED[sub]
+    want = d["kg_per_m3"] * (l_kg if l_kg is not None else l_mol / d["molar_mass_kg_mol"])
+    rows = d["rows"]
+    de = abs(rows[1][0] - rows[0][0])
+    span = rows[-1][1] - rows[0][1]
+    # THE PLATEAU, found from the curve alone: the longest run the added energy did not warm.
+    flat = max(1e-4 * span, 1e-3)
+    best_i = best_n = run_i = run_n = 0
+    for i in range(1, len(rows)):
+        if abs(rows[i][1] - rows[i - 1][1]) <= flat:
+            run_n += 1
+        else:
+            run_i, run_n = i, 0
+        if run_n > best_n:
+            best_i, best_n = run_i, run_n
+    if best_n < 16:
+        print("check_bench_phase_change: the %s sweep crossed no melting plateau, so nothing was "
+              "examined." % sub, file=sys.stderr)
+        sys.exit(2)
+    plateau = sum(r[1] for r in rows[best_i:best_i + best_n + 1]) / (best_n + 1)
+    # A least-squares line through each branch, clear of the plateau by a tenth of the sweep's span.
+    edge = max(0.05 * span, 5.0)
+    ends = []
+    for lo, hi in ((-1e30, plateau - edge), (plateau + edge, 1e30)):
+        seg = [r for r in rows if lo <= r[1] <= hi]
+        if len(seg) < 8:
+            break
+        k = len(seg)
+        mt, me = sum(r[1] for r in seg) / k, sum(r[0] for r in seg) / k
+        sxx = sum((r[1] - mt) ** 2 for r in seg)
+        if sxx <= 0.0:
+            break
+        ends.append(me + sum((r[1] - mt) * (r[0] - me) for r in seg) / sxx * (plateau - mt))
+    if len(ends) < 2:
+        print("check_bench_phase_change: the %s sweep resolved only one side of its melting point."
+              % sub, file=sys.stderr)
+        sys.exit(2)
+    got = ends[1] - ends[0]
+    bound = 2.0 * de / want
+    rel = abs(got - want) / want
+    out[sub] = {"plateau_t_c": plateau, "reference_t_c": t_melt, "latent_j_m3": got,
+                "reference_j_m3": want, "rel": rel, "bound": bound}
+    # The melting point moves with pressure at T dv / L, under a kelvin over the pressure this sweep
+    # stands at, so at one atmosphere it is the measured number.
+    if abs(plateau - t_melt) > 2.0:
+        fails.append("%s melts at %.3f C in the sim; it melts at %.1f C, out by %.3f K."
+                     % (sub, plateau, t_melt, abs(plateau - t_melt)))
+    if rel > bound:
+        fails.append("melting the %s cost %.6g J/m^3; its enthalpy of fusion over that mass is %.6g "
+                     "J/m^3, a relative %.4g against the sweep's own %.4g." % (sub, got, want, rel, bound))
+missing = sorted(set(CITED) - set(out))
+if missing:
+    print("check_bench_phase_change: the rig published no melting sweep for %s." % ", ".join(missing),
+          file=sys.stderr)
+    sys.exit(2)
+print("BENCH_MELT_LADDER=" + json.dumps(out, sort_keys=True))
+for msg in fails:
+    print("check_bench_phase_change: " + msg, file=sys.stderr)
+sys.exit(1 if fails else 0)
+PYEOF
+
+if ! LA_BENCH_SELFTEST=exact python3 "$MELT_JUDGE" >/dev/null; then
+  echo "ERROR: this gate rejects a caloric curve built from the cited melting points and fusion" >&2
+  echo "       enthalpies themselves, so its bounds are not ones any solver could meet." >&2
+  exit 2
+fi
+if LA_BENCH_SELFTEST=broken python3 "$MELT_JUDGE" >/dev/null 2>&1; then
+  echo "ERROR: this gate accepts a latent heat a tenth out, so it cannot fail." >&2
+  exit 2
+fi
+
+printf '%s\n' "$out" | python3 "$MELT_JUDGE"
+rc=$?
+[ "$rc" -eq 1 ] && exit 1
+[ "$rc" -eq 0 ] || exit 2
+
 # ARM TWO -- the world the sim seeds. The same derive over the matter the seed laid must publish a
 # present, finite water inventory and a phase split, or the ladder the rig walked is not the planet's.
 FRAMES="${LA_BENCH_PC_FRAMES:-6}"
 . "$REPO_ROOT/scripts/lib_rung.sh"
 world="$(la_rung_report 1 "$FRAMES" "water_liquid_total,ice_cells,all_h2o")"
-la_rung_require "$world" water_liquid_total all_h2o || exit 2
+la_rung_require "$world" water_liquid_total all_h2o || exit $?
 printf 'BENCH_PHASE_CHANGE_WORLD={"water_liquid_total":%s,"all_h2o":%s}\n' \
   "$(la_rung_value "$world" water_liquid_total)" "$(la_rung_value "$world" all_h2o)"
 echo "check_bench_phase_change: OK"

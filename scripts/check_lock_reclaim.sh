@@ -81,14 +81,10 @@ if [ "$GOT" != "early late" ]; then
   fail=1
 fi
 
-# --- SCOPE: a headless launch does not queue for a device it cannot make -------------------------------
-# create_local_rendering_device returns null under --headless, which is why every rig is windowed. A
-# headless launch that waits for the GPU lock queues behind other lanes' sims for nothing, and
-# godot_import.sh holds the machine EXTENSION lock while it does.
+# --- SCOPE: only explicitly CPU-only validation bypasses GPU serialization ---------------------------
 IMPORTER="$ROOT/scripts/lib_godot.sh"
-if ! grep -q 'if \[ "\$headless" -eq 1 \]; then' "$IMPORTER"; then
-  echo "la_godot takes the GPU lock for a headless launch: every lane's batch and import then queues" >&2
-  echo "  behind a sim for a device a headless engine cannot make" >&2
+if ! grep -Fq 'if [ "$headless" -eq 0 ] || [ "${LA_CPU_VALIDATION:-0}" != "1" ]; then' "$IMPORTER"; then
+  echo "la_godot must serialize default headless runs because native inference may own a GPU." >&2
   fail=1
 fi
 
@@ -136,6 +132,35 @@ if ! LA_LOCKS_HELD="$(basename "$GODOT_LOCK_DIR")" la_dir_lock "$GPU" 2 1 2>/dev
 else
   rm -rf "$GPU"
 fi
+
+(
+  . "$ROOT/scripts/lib_godot.sh"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$T/launcher_fixture"
+  chmod +x "$T/launcher_fixture"
+  GODOT="$T/launcher_fixture"
+  LA_LAUNCH_LOG="$T/fixture_launches"
+  la_agent_exe() { printf '%s' "$GODOT"; }
+  la_extension_current() { return 0; }
+  consulted=0
+  la_gpu_lock() { consulted=$((consulted + 1)); return 1; }
+  la_gpu_unlock() { :; }
+  if ! LA_CPU_VALIDATION=1 la_godot --headless --version >/dev/null 2>&1 || [ "$consulted" -ne 0 ]; then
+    echo "explicit CPU validation queued for the GPU lock" >&2
+    exit 1
+  fi
+  LA_CPU_VALIDATION=0 la_godot --headless --version >/dev/null 2>&1
+  rc=$?
+  if [ "$rc" -ne 2 ] || [ "$consulted" -ne 1 ]; then
+    echo "headless native work did not require the GPU lock" >&2
+    exit 1
+  fi
+  LA_CPU_VALIDATION=1 la_godot --version >/dev/null 2>&1
+  rc=$?
+  if [ "$rc" -ne 2 ] || [ "$consulted" -ne 2 ]; then
+    echo "rendered work did not require the GPU lock" >&2
+    exit 1
+  fi
+) || fail=1
 
 [ "$fail" -eq 0 ] && echo "check_lock_reclaim: OK"
 exit $fail

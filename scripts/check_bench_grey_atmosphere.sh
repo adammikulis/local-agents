@@ -126,7 +126,7 @@ if LA_BENCH_SELFTEST=broken python3 "$JUDGE" >/dev/null 2>&1; then
 fi
 
 # THE RIG RIDES THE SHARED DEVICE BATCH: one launch holds every rig that only needs a device.
-out="$(la_rig bench_grey_atmosphere '^BENCH_RAW_GREY_ATMOSPHERE=' "res://$PROBE")"
+out="$(la_rig bench_grey_atmosphere '^BENCH_RAW_GREY_ATMOSPHERE=' "res://$PROBE")" || { rig_result=$?; printf '%s\n' "$out" >&2; exit "$rig_result"; }
 raw="$(printf '%s\n' "$out" | grep -m1 '^BENCH_RAW_GREY_ATMOSPHERE=')"
 if [ -z "$raw" ]; then
   echo "ERROR: the rig published no BENCH_RAW_GREY_ATMOSPHERE line." >&2
@@ -143,7 +143,7 @@ rc=$?
 FRAMES="${LA_BENCH_GA_FRAMES:-8}"
 . "$REPO_ROOT/scripts/lib_rung.sh"
 world="$(la_rung_report 7 "$FRAMES" "rad_emitted,rad_absorbed,rad_sb_rel_max")"
-la_rung_require "$world" rad_emitted rad_absorbed || exit 2
+la_rung_require "$world" rad_emitted rad_absorbed || exit $?
 printf 'BENCH_GREY_ATMOSPHERE_WORLD={"rad_emitted":%s,"rad_absorbed":%s}\n' \
   "$(la_rung_value "$world" rad_emitted)" "$(la_rung_value "$world" rad_absorbed)"
 echo "check_bench_grey_atmosphere: OK"

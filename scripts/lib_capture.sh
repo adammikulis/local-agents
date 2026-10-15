@@ -188,13 +188,14 @@ la_headless() {
 # ONE RIG'S OUTPUT. From the shared device batch when there is one, else its own launch, which is what a
 # hand-run gate needs. $1 the batch name, $2 the completion marker, $3 the probe's res:// path.
 la_rig() {
-	local cap out
+	local cap out result
 	if cap="$(la_cap_dir)"; then
 		la_headless "$1"
 		return $?
 	fi
 	out="$(LA_DONE_RE="$2" "$LA_CAP_SCRIPTS/run_sim_offscreen.sh" --path "$LA_CAP_SCRIPTS/.." \
 		-s "$3" 2>&1)"
+	result=$?
 	printf '%s\n' "$out"
-	return 0
+	case "$result" in 0|1|2) return "$result" ;; *) return 2 ;; esac
 }

@@ -18,19 +18,6 @@ func _notification(what: int) -> void:
 		quit(0)
 
 
-static func request(ctx: Node, code: int = 0) -> void:
-	if ctx == null:
-		return
-	var tree: SceneTree = ctx.get_tree()
-	if tree == null:
-		return
-	var inst: Node = tree.root.get_node_or_null("AppExit")
-	if inst != null and inst.has_method("quit"):
-		inst.quit(code)
-	else:
-		tree.quit(code)
-
-
 ## Perform the clean shutdown, then hard-exit. Idempotent (guards against re-entry).
 func quit(code: int = 0) -> void:
 	if _quitting:

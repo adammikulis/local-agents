@@ -1,0 +1,20 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/game/render/actors/RockVisual.gd" id="1_visual"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_stone"]
+albedo_color = Color(0.42, 0.39, 0.35, 1)
+roughness = 1.0
+
+[sub_resource type="SphereMesh" id="SphereMesh_stone"]
+radius = 0.5
+height = 0.78
+radial_segments = 9
+rings = 7
+
+[node name="RockVisual" type="Node3D"]
+script = ExtResource("1_visual")
+
+[node name="Stone" type="MeshInstance3D" parent="."]
+material_override = SubResource("StandardMaterial3D_stone")
+mesh = SubResource("SphereMesh_stone")

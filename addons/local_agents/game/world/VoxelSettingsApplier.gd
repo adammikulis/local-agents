@@ -4,12 +4,8 @@ extends Node
 
 var _settings: LAGameSettings = null
 
-# Live-binding refs (set in bind(), after the terrain/particle systems exist).
-var _world: Node = null
-var _terrain = null
-var _water: Node = null                                  # kept so a live settings re-apply can re-push effects density
-
-var _bound: bool = false
+# The view the effects level reaches, re-pushed on a live settings change.
+var _ejecta: LAEjectaView = null
 
 
 ## Resolve the active settings from the GameMode autoload, or persisted defaults when it is absent.
@@ -56,7 +52,7 @@ func settings() -> LAGameSettings:
 	return _settings
 
 
-## Particle-density scale (0..1) from the effects level — Low runs far fewer atmosphere particles.
+## Particle-density scale (0..1) from the effects level — Low draws far fewer embers.
 func particle_scale() -> float:
 	match settings().effects_level:
 		LAGameSettings.EffectsLevel.LOW:
@@ -93,29 +89,21 @@ func llm_cadence() -> float:
 	return clampf(settings().llm_cadence, 1.0, 120.0)
 
 
-## Publish the graphics + simulation knobs that are consumed by systems this module does not own.
+## Publish the simulation knobs that are consumed by systems this module does not own.
 func publish_globals() -> void:
-	Engine.set_meta("la_draw_distance", draw_distance())
 	Engine.set_meta("la_ai_tick_frames", ai_tick_frames())
 	Engine.set_meta("la_llm_cadence", llm_cadence())
-	Engine.set_meta("la_effects_scale", particle_scale())   # quality-scaled effects budget (ejecta pool, …)
 
 
-## Wire the live systems once they exist (called near the end of VoxelWorld._ready).
-func bind(world: Node, terrain, water: Node) -> void:
-	_world = world
-	_terrain = terrain
-	_water = water
-	if terrain != null and terrain.has_method("set_view_distance"):
-		terrain.set_view_distance(draw_distance())
-	if water != null and water.has_method("set_density_scale"):
-		water.set_density_scale(particle_scale())
+## Wire the view the effects level reaches, once it exists.
+func bind(ejecta: LAEjectaView) -> void:
+	_ejecta = ejecta
+	_push_effects()
 	var gm: Node = get_node_or_null("/root/GameMode")
 	if gm != null and gm.has_signal("settings_applied"):
 		var cb: Callable = Callable(self, "_on_settings_applied")
 		if not gm.is_connected("settings_applied", cb):
 			gm.settings_applied.connect(cb)
-	_bound = true
 	var ro: Dictionary = render_opts()
 	print("SETTINGS_APPLIED={effects:%d, particle:%.2f, ssao:%s, glow:%s, shadows:%s, ocean_transparent:%s, fog:%s, draw:%.0f, ai_tick:%d, llm_cadence:%.1f}" % [
 		int(settings().effects_level), particle_scale(),
@@ -127,6 +115,10 @@ func _on_settings_applied(new_settings: LAGameSettings) -> void:
 	if new_settings != null:
 		_settings = new_settings
 	publish_globals()
-	# Push the live-adjustable effects density so a mid-game Graphics change reaches the systems.
-	if _water != null and is_instance_valid(_water) and _water.has_method("set_density_scale"):
-		_water.set_density_scale(particle_scale())
+	_push_effects()
+
+
+## The effects level onto the ejecta view: how many of its embers it draws out of its MultiMesh.
+func _push_effects() -> void:
+	if _ejecta != null and is_instance_valid(_ejecta):
+		_ejecta.max_drawn = int(round(float(_ejecta.multimesh.instance_count) * particle_scale()))

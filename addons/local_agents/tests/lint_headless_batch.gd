@@ -23,6 +23,8 @@ const RUNNERS: Array = [
 	["shaders_compile", "res://addons/local_agents/tests/gate_shaders_compile.gd"],
 	["parse_all", "res://scripts/parse_all_scripts.gd"],
 	["hypsometry", "res://scripts/check_hypsometry.gd"],
+	["llm_request_ownership", "res://addons/local_agents/tests/test_llm_request_ownership.gd"],
+	["llm_http_stream", "res://addons/local_agents/tests/check_llm_http_stream.gd"],
 ]
 
 
@@ -35,13 +37,18 @@ func _run(path: String) -> void:
 	if inst == null:
 		printerr("lint_headless_batch: %s did not instantiate." % path)
 		return
-	if inst.has_method("_initialize"):
+	if inst.has_method("run_test"):
+		await inst.call("run_test", self)
+	elif inst.has_method("_initialize"):
 		inst.call("_initialize")
 	if not (inst is RefCounted):
 		inst.free()
 
 
 func _initialize() -> void:
+	call_deferred("_run_all")
+
+func _run_all() -> void:
 	var version: Dictionary = Engine.get_version_info()
 	for row in RUNNERS:
 		var name: String = String(row[0])
@@ -50,6 +57,6 @@ func _initialize() -> void:
 		if path == "":
 			print("ENGINE_VERSION=%d.%d" % [int(version["major"]), int(version["minor"])])
 		else:
-			_run(path)
+			await _run(path)
 		print("LA_BATCH_END=%s" % name)
 	quit(0)

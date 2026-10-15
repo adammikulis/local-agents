@@ -1,4 +1,4 @@
-[gd_scene load_steps=9 format=3 uid="uid://dut8m0d0ukohs"]
+[gd_scene load_steps=10 format=3 uid="uid://dut8m0d0ukohs"]
 
 [ext_resource type="Script" path="res://addons/local_agents/examples/ChatExample.gd" id="1_jmq1r"]
 [ext_resource type="PackedScene" uid="uid://bkhc2d37hv1ou" path="res://addons/local_agents/controllers/ChatController.tscn" id="3_4x4kj"]
@@ -9,15 +9,29 @@
 [ext_resource type="Script" path="res://addons/local_agents/agents/StatusLabel.gd" id="7_status"]
 [ext_resource type="Resource" path="res://addons/local_agents/configuration/parameters/InferenceParams.tres" id="8_inference"]
 
+[ext_resource type="Theme" path="res://addons/local_agents/agents/ui/ChatTheme.tres" id="llm_theme"]
+
 [node name="ChatExample" type="Node"]
 script = ExtResource("1_jmq1r")
 
+[node name="Background" type="ColorRect" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+color = Color(0.027, 0.043, 0.078, 1)
+
 [node name="HBoxContainer" type="HBoxContainer" parent="."]
+theme = ExtResource("llm_theme")
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+offset_left = 24.0
+offset_top = 24.0
+offset_right = -24.0
+offset_bottom = -24.0
 size_flags_horizontal = 3
 size_flags_vertical = 3
 
@@ -27,10 +41,16 @@ layout_mode = 2
 [node name="VBoxContainer2" type="VBoxContainer" parent="HBoxContainer/PanelContainer"]
 layout_mode = 2
 
+[node name="Brand" type="Label" parent="HBoxContainer/PanelContainer/VBoxContainer2"]
+layout_mode = 2
+text = "LOCAL AGENTS"
+theme_override_font_sizes/font_size = 13
+theme_override_colors/font_color = Color(0.6, 0.73, 1, 1)
+
 [node name="HomeButton" type="Button" parent="HBoxContainer/PanelContainer/VBoxContainer2"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Home"
+text = "Model setup"
 
 [node name="ChatButton" type="Button" parent="HBoxContainer/PanelContainer/VBoxContainer2"]
 unique_name_in_owner = true
@@ -56,6 +76,7 @@ layout_mode = 2
 text = "Local Agents status appears here at run time."
 autowrap_mode = 3
 script = ExtResource("7_status")
+show_next_step = false
 
 [node name="DownloadHintLabel" type="RichTextLabel" parent="HBoxContainer/PanelContainer/VBoxContainer2"]
 unique_name_in_owner = true
@@ -87,9 +108,10 @@ unique_name_in_owner = true
 visible = false
 layout_mode = 2
 
-[node name="InferenceConfig" parent="." instance=ExtResource("3_7mwxh")]
+[node name="InferenceConfig" parent="HBoxContainer" instance=ExtResource("3_7mwxh")]
 unique_name_in_owner = true
 visible = false
+layout_mode = 2
 
 [node name="Agent" type="Node" parent="."]
 unique_name_in_owner = true
@@ -101,3 +123,5 @@ inference = ExtResource("8_inference")
 [connection signal="pressed" from="HBoxContainer/PanelContainer/VBoxContainer2/ChatButton" to="." method="_on_chat_button_pressed"]
 [connection signal="pressed" from="HBoxContainer/PanelContainer/VBoxContainer2/DownloadModelsButton" to="." method="_on_download_models_button_pressed"]
 [connection signal="pressed" from="HBoxContainer/PanelContainer/VBoxContainer2/ExitButton" to="." method="_on_exit_button_pressed"]
+
+[connection signal="configuration_requested" from="HBoxContainer/ChatVBoxContainer/ChatController" to="." method="_show_configuration"]

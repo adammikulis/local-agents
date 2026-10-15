@@ -9,9 +9,11 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import tomllib
 
@@ -23,6 +25,7 @@ SCRIPTS = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(SCRIPTS)
 GATES_TOML = os.path.join(SCRIPTS, "gates.toml")
 KINDS = ("text", "headless", "gpu")
+NEEDS = ("import", "capture", "body", "build")
 
 
 def load_gates(path=GATES_TOML):
@@ -42,21 +45,29 @@ def load_gates(path=GATES_TOML):
             raise ValueError("%s: kind must be one of %s" % (name, ", ".join(KINDS)))
         if not g.get("marker"):
             raise ValueError("%s: no marker, so a silent exit 0 would read as a pass" % name)
+        needs = g.get("needs", [] if g["kind"] == "text" else ["import", "capture"])
+        if not isinstance(needs, list) or any(n not in NEEDS for n in needs):
+            raise ValueError("%s: needs must be a list drawn from %s, not %r" % (name, ", ".join(NEEDS), needs))
+        for flag in ("launches", "capture_reader", "last"):
+            if flag in g and not isinstance(g[flag], bool):
+                raise ValueError("%s: %s must be a boolean" % (name, flag))
         gates.append({
             "name": name,
             "label": g.get("label", name + ".sh"),
             "script": g["script"],
             "kind": g["kind"],
             "marker": g["marker"],
-            "mutation": g.get("mutation"),
+            "mutations": [m for m in ([g["mutation"]] if isinstance(g.get("mutation"), str)
+                                      else g.get("mutation", [])) if m],
             "args": list(g.get("args", [])),
             "env": dict(g.get("env", {})),
-            "needs": list(g.get("needs", [] if g["kind"] == "text" else ["import", "capture"])),
+            "needs": needs,
             # A gate that starts no engine takes no device and waits on no machine lock, so it runs
             # beside the others whatever kind it is. Declared, and the launch ledger holds it to it.
             "launches": bool(g.get("launches", g["kind"] != "text")),
             # Reads the whole run's ledgers, so it runs after every other gate has finished.
             "last": bool(g.get("last", False)),
+            "capture_reader": g.get("capture_reader", False),
             "timeout_s": int(g.get("timeout_s", defaults.get("timeout_s", 900))),
         })
     if not gates:
@@ -66,6 +77,17 @@ def load_gates(path=GATES_TOML):
         raise ValueError("a gate declaring last = true must be among the final rows: %s"
                          % ", ".join(gates[i]["name"] for i in tail))
     return gates
+
+
+def effective_launcher(g, capture):
+    return g["launches"] or (g["capture_reader"] and not capture)
+
+
+def launch_count(ledger):
+    if not ledger or not os.path.isfile(ledger):
+        return 0
+    with open(ledger) as source:
+        return sum(bool(line.strip()) for line in source)
 
 
 def run_gate(g, root, ledger, stream):
@@ -78,28 +100,60 @@ def run_gate(g, root, ledger, stream):
     if ledger:
         env["LA_LAUNCH_LOG"] = ledger
         open(ledger, "a").close()
+    launches_before = launch_count(ledger)
     started = time.monotonic()
     try:
         proc = subprocess.Popen([path] + g["args"], cwd=root, env=env, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, text=True, errors="replace")
+                                stderr=subprocess.STDOUT, text=True, errors="replace",
+                                start_new_session=(os.name == "posix"))
     except OSError as exc:
         return 2, "%s could not be started: %s\n" % (g["script"], exc), 0.0
-    chunks = []
-    try:
-        if stream:
+    chunks, read_errors = [], []
+    def read_output():
+        try:
             for line in proc.stdout:
                 chunks.append(line)
-                sys.stdout.write(line)
-                sys.stdout.flush()
-            rc = proc.wait(timeout=g["timeout_s"])
-        else:
-            chunks.append(proc.communicate(timeout=g["timeout_s"])[0])
-            rc = proc.returncode
+                if stream:
+                    sys.stdout.write(line)
+                    sys.stdout.flush()
+        except (OSError, ValueError) as error:
+            read_errors.append(str(error))
+    reader = threading.Thread(target=read_output, daemon=True, name="gate-output-%s" % proc.pid)
+    reader.start()
+    deadline = started + g["timeout_s"]
+    try:
+        rc = proc.wait(timeout=max(0, deadline - time.monotonic()))
+        reader.join(timeout=max(0, deadline - time.monotonic()))
+        if reader.is_alive():
+            raise subprocess.TimeoutExpired(proc.args, g["timeout_s"])
     except subprocess.TimeoutExpired:
-        proc.kill()
+        if os.name == "posix":
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            reader.join(timeout=1)
+            if proc.poll() is None or reader.is_alive():
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+        else:
+            proc.kill()
         proc.wait()
+        reader.join(timeout=1)
         chunks.append("%s printed no verdict inside %ds.\n" % (g["label"], g["timeout_s"]))
-        rc = 124
+        rc = 2
+    if reader.is_alive():
+        chunks.append("%s output reader did not stop during owned-process cleanup.\n" % g["label"])
+        rc = 2
+    if read_errors:
+        chunks.append("%s output could not be read: %s\n" % (g["label"], "; ".join(read_errors)))
+        rc = 2
+    capture = os.path.isdir(env.get("LA_LINT_CAPTURE", ""))
+    if launch_count(ledger) > launches_before and not effective_launcher(g, capture):
+        chunks.append("%s launched an engine despite its no-launch declaration.\n" % g["label"])
+        rc = 1
     return rc, "".join(chunks), time.monotonic() - started
 
 
@@ -159,10 +213,11 @@ def drain(gates, root, jobs, ledger_dir, shared_ledger, no_gpu, on_result, poole
     ledger_of = {i: os.path.join(ledger_dir, "%d.launch" % i) for i in range(len(gates))}
     # LA_NO_GPU=1 SKIPS A gpu ROW, and a pool that submitted it would run the very gate the arm excludes.
     def in_pool(g):
-        return pooled and not g["launches"] and not g["last"] and not (no_gpu and g["kind"] == "gpu")
+        return pooled and not effective_launcher(g, pooled) and not g["last"] and not (no_gpu and g["kind"] == "gpu")
 
     futures = {i: pool.submit(run_gate, g, root, ledger_of[i], False)
                for i, g in enumerate(gates) if in_pool(g)}
+    concurrent.futures.wait(futures.values())
     try:
         for i, g in enumerate(gates):
             if no_gpu and g["kind"] == "gpu":
@@ -217,7 +272,15 @@ def cmd_lint(args):
     # WHICH TREE THIS LINT WEIGHED. LOG_DIR is machine-wide, so a reader of "the newest lint log" would
     # otherwise bank another worktree's numbers into this one's ceilings.
     print("LINT_TREE=%s" % ROOT)
+    print("LINT_SCOPE=" + json.dumps({"full": not bool(args.only), "gpu": not no_gpu,
+                                    "arm": "body" if args.body else "slice"}, sort_keys=True))
+    for name in ("LA_LINT_TIMING_LOG", "LA_LOCK_WAIT_LOG"):
+        if os.environ.get(name):
+            open(os.environ[name], "w").close()
+    capture_started = time.monotonic()
     cap, cap_err = make_capture(arm="body" if args.body else "slice")
+    capture_seconds = time.monotonic() - capture_started
+    note_seconds("lint_capture.sh", capture_seconds)
     if cap_err:
         sys.stdout.write(cap_err)
     if cap:
@@ -235,7 +298,7 @@ def cmd_lint(args):
                         "rc": rc, "seconds": round(secs, 3), "launches": launches})
         if rc is None:
             tally["skipped"] += 1
-        elif not g["launches"] and launches:
+        elif not effective_launcher(g, bool(cap)) and launches:
             print("LINT_FAIL: %s (1) — declared launches = false in gates.toml and started the engine "
                   "%d time(s). A gate that starts one runs alone: drop the declaration."
                   % (g["label"], launches))
@@ -268,7 +331,10 @@ def cmd_lint(args):
     if args.json:
         with open(args.json, "w") as fh:
             json.dump({"gates": records, "summary": tally}, fh, indent=2, sort_keys=True)
-    return summarise(tally)
+    result = summarise(tally)
+    if result == 0 and not args.only and not no_gpu and not args.body and cap:
+        print("LINT_BANKABLE=1")
+    return result
 
 
 def git(root, *argv, check=True):
@@ -276,9 +342,16 @@ def git(root, *argv, check=True):
                           stderr=subprocess.PIPE, text=True, errors="replace", check=check)
 
 
+BIN_REL = os.path.join("addons", "local_agents", "gdextensions", "localagents", "bin")
+
+
 def stage_scratch(scratch):
     """A detached copy of HEAD carrying this tree's uncommitted work, so it tests what is here."""
     git(ROOT, "worktree", "add", "--detach", scratch, "HEAD")
+    # THIS TREE'S EXTENSION BUILD: a lane that changed the native sources carries its own, and the primary
+    # checkout's, which ensure_worktree_ready.sh would copy in its place, is refused against these sources.
+    if os.path.isdir(os.path.join(ROOT, BIN_REL)):
+        shutil.copytree(os.path.join(ROOT, BIN_REL), os.path.join(scratch, BIN_REL), symlinks=True)
     diff = git(ROOT, "diff", "HEAD", "--binary").stdout
     if diff.strip():
         subprocess.run(["git", "-C", scratch, "apply", "--whitespace=nowarn", "-"],
@@ -301,18 +374,36 @@ def arm_ledgers(scratch):
         fh.write("0.100\tcheck_mutate_arm_a.sh\n0.100\tcheck_mutate_arm_b.sh\n")
 
 
+EXT_REL = "addons/local_agents/gdextensions/localagents"
+
+
+def build_scratch(scratch):
+    """A native mutation is one only once compiled: every launch refuses a bin built from other sources."""
+    deps = os.path.join(scratch, EXT_REL, "thirdparty")
+    if not os.path.lexists(deps):
+        os.symlink(os.path.realpath(os.path.join(ROOT, EXT_REL, "thirdparty")), deps)
+    return subprocess.run([os.path.join(scratch, EXT_REL, "scripts/build_extension.sh"), "--platform", "macos"],
+                          cwd=scratch, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+
+
 def arm_scratch(g, scratch, first=False):
-    """Give the scratch tree what the gate declares it needs. A mutation may break either, on purpose."""
+    """Give the scratch tree what the gate declares it needs. A mutation may break either, on purpose.
+    False when the tree's own extension does not build, which leaves nothing to run the gate on."""
+    if "build" in g["needs"] and not build_scratch(scratch):
+        return False
     if "import" in g["needs"]:
-        subprocess.run([os.path.join(scratch, "scripts/ensure_worktree_ready.sh")], cwd=scratch)
+        if subprocess.run([os.path.join(scratch, "scripts/ensure_worktree_ready.sh")], cwd=scratch).returncode != 0:
+            return False
     os.environ.pop("LA_LINT_CAPTURE", None)
     if "capture" in g["needs"]:
         cap, _ = make_capture(scratch, arm="body" if "body" in g["needs"] else "slice")
-        if cap:
-            os.environ["LA_LINT_CAPTURE"] = cap
+        if not cap:
+            return False
+        os.environ["LA_LINT_CAPTURE"] = cap
     # ONCE, BEFORE EITHER ARM: a mutation that writes into the ledger must survive the re-arming.
     if g["last"] and first:
         arm_ledgers(scratch)
+    return True
 
 
 def cmd_mutate(args):
@@ -321,34 +412,47 @@ def cmd_mutate(args):
     if g is None:
         print("gate_runner: no gate named '%s'." % args.mutate, file=sys.stderr)
         return 2
-    if not g["mutation"]:
+    if not g["mutations"]:
         print("gate_runner: %s declares no mutation in gates.toml. A gate nobody can make fail on "
               "purpose is not a gate — write one." % g["name"], file=sys.stderr)
         return 2
+    return max(mutate_one(g, m) for m in g["mutations"])
+
+
+def mutate_one(g, mutation):
+    """One mutation, in its own scratch tree."""
     scratch = os.path.join(tempfile.mkdtemp(prefix="la_mutate_"), "tree")
     ledger = os.path.join(tempfile.mkdtemp(prefix="la_mutate_ledger."), "launches.log")
     open(ledger, "w").close()
     os.environ["LA_LAUNCH_LOG"] = ledger
     try:
         stage_scratch(scratch)
-        arm_scratch(g, scratch, first=True)
+        if not arm_scratch(g, scratch, first=True):
+            print("MUTATION_UNRUNNABLE: %s — the unmutated scratch tree's extension did not build." % g["name"])
+            return 2
         rc0, out0, _ = run_gate(g, scratch, ledger, False)
         sys.stdout.write(out0)
         if rc0 != 0:
             print("MUTATION_UNRUNNABLE: %s is already %d on the unmutated tree, so this proves "
                   "nothing." % (g["name"], rc0))
             return 2
-        if subprocess.run(["bash", "-c", g["mutation"]], cwd=scratch).returncode != 0:
+        if subprocess.run(["bash", "-c", mutation], cwd=scratch).returncode != 0:
             print("MUTATION_UNRUNNABLE: %s — the mutation command itself failed." % g["name"])
             return 2
-        arm_scratch(g, scratch)
+        if not arm_scratch(g, scratch):
+            print("MUTATION_UNRUNNABLE: %s — `%s` left an extension that does not build." % (g["name"], mutation))
+            return 2
         rc1, out1, _ = run_gate(g, scratch, ledger, False)
         sys.stdout.write(out1)
+        # A gate that could not run under the mutation reported no violation, so it caught nothing.
+        if rc1 not in (0, 1):
+            print("MUTATION_UNRUNNABLE: %s could not run under `%s`, which proves nothing." % (g["name"], mutation))
+            return 2
         if rc1 == 0:
             print("MUTATION_SURVIVED: %s stayed green under `%s`. It cannot fail, so it is not a "
-                  "gate." % (g["name"], g["mutation"]))
+                  "gate." % (g["name"], mutation))
             return 1
-        print("MUTATION_KILLED: %s went %d under `%s`." % (g["name"], rc1, g["mutation"]))
+        print("MUTATION_KILLED: %s went %d under `%s`." % (g["name"], rc1, mutation))
         return 0
     finally:
         git(ROOT, "worktree", "remove", "--force", scratch, check=False)

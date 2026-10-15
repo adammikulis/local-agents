@@ -1,13 +1,18 @@
 class_name LAGameHud
 extends CanvasLayer
 
-
-
 # Capabilities worth a headline toast. Spawn unlocks are surfaced by the palette lighting up instead.
 const NOTABLE_CAP_LABELS: Dictionary = {
 	"view_geosync": "Geosync view",
 	"view_solar": "Solar-system view",
 }
+
+# HudTheme.tres type variations.
+const STYLE_TITLE: StringName = &"HeadingLabel"
+const STYLE_TITLE_DONE: StringName = &"GoldLabel"
+const STYLE_TOAST_OBJECTIVE: StringName = &"ToastObjective"
+const STYLE_TOAST_UNLOCK: StringName = &"ToastUnlock"
+const STYLE_TOAST_TEXT: StringName = &"ToastText"
 
 @onready var _objective_panel: PanelContainer = $GameHudRoot/Objective
 @onready var _sandbox_tag: PanelContainer = $GameHudRoot/SandboxTag
@@ -53,20 +58,9 @@ func set_test_masses(probes: Node, drop: Callable) -> void:
 	_summary_col.add_child(_test_mass_readout)
 
 
-## Show/hide the whole gamified overlay.
-func set_hud_visible(on: bool) -> void:
-	visible = on
-
-
-## Flip overlay visibility (bind to a hotkey).
-func toggle() -> void:
-	visible = not visible
-
-
-## Alias of toggle() — matches the toggle_visible() shape the spawn-palette HUD exposes so the H-key
-## handler can flip both HUDs through one call name.
+## Show/hide the whole gamified overlay; the H hotkey flips both HUDs through this name.
 func toggle_visible() -> void:
-	toggle()
+	visible = not visible
 
 
 # ---------------------------------------------------------------------------
@@ -87,16 +81,16 @@ func _connect_progression() -> void:
 func _on_capability_unlocked(id: String) -> void:
 	if not NOTABLE_CAP_LABELS.has(id):
 		return
-	_spawn_toast("Unlocked: %s!" % String(NOTABLE_CAP_LABELS[id]), LAUiStyle.COL_GOLD)
+	_spawn_toast("Unlocked: %s!" % String(NOTABLE_CAP_LABELS[id]), STYLE_TOAST_UNLOCK)
 	_chime()
 
 
 func _on_objective_completed(_id: String) -> void:
-	var title: String = String(_last_objective_title)
+	var title: String = _last_objective_title
 	if title.is_empty():
-		_spawn_toast("Objective complete!", LAUiStyle.COL_ACCENT)
+		_spawn_toast("Objective complete!", STYLE_TOAST_OBJECTIVE)
 	else:
-		_spawn_toast("Objective complete: %s" % title, LAUiStyle.COL_ACCENT)
+		_spawn_toast("Objective complete: %s" % title, STYLE_TOAST_OBJECTIVE)
 	_chime()
 	_refresh()
 
@@ -132,7 +126,7 @@ func _refresh_objective() -> void:
 	var total: int = int(p.get("stages_total", 0))
 	if bool(p.get("done", false)):
 		_objective_title.text = "All objectives complete: survey the heavens"
-		_objective_title.add_theme_color_override("font_color", LAUiStyle.COL_GOLD)
+		_objective_title.theme_type_variation = STYLE_TITLE_DONE
 		_stage_label.text = "Stage %d / %d" % [total, total]
 		_progress_bar.visible = false
 		_progress_value.visible = false
@@ -141,7 +135,7 @@ func _refresh_objective() -> void:
 
 	_last_objective_title = String(p.get("title", ""))
 	_objective_title.text = _last_objective_title
-	_objective_title.add_theme_color_override("font_color", LAUiStyle.COL_TEXT_HEADING)
+	_objective_title.theme_type_variation = STYLE_TITLE
 	_stage_label.text = "Stage %d / %d" % [int(p.get("stage", 1)), total]
 	_progress_bar.visible = true
 	_progress_value.visible = true
@@ -168,11 +162,11 @@ func _refresh_summary() -> void:
 
 
 ## A transient notification: fades + slides in, holds, fades out, then frees itself.
-func _spawn_toast(text: String, accent: Color) -> void:
+func _spawn_toast(text: String, style: StringName) -> void:
 	if _toast_column == null:
 		return
 	var panel: PanelContainer = PanelContainer.new()
-	panel.add_theme_stylebox_override("panel", _toast_stylebox(accent))
+	panel.theme_type_variation = style
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.modulate = Color(1, 1, 1, 0)
 
@@ -180,8 +174,7 @@ func _spawn_toast(text: String, accent: Color) -> void:
 	panel.add_child(margin)
 	var label: Label = Label.new()
 	label.text = text
-	label.add_theme_color_override("font_color", LAUiStyle.COL_TEXT_HEADING)
-	label.add_theme_font_size_override("font_size", 17)
+	label.theme_type_variation = STYLE_TOAST_TEXT
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	margin.add_child(label)
 
@@ -206,10 +199,6 @@ func _fmt_num(v: float) -> String:
 	if a >= 1000.0:
 		return "%.1fk" % (v / 1000.0)
 	return "%d" % int(round(v))
-
-
-func _toast_stylebox(accent: Color) -> StyleBoxFlat:
-	return LAUiStyle.flat_box(LAUiStyle.COL_BG_2, accent, 2, 0.45, 10)
 
 
 func _make_margin(h: int, v: int) -> MarginContainer:

@@ -16,13 +16,18 @@ func setup(field) -> void:
 
 ## ONE drain, folded on the field step. take_pass_results CONSUMES, so a drain nobody folds is a step's
 ## crossings thrown away — and a crossing is a flux, which only integrates if every step is counted.
-func sample() -> void:
+## Returns the step the folded drain's reduction ran at, -1 when no drain waited or it carried no step.
+func sample() -> int:
 	if _f == null or _f._cell_count <= 0 or _f._gpu == null:
-		return
+		return -1
 	if not _f._gpu.has_method("take_pass_results"):
-		return
+		return -1
+	var drained: Dictionary = _f._gpu.take_pass_results()
+	if drained.is_empty():
+		return -1
 	_n.set_seal(_f._seal)
-	_n.fold(_f._gpu.take_pass_results(), _minted(), _injected_j())
+	_n.fold(drained, _minted(), _injected_j())
+	return int(drained.get("reduce_step", -1))
 
 
 ## Every conserved substance, published together from the last fold. A stock may be read on any cadence;
@@ -39,7 +44,7 @@ func total(key: String) -> float:
 	return _n.total(key)
 
 
-## erupt_source injects mantle lava with no debit in the field, so the device's injection tally books it.
+## The silicate injection created, as the device's own tally reads it.
 func _minted() -> float:
 	if _f._gpu == null or not _f._gpu.has_method("inject_created"):
 		return 0.0

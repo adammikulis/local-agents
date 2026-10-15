@@ -28,10 +28,14 @@ layout(push_constant, std430) uniform Params {
 	uint count;        // entries in it
 	uint cell_count;   // interior plus ghost tail: an index past it names no cell
 	uint same;         // 1 = source and destination are one channel
+	uint chunk_stride; // chunk.glsli: over this dispatch's entries
+	uint chunk_phase;
 } params;
 
+#include "chunk.glsli"
+
 void main() {
-	uint t = gl_GlobalInvocationID.x;
+	uint t = la_cell();
 	if (t >= params.count) {
 		return;
 	}

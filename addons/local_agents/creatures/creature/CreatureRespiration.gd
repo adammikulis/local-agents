@@ -121,6 +121,17 @@ static func metabolic_heat_k_per_mol_kg() -> float:
 	return carbon_j_per_mol() / TISSUE_SPECIFIC_HEAT_J_KGK
 
 
+## The body relaxes toward the medium it touches, only where the world conducts heat and that cell holds
+## matter; in a vacuum or a world without conduction nothing reaches it. `dt` in simulated seconds.
+static func exchange_heat(c, pos: Vector3, dt: float, mass: float, area: float) -> void:
+	var ambient: float = c._material.temp_at(pos) if c._material != null else NAN
+	if not is_finite(ambient) or not LAProcessSet.is_active("transport", "heat_conduct"):
+		return
+	var tau: float = maxf(THERMAL_TAU_K * mass / area, 0.001)
+	var k: float = clampf(dt / tau, 0.0, 1.0)     # clamped: a large step relaxes fully, never overshoots
+	c.body_temp = float(c.body_temp) + (ambient - float(c.body_temp)) * k
+
+
 ## Advance body temperature, then run the oxidation.
 static func tick(c, pos: Vector3, delta: float) -> bool:
 	if delta <= 0.0:
@@ -131,12 +142,7 @@ static func tick(c, pos: Vector3, delta: float) -> bool:
 	if mass <= 0.0 or area <= 0.0:
 		return false
 
-	var ambient: float = float(c.body_temp)
-	if c._material != null:
-		ambient = c._material.temp_at(pos)
-	var tau: float = maxf(THERMAL_TAU_K * mass / area, 0.001)
-	var k: float = clampf(delta * evo / tau, 0.0, 1.0)     # clamped: a large step relaxes fully, never overshoots
-	c.body_temp = float(c.body_temp) + (ambient - float(c.body_temp)) * k
+	exchange_heat(c, pos, delta * evo, mass, area)
 
 	var band: float = temp_band(float(c.body_temp), c)
 	var cold: float = clampf((band_optimum_c(c) - float(c.body_temp)) / maxf(band_width_c(c), 0.001), 0.0, 1.0)

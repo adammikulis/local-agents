@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# WHAT THE LANDING LOOP COSTS. Every gate's own wall time in this lint, added up, less the seconds it
+# Capture and gate wall durations, added up, less the seconds this runner scope
 # spent queued behind another lane on the machine locks — a budget that counted the queue would read how
 # busy the machine was, not what this tree costs to verify. Against docs/LINT_SECONDS_CEILING, a ratchet:
 # write the number it fell to, never raise it to turn a light green.
@@ -15,10 +15,7 @@ case "$CEIL" in
 esac
 # 0 IS NOT A CEILING OF ZERO. It is a ratchet no full lint has banked yet, and a gate weighing a lint
 # against nothing has examined nothing: scripts/write_ceilings.sh sets it from the newest lint's own line.
-if [ "$CEIL" = "0" ]; then
-	echo "LINT_NOT_EXAMINED: check_lint_budget.sh — docs/LINT_SECONDS_CEILING is unbanked"
-	exit 3
-fi
+
 
 TIMING="${LA_LINT_TIMING_LOG:-}"
 if [ -z "$TIMING" ] || [ ! -f "$TIMING" ]; then
@@ -47,6 +44,10 @@ QUEUED="$(awk -F'\t' '{s += $1} END {printf "%.3f", s + 0}' "${LA_LOCK_WAIT_LOG:
 OWN="$(awk -v a="$SPENT" -v b="$QUEUED" 'BEGIN{v = a - b; printf "%.3f", (v > 0 ? v : 0)}')"
 
 echo "LINT_BUDGET={\"gates\":$GATES,\"wall_s\":$SPENT,\"queued_s\":$QUEUED,\"own_s\":$OWN,\"ceiling_s\":$CEIL}"
+if [ "$CEIL" = "0" ]; then
+	echo "LINT_NOT_EXAMINED: check_lint_budget.sh — docs/LINT_SECONDS_CEILING is unbanked"
+	exit 3
+fi
 if awk -v o="$OWN" -v c="$CEIL" 'BEGIN{exit !(o <= c)}'; then
 	echo "check_lint_budget: OK ($OWN s of own work, ceiling $CEIL)"
 	exit 0

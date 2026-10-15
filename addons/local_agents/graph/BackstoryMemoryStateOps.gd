@@ -360,7 +360,7 @@ static func search_memory_embeddings(svc, npc_id: String, query: String, top_k: 
         return svc._error("graph_unavailable", "NetworkGraph extension unavailable")
 
     var runtime: Object = svc._agent_runtime()
-    if runtime == null or not runtime.has_method("embed_text"):
+    if runtime == null or not runtime.has_method("embed_text_with_model"):
         return svc._error("runtime_unavailable", "AgentRuntime embedding unavailable")
 
     var embed_options: Dictionary = svc._embedding_options.duplicate(true)
@@ -369,11 +369,11 @@ static func search_memory_embeddings(svc, npc_id: String, query: String, top_k: 
     var backend_ready = svc._ensure_embedding_backend_ready(embed_options, runtime)
     if not bool(backend_ready.get("ok", false)):
         return svc._error("embedding_backend_unavailable", "embedding backend unavailable", backend_ready)
-    var query_vector: PackedFloat32Array = runtime.call("embed_text", query, embed_options)
-    if query_vector.is_empty():
-        return svc._error("embedding_failed", "query embedding failed")
+    var embedding: Dictionary = runtime.call("embed_text_with_model", query, embed_options)
+    if not bool(embedding.get("ok", false)):
+        return svc._error("embedding_failed", "query embedding failed", embedding)
 
-    var matches: Array = svc._graph.search_embeddings(query_vector, top_k, expand, strategy)
+    var matches: Array = svc._graph.search_embeddings(embedding["vector"], top_k, expand, strategy, embedding["embedding_model"])
     var memories: Array = []
     for item_variant in matches:
         if not (item_variant is Dictionary):

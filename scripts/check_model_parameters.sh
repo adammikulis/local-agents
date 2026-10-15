@@ -14,9 +14,9 @@ EXT_DIR="$REPO_ROOT/addons/local_agents/gdextensions/localagents/src"
 REGISTRY="$REPO_ROOT/docs/MODEL_PARAMETERS.md"
 
 # The authorities describe matter, and BodySeeds the BODIES this system was given: everything else is
-# measured against them, so check_cited_authority.sh holds them instead of this gate. LASubstances is
-# native and outside the scan roots already; it is named so a registry row against it is not a ghost.
-AUTHORITY_FILES="PhysicalConstants.gd LASubstances.cpp LASubstances.hpp BodySeeds.gd LABodySystem.cpp LAPlanetTables.cpp LAWaterCurves.cpp"
+# measured against them, so check_cited_authority.sh holds them instead of this gate. The extension's
+# sources are scanned, so each native authority is named here to be passed over.
+AUTHORITY_FILES="PhysicalConstants.gd LASubstances.cpp LASubstances.hpp LASubstanceOptics.cpp BodySeeds.gd LABodySystem.cpp LAPlanetTables.cpp LAWaterCurves.cpp LAMeltEos.cpp LAPhaseEos.cpp"
 
 EMIT=0
 [[ "${1:-}" == "--emit" ]] && EMIT=1
@@ -166,7 +166,6 @@ fi
 ghosts=0
 while IFS=$'\t' read -r gfile gname gval; do
   [[ -z "$gname" || "$gfile" == "*" ]] && continue
-  case " $AUTHORITY_FILES " in *" ${gfile##*/} "*) continue ;; esac
   if [[ ! -f "$REPO_ROOT/$gfile" ]]; then
     echo "FAIL  ${REGISTRY#"$REPO_ROOT"/}: \`$gname\` is declared against $gfile, which does not exist."
     ghosts=$((ghosts + 1))
@@ -178,6 +177,8 @@ while IFS=$'\t' read -r gfile gname gval; do
     ghosts=$((ghosts + 1))
     continue
   fi
+  # An authority file's row records a derivation, not a literal: it must exist, and its value is its own.
+  case " $AUTHORITY_FILES " in *" ${gfile##*/} "*) continue ;; esac
   lit="$(printf '%s\n' "$code" | sed -e 's|//.*$||' -e 's|#.*$||' -e 's/^[^=]*=//' -e 's/;.*$//' \
     -e 's/[[:space:]]//g' -e 's/[fFuU]$//')"
   if ! awk -v a="$gval" -v b="$lit" '
@@ -200,6 +201,7 @@ fi
 # THE SLACK HALF OF THE RATCHET. It was a NOTE, which is not a ratchet: the registry sat below its own
 # ceiling and nothing ever asked anybody to write the smaller number.
 . "$REPO_ROOT/scripts/lib_ceiling.sh" 2>/dev/null || true
+echo "MODEL_PARAMETERS={\"declared\":$rows,\"ceiling\":$cap}"
 ceiling_slack "MODEL_PARAMETERS.md's MAX_DECLARED" "$rows" "$cap" 0 "$REPO_ROOT" || exit 1
 
 if [[ $rc -ne 0 ]]; then

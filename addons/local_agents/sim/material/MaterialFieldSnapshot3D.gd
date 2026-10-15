@@ -4,16 +4,26 @@ extends RefCounted
 ## The seam between the field and LAFieldSnapshot: a handle crosses it, never a cell-sized array.
 
 
-## True once the field has activated its GPU driver.
+## Public snapshots require a fully seeded field.
 static func is_ready(field) -> bool:
+	return device_ready(field) and field._ready_sim
+
+
+static func device_ready(field) -> bool:
 	return field != null and field._use_gpu and field._gpu != null and field._gpu._rd != null
 
 
-## Point `store` at this field's device, cells and box, syncing any step still in flight first.
+## Point `store` at this field's device, cells and box, draining any step still in flight first.
 static func bind(field, store: LAFieldSnapshot) -> bool:
-	if not is_ready(field) or store == null:
+	if not is_ready(field):
 		return false
-	field._gpu._flush_pending()
+	return _bind_device(field, store)
+
+
+static func _bind_device(field, store: LAFieldSnapshot) -> bool:
+	if not device_ready(field) or store == null:
+		return false
+	field._gpu._drain_pending()
 	store.bind(field._gpu._rd, field._gpu._bufs,
 		LAMaterialSphereGPU3D.channels() + LAMaterialSphereGPU3D.SEED_PRODUCTS,
 		field._cell_count, field._grid)
@@ -22,7 +32,13 @@ static func bind(field, store: LAFieldSnapshot) -> bool:
 
 ## Put a held moment back: the device buffers, the CPU mirrors, and every cell awake again.
 static func restore(field, store: LAFieldSnapshot, handle: int) -> bool:
-	if not bind(field, store) or not store.restore(handle):
+	if not bind(field, store):
+		return false
+	return _apply_restore(field, store, handle)
+
+
+static func _apply_restore(field, store: LAFieldSnapshot, handle: int) -> bool:
+	if not store.restore(handle):
 		return false
 	store.apply_mirrors(handle, field)
 	field._gpu._wake_field()
@@ -40,6 +56,6 @@ static func to_bytes(field) -> PackedByteArray:
 
 
 ## Those bytes put back into the field; false when they hold another world.
-static func from_bytes(field, bytes: PackedByteArray) -> bool:
+static func seed_from_bytes(field, bytes: PackedByteArray) -> bool:
 	var store: LAFieldSnapshot = LAFieldSnapshot.new()
-	return bind(field, store) and restore(field, store, store.deserialize(bytes))
+	return _bind_device(field, store) and _apply_restore(field, store, store.deserialize(bytes))

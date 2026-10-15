@@ -30,19 +30,16 @@ theme_override_constants/separation = 8
 
 [node name="Heading" type="Label" parent="Margin/Scroll/Col"]
 layout_mode = 2
-theme_override_colors/font_color = Color(0.33, 0.7, 0.98, 1)
+theme_type_variation = &"AccentLabel"
 theme_override_font_sizes/font_size = 16
 text = "AUDIO"
 
-[node name="MixerRule" type="ColorRect" parent="Margin/Scroll/Col"]
-custom_minimum_size = Vector2(0, 1)
+[node name="MixerRule" type="HSeparator" parent="Margin/Scroll/Col"]
 layout_mode = 2
-size_flags_horizontal = 3
-color = Color(0.24, 0.27, 0.33, 1)
 
 [node name="MixerTitle" type="Label" parent="Margin/Scroll/Col"]
 layout_mode = 2
-theme_override_colors/font_color = Color(0.98, 0.99, 1, 1)
+theme_type_variation = &"HeadingLabel"
 theme_override_font_sizes/font_size = 13
 text = "Mixer"
 
@@ -53,7 +50,6 @@ theme_override_constants/separation = 8
 [node name="Name" type="Label" parent="Margin/Scroll/Col/MasterRow"]
 custom_minimum_size = Vector2(52, 0)
 layout_mode = 2
-theme_override_colors/font_color = Color(0.9, 0.92, 0.95, 1)
 theme_override_font_sizes/font_size = 13
 text = "Master"
 
@@ -79,7 +75,6 @@ theme_override_constants/separation = 8
 [node name="Name" type="Label" parent="Margin/Scroll/Col/MusicRow"]
 custom_minimum_size = Vector2(52, 0)
 layout_mode = 2
-theme_override_colors/font_color = Color(0.9, 0.92, 0.95, 1)
 theme_override_font_sizes/font_size = 13
 text = "Music"
 
@@ -105,7 +100,6 @@ theme_override_constants/separation = 8
 [node name="Name" type="Label" parent="Margin/Scroll/Col/SfxRow"]
 custom_minimum_size = Vector2(52, 0)
 layout_mode = 2
-theme_override_colors/font_color = Color(0.9, 0.92, 0.95, 1)
 theme_override_font_sizes/font_size = 13
 text = "SFX"
 
@@ -131,7 +125,6 @@ theme_override_constants/separation = 8
 [node name="Name" type="Label" parent="Margin/Scroll/Col/VoiceRow"]
 custom_minimum_size = Vector2(52, 0)
 layout_mode = 2
-theme_override_colors/font_color = Color(0.9, 0.92, 0.95, 1)
 theme_override_font_sizes/font_size = 13
 text = "Voice"
 
@@ -157,7 +150,6 @@ theme_override_constants/separation = 8
 [node name="Name" type="Label" parent="Margin/Scroll/Col/UiRow"]
 custom_minimum_size = Vector2(52, 0)
 layout_mode = 2
-theme_override_colors/font_color = Color(0.9, 0.92, 0.95, 1)
 theme_override_font_sizes/font_size = 13
 text = "UI"
 
@@ -176,21 +168,18 @@ layout_mode = 2
 focus_mode = 0
 tooltip_text = "Mute UI"
 
-[node name="MusicRule" type="ColorRect" parent="Margin/Scroll/Col"]
-custom_minimum_size = Vector2(0, 1)
+[node name="MusicRule" type="HSeparator" parent="Margin/Scroll/Col"]
 layout_mode = 2
-size_flags_horizontal = 3
-color = Color(0.24, 0.27, 0.33, 1)
 
 [node name="MusicTitle" type="Label" parent="Margin/Scroll/Col"]
 layout_mode = 2
-theme_override_colors/font_color = Color(0.98, 0.99, 1, 1)
+theme_type_variation = &"HeadingLabel"
 theme_override_font_sizes/font_size = 13
 text = "Music"
 
 [node name="ModeLabel" type="Label" parent="Margin/Scroll/Col"]
 layout_mode = 2
-theme_override_colors/font_color = Color(0.62, 0.66, 0.72, 1)
+theme_type_variation = &"DimLabel"
 theme_override_font_sizes/font_size = 12
 text = "Scale / mode"
 
@@ -202,7 +191,7 @@ theme_override_font_sizes/font_size = 13
 
 [node name="ProgLabel" type="Label" parent="Margin/Scroll/Col"]
 layout_mode = 2
-theme_override_colors/font_color = Color(0.62, 0.66, 0.72, 1)
+theme_type_variation = &"DimLabel"
 theme_override_font_sizes/font_size = 12
 text = "Progression"
 
@@ -214,7 +203,7 @@ theme_override_font_sizes/font_size = 13
 
 [node name="KeyLabel" type="Label" parent="Margin/Scroll/Col"]
 layout_mode = 2
-theme_override_colors/font_color = Color(0.62, 0.66, 0.72, 1)
+theme_type_variation = &"DimLabel"
 theme_override_font_sizes/font_size = 12
 text = "Key"
 
@@ -234,14 +223,13 @@ value = 33.0
 [node name="Value" type="Label" parent="Margin/Scroll/Col/KeyRow"]
 custom_minimum_size = Vector2(56, 0)
 layout_mode = 2
-theme_override_colors/font_color = Color(0.9, 0.92, 0.95, 1)
 theme_override_font_sizes/font_size = 13
 text = "33"
 horizontal_alignment = 2
 
 [node name="TempoLabel" type="Label" parent="Margin/Scroll/Col"]
 layout_mode = 2
-theme_override_colors/font_color = Color(0.62, 0.66, 0.72, 1)
+theme_type_variation = &"DimLabel"
 theme_override_font_sizes/font_size = 12
 text = "Tempo"
 
@@ -261,14 +249,13 @@ value = 84.0
 [node name="Value" type="Label" parent="Margin/Scroll/Col/TempoRow"]
 custom_minimum_size = Vector2(56, 0)
 layout_mode = 2
-theme_override_colors/font_color = Color(0.9, 0.92, 0.95, 1)
 theme_override_font_sizes/font_size = 13
 text = "84"
 horizontal_alignment = 2
 
 [node name="TimeSigLabel" type="Label" parent="Margin/Scroll/Col"]
 layout_mode = 2
-theme_override_colors/font_color = Color(0.62, 0.66, 0.72, 1)
+theme_type_variation = &"DimLabel"
 theme_override_font_sizes/font_size = 12
 text = "Time sig"
 
@@ -288,7 +275,6 @@ value = 4.0
 [node name="Value" type="Label" parent="Margin/Scroll/Col/TimeSigRow"]
 custom_minimum_size = Vector2(56, 0)
 layout_mode = 2
-theme_override_colors/font_color = Color(0.9, 0.92, 0.95, 1)
 theme_override_font_sizes/font_size = 13
 text = "4"
 horizontal_alignment = 2
@@ -318,20 +304,17 @@ text = "Auto-adapt to sim"
 
 [node name="Status" type="Label" parent="Margin/Scroll/Col"]
 layout_mode = 2
-theme_override_colors/font_color = Color(0.62, 0.66, 0.72, 1)
+theme_type_variation = &"DimLabel"
 theme_override_font_sizes/font_size = 12
 text = "(no status)"
 autowrap_mode = 3
 
-[node name="SfxRule" type="ColorRect" parent="Margin/Scroll/Col"]
-custom_minimum_size = Vector2(0, 1)
+[node name="SfxRule" type="HSeparator" parent="Margin/Scroll/Col"]
 layout_mode = 2
-size_flags_horizontal = 3
-color = Color(0.24, 0.27, 0.33, 1)
 
 [node name="SfxTitle" type="Label" parent="Margin/Scroll/Col"]
 layout_mode = 2
-theme_override_colors/font_color = Color(0.98, 0.99, 1, 1)
+theme_type_variation = &"HeadingLabel"
 theme_override_font_sizes/font_size = 13
 text = "SFX bench"
 

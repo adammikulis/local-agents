@@ -1,36 +1,18 @@
 #!/usr/bin/env bash
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_import.sh"
-# Launch a WINDOWED (GPU) run without interrupting the user: the window is positioned off-screen and
-# keyboard focus is handed back to whatever app was frontmost, so a verification run never steals
-# attention. Override the position with LA_WIN_POS="x,y". Pass the normal godot args, e.g.:
+# Launch a run that needs a real GPU: game/VoxelWorld.tscn, every scene inheriting it, every scene holding
+# a SPHERE LocalAgentSimWorld (lib_demo_fragment.sh), and any script that dispatches a compute kernel.
+# Headless has no compute device. Pass the normal godot args, e.g.:
 #   scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn -- --run-frames=200
-# Env passthrough works as usual. Requires macOS (osascript); elsewhere it just runs.
-#
-# USE THIS ONLY FOR SCENES THAT NEED A REAL GPU: game/VoxelWorld.tscn, whose field is a compute shader and
-# whose report measures nothing headless, because headless has no compute device. Every example scene under
-# addons/local_agents/examples/ runs bare headless — use scripts/run_demo.sh for those.
-# Rendering driver defaults to metal (this project's verified default — cel-shading/water/sky shaders have
-# all been built and checked against it). Override with LA_RENDER_DRIVER=vulkan for a one-off diagnostic run
-# (e.g. real GPU-side timestamp queries via RenderingDevice.get_captured_timestamp_gpu_time — Metal's Godot
-# 4.7 backend always returns 0 there, MoltenVK/Vulkan returns real values; see MaterialSphereGPU3D.gd). Not
-# yet verified as a safe DEFAULT switch — that needs a real visual check of every shader path, not just this.
-# Test runs are SILENT by default (no audio during the dev loop) — the shipped game keeps audio on.
-# Force audio on for a specific test with `LA_NO_AUDIO=0 scripts/run_sim_offscreen.sh ...`.
+# la_godot opens and places the window (scripts/lib_godot.sh); LA_WIN_POS="x,y" overrides the place.
+# Rendering driver metal, LA_RENDER_DRIVER overrides. Silent; LA_NO_AUDIO=0 turns audio on.
 export LA_NO_AUDIO="${LA_NO_AUDIO:-1}"
-# Route EVERY window this process opens off-view, not just the main sim window. The CLI --position below
-# only moves the first/main window; a secondary window the game pops up (the model-download / model-manager
-# panel — the "DEBUG" banner + Qwen model list) is hidden by the in-code LA_OFFSCREEN guards instead. Setting
-# it here makes those guards fire for agent/test runs so no stray window ever appears in front of the user.
-# (Off-screen, not minimized: a minimized Metal window stops rendering, which would break --shoot capture,
-# which draws into a SubViewport while the window itself stays one pixel.)
+# Every window the run opens reads LA_OFFSCREEN as automated.
 export LA_OFFSCREEN="${LA_OFFSCREEN:-1}"
 
 # --- watchdog budgets --------------------------------------------------------
-# Hard ceiling on the whole run. 60s, not the old 240s: every scene this wrapper is meant for finishes in
-# under 10s, so a run that reaches the ceiling is a FAILURE to report, not a long computation to wait out.
-# The old 240s default meant a scene that ignores --run-frames burned four minutes and then said nothing
-# useful about why. Raise it explicitly (LA_RUN_TIMEOUT=600) for a deliberately long soak run.
+# Hard ceiling on the whole run, seconds. A run that reaches it failed; LA_RUN_TIMEOUT raises it for a soak.
 RUN_TIMEOUT="${LA_RUN_TIMEOUT:-60}"
 # Once the scene has printed its completion marker its remaining work is one idle frame plus the hard exit.
 # If it is still alive this many seconds later, the EXIT path is broken (not the scene) and we say so.
@@ -164,8 +146,8 @@ GODOT_PID=$!
         echo "RUN_TIMEOUT: killed godot after ${RUN_TIMEOUT}s — it never printed a completion marker."
         echo "  The usual cause is NOT a hang: the scene simply does not implement the --run-frames contract,"
         echo "  so the flag was ignored and the scene ran forever. Only scenes carrying a"
-        echo "  LocalAgentDemoHarness (runtime/DemoHarness.gd) honour --run-frames / --shoot; of the twelve"
-        echo "  example scenes only five do. Use 'scripts/run_demo.sh --list' to see which."
+        echo "  LocalAgentDemoHarness (runtime/DemoHarness.gd) honour --run-frames / --shoot."
+        echo "  Use 'scripts/run_demo.sh --list' to see which."
         echo "  Engine-level fallback for any other scene: godot --quit-after <iterations>."
         echo "  Raise the ceiling for a deliberate soak run with LA_RUN_TIMEOUT=<seconds>."
       } >&2

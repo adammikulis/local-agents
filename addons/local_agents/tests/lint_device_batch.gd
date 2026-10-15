@@ -46,11 +46,13 @@ func _run(path: String) -> void:
 
 
 func _initialize() -> void:
-	if RenderingServer.create_local_rendering_device() == null:
+	var device: RenderingDevice = RenderingServer.create_local_rendering_device()
+	if device == null:
 		printerr("lint_device_batch: no RenderingDevice, so no rig ran.")
 		print("LA_DEVICE_BATCH_DONE={\"ran\":0,\"device\":false}")
 		quit(2)
 		return
+	device.free()
 	var rung: int = int(OS.get_environment("LA_CAPTURE_RUNG"))
 	var ran: int = 0
 	for row in RUNNERS:

@@ -12,7 +12,7 @@ FRAMES="${LA_RUNG_FRAMES:-8}"
 KEYS="radiogenic,geo_grad_pairs,geo_grad_max,energy_run_drift_rel,field_cells"
 out="$(la_rung_report 4 "$FRAMES" "$KEYS")"
 printf '%s\n' "$out" | grep -E '^(radiogenic|geo_grad_pairs|geo_grad_max|energy_run_drift_rel|field_cells)' || true
-la_rung_require "$out" radiogenic geo_grad_pairs geo_grad_max energy_run_drift_rel field_cells || exit 2
+la_rung_require "$out" radiogenic geo_grad_pairs geo_grad_max energy_run_drift_rel field_cells || exit $?
 
 rad="$(la_rung_value "$out" radiogenic)"
 pairs="$(la_rung_value "$out" geo_grad_pairs)"

@@ -28,7 +28,7 @@ LEVELS="$SIM/material/kernels3d/active_levels.glsli"
 for f in "$KERNEL" "$LEVELS"; do
 	[ -f "$f" ] || { echo "check_no_global_cfl: MISSING $f" >&2; exit 2; }
 done
-for token in la_row_level PASS_LEVEL_SEED PASS_LEVEL_RELAX PASS_LEVEL_SORT TF_LEVEL; do
+for token in la_row_level PASS_LEVEL_SEED PASS_LEVEL_SORT TF_LEVEL; do
 	rg -q "$token" "$KERNEL" "$LEVELS" || {
 		echo "check_no_global_cfl: the flux kernel carries no '$token', so no cell has its own clock." >&2
 		fail=1

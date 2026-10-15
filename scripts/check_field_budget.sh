@@ -15,10 +15,7 @@ case "$CEIL" in
 esac
 # 0 IS NOT A CEILING OF ZERO. It is a ratchet no full lint has banked yet, and a step weighed against
 # nothing is unexamined: scripts/write_ceilings.sh sets it from the newest lint's own FIELD_BUDGET line.
-if [ "$CEIL" = "0" ]; then
-	echo "LINT_NOT_EXAMINED: check_field_budget.sh — docs/FIELD_MS_CEILING is unbanked"
-	exit 3
-fi
+
 
 CAP="$(la_cap_dir)" || {
 	echo "check_field_budget: no LA_LINT_CAPTURE, so no arm was timed and this examined nothing." >&2
@@ -59,6 +56,10 @@ if awk -v w="$WORST" 'BEGIN{exit !(w <= 0)}'; then
 fi
 
 echo "FIELD_BUDGET={\"worst_ms\":$WORST,\"ceiling_ms\":$CEIL,\"rung\":${RUNG:-null},\"frames\":$FRAMES}"
+if [ "$CEIL" = "0" ]; then
+	echo "LINT_NOT_EXAMINED: check_field_budget.sh — docs/FIELD_MS_CEILING is unbanked"
+	exit 3
+fi
 if awk -v w="$WORST" -v c="$CEIL" 'BEGIN{exit !(w <= c)}'; then
 	echo "check_field_budget: OK ($WORST ms worst step, ceiling $CEIL)"
 	exit 0

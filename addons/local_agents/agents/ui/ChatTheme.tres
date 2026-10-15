@@ -1,0 +1,176 @@
+[gd_resource type="Theme" load_steps=12 format=3]
+
+[sub_resource type="StyleBoxFlat" id="panel"]
+content_margin_left = 22.0
+content_margin_top = 22.0
+content_margin_right = 22.0
+content_margin_bottom = 22.0
+bg_color = Color(0.07058823529411765, 0.10588235294117647, 0.17254901960784313, 1)
+corner_radius_top_left = 16
+corner_radius_top_right = 16
+corner_radius_bottom_left = 16
+corner_radius_bottom_right = 16
+
+[sub_resource type="StyleBoxFlat" id="input"]
+content_margin_left = 16.0
+content_margin_top = 16.0
+content_margin_right = 16.0
+content_margin_bottom = 16.0
+bg_color = Color(0.043137254901960784, 0.07450980392156863, 0.13333333333333333, 1)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_left = 12
+corner_radius_bottom_right = 12
+
+[sub_resource type="StyleBoxFlat" id="hover"]
+content_margin_left = 16.0
+content_margin_top = 16.0
+content_margin_right = 16.0
+content_margin_bottom = 16.0
+bg_color = Color(0.12549019607843137, 0.1843137254901961, 0.28627450980392155, 1)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_left = 12
+corner_radius_bottom_right = 12
+
+[sub_resource type="StyleBoxFlat" id="button"]
+content_margin_left = 16.0
+content_margin_top = 16.0
+content_margin_right = 16.0
+content_margin_bottom = 16.0
+bg_color = Color(0.1450980392156863, 0.23137254901960785, 0.3568627450980392, 1)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_left = 12
+corner_radius_bottom_right = 12
+
+[sub_resource type="StyleBoxFlat" id="pressed"]
+content_margin_left = 16.0
+content_margin_top = 16.0
+content_margin_right = 16.0
+content_margin_bottom = 16.0
+bg_color = Color(0.20784313725490197, 0.33725490196078434, 0.5176470588235295, 1)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_left = 12
+corner_radius_bottom_right = 12
+
+[sub_resource type="StyleBoxFlat" id="disabled"]
+content_margin_left = 16.0
+content_margin_top = 16.0
+content_margin_right = 16.0
+content_margin_bottom = 16.0
+bg_color = Color(0.09019607843137255, 0.13333333333333333, 0.21176470588235294, 1)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_left = 12
+corner_radius_bottom_right = 12
+
+[sub_resource type="StyleBoxFlat" id="focus"]
+content_margin_left = 16.0
+content_margin_top = 16.0
+content_margin_right = 16.0
+content_margin_bottom = 16.0
+bg_color = Color(0.07058823529411765, 0.10588235294117647, 0.17254901960784313, 1)
+draw_center = false
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.5686274509803921, 0.7254901960784313, 1.0, 1)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_left = 12
+corner_radius_bottom_right = 12
+
+[sub_resource type="StyleBoxFlat" id="transcript"]
+content_margin_left = 22.0
+content_margin_top = 22.0
+content_margin_right = 22.0
+content_margin_bottom = 22.0
+bg_color = Color(0.054901960784313725, 0.09019607843137255, 0.15294117647058825, 1)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_left = 12
+corner_radius_bottom_right = 12
+
+[sub_resource type="StyleBoxFlat" id="primary"]
+content_margin_left = 16.0
+content_margin_top = 16.0
+content_margin_right = 16.0
+content_margin_bottom = 16.0
+bg_color = Color(0.25, 0.38, 0.8, 1)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_left = 12
+corner_radius_bottom_right = 12
+
+[sub_resource type="StyleBoxFlat" id="primary_hover"]
+content_margin_left = 16.0
+content_margin_top = 16.0
+content_margin_right = 16.0
+content_margin_bottom = 16.0
+bg_color = Color(0.32, 0.47, 0.9, 1)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_left = 12
+corner_radius_bottom_right = 12
+
+[sub_resource type="StyleBoxFlat" id="prompt"]
+content_margin_left = 12.0
+content_margin_top = 8.0
+content_margin_right = 12.0
+content_margin_bottom = 8.0
+bg_color = Color(0.08, 0.13, 0.22, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_left = 8
+corner_radius_bottom_right = 8
+
+[resource]
+default_font_size = 16
+Label/colors/font_color = Color(0.8901960784313725, 0.9176470588235294, 0.9686274509803922, 1)
+Button/colors/font_color = Color(0.8901960784313725, 0.9176470588235294, 0.9686274509803922, 1)
+LineEdit/colors/font_color = Color(0.8901960784313725, 0.9176470588235294, 0.9686274509803922, 1)
+TextEdit/colors/font_color = Color(0.8901960784313725, 0.9176470588235294, 0.9686274509803922, 1)
+RichTextLabel/colors/font_color = Color(0.8901960784313725, 0.9176470588235294, 0.9686274509803922, 1)
+OptionButton/colors/font_color = Color(0.8901960784313725, 0.9176470588235294, 0.9686274509803922, 1)
+ItemList/colors/font_color = Color(0.8901960784313725, 0.9176470588235294, 0.9686274509803922, 1)
+Tree/colors/font_color = Color(0.8901960784313725, 0.9176470588235294, 0.9686274509803922, 1)
+Button/styles/normal = SubResource("button")
+Button/styles/hover = SubResource("hover")
+Button/styles/pressed = SubResource("pressed")
+Button/styles/disabled = SubResource("disabled")
+Button/styles/focus = SubResource("focus")
+Button/colors/font_disabled_color = Color(0.6039215686274509, 0.6705882352941176, 0.7764705882352941, 1)
+OptionButton/styles/normal = SubResource("button")
+OptionButton/styles/hover = SubResource("hover")
+OptionButton/styles/pressed = SubResource("pressed")
+OptionButton/styles/disabled = SubResource("disabled")
+OptionButton/styles/focus = SubResource("focus")
+OptionButton/colors/font_disabled_color = Color(0.6039215686274509, 0.6705882352941176, 0.7764705882352941, 1)
+LineEdit/styles/normal = SubResource("input")
+LineEdit/styles/focus = SubResource("focus")
+TextEdit/styles/normal = SubResource("input")
+TextEdit/styles/focus = SubResource("focus")
+ItemList/styles/normal = SubResource("input")
+ItemList/styles/focus = SubResource("focus")
+Tree/styles/normal = SubResource("input")
+Tree/styles/focus = SubResource("focus")
+LineEdit/styles/read_only = SubResource("disabled")
+LineEdit/colors/font_placeholder_color = Color(0.6039215686274509, 0.6705882352941176, 0.7764705882352941, 1)
+PanelContainer/styles/panel = SubResource("panel")
+Panel/styles/panel = SubResource("panel")
+RichTextLabel/styles/normal = SubResource("transcript")
+RichTextLabel/constants/line_separation = 6
+HBoxContainer/constants/separation = 12
+VBoxContainer/constants/separation = 12
+PrimaryButton/base_type = &"Button"
+PrimaryButton/styles/normal = SubResource("primary")
+PrimaryButton/styles/hover = SubResource("primary_hover")
+PromptButton/base_type = &"Button"
+PromptButton/font_sizes/font_size = 13
+PromptButton/styles/normal = SubResource("prompt")
+PromptButton/styles/hover = SubResource("prompt")
+PromptButton/styles/pressed = SubResource("prompt")
+PromptButton/styles/disabled = SubResource("prompt")

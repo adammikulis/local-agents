@@ -9,14 +9,13 @@ extends Node
 
 # Connected in the scene to HomeButton.pressed.
 func _on_home_button_pressed() -> void:
-    chat_controller.visible = false
-    model_config.visible = true
-    inference_config.visible = true
-    download_hint_label.text = "[b]Home[/b]\nCheck the setup status above, then open Chat when the model is ready."
+    _show_configuration("model")
+
 
 
 # Connected in the scene to ChatButton.pressed. This is the state the scene is saved in.
 func _on_chat_button_pressed() -> void:
+    $HBoxContainer/ChatVBoxContainer.visible = true
     chat_controller.visible = true
     model_config.visible = false
     inference_config.visible = false
@@ -25,11 +24,17 @@ func _on_chat_button_pressed() -> void:
 
 # Connected in the scene to DownloadModelsButton.pressed.
 func _on_download_models_button_pressed() -> void:
-    chat_controller.visible = false
-    model_config.visible = true
-    inference_config.visible = true
-    download_hint_label.text = "[b]Downloads[/b]\nOpen the editor bottom panel: [i]Local Agents -> Downloads[/i], fetch a model, then return to Chat and press [i]Load Model[/i]."
+    _show_configuration("model")
+    download_hint_label.text = "[b]Models[/b]\nDownload a GGUF model in the editor’s Local Agents panel, then select it here."
+
 
 
 func _on_exit_button_pressed() -> void:
     get_tree().quit()
+
+func _show_configuration(section: String) -> void:
+    $HBoxContainer/ChatVBoxContainer.visible = false
+    model_config.visible = section == "model"
+    inference_config.visible = section == "inference"
+    var heading: String = "Model setup" if section == "model" else "Generation settings"
+    download_hint_label.text = "[b]%s[/b]\nChoose your settings, then return to Chat." % heading

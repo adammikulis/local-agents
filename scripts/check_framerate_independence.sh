@@ -1,26 +1,12 @@
 #!/usr/bin/env bash
-# =====================================================================================================
-# FRAMERATE-INDEPENDENCE GATE — no frame callback may drive the simulation.
-#
-# The simulation owns its loop (LASimLoop). One step is a fixed quantum of SIMULATED seconds; a slow frame
-# yields fewer steps per wall second and loses no simulated time. A frame integrator does not: it turns the
-# machine's speed into a physical rate, so the sun advances further per unit of chemistry than it should and
-# by a machine-dependent amount.
-#
-# THREE RULES, all static (no run required):
-#   R1  No simulation MUTATOR is reachable from a `_process` body. Reachability is resolved through the
-#       same-file private helpers `_process` calls, so `_process -> _push_environment -> set_wind` fails.
-#   R2  No file under addons/local_agents/sim/ or addons/local_agents/game/world/ defines `_process` with a
-#       USED delta parameter, unless it is in PRESENTATION_ALLOW below. A `_delta` (unused) parameter
-#       cannot integrate anything.
-#   R3  No file under addons/local_agents/sim/ defines `_physics_process` at all, unless it is in
-#       PHYSICS_TICK_ALLOW below. The loop is the ONE entry; everything else subscribes to `stepped`.
-#
-# Both allowlists hold presentation, instrument and engine-physics-body modules only. Every entry carries
-# its reason, and PHYSICS_TICK_ALLOW is a RATCHET: entries come out, never in.
-#
-# EXIT CODES. 0 pass · 1 violations · 2 the gate could not run (missing tool or missing input).
-# =====================================================================================================
+# NO FRAME CALLBACK MAY DRIVE THE SIMULATION. LASimLoop steps a fixed quantum of simulated seconds; a
+# frame integrator turns the machine's speed into a physical rate.
+#   R1  No simulation MUTATOR is reachable from `_process`, through the same file's private helpers.
+#   R2  Nothing under sim/ or game/world/ defines `_process` with a USED delta, bar PRESENTATION_ALLOW.
+#   R3  Nothing under sim/ but SimLoop.gd defines `_physics_process`, bar PHYSICS_TICK_ALLOW, a ratchet.
+#   R4  An allowlist entry names a file in its rule's scope that still holds what the rule forbids.
+
+# EXIT 0 pass · 1 violations · 2 the gate could not run (missing tool or missing input).
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -55,41 +41,37 @@ SIM_LOOP = f"{SIM}/SimLoop.gd"
 # R1: writes to the material field, the ecology's world state, or the orbital state. Names come from
 # MaterialField3D's public write API, LAEcologyService.set_sun and LASystemOrbits.
 MUTATORS = [
-    "set_wind(", "set_sun(", "set_sun_flux(", "set_plate_motion(",
+    "set_wind(", "set_sun(", "set_star(", "set_sun_flux(", "set_plate_motion(",
     "add_heat_energy(", "add_lava(", "add_charge(",
     "add_water_pooled(", "add_magma_source(", "seed_field(", "apply_impulse(",
     "fire_barrage(", "force_erupt(",
 ]
-# The two integrating advances LAVoxelWorld drives. They consume a delta, so the call site itself is the
-# defect and nothing downstream of them needs naming.
-ADVANCES = ["_orbits.update(", "_sky_ctrl.update("]
+# The integrating advance LAVoxelWorld drives. It consumes a delta, so the call site itself is the
+# defect and nothing downstream of it needs naming.
+ADVANCES = ["_orbits.update("]
 
 # R2 allowlist: presentation + instrument modules under sim/. One line each, saying why the render clock
 # is the right clock for it.
 PRESENTATION_ALLOW = {
-    f"{SIM}/streamer/SceneEnergyGraph.gd": "overlay graph: samples gauges and redraws, writes no world state",
-    f"{SIM}/streamer/StreamerDirector.gd": "commentary pacing for the LLM/TTS caster, writes no world state",
-    f"{SIM}/streamer/StreamerAvatar.gd": "avatar animation",
-    f"{SIM}/streamer/StreamerOverlay.gd": "overlay layout and animation",
-    f"{SIM}/actors/LightningStrike.gd": "flash fade and node lifetime; it writes no world state",
     f"{SIM}/ecology/BandChronicle.gd": "historian: writes dated records to the backstory store, not the field",
-    f"{SIM}/events/LAEventTracker.gd": "instrument: samples the report and emits events, mutates nothing",
-    f"{GAME_WORLD}/VoxelViewControls.gd": "on-screen control bar: button state and layout, writes no world state",
 }
 
 # R3 allowlist. A RATCHET — entries are removed as each module moves onto LASimLoop.stepped, never added.
-# Everything here is a body in the ENGINE's physics world, integrating against the physics server rather
-# than the substrate. They are wrong for the same reason the field was and are not yet converted.
+# Each entry ticks its own integrator, or follows its LABallistics bodies, on the engine's physics tick.
 PHYSICS_TICK_ALLOW = {
-    f"{SIM}/actors/Plant.gd": "engine physics body",
-    f"{SIM}/actors/Tree.gd": "engine physics body",
-    f"{SIM}/actors/Nest.gd": "engine physics body",
-    f"{SIM}/actors/Meteor.gd": "engine physics body: ballistic arrival integrated by the physics server",
-    f"{SIM}/actors/ThrownRock.gd": "engine physics body: ballistic flight integrated by the physics server",
-    f"{SIM}/material/MaterialEjecta3D.gd": "ballistic ejecta integrated against the physics server",
-    f"{SIM}/material/FieldBox.gd": "demo-scene host for a standalone field box, outside the planet loop",
+    f"{SIM}/actors/Tree.gd": "advances its own topple swing each engine tick",
+    f"{SIM}/actors/Nest.gd": "counts its own neglect clock each engine tick",
+    f"{SIM}/actors/Meteor.gd": "copies its LABallistics free body onto the node each engine tick",
+    f"{SIM}/actors/ThrownRock.gd": "steers its own flight each engine tick, not an LABallistics free body",
+    f"{SIM}/material/FieldBox.gd": "adds its heat source's watts times the engine delta to its own box",
     f"{SIM}/TrackSystem.gd": "footprint decals laid under bodies moving on the physics tick",
 }
+
+# What each rule forbids, and where. R4 reads the same two patterns.
+R2_RE = re.compile(r"^func _process\(delta")
+R3_RE = re.compile(r"^func _physics_process\(")
+R2_SCOPE = (f"{SIM}/", f"{GAME_WORLD}/")
+R3_SCOPE = (f"{SIM}/",)
 
 def gd_files(root):
     out = []
@@ -114,15 +96,29 @@ def split_funcs(lines):
             out[cur].append((i + 1, l))
     return out
 
+def read_lines(rel):
+    return open(os.path.join(repo, rel), encoding="utf-8").read().split("\n")
+
 violations = []
+
+# R4 — an entry whose file is gone, out of scope, or no longer holds the forbidden shape exempts nothing.
+for allow, scope, pattern, rule in ((PRESENTATION_ALLOW, R2_SCOPE, R2_RE, "R2"),
+                                    (PHYSICS_TICK_ALLOW, R3_SCOPE, R3_RE, "R3")):
+    for rel in sorted(allow):
+        path = os.path.join(repo, rel)
+        if not (rel.startswith(scope) and os.path.isfile(path) and any(pattern.match(l) for l in read_lines(rel))):
+            violations.append(
+                f"{rel}: R4 stale {rule} allowlist entry exempts nothing\n"
+                f"    delete the entry: the file is gone, outside {rule}'s scope, or holds no `{pattern.pattern[1:].replace(chr(92), '')}`")
+
 for rel in gd_files(SIM) + gd_files(GAME):
-    lines = open(os.path.join(repo, rel), encoding="utf-8").read().split("\n")
+    lines = read_lines(rel)
     funcs = split_funcs(lines)
 
     # R3 — the sim owns its loop, so a sim module may not hang off the engine's physics tick.
-    if rel.startswith(SIM) and rel != SIM_LOOP and rel not in PHYSICS_TICK_ALLOW:
+    if rel.startswith(R3_SCOPE) and rel != SIM_LOOP and rel not in PHYSICS_TICK_ALLOW:
         for i, l in enumerate(lines):
-            if re.match(r"^func _physics_process\(", l):
+            if R3_RE.match(l):
                 violations.append(
                     f"{rel}:{i+1}: R3 sim module runs on the ENGINE's physics tick\n"
                     f"    subscribe to LASimLoop.stepped instead; only {SIM_LOOP} may hold _physics_process")
@@ -152,12 +148,10 @@ for rel in gd_files(SIM) + gd_files(GAME):
                     stack.append(callee)
 
     # R2 — a sim/ or game/world/ module may not integrate on the render delta.
-    if not (rel.startswith(SIM) or rel.startswith(GAME_WORLD)):
-        continue
-    if rel in PRESENTATION_ALLOW:
+    if not rel.startswith(R2_SCOPE) or rel in PRESENTATION_ALLOW:
         continue
     for i, l in enumerate(lines):
-        if re.match(r"^func _process\(delta", l):
+        if R2_RE.match(l):
             violations.append(
                 f"{rel}:{i+1}: R2 module integrates the RENDER delta in _process\n"
                 f"    subscribe to LASimLoop.stepped, or add it to PRESENTATION_ALLOW with a reason")

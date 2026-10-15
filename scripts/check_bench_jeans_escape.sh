@@ -83,7 +83,7 @@ if LA_BENCH_SELFTEST=broken python3 "$JUDGE" >/dev/null 2>&1; then
 fi
 
 # THE RIG RIDES THE SHARED DEVICE BATCH: one launch holds every rig that only needs a device.
-out="$(la_rig bench_jeans_escape '^BENCH_RAW_JEANS_ESCAPE=' "res://$PROBE")"
+out="$(la_rig bench_jeans_escape '^BENCH_RAW_JEANS_ESCAPE=' "res://$PROBE")" || { rig_result=$?; printf '%s\n' "$out" >&2; exit "$rig_result"; }
 raw="$(printf '%s\n' "$out" | grep -m1 '^BENCH_RAW_JEANS_ESCAPE=')"
 if [ -z "$raw" ]; then
   echo "ERROR: the rig published no BENCH_RAW_JEANS_ESCAPE line." >&2
@@ -100,6 +100,6 @@ rc=$?
 FRAMES="${LA_BENCH_JE_FRAMES:-8}"
 . "$REPO_ROOT/scripts/lib_rung.sh"
 world="$(la_rung_report 8 "$FRAMES" "all_h2,open_h2")"
-la_rung_require "$world" all_h2 || exit 2
+la_rung_require "$world" all_h2 || exit $?
 printf 'BENCH_JEANS_ESCAPE_WORLD={"all_h2":%s}\n' "$(la_rung_value "$world" all_h2)"
 echo "check_bench_jeans_escape: OK"

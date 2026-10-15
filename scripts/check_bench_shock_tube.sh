@@ -220,7 +220,7 @@ if LA_BENCH_SELFTEST=broken python3 "$JUDGE" >/dev/null 2>&1; then
 fi
 
 # THE RIG RIDES THE SHARED DEVICE BATCH: one launch holds every rig that only needs a device.
-out="$(la_rig bench_shock_tube '^BENCH_RAW_SHOCK_TUBE=' "res://$PROBE")"
+out="$(la_rig bench_shock_tube '^BENCH_RAW_SHOCK_TUBE=' "res://$PROBE")" || { rig_result=$?; printf '%s\n' "$out" >&2; exit "$rig_result"; }
 raw="$(printf '%s\n' "$out" | grep -m1 '^BENCH_RAW_SHOCK_TUBE=')"
 if [ -z "$raw" ]; then
   echo "ERROR: the rig published no BENCH_RAW_SHOCK_TUBE line." >&2
@@ -237,7 +237,7 @@ rc=$?
 FRAMES="${LA_BENCH_ST_FRAMES:-8}"
 . "$REPO_ROOT/scripts/lib_rung.sh"
 world="$(la_rung_report 3 "$FRAMES" "mach_max,wind_speed_max,transport_levels")"
-la_rung_require "$world" mach_max wind_speed_max || exit 2
+la_rung_require "$world" mach_max wind_speed_max || exit $?
 printf 'BENCH_SHOCK_TUBE_WORLD={"mach_max":%s,"wind_speed_max":%s}\n' \
   "$(la_rung_value "$world" mach_max)" "$(la_rung_value "$world" wind_speed_max)"
 echo "check_bench_shock_tube: OK"
