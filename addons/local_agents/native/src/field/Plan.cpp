@@ -1,4 +1,5 @@
 #include "Plan.hpp"
+#include "la/ContentHash.hpp"
 
 #include <cstdio>
 #include <cstring>
@@ -137,6 +138,7 @@ bool Plan::read(const std::string &path, Plan &out, std::string &err) {
 		err = path + " carries " + std::to_string(bytes.size() - c.at) + " bytes past its own end";
 		return false;
 	}
+	out.content_hash = la::content_hash(bytes.data(), bytes.size());
 	return true;
 }
 

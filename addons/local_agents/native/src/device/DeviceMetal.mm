@@ -50,7 +50,6 @@ struct MetalList {
 	uint32_t region = 0;
 	uint32_t local_x = 1;
 	uint32_t push_slot = 1;
-	bool live = false;
 };
 
 class DeviceMetal final : public Device {
@@ -61,8 +60,13 @@ public:
 	Backend backend() const override { return Backend::Metal; }
 	bool supports_timestamps() const override { return ns_per_tick_ > 0.0; }
 
+	DeviceResources retained_resources() const override {
+		return {buffers_.size(), sets_.size(), lists_.size(), fences_.size()};
+	}
+
 	bool load_kernels(const std::string &path, std::string &err) override;
 	size_t kernel_count() const override { return kernels_.size(); }
+	uint64_t kernel_blob_hash() const override { return blob_hash_; }
 	bool has_kernel(std::string_view n) const override;
 	KernelId kernel(std::string_view n) override;
 	bool build(KernelId k, std::string &err) override;
@@ -95,6 +99,7 @@ public:
 	std::span<const TimestampSample> timestamps() const override { return samples_; }
 
 private:
+	uint64_t blob_hash_ = 0;
 	const MetalKernel &at(KernelId k) const;
 	MetalKernel &at_mut(KernelId k);
 	MetalBuffer &buffer_at(BufferId b);
@@ -109,13 +114,14 @@ private:
 	std::string name_;
 	double ns_per_tick_ = 0.0;
 
-	std::vector<MetalBuffer> buffers_{MetalBuffer{}};
+	std::unordered_map<uint32_t, MetalBuffer> buffers_;
+	uint32_t next_buffer_ = 1, next_set_ = 1, next_list_ = 1;
+	uint64_t next_fence_ = 1;
 	std::vector<MetalKernel> kernels_;
 	std::unordered_map<std::string, uint32_t> by_name_;
-	std::vector<MetalSet> sets_{MetalSet{}};
-	std::vector<MetalList> lists_{MetalList{}};
-	std::vector<id<MTLCommandBuffer>> fences_{nil};
-	std::unordered_map<uint64_t, uint32_t> list_of_fence_;
+	std::unordered_map<uint32_t, MetalSet> sets_;
+	std::unordered_map<uint32_t, MetalList> lists_;
+	std::unordered_map<uint64_t, MetalList> fences_;
 	std::vector<TimestampSample> samples_;
 };
 
@@ -173,6 +179,7 @@ bool DeviceMetal::load_kernels(const std::string &path, std::string &err) {
 		mk.meta = std::move(k);
 		kernels_.push_back(std::move(mk));
 	}
+	blob_hash_ = blob.content_hash;
 	return true;
 }
 
@@ -251,26 +258,28 @@ BufferId DeviceMetal::create_buffer(size_t bytes, Usage usage, const void *init)
 			? [dev_ newBufferWithBytes:init length:bytes options:MTLResourceStorageModeShared]
 			: [dev_ newBufferWithLength:bytes options:MTLResourceStorageModeShared];
 	if (mb.buf == nil) { fatal("the device gave out no buffer of", std::to_string(bytes) + " bytes"); }
-	buffers_.push_back(mb);
-	return BufferId{static_cast<uint32_t>(buffers_.size() - 1)};
+	const BufferId id{next_buffer_++};
+	buffers_.emplace(id.v, std::move(mb));
+	return id;
 }
 
 MetalBuffer &DeviceMetal::buffer_at(BufferId b) {
-	if (b.v == 0 || b.v >= buffers_.size()) { fatal("buffer id out of range", std::to_string(b.v)); }
-	if (buffers_[b.v].buf == nil) { fatal("buffer already destroyed", std::to_string(b.v)); }
-	return buffers_[b.v];
+	auto it = buffers_.find(b.v);
+	if (it == buffers_.end()) { fatal("buffer id absent", std::to_string(b.v)); }
+	return it->second;
 }
 
 void DeviceMetal::destroy_buffer(BufferId b) {
 	require_idle("destroy_buffer");
-	buffer_at(b).buf = nil;
+	buffer_at(b);
+	buffers_.erase(b.v);
 }
 
 // The device holds no queue of pending host copies: a host read or write while a submitted list is still
 // running is a race, and a race that reports plausible numbers is worse than a stop.
 void DeviceMetal::require_idle(const char *op) {
-	for (size_t i = 1; i < fences_.size(); ++i) {
-		id<MTLCommandBuffer> cb = fences_[i];
+	for (auto it = fences_.begin(); it != fences_.end(); ++it) {
+		id<MTLCommandBuffer> cb = it->second.cb;
 		if (cb == nil) { continue; }
 		if (cb.status != MTLCommandBufferStatusCompleted && cb.status != MTLCommandBufferStatusError) {
 			fatal(op, "a submitted list has not been waited on");
@@ -344,20 +353,19 @@ SetId DeviceMetal::make_set(KernelId k, std::span<const std::pair<uint32_t, Buff
 							+ mk.meta.bindings[i].name + ")");
 		}
 	}
-	sets_.push_back(set);
-	return SetId{static_cast<uint32_t>(sets_.size() - 1)};
+	const SetId id{next_set_++};
+	sets_.emplace(id.v, std::move(set));
+	return id;
 }
 
 void DeviceMetal::destroy_set(SetId s) {
-	if (s.v == 0 || s.v >= sets_.size()) { fatal("set id out of range", std::to_string(s.v)); }
-	sets_[s.v].arg = nil;
-	sets_[s.v].used.clear();
+	require_idle("destroy_set");
+	if (sets_.erase(s.v) != 1) { fatal("set id absent", std::to_string(s.v)); }
 }
 
 List DeviceMetal::begin() {
 	MetalList ml;
 	ml.cb = [queue_ commandBuffer];
-	ml.live = true;
 	if (supports_timestamps()) {
 		MTLCounterSampleBufferDescriptor *desc = [MTLCounterSampleBufferDescriptor new];
 		desc.storageMode = MTLStorageModeShared;
@@ -370,17 +378,17 @@ List DeviceMetal::begin() {
 			ml.counters = [dev_ newCounterSampleBufferWithDescriptor:desc error:&err];
 		}
 	}
-	lists_.push_back(ml);
 	List l;
-	l.v = static_cast<uint32_t>(lists_.size() - 1);
+	l.v = next_list_++;
+	lists_.emplace(l.v, std::move(ml));
 	open_region(list_at(l));
 	return l;
 }
 
 MetalList &DeviceMetal::list_at(List &l) {
-	if (l.v == 0 || l.v >= lists_.size()) { fatal("list id out of range", std::to_string(l.v)); }
-	if (!lists_[l.v].live) { fatal("this list was already submitted", std::to_string(l.v)); }
-	return lists_[l.v];
+	auto it = lists_.find(l.v);
+	if (it == lists_.end()) { fatal("list id absent", std::to_string(l.v)); }
+	return it->second;
 }
 
 void DeviceMetal::open_region(MetalList &ml) {
@@ -404,8 +412,9 @@ void DeviceMetal::bind(List &l, KernelId k, SetId s) {
 	MetalList &ml = list_at(l);
 	const MetalKernel &mk = at(k);
 	if (mk.pso == nil) { fatal("bind before build", mk.meta.name); }
-	if (s.v == 0 || s.v >= sets_.size()) { fatal("set id out of range", std::to_string(s.v)); }
-	MetalSet &set = sets_[s.v];
+	auto it = sets_.find(s.v);
+	if (it == sets_.end()) { fatal("set id absent", std::to_string(s.v)); }
+	MetalSet &set = it->second;
 	if (set.kernel != k.v) {
 		fatal("a set built for another kernel", mk.meta.name);
 	}
@@ -458,41 +467,53 @@ Fence DeviceMetal::submit(List &&l) {
 	MetalList &ml = list_at(l);
 	close_region(ml, nullptr);
 	[ml.cb commit];
-	ml.live = false;
-	fences_.push_back(ml.cb);
-	Fence f;
-	f.v = fences_.size() - 1;
-	list_of_fence_[f.v] = l.v;
+	Fence f{next_fence_++};
+	fences_.emplace(f.v, std::move(ml));
+	lists_.erase(l.v);
+	l.v = 0;
 	return f;
 }
 
 void DeviceMetal::wait(Fence f) {
-	if (f.v == 0 || f.v >= fences_.size()) { fatal("fence out of range", std::to_string(f.v)); }
-	[fences_[f.v] waitUntilCompleted];
-	samples_.clear();
-	auto it = list_of_fence_.find(f.v);
-	if (it == list_of_fence_.end()) { return; }
-	MetalList &ml = lists_[it->second];
-	if (ml.counters == nil || ml.region == 0) { return; }
-	const uint32_t regions = ml.region < kMaxMarks ? ml.region : kMaxMarks;
-	NSData *data = [ml.counters resolveCounterRange:NSMakeRange(0, regions * 2)];
-	if (data == nil) { return; }
-	const MTLCounterResultTimestamp *ts =
-			static_cast<const MTLCounterResultTimestamp *>(data.bytes);
-	for (uint32_t r = 0; r < regions; ++r) {
-		if (ml.labels[r].empty()) { continue; }
-		const uint64_t a = ts[r * 2].timestamp;
-		const uint64_t b = ts[r * 2 + 1].timestamp;
-		const uint64_t ticks = b > a ? b - a : 0;
-		samples_.push_back(TimestampSample{ml.labels[r],
-				static_cast<uint64_t>(double(ticks) * ns_per_tick_)});
+	if (f.v == 0 || f.v >= next_fence_) { fatal("fence out of range", std::to_string(f.v)); }
+	auto it = fences_.find(f.v);
+	if (it == fences_.end()) { return; }
+	MetalList &ml = it->second;
+	[ml.cb waitUntilCompleted];
+	if (ml.cb.status != MTLCommandBufferStatusCompleted) {
+		const std::string error = ml.cb.error.localizedDescription.UTF8String ?: "Metal command failed";
+		fences_.erase(it);
+		throw DeviceFailure(error);
 	}
+	samples_.clear();
+	if (ml.counters != nil && ml.region != 0) {
+		const uint32_t regions = ml.region < kMaxMarks ? ml.region : kMaxMarks;
+		NSData *data = [ml.counters resolveCounterRange:NSMakeRange(0, regions * 2)];
+		if (data != nil) {
+			const auto *ts = static_cast<const MTLCounterResultTimestamp *>(data.bytes);
+			for (uint32_t r = 0; r < regions; ++r) {
+				if (ml.labels[r].empty()) { continue; }
+				const uint64_t a = ts[r * 2].timestamp;
+				const uint64_t b = ts[r * 2 + 1].timestamp;
+				const uint64_t ticks = b > a ? b - a : 0;
+				samples_.push_back({ml.labels[r], static_cast<uint64_t>(double(ticks) * ns_per_tick_)});
+			}
+		}
+	}
+	fences_.erase(it);
 }
 
 bool DeviceMetal::poll(Fence f) {
-	if (f.v == 0 || f.v >= fences_.size()) { fatal("fence out of range", std::to_string(f.v)); }
-	const MTLCommandBufferStatus s = fences_[f.v].status;
-	return s == MTLCommandBufferStatusCompleted || s == MTLCommandBufferStatusError;
+	if (f.v == 0 || f.v >= next_fence_) { fatal("fence out of range", std::to_string(f.v)); }
+	auto it = fences_.find(f.v);
+	if (it == fences_.end()) { return true; }
+	const MTLCommandBufferStatus s = it->second.cb.status;
+	if (s == MTLCommandBufferStatusError) {
+		const std::string error = it->second.cb.error.localizedDescription.UTF8String ?: "Metal command failed";
+		fences_.erase(it);
+		throw DeviceFailure(error);
+	}
+	return s == MTLCommandBufferStatusCompleted;
 }
 
 } // namespace
