@@ -65,7 +65,7 @@ const char *const HYDRO_REDUCE[] = { "pressure_*", nullptr };
 
 // A column at rest stays at rest only where there is momentum to move it, so the rest gate is this
 // rung's and not the one below's.
-const char *const ACOUSTIC_GATES[] = { "check_rung_acoustic.sh", "check_atmosphere_at_rest.sh",
+const char *const ACOUSTIC_GATES[] = { "check_active_rows.sh", "check_rung_acoustic.sh", "check_atmosphere_at_rest.sh",
 	"check_stack_balance.sh", "check_momentum_orphans.sh", "check_boundary_momentum_book.sh", "check_bench_shock_tube.sh",
 	nullptr };
 const char *const ACOUSTIC_PASSES[] = { "FluxPass.gd", nullptr };
@@ -81,7 +81,7 @@ const char *const CONDUCTION_GATES[] = { "check_rung_conduction.sh", "check_benc
 const char *const CONDUCTION_TRANSPORT[] = { "heat_conduct", "heat_conduct_lith", nullptr };
 const char *const CONDUCTION_REDUCE[] = { "radiogenic", nullptr };
 
-const char *const ADVECT_GATES[] = { "check_rung_advect.sh", "check_boundary_books.sh", "check_active_rows.sh", "check_bench_darcy.sh",
+const char *const ADVECT_GATES[] = { "check_rung_advect.sh", "check_boundary_books.sh", "check_bench_darcy.sh",
 	nullptr };
 const char *const ADVECT_TRANSPORT[] = { "h2o_surface", "h2o_groundwater", "silicate_melt_film",
 	"silicate_susp_water", "silicate_susp_air", "silicate_bed",

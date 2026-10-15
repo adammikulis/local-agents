@@ -16,10 +16,6 @@ const ActiveScript: GDScript = preload("res://addons/local_agents/sim/material/s
 enum Arg { GROUPS_X = 0, GROUPS_Y = 1, GROUPS_Z = 2, LIST_COUNT = 3, OFFSET = 4, CURSOR = 5,
 	SUFFIX = 6, SLOTS = 8 }
 
-## The grain prologue carries mineral grains, so the Stokes law reads silicate's density off `substance`.
-const GRAIN_ROW: Dictionary = {"channel": "silicate", "substance": "silicate",
-	"mode": LATransportRecords.POTENTIAL}
-
 ## The three legs momentum crosses a boundary on.
 const MOMENTUM_BOOKS: PackedStringArray = ["mom_x", "mom_y", "mom_z"]
 
@@ -114,15 +110,11 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 
 	for row: Dictionary in _rows:
 		_sets.append(_row_set(bufs, row))
-	_grain_set = _row_set(bufs, GRAIN_ROW)
-	# The append's predicate reads `drive`, which binds the list's prim channel through `channel`.
-	for lrow: Dictionary in LATransportRecords.lists():
-		var label: String = String(lrow["label"])
-		var keys: Dictionary = LATransportRecords.list_buffers(label)
-		_list_rows.append({"label": label, "channel": String(lrow["prim"]), "substance": "",
-			"mode": LATransportRecords.POTENTIAL,
-			"emit_idx": bool(lrow.get("emit_idx", false)), "list": label})
-		_list_sets.append(_row_set(bufs, _list_rows.back()))
+	_grain_set = _row_set(bufs, LATransportRecords.grain_row())
+	_list_rows = LATransportRecords.list_rows()
+	for row: Dictionary in _list_rows:
+		var keys: Dictionary = LATransportRecords.list_buffers(String(row["label"]))
+		_list_sets.append(_row_set(bufs, row))
 		_list_args_rid.append(_single(bufs, String(keys["args"])))
 		_list_idx_rid.append(_single(bufs, String(keys["idx"])))
 	_driver.setup_transport(_plan(cc))
@@ -136,7 +128,7 @@ func _plan(cc: int) -> Dictionary:
 		"wake_args": _wake_args_rid, "grain_set": _grain_set, "list_sets": _list_sets,
 		"queue_bin": ActiveScript.QUEUE_BIN, "slots": LevelsScript.SLOTS,
 		"cell_count": cc, "total_count": _total,
-		"band_count": _band_count, "grain_record": GRAIN_ROW, "list_records": _list_rows}
+		"band_count": _band_count, "grain_record": LATransportRecords.grain_row(), "list_records": _list_rows}
 
 
 func _step(ctx: Dictionary) -> Dictionary:

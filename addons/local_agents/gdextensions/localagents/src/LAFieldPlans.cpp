@@ -277,6 +277,11 @@ void LAFieldDriver::_encode(Row &p_dst, const Dictionary &p_row, int p_cc, int p
 		channel_args.append(p_row["channel"]);
 		cap = double(entry.get("molar_mass", 0.0))
 				* double(la_call_gd(MATTER_GD, "channel_specific_heat", channel_args));
+		if (!std::isfinite(cap) || cap < 0.0) {
+			_abort = "transport/invalid_heat_capacity";
+			UtilityFunctions::push_error(vformat("LAFieldDriver: channel %s has no valid heat capacity", p_row["channel"]));
+			return;
+		}
 	}
 
 	Block b;
@@ -353,7 +358,7 @@ Array LAFieldDriver::_table(const Row &p_row) const {
 	table.resize(SLOT_COUNT);
 	for (int slot = 0; slot < SLOT_COUNT; ++slot) {
 		PackedByteArray block;
-		if ((p_row.slots & (1u << slot)) != 0) {
+		if ((p_row.slots & (1u << slot)) != 0 && !p_row.block.is_empty()) {
 			block = p_row.block.duplicate();
 			put_u32(block.ptrw(), _off.pass, tags[slot]);
 			if (slot == SLOT_ACT_SEED) { put_u32(block.ptrw(), _off.act_group, uint32_t(_group_count)); }
@@ -467,6 +472,7 @@ Dictionary LAFieldDriver::reduce_plan() const {
 PackedByteArray LAFieldDriver::peak_block(int p_row, int p_group, const Dictionary &p_step) {
 	ERR_FAIL_INDEX_V(p_row, int(_transport_rows.size()), PackedByteArray());
 	_stamp_step(p_step);
+	if (_transport_rows[p_row].block.is_empty()) { return PackedByteArray(); }
 	PackedByteArray block = _transport_rows[p_row].block.duplicate();
 	put_u32(block.ptrw(), _off.pass, 13u);
 	put_u32(block.ptrw(), _off.level, uint32_t(p_group));

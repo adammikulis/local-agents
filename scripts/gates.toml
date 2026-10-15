@@ -1193,3 +1193,11 @@ mutation = [
   "python3 -c \"from pathlib import Path; p=Path('addons/local_agents/gdextensions/localagents/include/LAParallel.hpp'); p.write_text(p.read_text().replace('LASeedCancellation cancellation(token);', 'LASeedCancellation cancellation(nullptr);'))\"",
   "python3 -c \"from pathlib import Path; p=Path('addons/local_agents/gdextensions/localagents/include/LAParallel.hpp'); p.write_text(p.read_text().replace('if (failure) { std::rethrow_exception(failure); }', ''))\"",
 ]
+
+[[gate]]
+name = "check_plan_refusal"
+script = "scripts/check_plan_refusal.sh"
+kind = "gpu"
+needs = ["import", "build"]
+marker = "^check_plan_refusal: OK"
+mutation = '''python3 -c 'from pathlib import Path; p=Path("addons/local_agents/gdextensions/localagents/src/LAFieldPlans.cpp"); s=p.read_text(); old="if (!std::isfinite(cap) || cap < 0.0) {"; assert old in s; p.write_text(s.replace(old,"if (false) {"))' '''

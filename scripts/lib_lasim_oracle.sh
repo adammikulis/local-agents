@@ -165,7 +165,7 @@ func _run() -> void:
 			if _bufs.has(String(name)):
 				continue
 			var spec: Variant = want[name]
-			_bufs[String(name)] = _f32(int(spec["n"]) if spec is Dictionary else int(spec))
+			_bufs[String(name)] = _f32(int(spec["n"]) * int(spec.get("stride", 1)) if spec is Dictionary else int(spec))
 	# NO SOLVED GRAVITY IN A BOX WITH NO GRAVITY PASS, so no cell has a vertical neighbour: -1 is the
 	# absence the kernels read, where a zero fill would claim every cell sits on cell 0.
 	var none: PackedInt32Array = PackedInt32Array()
