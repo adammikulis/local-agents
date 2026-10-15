@@ -99,7 +99,7 @@ func _ready() -> void:
 	_sim.set_probe_flags(_input.overview(), _input.farview(), _input.auto_meteor(), _input.auto_select())
 	if _input.llm():
 		_sim.enable_llm()
-	_sim.loop().stepped.connect(_on_sim_step)
+	_sim.loop().subscribe(_on_sim_step)
 	_material = _sim.material_field()
 	_ecology = _sim.ecology()
 	_body = _sim.body()

@@ -571,8 +571,8 @@ func _fire_count() -> int:
 	if _world.get("_ecology") == null:
 		return 0
 	var eco = _world.get("_ecology")
-	if eco != null and eco.has_method("fire_system"):
-		var fs = eco.fire_system()
+	if eco != null and eco.has_method("material_field"):
+		var fs = eco.material_field()
 		if fs != null and fs.has_method("active_fire_count"):
 			return int(fs.active_fire_count())
 	return 0

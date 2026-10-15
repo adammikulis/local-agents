@@ -144,7 +144,7 @@ func hot_spring_stats() -> Dictionary:
 func geotherm_stats() -> Dictionary:
 	var out: Dictionary = {"geo_radiogenic_w": null, "geo_grad_c_per_m": null,
 		"geo_grad_max_c_per_m": null, "geo_grad_pairs": row_v("geo_grad_pairs", true)}
-	var dt_s: float = LAMaterialFieldSphereStep3D.real_seconds_per_step()
+	var dt_s: float = LAMaterialFieldSphereStep3D.SIM_SECONDS_PER_STEP
 	var j = row_v("radiogenic", false)
 	if j != null and dt_s > 0.0:
 		out["geo_radiogenic_w"] = float(j) / dt_s

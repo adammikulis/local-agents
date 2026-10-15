@@ -128,7 +128,7 @@ static func serialize(recs: Array) -> PackedByteArray:
 		# THE ONE PLACE the step quantum enters a rate; the kernel has no dt and record modules may not fold it.
 		var k_folded: float = float(rec.get("rate_k", 0.0))
 		if String(rec.get("k_timebase", "")) == TB_PER_SECOND:
-			k_folded *= LAMaterialFieldSphereStep3D.real_seconds_per_step()
+			k_folded *= LAMaterialFieldSphereStep3D.SIM_SECONDS_PER_STEP
 		buf.encode_s32(base + 0, int(rec.get("rate_model", RM_CONST_FRAC)))
 		buf.encode_float(base + 4, k_folded)
 		buf.encode_float(base + 8, float(rec.get("threshold", 0.0)))

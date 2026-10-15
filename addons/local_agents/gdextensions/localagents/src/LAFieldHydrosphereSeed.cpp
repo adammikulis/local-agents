@@ -1,3 +1,4 @@
+#include "LASeedCancellation.hpp"
 #include "LAFieldHydrosphereSeed.hpp"
 
 #include "LAFieldMirrors.hpp"
@@ -105,6 +106,7 @@ PackedFloat32Array LAFieldHydrosphereSeed::saturated_share(Object *p_field) {
 	out.resize(cc);
 	float *w = out.ptrw();
 	for (int c = 0; c < cc; c++) {
+		LASeedCancellation::check();
 		const double f = std::max(double(rock[c]), 0.0);
 		w[c] = 0.0f;
 		if (regolith[c] == 0 || !(f > 0.0)) {
@@ -178,6 +180,7 @@ void LAFieldHydrosphereSeed::seed(Object *p_field, const Dictionary &p_air, cons
 		};
 		const double rho_sea = rho_saturated(t_s);
 		for (int c = 0; c < cc; c++) {
+			LASeedCancellation::check();
 			const double f_sea = std::clamp(double(water[c]), 0.0, 1.0);
 			const double v_pore = double(porosity[c]) * std::clamp(double(sat[c]), 0.0, 1.0);
 			const double rho_pore = v_pore > 0.0 ? rho_saturated(double(t_rock[c])) : 0.0;
@@ -259,6 +262,7 @@ void LAFieldHydrosphereSeed::seed(Object *p_field, const Dictionary &p_air, cons
 	{
 		std::vector<int> up(cc, -1);
 		for (int c = 0; c < cc; c++) {
+			LASeedCancellation::check();
 			up[c] = up_of[c];
 		}
 		ERR_FAIL_COND_MSG(!la_column_levels(up, std::vector<char>(cc, 1), levels), "LAFieldHydrosphereSeed: the "
@@ -327,6 +331,7 @@ void LAFieldHydrosphereSeed::seed(Object *p_field, const Dictionary &p_air, cons
 	};
 	for (const std::vector<int> &level : levels) {
 		for (const int c : level) {
+			LASeedCancellation::check();
 			lay(c);
 		}
 		ERR_FAIL_COND_MSG(bad_cell >= 0, "LAFieldHydrosphereSeed: cell " + String::num_int64(bad_cell)
@@ -350,6 +355,7 @@ Dictionary LAFieldHydrosphereSeed::wetness(Object *p_field) {
 	}
 	int cells = 0, wet = 0;
 	for (int c = 0; c < n; c++) {
+		LASeedCancellation::check();
 		if (regolith[c] == 0) {
 			continue;
 		}
@@ -377,6 +383,7 @@ Dictionary LAFieldHydrosphereSeed::wetness(Object *p_field) {
 	}
 	int vacuum = 0;
 	for (int c = 0; c < n; c++) {
+		LASeedCancellation::check();
 		if (regolith[c] == 0 || !(double(porosity[c]) * (double(rock[c]) - double(sat[c])) > 0.0)) {
 			continue;
 		}

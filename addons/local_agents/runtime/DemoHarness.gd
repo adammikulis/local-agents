@@ -49,6 +49,7 @@ const DEFAULT_SHOOT_SIZE: Vector2i = Vector2i(1280, 800)
 
 var _frame: int = 0          # run length, in SIM STEPS when a LASimLoop is running; physics ticks otherwise.
 var _render_frame: int = 0   # render frames only; drives shoot_frames
+var _shot_timed_out: bool = false
 var _ready_frames: int = 0   # consecutive frames the host has called the picture worth taking
 var _done: bool = false
 
@@ -128,7 +129,7 @@ func _process(_delta: float) -> void:
 			return
 		_done = true
 		_capture(shoot_path)
-		_quit(0)
+		_quit(2 if _shot_timed_out else 0)
 		return
 	# ONE LAUNCH, MANY PICTURES: move to the pose, let the ground arrive under it, photograph, next.
 	if _pose_applied != _pose_index:
@@ -147,7 +148,7 @@ func _process(_delta: float) -> void:
 	_capture(pose_path(shoot_path, _pose_index, pose),
 		" shot_index=%d shot_pose=%s" % [_pose_index, pose_tag(pose)])
 	_ready_frames = 0
-	if _without.is_empty():
+	if _shot_timed_out or _without.is_empty():
 		_next_pose()
 		return
 	_without_at = 0
@@ -185,6 +186,10 @@ func _switch_without(on: bool) -> void:
 
 
 func _next_pose() -> void:
+	if _shot_timed_out:
+		_done = true
+		_quit(2)
+		return
 	_pose_index += 1
 	if _pose_index >= _poses.size():
 		_done = true
@@ -212,11 +217,16 @@ func _settled() -> bool:
 	if not _has_shot_ready_hook():
 		return true
 	_ready_frames = _ready_frames + 1 if bool(report_source.call("demo_shot_ready")) else 0
-	return _ready_frames >= SHOT_SETTLE_FRAMES or Time.get_ticks_msec() >= _pose_deadline_ms
+	if _ready_frames >= SHOT_SETTLE_FRAMES:
+		return true
+	_shot_timed_out = Time.get_ticks_msec() >= _pose_deadline_ms
+	return _shot_timed_out
 
 
-## An equal share of what is left of the run for each pose still to be taken.
+## The first pose waits for startup; subsequent poses share the remaining run time.
 func _pose_budget_ms(index: int) -> int:
+	if index == 0:
+		return _shot_deadline_ms()
 	var now: int = Time.get_ticks_msec()
 	var left: int = maxi(_shot_deadline_ms() - now, 1)
 	return now + int(float(left) / float(maxi(_poses.size() - index, 1)))
@@ -273,7 +283,8 @@ func _tick_run() -> void:
 	if loop != null and loop.failure != "":
 		_done = true
 		emit_report()
-		print("RUN_FAILED=" + JSON.stringify({"step": loop.step_index(), "reason": loop.failure}))
+		print("RUN_FAILED=" + JSON.stringify({"step": loop.failed_step, "committed": loop.step_index(),
+			"reason": loop.failure}))
 		_quit(EXIT_RUN_FAILED)
 		return
 	_frame = loop.step_index() if loop != null else _frame + 1

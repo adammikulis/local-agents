@@ -56,8 +56,6 @@ func seal_step() -> int:
 func poll(legs: Dictionary) -> bool:
 	if _phase == Phase.SEALED:
 		return false
-	if _f == null or not _f._ready_sim:
-		return false
 	var cc: int = _f._cell_count
 	if cc <= 0:
 		return false

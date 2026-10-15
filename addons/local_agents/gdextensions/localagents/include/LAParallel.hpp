@@ -1,7 +1,10 @@
 #ifndef LOCAL_AGENTS_LA_PARALLEL_HPP
 #define LOCAL_AGENTS_LA_PARALLEL_HPP
 
+#include "LASeedCancellation.hpp"
 #include <algorithm>
+#include <exception>
+#include <mutex>
 #include <atomic>
 #include <thread>
 #include <vector>
@@ -15,22 +18,39 @@ void la_parallel_for(int p_count, const F &p_fn) {
 	const int workers = int(std::max(std::thread::hardware_concurrency(), 1u));
 	const int chunk = 16;
 	std::atomic<int> next(0);
+	const auto token = LASeedCancellation::token();
+	std::atomic<bool> failed(false);
+	std::mutex failure_mutex;
+	std::exception_ptr failure;
 	auto run = [&]() {
-		for (int lo = next.fetch_add(chunk); lo < p_count; lo = next.fetch_add(chunk)) {
-			const int hi = std::min(lo + chunk, p_count);
-			for (int i = lo; i < hi; i++) {
-				p_fn(i);
+		LASeedCancellation cancellation(token);
+		try {
+			for (int lo = next.fetch_add(chunk); lo < p_count && !failed.load(); lo = next.fetch_add(chunk)) {
+				const int hi = std::min(lo + chunk, p_count);
+				for (int i = lo; i < hi && !failed.load(); i++) {
+					LASeedCancellation::check();
+					p_fn(i);
+				}
 			}
+		} catch (...) {
+			std::lock_guard<std::mutex> guard(failure_mutex);
+			if (!failure) { failure = std::current_exception(); }
+			failed.store(true);
 		}
 	};
 	std::vector<std::thread> pool;
-	for (int t = 1; t < workers && t * chunk < p_count; t++) {
-		pool.emplace_back(run);
+	try {
+		for (int t = 1; t < workers && t * chunk < p_count; t++) {
+			pool.emplace_back(run);
+		}
+	} catch (...) {
+		failed.store(true);
+		for (std::thread &t : pool) { t.join(); }
+		throw;
 	}
 	run();
-	for (std::thread &t : pool) {
-		t.join();
-	}
+	for (std::thread &t : pool) { t.join(); }
+	if (failure) { std::rethrow_exception(failure); }
 }
 
 // Cells in the order their column's top-down walk reaches them: levels[k] holds every cell k steps below
@@ -41,12 +61,14 @@ inline bool la_column_levels(const std::vector<int> &p_up, const std::vector<cha
 	std::vector<int> depth(n, -1), chain;
 	r_levels.clear();
 	for (int c = 0; c < n; c++) {
+		LASeedCancellation::check();
 		if (!p_in[c] || depth[c] >= 0) {
 			continue;
 		}
 		chain.clear();
 		int base = 0;
 		for (int a = c;;) {
+			LASeedCancellation::check();
 			chain.push_back(a);
 			if (int(chain.size()) > n) {
 				return false;
@@ -63,6 +85,7 @@ inline bool la_column_levels(const std::vector<int> &p_up, const std::vector<cha
 		}
 	}
 	for (int c = 0; c < n; c++) {
+		LASeedCancellation::check();
 		if (depth[c] >= 0) {
 			if (int(r_levels.size()) <= depth[c]) {
 				r_levels.resize(depth[c] + 1);

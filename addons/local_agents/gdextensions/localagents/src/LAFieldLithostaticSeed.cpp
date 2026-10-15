@@ -1,3 +1,4 @@
+#include "LASeedCancellation.hpp"
 #include "LAFieldLithostaticSeed.hpp"
 
 #include "LAFieldMirrors.hpp"
@@ -76,6 +77,7 @@ std::vector<Mirror> channel_mirrors(Object *p_field, const String &p_key, const 
 	const int cc = int(p_field->get("_cell_count"));
 	const Array names = rows.keys();
 	for (int i = 0; i < names.size(); i++) {
+		LASeedCancellation::check();
 		const String name = names[i];
 		const Dictionary row = rows[name];
 		const bool wanted = p_value.is_empty() ? bool(row.get(p_key, false))
@@ -111,6 +113,7 @@ CubeColumn cube_column(double p_edge, const Vector3 &p_up) {
 	const double whole = n[0] + n[1] + n[2];
 	CubeColumn col;
 	for (int i = 0; i < 3; i++) {
+		LASeedCancellation::check();
 		if (n[i] > zeta * whole) {
 			col.n[col.k++] = n[i];
 			col.span += n[i];
@@ -126,14 +129,17 @@ double column_below(const CubeColumn &p_col, double p_s) {
 	}
 	double prod = 1.0;
 	for (int i = 0; i < p_col.k; i++) {
+		LASeedCancellation::check();
 		prod *= p_col.n[i];
 	}
 	const double fact = p_col.k == 3 ? 6.0 : (p_col.k == 2 ? 2.0 : 1.0);
 	double sum = 0.0;
 	for (int m = 0; m < (1 << p_col.k); m++) {
+		LASeedCancellation::check();
 		double t = p_s;
 		int bits = 0;
 		for (int i = 0; i < p_col.k; i++) {
+			LASeedCancellation::check();
 			if (m & (1 << i)) {
 				t -= p_col.n[i];
 				bits++;
@@ -144,6 +150,7 @@ double column_below(const CubeColumn &p_col, double p_s) {
 		}
 		double term = 1.0;
 		for (int j = 0; j < p_col.k; j++) {
+			LASeedCancellation::check();
 			term *= t;
 		}
 		sum += (bits & 1) ? -term : term;
@@ -160,13 +167,16 @@ void column_section(const CubeColumn &p_col, double p_s0, double p_mid, double p
 	}
 	double prod = 1.0;
 	for (int i = 0; i < p_col.k; i++) {
+		LASeedCancellation::check();
 		prod *= p_col.n[i];
 	}
 	const double fact = p_col.k == 3 ? 2.0 : 1.0;
 	for (int m = 0; m < (1 << p_col.k); m++) {
+		LASeedCancellation::check();
 		double corner = 0.0;
 		int bits = 0;
 		for (int i = 0; i < p_col.k; i++) {
+			LASeedCancellation::check();
 			if (m & (1 << i)) {
 				corner += p_col.n[i];
 				bits++;
@@ -189,6 +199,7 @@ void column_section(const CubeColumn &p_col, double p_s0, double p_mid, double p
 		}
 	}
 	for (int j = 0; j < 3; j++) {
+		LASeedCancellation::check();
 		p_a[j] /= fact * prod;
 	}
 }
@@ -199,17 +210,19 @@ const std::vector<double> &gauss_legendre(int p_n) {
 	if (int(rules.size()) <= p_n) {
 		rules.resize(p_n + 1);
 	}
-	std::vector<double> &r = rules[p_n];
-	if (!r.empty()) {
-		return r;
+	if (!rules[p_n].empty()) {
+		return rules[p_n];
 	}
-	r.assign(2 * p_n, 0.0);   // node, weight, node, weight...
+	std::vector<double> r(2 * p_n, 0.0);   // node, weight, node, weight...
 	for (int i = 0; i < (p_n + 1) / 2; i++) {
+		LASeedCancellation::check();
 		double x = std::cos(Math::PI * (double(i) + 0.75) / (double(p_n) + 0.5));
 		double dp = 1.0;
 		for (int it = 0; it < 100; it++) {
+			LASeedCancellation::check();
 			double p0 = 1.0, p1 = x;
 			for (int k = 2; k <= p_n; k++) {
+				LASeedCancellation::check();
 				const double p2 = ((2.0 * k - 1.0) * x * p1 - (k - 1.0) * p0) / double(k);
 				p0 = p1;
 				p1 = p2;
@@ -229,7 +242,8 @@ const std::vector<double> &gauss_legendre(int p_n) {
 		r[2 * (p_n - 1 - i)] = x;
 		r[2 * (p_n - 1 - i) + 1] = w;
 	}
-	return r;
+	rules[p_n] = std::move(r);
+	return rules[p_n];
 }
 
 // Bernstein-ellipse parameters tau = ln rho the bound is minimised over. Any tau > 0 is a valid bound;
@@ -238,6 +252,7 @@ struct EllipseSet {
 	double tau[25], cosh_tau[25], log_rho2m1[25];
 	EllipseSet() {
 		for (int k = 0; k < 25; k++) {
+			LASeedCancellation::check();
 			tau[k] = std::pow(2.0, 0.5 * double(k)) / 32.0;
 			cosh_tau[k] = std::cosh(tau[k]);
 			log_rho2m1[k] = std::log(std::expm1(2.0 * tau[k]));
@@ -272,8 +287,10 @@ double cell_air_share(const CubeColumn &p_col, double p_cut, double p_phi_c, dou
 	int nb = 0;
 	bp[nb++] = p_cut;
 	for (int m = 1; m < (1 << p_col.k) - 1; m++) {
+		LASeedCancellation::check();
 		double v = 0.0;
 		for (int i = 0; i < p_col.k; i++) {
+			LASeedCancellation::check();
 			if (m & (1 << i)) {
 				v += p_col.n[i];
 			}
@@ -286,6 +303,7 @@ double cell_air_share(const CubeColumn &p_col, double p_cut, double p_phi_c, dou
 	std::sort(bp, bp + nb);
 	double out = 0.0;
 	for (int b = 0; b + 1 < nb; b++) {
+		LASeedCancellation::check();
 		const double len = bp[b + 1] - bp[b];
 		if (!(len > 0.0)) {
 			continue;
@@ -312,6 +330,7 @@ double cell_air_share(const CubeColumn &p_col, double p_cut, double p_phi_c, dou
 		};
 		double n_need = INFINITY;
 		for (int k = 0; k < 25; k++) {
+			LASeedCancellation::check();
 			// log_bound(k, n) <= log_bound(k, 1) - (2n - 2) tau.
 			const double excess = log_bound(k, 1.0) - log_tol;
 			n_need = std::min(n_need, 1.0 + std::ceil(std::max(excess, 0.0) / (2.0 * ELLIPSES.tau[k])));
@@ -322,6 +341,7 @@ double cell_air_share(const CubeColumn &p_col, double p_cut, double p_phi_c, dou
 		const int n = int(n_need);
 		bool held = false;
 		for (int k = 0; k < 25 && !held; k++) {
+			LASeedCancellation::check();
 			held = n >= 1 && log_bound(k, double(n)) <= log_tol;
 		}
 		if (!held) {
@@ -330,6 +350,7 @@ double cell_air_share(const CubeColumn &p_col, double p_cut, double p_phi_c, dou
 		const std::vector<double> &rule = gauss_legendre(n);
 		double sum = 0.0;
 		for (int i = 0; i < n; i++) {
+			LASeedCancellation::check();
 			const double x = rule[2 * i];
 			const double t = h * (1.0 + x);
 			sum += rule[2 * i + 1] * (a[0] + a[1] * t + a[2] * t * t) * std::exp(exponent(zm + h * x));
@@ -387,6 +408,7 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 	std::vector<double> edge(cc, 0.0), vol(cc, 0.0), g_mag(cc, 0.0), g_step(cc, 0.0);
 	bool pulled = false;
 	for (int c = 0; c < cc; c++) {
+		LASeedCancellation::check();
 		edge[c] = double(edges[c]);
 		vol[c] = edge[c] * edge[c] * edge[c];
 		const Vector3 gv(p_g_rest[c * 3], p_g_rest[c * 3 + 1], p_g_rest[c * 3 + 2]);
@@ -424,6 +446,7 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 	std::vector<Chan> ch(nm);
 	std::vector<float *> amt(nm, nullptr);
 	for (size_t i = 0; i < nm; i++) {
+		LASeedCancellation::check();
 		const Dictionary row = rows.get(mats[i].name, Dictionary());
 		Chan &k = ch[i];
 		k.sub = mats[i].substance;
@@ -450,6 +473,7 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 		rho[c] = 0.0;
 		rho_lat[c] = 0.0;
 		for (size_t i = 0; i < nm; i++) {
+			LASeedCancellation::check();
 			const double n = double(amt[i][c]);
 			if (n > 0.0) {
 				rho[c] += n * ch[i].mm;
@@ -460,6 +484,7 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 	// A cell holds fluid where it holds gas, pore water or any other condensed phase than the grains.
 	auto holds_fluid = [&](int c) {
 		for (size_t i = 0; i < nm; i++) {
+			LASeedCancellation::check();
 			if ((ch[i].kind == GAS || ch[i].kind == PORE || ch[i].kind == CONDENSED) && amt[i][c] > 0.0f) {
 				return true;
 			}
@@ -489,6 +514,7 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 		double v_lat = 0.0;
 		parts.clear();
 		for (size_t i = 0; i < nm; i++) {
+			LASeedCancellation::check();
 			const double n = double(amt[i][c]);
 			if (!(n > 0.0) || ch[i].kind == SOLUTE) {
 				continue;
@@ -521,8 +547,10 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 		double b_free = 0.0, c_free = 0.0, a_vap = 0.0, sa_vap = 0.0, sb_vap = 0.0;
 		bool settled = false;
 		for (int it = 0; it < HALVINGS && !settled; it++) {
+			LASeedCancellation::check();
 			b_free = c_free = a_vap = sa_vap = sb_vap = 0.0;
 			for (const Part &q : parts) {
+				LASeedCancellation::check();
 				const Chan &k = ch[q.i];
 				const double fv = (!std::isnan(q.p_v) && room > 0.0)
 						? LAMixtureEnthalpy::vapour_share(k.sub, q.t, q.m, room, q.p_v) : 0.0;
@@ -570,6 +598,7 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 		double p = p_std, p_prev = NAN, f_prev = NAN;
 		double width = INFINITY;
 		for (int it = 0; it < 2 * HALVINGS; it++) {
+			LASeedCancellation::check();
 			const double pe = p_eos(c, p, rock_at(c, p), pore_fluid);
 			if (!std::isfinite(pe)) {
 				return NAN;
@@ -615,6 +644,7 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 		}
 		double v_now = 0.0;
 		for (size_t i = 0; i < nm; i++) {
+			LASeedCancellation::check();
 			const double n = double(amt[i][c]);
 			if (ch[i].kind == GRAIN && n > 0.0) {
 				v_now += n * ch[i].mm * LAPhaseEosFn::condensed_volume(*ch[i].eos, double(p_t_rock[c]), p_rock);
@@ -625,6 +655,7 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 		}
 		const double k = (1.0 - phi) * f / v_now;
 		for (size_t i = 0; i < nm; i++) {
+			LASeedCancellation::check();
 			if (ch[i].kind == GRAIN) {
 				amt[i][c] = float(double(amt[i][c]) * k);
 			}
@@ -635,6 +666,7 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 	};
 
 	for (int c = 0; c < cc; c++) {
+		LASeedCancellation::check();
 		weigh(c);
 	}
 	// THE PORES CLOSE UNDER THE LOAD THEIR FRAME CARRIES: phi_0 exp(-sigma' / P_c) at sigma' the lattice's
@@ -647,6 +679,7 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 	const double p_close = la_physical("CRUST_POROSITY_CLOSURE_PA");
 	std::vector<double> pore_air(cc, 0.0);
 	for (int c = 0; compacts && c < cc; c++) {
+		LASeedCancellation::check();
 		pore_air[c] = double(p_pore_air[c]);
 	}
 	bool compacted = false;
@@ -672,6 +705,7 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 		const double r = next / was;
 		const double keep = 1.0 - pore_air[c] + pore_air[c] * r;
 		for (size_t i = 0; i < nm; i++) {
+			LASeedCancellation::check();
 			if (ch[i].kind == PORE) {
 				amt[i][c] = float(double(amt[i][c]) * r);
 			} else if (ch[i].kind == GAS) {
@@ -686,12 +720,14 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 	};
 	// AN OPEN CELL STANDS AT THE PRESSURE ITS OWN MATTER STATES, the derive's own rule.
 	for (int c = 0; c < cc; c++) {
+		LASeedCancellation::check();
 		if (solid[c] != 0 || !(rho[c] > 0.0)) {
 			continue;
 		}
 		bool settled = false;
 		double last = INFINITY;
 		for (int round = 0; round < HALVINGS && !settled; round++) {
+			LASeedCancellation::check();
 			p_open[c] = solve(c, false);
 			const double k = std::isnan(p_open[c]) ? NAN : relay(c, rock_at(c, p_open[c]));
 			ERR_FAIL_COND_V_MSG(std::isnan(k), Dictionary(), "LAFieldLithostaticSeed: open cell "
@@ -712,6 +748,7 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 		double top = 0.0;
 		int a = column ? up_of[c] : -1;
 		for (int k = 0; k < walk_max && a >= 0; k++) {
+			LASeedCancellation::check();
 			if (solid[a] == 0) {
 				top = p_open[a] + 0.5 * (rho[a] + rho_lat[a]) * g_step[a];
 				break;
@@ -728,6 +765,7 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 		std::vector<int> up(cc, -1);
 		std::vector<char> in(cc, 0);
 		for (int c = 0; c < cc; c++) {
+			LASeedCancellation::check();
 			up[c] = column ? up_of[c] : -1;
 			in[c] = solid[c] != 0;
 		}
@@ -739,14 +777,18 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 	// surface it is the sea and air there, the pore water the lattice's. Its rock carries the column over its
 	// centre on every rung, whether or not the hydrostatic rung steps that column.
 	for (const std::vector<int> &level : levels) {
+		LASeedCancellation::check();
 		for (const int c : level) {
+			LASeedCancellation::check();
 			const bool fluid = holds_fluid(c);
 			const bool pore_fluid = !(double(rock_fr[c]) < 1.0);
 			bool closed = false;
 			double last = INFINITY;
 			for (int step = 0; step < HALVINGS && !closed; step++) {
+				LASeedCancellation::check();
 				bool settled = false;
 				for (int round = 0; round < HALVINGS && !settled; round++) {
+					LASeedCancellation::check();
 					p_col[c] = walk(c);
 					const double k = relay(c, p_col[c]);
 					ERR_FAIL_COND_V_MSG(std::isnan(k), Dictionary(), "LAFieldLithostaticSeed: locked cell "
@@ -771,6 +813,7 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 	}
 	if (compacted) {
 		for (size_t i = 0; i < nm; i++) {
+			LASeedCancellation::check();
 			if (ch[i].kind == PORE || ch[i].kind == GAS) {
 				LAFieldMirrors::store(p_field, mats[i].name, mats[i].arr);
 			}
@@ -779,6 +822,7 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 	}
 	if (relaid) {
 		for (size_t i = 0; i < nm; i++) {
+			LASeedCancellation::check();
 			if (ch[i].kind == GRAIN) {
 				LAFieldMirrors::store(p_field, mats[i].name, mats[i].arr);
 			}
@@ -797,6 +841,7 @@ Dictionary LAFieldLithostaticSeed::compress(Object *p_field, const PackedFloat32
 	float *pr = p_rock.ptrw();
 	float *rw = room.ptrw();
 	for (int c = 0; c < cc; c++) {
+		LASeedCancellation::check();
 		const bool open = solid[c] == 0;
 		const double p = open ? p_open[c] : p_fl[c];
 		const double rock = rock_at(c, p);
@@ -855,6 +900,7 @@ Dictionary LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_te
 	}
 	bool pulled = false;
 	for (int c = 0; c < cc && !pulled; c++) {
+		LASeedCancellation::check();
 		const Vector3 g(p_gravity[c * 3], p_gravity[c * 3 + 1], p_gravity[c * 3 + 2]);
 		pulled = g.length() > 0.0;
 	}
@@ -891,6 +937,7 @@ Dictionary LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_te
 	std::vector<double> molar(gases.size(), 0.0);
 	double mol_sum = 0.0, kg_sum = 0.0;
 	for (size_t i = 0; i < gases.size(); i++) {
+		LASeedCancellation::check();
 		const Mirror &m = gases[i];
 		molar[i] = double(Dictionary(table.get(m.substance, Dictionary())).get("molar_mass", 0.0));
 		moles[i] = n2_mol * double(x.get(m.name, 0.0)) / x_n2;
@@ -929,10 +976,12 @@ Dictionary LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_te
 	std::vector<char> sky(cc, 0);
 	std::vector<int> front;
 	for (int c = 0; c < cc; c++) {
+		LASeedCancellation::check();
 		if (solid[c] != 0) {
 			continue;
 		}
 		for (int f2 = slot_off[c * 7]; f2 < slot_off[c * 7 + 6]; f2++) {
+			LASeedCancellation::check();
 			if (nbr[f2] < 0) {
 				sky[c] = 1;
 				front.push_back(c);
@@ -941,9 +990,11 @@ Dictionary LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_te
 		}
 	}
 	while (!front.empty()) {
+		LASeedCancellation::check();
 		const int c = front.back();
 		front.pop_back();
 		for (int f2 = slot_off[c * 7]; f2 < slot_off[c * 7 + 6]; f2++) {
+			LASeedCancellation::check();
 			const int n = nbr[f2];
 			if (n < 0 || n >= cc || sky[n] != 0
 					|| (solid[n] != 0 && !(open_room(n) > 0.0) && !(dry_pores(n) > 0.0))) {
@@ -962,6 +1013,7 @@ Dictionary LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_te
 	double phi_0 = 0.0;
 	int at_sea = 0;
 	for (int c = 0; c < cc; c++) {
+		LASeedCancellation::check();
 		if (!std::isfinite(double(p_phi[c]))) {
 			continue;
 		}
@@ -999,9 +1051,11 @@ Dictionary LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_te
 		int n = int(std::ceil((r_top - r_sea) / h_sea));
 		double prev = -1.0;
 		for (int it = 0; it < 40; it++) {
+			LASeedCancellation::check();
 			const double h = (r_top - r_sea) / double(n);
 			double sum = 0.0;
 			for (int i = 0; i < n; i++) {
+				LASeedCancellation::check();
 				const double r = r_sea + (double(i) + 0.5) * h;
 				sum += std::exp(-(gm / r_sea - gm / r) / rt_over_m) * (r / r_sea) * (r / r_sea) * h;
 			}
@@ -1021,6 +1075,7 @@ Dictionary LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_te
 		};
 		double lo = r_sea, hi = r_sea + h_sea, step = h_sea;
 		for (int i = 0; i < 200 && excess(hi) > 0.0; i++) {
+			LASeedCancellation::check();
 			lo = hi;
 			step *= 2.0;
 			hi += step;
@@ -1029,6 +1084,7 @@ Dictionary LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_te
 			return NAN;
 		}
 		for (int i = 0; i < 200; i++) {
+			LASeedCancellation::check();
 			const double mid = 0.5 * (lo + hi);
 			if (excess(mid) > 0.0) {
 				lo = mid;
@@ -1045,6 +1101,7 @@ Dictionary LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_te
 		double r_exo = 0.0;
 		bool settled = false;
 		for (int it = 0; it < 12 && !settled; it++) {
+			LASeedCancellation::check();
 			const double r_next = exobase_of(n0);
 			const double s = std::isfinite(r_next) ? shell_to(r_next) : NAN;
 			if (!std::isfinite(s) || !(s > 0.0)) {
@@ -1082,6 +1139,7 @@ Dictionary LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_te
 			}
 			double lo = 0.0, hi = col.span;
 			for (int i = 0; i < 60; i++) {
+				LASeedCancellation::check();
 				const double mid = 0.5 * (lo + hi);
 				if (column_below(col, mid) < p_share) {
 					lo = mid;
@@ -1115,6 +1173,7 @@ Dictionary LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_te
 		}
 	});
 	for (int c = 0; c < cc; c++) {
+		LASeedCancellation::check();
 		if (std::isnan(shape[c])) {
 			UtilityFunctions::push_error("LAFieldLithostaticSeed.shape_atmosphere: no Gauss-Legendre count "
 					"holds a cell's barometric integral to float precision under its error bound.");
@@ -1122,10 +1181,12 @@ Dictionary LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_te
 		}
 	}
 	for (size_t i = 0; i < gases.size(); i++) {
+		LASeedCancellation::check();
 		Mirror &m = gases[i];
 		const double n0 = moles[i] / (area * shell);
 		float *w = m.arr.ptrw();
 		for (int c = 0; c < cc; c++) {
+			LASeedCancellation::check();
 			w[c] = float(n0 * shape[c]);
 		}
 	}
@@ -1137,13 +1198,17 @@ Dictionary LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_te
 		const double kn_limit = la_physical("KNUDSEN_CONTINUUM_LIMIT");
 		std::vector<double> n_m3(cc, 0.0);
 		for (const Mirror &m : gases) {
+			LASeedCancellation::check();
 			for (int c = 0; c < cc; c++) {
+				LASeedCancellation::check();
 				n_m3[c] += std::max(double(m.arr[c]), 0.0) * avogadro;
 			}
 		}
 		for (Mirror &m : gases) {
+			LASeedCancellation::check();
 			float *w = m.arr.ptrw();
 			for (int c = 0; c < cc; c++) {
+				LASeedCancellation::check();
 				const double e = double(edges[c]);
 				const bool collisionless = !(n_m3[c] > 0.0) || 1.0 / (sigma * n_m3[c]) > e * kn_limit;
 				if (collisionless) {
@@ -1162,6 +1227,7 @@ Dictionary LAFieldLithostaticSeed::shape_atmosphere(Object *p_field, double p_te
 	pore_share.resize(cc);
 	float *ps = pore_share.ptrw();
 	for (int c = 0; c < cc; c++) {
+		LASeedCancellation::check();
 		ps[c] = shape[c] > 0.0 ? float(in_pores[c] / shape[c]) : 0.0f;
 	}
 	air["pore_share"] = pore_share;
@@ -1175,6 +1241,7 @@ Dictionary LAFieldLithostaticSeed::seeded_air_mole_fractions() {
 	static const char *const SEEDED[] = { "n2", "co2", "h2", nullptr };
 	Dictionary out;
 	for (int k = 0; SEEDED[k]; k++) {
+		LASeedCancellation::check();
 		const CharString key = (String("PREBIOTIC_MOLE_FRAC_") + String(SEEDED[k]).to_upper()).utf8();
 		out[String(SEEDED[k])] = la_physical(key.get_data());
 	}
@@ -1188,6 +1255,7 @@ double LAFieldLithostaticSeed::seeded_air_rt_over_m(double p_temp_c) {
 	const Array names = x.keys();
 	double mol = 0.0, kg = 0.0;
 	for (int i = 0; i < names.size(); i++) {
+		LASeedCancellation::check();
 		const double n = double(x[names[i]]);
 		mol += n;
 		kg += n * double(Dictionary(table.get(names[i], Dictionary())).get("molar_mass", 0.0));
