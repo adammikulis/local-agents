@@ -168,7 +168,8 @@ def run_gate(g, root, ledger, stream):
     capture = os.path.isdir(env.get("LA_LINT_CAPTURE", ""))
     if launch_count(ledger) > launches_before and not effective_launcher(g, capture):
         chunks.append("%s launched an engine despite its no-launch declaration.\n" % g["label"])
-        rc = 1
+        if rc in (0, 1):
+            rc = 1
     return rc, "".join(chunks), time.monotonic() - started
 
 
@@ -313,7 +314,7 @@ def cmd_lint(args):
                         "rc": rc, "seconds": round(secs, 3), "launches": launches})
         if rc is None:
             tally["skipped"] += 1
-        elif not effective_launcher(g, bool(cap)) and launches:
+        elif rc in (0, 1) and not effective_launcher(g, bool(cap)) and launches:
             print("LINT_FAIL: %s (1) — declared launches = false in gates.toml and started the engine "
                   "%d time(s). A gate that starts one runs alone: drop the declaration."
                   % (g["label"], launches))

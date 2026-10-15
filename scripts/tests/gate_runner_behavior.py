@@ -73,6 +73,10 @@ print('OK')
  timeout_gate=gate('timeout', "exec sleep 20\n",shell=True)
  timeout_gate['timeout_s']=5
  assert r['run_gate'](timeout_gate,str(root),str(root/'timeout.launch'),False)[0]==2
+ launch_timeout=gate('launch_timeout', 'printf "engine\\n" >> "$LA_LAUNCH_LOG"; exec sleep 20\n',shell=True)
+ launch_timeout['timeout_s']=5
+ result=r['run_gate'](launch_timeout,str(root),str(root/'timeout-launch.launch'),False)
+ assert result[0]==2 and 'despite its no-launch declaration' in result[1],result
  import shutil
  globals_['stage_scratch']=lambda scratch:shutil.copytree(scripts,Path(scratch)/'scripts',dirs_exist_ok=True)
  globals_['arm_scratch']=lambda *args,**kwargs:True
@@ -142,3 +146,18 @@ with tempfile.TemporaryDirectory(prefix='la_budget_behavior.') as directory:
     log.write_text(log.read_text()+'LINT_BANKABLE=1\n')
     assert bank().returncode==0 and (docs/'FIELD_MS_CEILING').read_text().strip()=='2','complete full-run measurement did not bank'
 print('budget bootstrap and complete-run banking controls passed')
+
+from types import SimpleNamespace
+with tempfile.TemporaryDirectory(prefix='la_launch_unavailable.') as directory:
+    glob=r['cmd_lint'].__globals__
+    glob['ROOT']=directory
+    unavailable=dict(name='strict',label='strict',script='strict',kind='text',marker='OK',launches=False,capture_reader=False,last=False)
+    glob['load_gates']=lambda:[unavailable]
+    glob['make_capture']=lambda **kwargs:(directory,'')
+    glob['drain']=lambda *args,**kwargs:args[6](unavailable,2,'no completed verdict',1.0,1)
+    glob['note_seconds']=lambda *args:None
+    output=io.StringIO()
+    with contextlib.redirect_stdout(output):
+        status=r['cmd_lint'](SimpleNamespace(only=None,body=False,jobs=1,timing=False,json=None))
+    assert status==2 and 'LINT_UNRUNNABLE: strict' in output.getvalue() and 'LINT_FAIL:' not in output.getvalue(),output.getvalue()
+print('unavailable launch violations stay unexamined')

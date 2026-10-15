@@ -846,6 +846,7 @@ mutation = [
   '''python3 -c 'from pathlib import Path; p=Path("scripts/gate_runner.py"); s=p.read_text(); old='"'"'        chunks.append("%s printed no verdict inside %ds.\\n" % (g["label"], g["timeout_s"]))\n        rc = 2'"'"'; assert old in s; p.write_text(s.replace(old,'"'"'        chunks.append("%s printed no verdict inside %ds.\\n" % (g["label"], g["timeout_s"]))\n        rc = 124'"'"'))'''',
   '''python3 -c 'from pathlib import Path; p=Path('"'"'scripts/write_ceilings.sh'"'"'); s=p.read_text(); old='"'"'\t\tgrep -Fxq "LINT_BANKABLE=1" "$log" 2>/dev/null || continue'"'"'; assert old in s; p.write_text(s.replace(old,'"'"'\t\t:'"'"'))'''',
   '''python3 -c 'from pathlib import Path; p=Path('"'"'scripts/lib_capture.sh'"'"'); s=p.read_text(); old='"'"'case "$result" in 0|1|2) return "$result" ;; *) return 2 ;; esac'"'"'; assert old in s; p.write_text(s.replace(old,'"'"'return 0'"'"'))'''',
+  '''python3 -c 'from pathlib import Path; p=Path("scripts/gate_runner.py"); s=p.read_text(); old="        if rc in (0, 1):\n            rc = 1"; assert old in s; p.write_text(s.replace(old,"        rc = 1"))'''',
 ]
 
 [[gate]]
