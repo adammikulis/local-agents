@@ -36,9 +36,8 @@ var _peak_top: int = 0
 var _args_rid: RID = RID()
 var _peak_rid: RID = RID()
 var _wake_args_rid: RID = RID()
-## Interior cells plus the ghost tail, and the record -> its group slot.
+## Interior cells plus the ghost tail.
 var _total: int = 0
-var _row_group: PackedInt32Array = PackedInt32Array()
 ## Something outside this pass wrote the field, so the next step seeds every list with the whole box.
 var _wake_pending: bool = true
 ## Per record: its uniform set. An invalid entry is a record whose buffers the driver has not got.
@@ -100,10 +99,6 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	_level_rid = _single(bufs, LevelsScript.KEYS.level)
 	_wake_args_rid = _single(bufs, ActiveScript.KEYS.wake_args)
 	_total = cc + ghost_count
-	_row_group.resize(_rows.size())
-	for g in _row_groups.size():
-		for gi in _row_groups[g]:
-			_row_group[gi] = g
 
 	# Ghost tail cells are read by the interior cells beside them, so every per-cell buffer the
 	# kernel indexes carries the tail.
@@ -136,14 +131,11 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 ## What the native driver walks: the sets, the groups and the buffers. Every RECORD stays in
 ## LATransportRecords; nothing here restates one.
 func _plan(cc: int) -> Dictionary:
-	var radiate: PackedInt32Array = PackedInt32Array()
-	for row: Dictionary in _rows:
-		radiate.append(1 if int(row["mode"]) == LATransportRecords.RADIATE else 0)
-	return {"pipe": _pipe, "rows": _rows, "row_sets": _sets, "row_group": _row_group,
-		"row_radiate": radiate, "groups": _row_groups, "args": _args_rid,
+	return {"pipe": _pipe, "rows": _rows, "row_sets": _sets,
+		"args": _args_rid,
 		"wake_args": _wake_args_rid, "grain_set": _grain_set, "list_sets": _list_sets,
 		"queue_bin": ActiveScript.QUEUE_BIN, "slots": LevelsScript.SLOTS,
-		"group_count": group_count(), "cell_count": cc, "total_count": _total,
+		"cell_count": cc, "total_count": _total,
 		"band_count": _band_count, "grain_record": GRAIN_ROW, "list_records": _list_rows}
 
 
@@ -215,16 +207,6 @@ func pre_step(rd: RenderingDevice, ctx: Dictionary, cc: int, _groups: int) -> vo
 		for i in lv.size(): at = i if lv[i] > lv[at] else at
 		push_error("FluxPass: the %s record's own cells carry a signal speed at or past light, so "
 			% String(_rows[_row_groups[g2][0]]["channel"]) + "no timestep integrates them (cell %d)." % at)
-
-
-## The record that closes a group with the interface pressure and the body impulse.
-static func _vel_row(row: Dictionary) -> bool:
-	return bool(row.get("momentum", false))
-
-
-## A record of the acoustic substep group: the momentum close, or compressible matter flagged into it.
-static func _group_row(row: Dictionary) -> bool:
-	return _vel_row(row) or bool(row.get("acoustic", false))
 
 
 ## Cells each list holds after the last step; an `emit_idx` list also returns its occupied prefix.

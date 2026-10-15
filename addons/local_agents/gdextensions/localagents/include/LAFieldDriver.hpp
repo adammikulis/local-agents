@@ -121,7 +121,6 @@ private:
 		PackedByteArray block;
 		uint32_t slots = 0;
 		int group = 0;
-		String label;
 	};
 	struct Offsets {
 		int pass = 0, dt = 0, sun = 0, xuv = 0, level = 0, k = 0, n = 0, act_group = 0, phi = 0;
@@ -178,8 +177,6 @@ private:
 
 	RID _pipe;
 	Array _row_sets;
-	PackedInt32Array _row_group;
-	PackedInt32Array _row_radiate;
 	Array _rows;                  // the transport records this plan walks, in dispatch order
 	PackedInt32Array _row_live;   // 0 = this record's switch is off; it moves nothing this step
 	std::vector<std::string> _slot_keys;   // per owner (row, grain, list) and slot: its cost key

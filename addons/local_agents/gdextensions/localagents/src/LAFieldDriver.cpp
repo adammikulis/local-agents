@@ -521,17 +521,13 @@ void LAFieldDriver::step(const Array &p_passes, const PackedStringArray &p_names
 void LAFieldDriver::setup_transport(const Dictionary &p_plan) {
 	_pipe = plan_rid(p_plan, "pipe");
 	_row_sets = p_plan.get("row_sets", Array());
-	_row_group = p_plan.get("row_group", PackedInt32Array());
-	_row_radiate = p_plan.get("row_radiate", PackedInt32Array());
 	_rows = p_plan.get("rows", Array());
-	_groups = p_plan.get("groups", Array());
 	_args = plan_rid(p_plan, "args");
 	_wake_args = plan_rid(p_plan, "wake_args");
 	_grain_set = plan_rid(p_plan, "grain_set");
 	_list_sets = p_plan.get("list_sets", Array());
 	_queue_bin = plan_int(p_plan, "queue_bin", 0);
 	_slots = plan_int(p_plan, "slots", 0);
-	_group_count = plan_int(p_plan, "group_count", 1);
 	_encode_transport(p_plan);
 	_level_off = _off.level;
 	_k_off = _off.k;
@@ -653,7 +649,7 @@ void LAFieldDriver::_run_slot(int p_row, const Array &p_pc_rows, int p_slot, int
 	if (!uset.is_valid() || !_args.is_valid()) {
 		return;
 	}
-	const int group = p_row < _row_group.size() ? _row_group[p_row] : 0;
+	const int group = _transport_rows[p_row].group;
 	_plan(_key(p_row, p_slot), _pipe, uset, _block(p_pc_rows[p_row], p_slot, p_level, p_k, p_n), 0, _args,
 			_args_offset(group, p_level), true);
 }
@@ -666,9 +662,7 @@ void LAFieldDriver::_run_row(int p_row, const Array &p_pc_rows, int p_level, int
 	}
 	_run_slot(p_row, p_pc_rows, SLOT_OUTFLOW, p_level, p_k, p_n);
 	_run_slot(p_row, p_pc_rows, SLOT_GATHER, p_level, p_k, p_n);
-	if (p_row < _row_radiate.size() && _row_radiate[p_row] != 0) {
-		_run_slot(p_row, p_pc_rows, SLOT_SW, p_level, p_k, p_n);
-	}
+	_run_slot(p_row, p_pc_rows, SLOT_SW, p_level, p_k, p_n);
 }
 
 void LAFieldDriver::run_transport(const PackedInt32Array &p_peaks, const Array &p_pc_rows,

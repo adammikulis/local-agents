@@ -314,7 +314,6 @@ void LAFieldDriver::_encode(Row &p_dst, const Dictionary &p_row, int p_cc, int p
 	p_dst.block = b.take();
 	p_dst.slots = 0;
 	p_dst.group = p_group;
-	p_dst.label = row_str(p_row, "label");
 }
 
 void LAFieldDriver::_stamp_one(Row &p_row, float p_dt, const Vector3 &p_sun, float p_xuv, float p_phi) {
