@@ -11,4 +11,9 @@ file/refactor discipline.
 `GODOT_BEST_PRACTICES.md` is the companion and canonical source for Godot-specific design, runtime,
 testing, validation, and harness-invocation rules.
 
-Do not duplicate process rules here — keep them in `CLAUDE.md` to avoid drift.
+**Verify before presenting:** Test the exact link, shortcut, command, build or demo you will give the
+user in their active setup. Verify the intended result on available hardware; a created file, started
+process or passing unrelated test is insufficient. Fix failures before asking the user to try it.
+State any remaining verification gap explicitly and keep the task unfinished.
+
+Keep other process rules in `CLAUDE.md` to avoid drift.
