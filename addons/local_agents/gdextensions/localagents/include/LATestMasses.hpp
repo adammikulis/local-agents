@@ -19,6 +19,7 @@ class LATestMasses : public Node {
 	PackedInt32Array _ids;
 	int _fallen = 0;
 	bool _auto = false;
+	bool _off = false;
 	double _release_height_m = 2000.0;
 
 	Vector3 body_centre() const;
@@ -50,6 +51,9 @@ public:
 
 protected:
 	static void _bind_methods();
+	// Switched off, the probes it released are gone and none is released; switched on, the scene's own
+	// probe falls again.
+	void _notification(int p_what);
 };
 
 } // namespace godot
