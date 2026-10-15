@@ -3,6 +3,7 @@
 
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
+#include <godot_cpp/variant/packed_float32_array.hpp>
 #include <godot_cpp/variant/packed_float64_array.hpp>
 #include <godot_cpp/variant/string.hpp>
 
@@ -28,6 +29,13 @@ public:
 	static Dictionary jump_at(const Dictionary &p_masses, double p_room_m3, double p_t_b, double p_p_pa);
 	static Dictionary state(const Dictionary &p_masses, double p_room_m3, double p_h_total_j,
 			double p_p_pa);
+	// Elements one formula may carry on the GPU — enthalpy.glsli LA_MAX_EL.
+	static const int MAX_EL = 5;
+	// The ladder of one substance as the kernel's props row carries it, THERMAL_ROW_WORDS floats.
+	static const int THERMAL_ROW_WORDS = 24 + 4 * MAX_EL;
+	static PackedFloat32Array thermal_row(const String &p_id);
+	// J/kg/K of the phase this substance stands in at (t, p) — state_derive.glsl la_phase_c.
+	static double phase_specific_heat(const String &p_id, double p_t_c, double p_p_pa);
 
 protected:
 	static void _bind_methods();

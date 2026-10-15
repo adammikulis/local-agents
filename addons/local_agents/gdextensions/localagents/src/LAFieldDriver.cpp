@@ -436,7 +436,10 @@ void LAFieldDriver::_encode(Row &p_dst, const Dictionary &p_row, int p_cc, int p
 		max_fill = double(la_call_gd(TRANSPORT_GD, "max_fill", sub));
 		// J/m^3/K one mol/m^3 of the substance adds to the sensible entry (molar mass times specific
 		// heat); 0 for a substance on a phase ladder, whose entry is the channel itself.
-		cap = double(entry.get("molar_mass", 0.0)) * double(la_call_gd(MATTER_GD, "specific_heat", sub));
+		Array channel_args;
+		channel_args.append(p_row["channel"]);
+		cap = double(entry.get("molar_mass", 0.0))
+				* double(la_call_gd(MATTER_GD, "channel_specific_heat", channel_args));
 	}
 
 	Block b;

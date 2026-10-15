@@ -8,8 +8,9 @@ DIAGNOSIS** (`scripts/check_doc_prose.sh`). **THE LIST IS ORDERED BY WHAT IS UPS
 MAINTAINER CAN SEE OR HEAR**: a run shows only what its rung contains; a rung is built only after the
 demo below it (a scene plus a `LocalAgentDemoEntry` in `addons/local_agents/examples/demos/`) is
 approved. Rung 0 is approved. A process the world contains switches off and on mid-run through
-`LAAblate`, one registry for modules and physics. A fake is a record in `sim/LAFakes.gd` naming the
-rung whose landing deletes it (`scripts/check_fakes.sh`).
+`LAAblate`, one registry for modules, physics and stand-ins. A fake is a record in `sim/LAFakes.gd`
+naming the rung whose landing makes its `real` state the default; every record switches off, fake or
+real (`--ablate=<name>:off|fake|real`, `scripts/check_fakes.sh`, `scripts/check_fakes_states.sh`).
 
 ---
 
@@ -85,7 +86,7 @@ footprint is half wet.
 
 ## 9. THE SURFACE IS STILL: EVERY WEATHER-SHAPED STAND-IN IS ABSENT RATHER THAN FAKED
 
-`docs/FAKES.md` carries what creatures need and nothing the surface shows: `wind_field` (deleted by
+`docs/FAKES.md` carries what creatures need and nothing the surface shows: `wind_field` (real at
 ACOUSTIC), `rain` (WATER), `streams` (ADVECT), `diurnal_heat` (RADIATION), each read through the query
 the real row will answer, offered in the HUD as a stand-in.
 
@@ -112,6 +113,14 @@ live gravity switch never reaches a flung or dying creature; `impulse.length() >
 is an invented threshold. The design: kinematic until thrown; then a Jolt `RigidBody3D` with
 `gravity_scale = 0` pushed each tick by `m·g(pos)` from `LABallistics.g_at` plus the seeded air's drag
 (bound, not copied), the impulse from the overpressure in its cell, kinematic again when asleep.
+
+## 13. THE LIFE DEMO'S ANIMALS BURN WHERE THEY STAND
+
+`LA_LIFE_LOG=/tmp/life.log scripts/check_life_demo.sh` then
+`grep -o '"death/burned":[0-9]*' /tmp/life.log` reads the run's dominant death cause in a rung-1 box
+that contains no combustion process.
+Reading: `tick_environment` in `CreatureMetabolism.gd` calls `_combust()` whenever
+`c._material.temp_at(pos) >= COMBUST_TEMP`.
 
 ## 14. NOT EXAMINED UNTIL THE RUNG-2 DEMO IS APPROVED — rung 3
 
@@ -141,13 +150,11 @@ is an invented threshold. The design: kinematic until thrown; then a Jolt `Rigid
 - `LA_RUN_TIMEOUT=110 scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn --
   --sandbox --ui --run-frames=20` prints no report and logs no error; `--planet-only --no-fauna` reports.
 
-## 16. ONLY WATER AND SILICATE MELT AND BOIL WHERE THEIR TABLE SAYS, AND TWO ROWS ARE EMPTY
+## 16. TWO ROWS THE ENGINE READS ARE EMPTY
 
-`rg -n "LADDER|la_sensible_only|LA_MIX_MAX" addons/local_agents/sim/material/kernels3d/state_derive.glsl`:
-every other condensed channel is e = c·T at every temperature while `LASubstances.cpp` cites its melting
-point and fusion enthalpy; the CPU twin `LAMixtureEnthalpy` reads the table for any id and is the spec
-(`scripts/check_enthalpy_ssot.sh`). `apatite` carries neither a melting point nor a fusion enthalpy, and
-every planet mineral carries basalt's `albedo` and `emissivity`.
+`scripts/check_bench_phase_change.sh` melts iron and forsterite off their own rows; `apatite` carries
+neither a melting point nor a fusion enthalpy, so `LAMixtureEnthalpy::thermal_row` keeps it linear in T,
+and every planet mineral carries basalt's `albedo` and `emissivity`.
 
 ## 17. THE PHYSICS RUNS INSIDE GODOT'S PROCESS
 
@@ -179,8 +186,8 @@ finds a draw cap read off the graphics preset and a MultiMesh built under `sim/`
 `scripts/agent_harness.sh sim --rung=N --frames 20` runs a world holding only the processes up to rung N;
 `scripts/agent_harness.sh ladder` names the first red rung; `scripts/shoot_demo.sh <scene> [outdir]`
 renders the poses `--shots=alt:pitch:yaw;...` declares (look at the PNGs); `--ablate=name[@step]` switches
-one off (`+name@step` back on), process or module alike, and `--ablate-sweep=N` measures its frame
-cost. A lane runs `LA_NO_GPU=1 scripts/agent_harness.sh lint`
+one off (`+name@step` back on), process or module alike, `--ablate=name:off|fake|real` puts a stand-in in
+one of its three states, and `--ablate-sweep=N` measures its frame cost. A lane runs `LA_NO_GPU=1 scripts/agent_harness.sh lint`
 plus its own gates; the full lint is `scripts/integrate.sh`'s, one landing at a time, and a source-file
 merge conflict is resolved by hand. Worktrees come from `scripts/new_worktree.sh`; without its kernel
 import the GPU field is dead and the report looks fine. Mutation-test every gate you write, both ways.
