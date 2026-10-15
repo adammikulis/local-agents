@@ -117,12 +117,10 @@ func _run(cond: Dictionary) -> Dictionary:
 		_rd.buffer_update(bufs[String(key)], 0, vals.to_byte_array().size(), vals.to_byte_array())
 
 	var p: RefCounted = (load(PASS_PATH) as GDScript).new()
-	p.setup(_rd, bufs, cc)
-	var cl: int = _rd.compute_list_begin()
-	p.dispatch(_rd, cl, {"sun_dir": Vector3(0.0, 1.0, 0.0)}, cc, int(ceil(float(cc) / 64.0)))
-	_rd.compute_list_end()
-	_rd.submit()
-	_rd.sync()
+	p.setup(_rd, LAFieldDriver.on(_rd), bufs, cc)
+	p._driver.open()
+	p.dispatch(_rd, {"sun_dir": Vector3(0.0, 1.0, 0.0)}, cc, int(ceil(float(cc) / 64.0)))
+	p._driver.close()
 	var out: Dictionary = {}
 	for key in ["o2", "biomass", "fungus", "detritus", "fuel", "co2"]:
 		out[key] = _rd.buffer_get_data(bufs[key]).to_float32_array()

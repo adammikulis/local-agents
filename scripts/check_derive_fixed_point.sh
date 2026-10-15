@@ -107,7 +107,7 @@ lock_rc=$?
 [ "$lock_rc" -eq 1 ] && { echo "check_derive_fixed_point: the GPU lock did not come free." >&2; exit 2; }
 
 run() {  # run <tag> <snapshot> <plan> <steps> <mirrors>
-	if ! la_lasim --load "$2" --plan "$3" --step "$4" --mirrors "$5" \
+	if ! la_lasim --load "$2" --plan "$3" --passes derive --steps "$4" --mirrors "$5" \
 			> "$WORK/$1.log" 2>&1; then
 		echo "check_derive_fixed_point: lasim did not complete the $1 arm." >&2
 		tail -25 "$WORK/$1.log" >&2

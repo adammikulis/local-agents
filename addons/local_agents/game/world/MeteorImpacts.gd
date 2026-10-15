@@ -5,7 +5,7 @@ extends Node
 ## momentum in at the boundary. Nothing here makes weather or geology happen, and nothing here consults
 ## the camera: where a rock comes down is not a function of who is watching.
 
-const MeteorScript: GDScript = preload("res://addons/local_agents/sim/actors/Meteor.gd")
+const MeteorScene: PackedScene = preload("res://addons/local_agents/sim/actors/Meteor.tscn")
 
 # Named once per run, by whichever path asked first.
 static var _refused: bool = false
@@ -40,7 +40,7 @@ static func arrive(actors_root: Node3D, terrain, ecology, target: Vector3, from_
 	if actors_root == null:
 		push_error("MeteorImpacts: no actors root for a rock to arrive in.")
 		return false
-	var m: MeteorScript = MeteorScript.new()
+	var m: LAMeteor = MeteorScene.instantiate() as LAMeteor
 	actors_root.add_child(m)
 	m.setup(terrain, ecology)
 	# ONLY A ROCK THAT LAUNCHED IS A ROCK THAT ARRIVED.
@@ -119,10 +119,6 @@ func _arrival_point() -> Vector3:
 func _arrival_direction() -> Vector3:
 	var rng: LASimRng = LASimRng.for_domain("planet")
 	var v: Vector3 = rng.rand_dir()
-	var tries: int = 0
-	while (v.length() > 1.0 or v.length() < 0.001) and tries < 32:
+	while v.length() > 1.0 or v.length() < 0.001:
 		v = rng.rand_dir()
-		tries += 1
-	if v.length() < 0.001:
-		return Vector3.UP
 	return v.normalized()

@@ -12,7 +12,7 @@ FRAMES="${LA_RUNG_FRAMES:-8}"
 KEYS="h2o_rel_drift,mineral_rel_drift,momentum_run_drift_rel,airborne_mineral_sum,suspended_cells,field_cells"
 out="$(la_rung_report 5 "$FRAMES" "$KEYS")"
 printf '%s\n' "$out" | grep -E '^(h2o_rel_drift|mineral_rel_drift|momentum_run_drift_rel|airborne_mineral_sum|suspended_cells|field_cells)' || true
-la_rung_require "$out" h2o_rel_drift mineral_rel_drift momentum_run_drift_rel airborne_mineral_sum suspended_cells field_cells || exit 2
+la_rung_require "$out" h2o_rel_drift mineral_rel_drift momentum_run_drift_rel airborne_mineral_sum suspended_cells field_cells || exit $?
 
 h2o="$(la_rung_value "$out" h2o_rel_drift)"
 min="$(la_rung_value "$out" mineral_rel_drift)"

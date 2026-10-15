@@ -163,11 +163,6 @@ func random_field_dir() -> Vector3:
 	return d.normalized() if d.length() > 0.001 else _random_sphere_dir()
 
 
-func _tangent_offset_point(anchor: Vector3, u: float, v: float) -> Vector3:
-	var pc: Vector3 = _eco.terrain.planet_center()
-	return _surface_point((_tangent_offset_raw(anchor, u, v) - pc).normalized())
-
-
 # The un-projected tangent-plane displacement of `anchor` by (u, v) metres.
 func _tangent_offset_raw(anchor: Vector3, u: float, v: float) -> Vector3:
 	var pc: Vector3 = _eco.terrain.planet_center()
@@ -205,7 +200,7 @@ func populate_environment(forest_clusters: int) -> void:
 		var trees: int = LASimRng.for_domain("life").randi_range(11, 20)
 		for t in trees:
 			# Scatter the cluster in the centre's tangent plane, then re-project to the sphere.
-			spawn("tree", _tangent_offset_point(center, LASimRng.for_domain("life").randf_range(-FOREST_CLUSTER_SPREAD, FOREST_CLUSTER_SPREAD), LASimRng.for_domain("life").randf_range(-FOREST_CLUSTER_SPREAD, FOREST_CLUSTER_SPREAD)))
+			spawn("tree", _tangent_offset_raw(center, LASimRng.for_domain("life").randf_range(-FOREST_CLUSTER_SPREAD, FOREST_CLUSTER_SPREAD), LASimRng.for_domain("life").randf_range(-FOREST_CLUSTER_SPREAD, FOREST_CLUSTER_SPREAD)))
 
 
 # The most forest-suitable of `tries` random surface points. NAN-x when none qualifies.

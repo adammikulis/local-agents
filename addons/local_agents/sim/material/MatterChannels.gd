@@ -18,8 +18,8 @@ static func entry_of(id: String) -> int:
 	return int(CARRIERS.get(id, Entry.SENSIBLE))
 
 
-## J/kg/K of the phase a CHANNEL's row declares its matter stands in; the liquid column where the row
-## leaves the phase to be derived from enthalpy. 0 for a channel whose entry is a heat buffer of its own,
+## J/kg/K of the phase a CHANNEL's row declares its matter stands in; the liquid's where the row leaves
+## the phase to be derived from enthalpy. 0 for a channel whose entry is a heat buffer of its own,
 ## which needs no capacity share to be told apart from what rides beside it.
 static func channel_specific_heat(channel: String) -> float:
 	var row: Dictionary = LAChannels.rows().get(channel, {})
@@ -27,11 +27,11 @@ static func channel_specific_heat(channel: String) -> float:
 	if id == "" or entry_of(id) != Entry.SENSIBLE:
 		return 0.0
 	var s: Dictionary = LASubstances.table().get(id, {})
-	var c_liq: float = float(s.get("specific_heat", 0.0))
 	var phase: String = String(row.get("phase", ""))
-	var c: float = float(s.get("specific_heat_solid", c_liq)) if phase == "solid" \
-		else (float(s.get("specific_heat_gas", c_liq)) if phase == "gas" else c_liq)
-	if c <= 0.0:
+	var key: String = "specific_heat_solid" if phase == "solid" \
+		else ("specific_heat_gas" if phase == "gas" else "specific_heat")
+	var c: float = float(s.get(key, NAN))
+	if not (c > 0.0):
 		push_error("LAMatterChannels: LASubstances gives \"%s\" no specific heat, so matter of it would "
 			% id + "carry mass with no heat capacity.")
 	return c

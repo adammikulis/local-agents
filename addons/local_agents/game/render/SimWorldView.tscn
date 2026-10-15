@@ -1,0 +1,11 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/game/render/SimWorldView.gd" id="1_simworldview"]
+[ext_resource type="ShaderMaterial" path="res://addons/local_agents/game/render/VoxelTerrainMaterial.tres" id="2_terrain"]
+
+[node name="SimWorldView" type="Node3D"]
+script = ExtResource("1_simworldview")
+terrain_material = ExtResource("2_terrain")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.8775826, 0, -0.4794255, -0.270704, 0.8253356, -0.4955204, 0.395687, 0.5646425, 0.7243001, 0, 0, 0)

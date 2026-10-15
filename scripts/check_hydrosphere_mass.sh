@@ -30,16 +30,13 @@ fi
 out="$("$ROOT/scripts/sim_run.sh" --body --rung 1 --frames "$FRAMES" \
 	--report "h2o_total,body_seed_hydrosphere_kg" 2>&1)"
 rc=$?
+la_rung_require "$out" h2o_total body_seed_hydrosphere_kg || {
+	r=$?
+	echo "check_hydrosphere_mass: the water was not weighed to a number (sim_run exit $rc)." >&2
+	exit "$r"
+}
 moles="$(la_rung_value "$out" h2o_total)"
 declared="$(la_rung_value "$out" body_seed_hydrosphere_kg)"
-for n in "$moles" "$declared"; do
-	printf '%s' "$n" | grep -Eq '^[+-]?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$' || {
-		echo "check_hydrosphere_mass: the run published no numeric h2o_total or hydrosphere declaration" >&2
-		echo "                        (sim_run exit $rc), so nothing was weighed." >&2
-		printf '%s\n' "$out" | tail -20 >&2
-		exit 2
-	}
-done
 if ! awk -v d="$declared" 'BEGIN{exit !(d > 0)}'; then
 	echo "check_hydrosphere_mass: the body record declares no hydrosphere, so the seed has no water" >&2
 	echo "                        budget to be held to." >&2

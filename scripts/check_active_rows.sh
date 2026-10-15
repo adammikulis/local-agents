@@ -98,11 +98,9 @@ func _total(bufs: Dictionary, key: String, vol: PackedFloat32Array) -> float:
 func _step(p: RefCounted, ctx: Dictionary, cc: int) -> void:
 	var groups: int = int(ceil(float(cc) / 64.0))
 	p.pre_step(_rd, ctx, cc, groups)
-	var cl: int = _rd.compute_list_begin()
-	p.dispatch(_rd, cl, ctx, cc, groups)
-	_rd.compute_list_end()
-	_rd.submit()
-	_rd.sync()
+	p._driver.open()
+	p.dispatch(_rd, ctx, cc, groups)
+	p._driver.close()
 
 
 ## Every buffer the pass declares and every buffer the derive declares beside it: flux.glsl reads what
@@ -159,7 +157,7 @@ func _build(owned: Array[RID]) -> Dictionary:
 	_write(bufs, "gas_r", _filled(cc, LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK))
 	_write(bufs, "gas_gamma", _filled(cc, LAPhysical.AIR_ADIABATIC_INDEX))
 	_write(bufs, "h2o_liquid", _filled(cc, 1.0))
-	_write(bufs, "k_cond", _filled(cc, LAPhysical.WATER_BULK_MODULUS_PA))
+	_write(bufs, "k_cond", _filled(cc, LAPhysical.WATER_BULK_MODULUS_T_PA))
 	return bufs
 
 
@@ -169,7 +167,7 @@ func _attach(bufs: Dictionary, owned: Array[RID]) -> RefCounted:
 	p.ghost_count = 0
 	p.face_count = int(bufs["__faces"])
 	_declared(p, cc, bufs, owned)
-	p.setup(_rd, bufs, cc)
+	p.setup(_rd, LAFieldDriver.on(_rd), bufs, cc)
 	return p
 
 
@@ -232,14 +230,14 @@ func _seam() -> void:
 	_write(bufs, "o2", o2)
 	_write(bufs, "co2", co2)
 	_write(bufs, "h2o_liquid", _filled(cc, 1.0))
-	_write(bufs, "k_cond", _filled(cc, LAPhysical.WATER_BULK_MODULUS_PA))
+	_write(bufs, "k_cond", _filled(cc, LAPhysical.WATER_BULK_MODULUS_T_PA))
 	_write(bufs, "rho_bulk", _filled(cc, SEAM_RHO))
 	_write(bufs, "pressure", _filled(cc, SEAM_P))
 	_write(bufs, "temp", temps)
 	_write(bufs, "gas_r", _filled(cc, LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK))
 	_write(bufs, "gas_gamma", _filled(cc, LAPhysical.AIR_ADIABATIC_INDEX))
 
-	p.setup(_rd, bufs, cc)
+	p.setup(_rd, LAFieldDriver.on(_rd), bufs, cc)
 	var checked: PackedStringArray = PackedStringArray(["h2o", "o2", "co2"])
 	var before: Dictionary = {}
 	for ch in checked:
@@ -260,11 +258,9 @@ func _seam() -> void:
 		+ "reached two levels and this gate examined nothing.")
 	# POSITIVE CONTROL: the level field the real code builds has to hold more than one level, or the
 	# conservation below is a closed book over a box that never straddled a seam.
-	var lcl: int = _rd.compute_list_begin()
-	p.build_levels(lcl, top, cc, DT, Vector3.ZERO, peak)
-	_rd.compute_list_end()
-	_rd.submit()
-	_rd.sync()
+	p._driver.open()
+	p.build_levels(top, cc, DT, Vector3.ZERO, peak)
+	p._driver.close()
 	var lv: PackedInt32Array = _rd.buffer_get_data(
 		bufs[LATemporalLevels.KEYS.level]).to_int32_array()
 	var seen: Dictionary = {}
@@ -272,11 +268,9 @@ func _seam() -> void:
 		seen[lv[c]] = true
 	_expect(seen.size() >= 2, "every cell landed on ONE level, so no face straddles two clocks and "
 		+ "this gate cannot see a seam at all.")
-	var cl: int = _rd.compute_list_begin()
-	p.dispatch(_rd, cl, ctx, cc, groups)
-	_rd.compute_list_end()
-	_rd.submit()
-	_rd.sync()
+	p._driver.open()
+	p.dispatch(_rd, ctx, cc, groups)
+	p._driver.close()
 
 	for ch in checked:
 		var name: String = String(ch)

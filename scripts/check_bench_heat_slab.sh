@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # CONDUCTION IN A ROCK SLAB against erfc, the half-space with a step at one end (Carslaw & Jaeger,
-# Conduction of Heat in Solids, 2.5), at alpha = k/(rho c) for measured basalt (Clauser & Huenges 1995;
-# Robertson 1988). Bounds: the 3-point Laplacian's truncation, second-order convergence, and the
-# maximum principle at any step size. EXIT 0 within * 1 broken * 2 the rig could not run.
+# Conduction of Heat in Solids, 2.5), at alpha = k/(rho c) of the table's silicate row, as the rig publishes
+# it. Bounds: the 3-point Laplacian's truncation, second-order convergence, and the maximum principle at
+# any step size. EXIT 0 within * 1 broken * 2 the rig could not run.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -19,8 +19,17 @@ trap 'rm -rf "$JUDGE_DIR"' EXIT INT TERM
 cat > "$JUDGE" <<'PY'
 import json, math, os, sys
 
-K_BASALT, RHO_BASALT, C_BASALT = 2.5, 2900.0, 840.0
-ALPHA = K_BASALT / (RHO_BASALT * C_BASALT)
+
+def could_not_run(kind, value, tb):
+    sys.__excepthook__(kind, value, tb)
+    sys.stderr.flush()
+    os._exit(2)
+
+
+sys.excepthook = could_not_run
+# The table's silicate row as the rig read it: k W/mK, rho kg/m^3, c J/kgK.
+ROCK = json.loads(os.environ["LA_BENCH_ROCK"])
+ALPHA = ROCK["k"] / (ROCK["rho"] * ROCK["c"])
 MODE = os.environ.get("LA_BENCH_SELFTEST", "")
 if MODE:
     # THE GATE'S OWN CONTROL: the erfc profile itself, sampled on each grid, with a second-order
@@ -32,13 +41,18 @@ if MODE:
              for c in range(n)]
         T[0] = 520.0
         return {"cells": n, "cell_m": L, "dt_s": dt, "steps": steps, "t_s": t, "temp": T,
-                "conductivity": [K_BASALT] * n, "rho_bulk": [RHO_BASALT] * n}
+                "conductivity": [ROCK["k"]] * n, "rho_bulk": [ROCK["rho"]] * n}
     a = ALPHA * (1.10 if MODE == "broken" else 1.0)
     d = {"slab_m": 1.28, "t_cold_c": 20.0, "t_hot_c": 520.0,
          "coarse": arm(64, 100.0, 62, a), "fine": arm(128, 25.0, 248, a),
          "stress": arm(128, 100.0, 62, a)}
 else:
     d = json.loads(sys.stdin.read().split("=", 1)[1])
+nonfinite = [key for key in ("coarse", "fine", "stress")
+             if not all(isinstance(v, (int, float)) and math.isfinite(v) for v in d[key]["temp"])]
+if nonfinite:
+    print("check_bench_heat_slab: the %s slab reads no finite temperature." % ", ".join(nonfinite), file=sys.stderr)
+    sys.exit(1)
 # max |d4 erfc / d eta4| over eta, which the 3-point Laplacian's dx^2/12 truncation multiplies.
 D4_MAX = 4.40
 
@@ -79,10 +93,10 @@ if order < 1.7:
                  "the error are second order." % order)
 
 k, rho = d["coarse"]["conductivity"][1], d["coarse"]["rho_bulk"][1]
-if abs(k - K_BASALT) > 0.4 * K_BASALT or abs(rho - RHO_BASALT) > 0.05 * RHO_BASALT:
-    fails.append("the slab conducts at %.4g W/mK and weighs %.4g kg/m^3; measured basalt is "
+if abs(k - ROCK["k"]) > 0.4 * ROCK["k"] or abs(rho - ROCK["rho"]) > 0.05 * ROCK["rho"]:
+    fails.append("the slab conducts at %.4g W/mK and weighs %.4g kg/m^3; the table's silicate is "
                  "%.4g W/mK and %.4g kg/m^3, so the erfc reference is not this rock's."
-                 % (k, rho, K_BASALT, RHO_BASALT))
+                 % (k, rho, ROCK["k"], ROCK["rho"]))
 
 print("BENCH_HEAT_SLAB=" + json.dumps(
     {"error": {k2: round(v["L1_rel"], 8) for k2, v in report.items()},
@@ -93,6 +107,18 @@ for m in fails:
 sys.exit(1 if fails else 0)
 PY
 
+out="$(LA_DONE_RE='^BENCH_RAW_HEAT_SLAB=' "$REPO_ROOT/scripts/run_sim_offscreen.sh" \
+  --path "$REPO_ROOT" -s "res://$PROBE" 2>&1)"
+raw="$(printf '%s\n' "$out" | grep -m1 '^BENCH_RAW_HEAT_SLAB=')"
+if [ -z "$raw" ]; then
+  echo "ERROR: the rig published no BENCH_RAW_HEAT_SLAB line." >&2
+  printf '%s\n' "$out" | tail -20 >&2
+  exit 2
+fi
+LA_BENCH_ROCK="$(printf '%s' "$raw" | python3 -c 'import json, sys
+print(json.dumps(json.loads(sys.stdin.read().split("=", 1)[1])["rock"]))')" || {
+  echo "ERROR: the rig published no rock, so the reference has no diffusivity." >&2; exit 2; }
+export LA_BENCH_ROCK
 if ! LA_BENCH_SELFTEST=exact python3 "$JUDGE" >/dev/null; then
   echo "ERROR: this gate rejects the erfc solution itself, so its bound is not one any solver could" >&2
   echo "       meet. Refusing to report a verdict." >&2
@@ -100,15 +126,6 @@ if ! LA_BENCH_SELFTEST=exact python3 "$JUDGE" >/dev/null; then
 fi
 if LA_BENCH_SELFTEST=broken python3 "$JUDGE" >/dev/null 2>&1; then
   echo "ERROR: this gate accepts a slab diffusing ten percent too fast, so it cannot fail." >&2
-  exit 2
-fi
-
-out="$(LA_DONE_RE='^BENCH_RAW_HEAT_SLAB=' "$REPO_ROOT/scripts/run_sim_offscreen.sh" \
-  --path "$REPO_ROOT" -s "res://$PROBE" 2>&1)"
-raw="$(printf '%s\n' "$out" | grep -m1 '^BENCH_RAW_HEAT_SLAB=')"
-if [ -z "$raw" ]; then
-  echo "ERROR: the rig published no BENCH_RAW_HEAT_SLAB line." >&2
-  printf '%s\n' "$out" | tail -20 >&2
   exit 2
 fi
 printf '%s' "$raw" | python3 "$JUDGE"
@@ -121,7 +138,7 @@ rc=$?
 FRAMES="${LA_BENCH_HS_FRAMES:-8}"
 . "$REPO_ROOT/scripts/lib_rung.sh"
 world="$(la_rung_report 4 "$FRAMES" "radiogenic,all_temp_max")"
-la_rung_require "$world" radiogenic all_temp_max || exit 2
+la_rung_require "$world" radiogenic all_temp_max || exit $?
 printf 'BENCH_HEAT_SLAB_WORLD={"radiogenic":%s,"all_temp_max":%s}\n' \
   "$(la_rung_value "$world" radiogenic)" "$(la_rung_value "$world" all_temp_max)"
 echo "check_bench_heat_slab: OK"

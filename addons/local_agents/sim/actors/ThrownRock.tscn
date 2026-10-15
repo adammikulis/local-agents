@@ -1,0 +1,9 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/sim/actors/ThrownRock.gd" id="1_rock"]
+[ext_resource type="PackedScene" path="res://addons/local_agents/game/render/actors/ThrownRockVisual.tscn" id="2_visual"]
+
+[node name="ThrownRock" type="Node3D"]
+script = ExtResource("1_rock")
+
+[node name="ThrownRockVisual" parent="." instance=ExtResource("2_visual")]

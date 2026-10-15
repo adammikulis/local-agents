@@ -10,9 +10,6 @@
 
 GODOT_LOCK_DIR="${TMPDIR:-/tmp}/la_godot_extension.lock"
 
-# ONE GPU ON THIS MACHINE, AND EVERY START-UP CAN MAKE A RenderingDevice — a rig probe and a headless
-# batch as much as a sim. So the lock belongs to the LAUNCH, not to one wrapper: several lanes' engines
-# on one GPU push a sim past Godot's own fence wait, which it reports as an engine error.
 # Reentrant through an exported marker, so a wrapper holding it for a whole run is not blocked by the
 # launch inside it. Ordering, everywhere: the extension lock is taken FIRST and the GPU lock LAST.
 LA_GPU_LOCK_DIR="${TMPDIR:-/tmp}/la_sim_gpu.lock"

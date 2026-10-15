@@ -6,11 +6,11 @@ extends SceneTree
 
 func _init() -> void:
 	var rows: Dictionary = LAChannels.rows()
-	var table: Dictionary = LASubstances.table()
 	var asked: int = 0
 	var bare: PackedStringArray = PackedStringArray()
 	var flat: PackedStringArray = PackedStringArray()
 	var slack: PackedStringArray = PackedStringArray()
+	var unstated: PackedStringArray = PackedStringArray()
 	for name in LAMatterChannels.CHANNELS:
 		var row: Dictionary = rows.get(String(name), {})
 		var id: String = String(row.get("substance", ""))
@@ -19,15 +19,16 @@ func _init() -> void:
 		if String(row.get("phase", "")) == "dissolved":
 			continue
 		asked += 1
-		var s: Dictionary = table.get(id, {})
-		var k: float = float(s.get("bulk_modulus_pa", s.get("bulk_modulus_solid_pa", 0.0)))
-		if not (k > 0.0):
+		var eos: Dictionary = LASubstances.eos_of(id)
+		var solid: Dictionary = eos["solid"]
+		var own: Dictionary = solid if not solid.is_empty() else eos["liquid"]
+		if not (float(own.get("k", 0.0)) > 0.0):
 			bare.append("%s (%s)" % [String(name), id])
 			continue
-		for pair in [["bulk_modulus_pa", "bulk_modulus_deriv"],
-				["bulk_modulus_solid_pa", "bulk_modulus_solid_deriv"]]:
-			if s.has(pair[0]) and not (float(s.get(pair[1], 0.0)) > 0.0):
-				flat.append("%s (%s.%s)" % [String(name), id, String(pair[1])])
+		for phase in ["solid", "liquid"]:
+			var ph: Dictionary = eos[phase]
+			if float(ph.get("k", 0.0)) > 0.0 and not (float(ph.get("kp", 0.0)) > 0.0):
+				flat.append("%s (%s %s)" % [String(name), id, phase])
 		# Squeeze a phase and it gets denser, at every pressure a planet reaches. Birch-Murnaghan is
 		# invertible only between the turning points of P(f), and a bracket wider than that returns a
 		# root that is not the state.
@@ -36,6 +37,9 @@ func _init() -> void:
 			# One bar to the pressure at Earth's centre, 364 GPa (Dziewonski & Anderson 1981, PREM).
 			var p_pa: float = pow(10.0, 5.0 + 0.2731 * float(e))
 			var rho: float = LASubstances.density(id, 1000.0, p_pa)
+			if not (rho > 0.0):
+				unstated.append("%s (%s at %s Pa)" % [String(name), id, p_pa])
+				break
 			if rho < prev:
 				slack.append("%s (%s at %s Pa)" % [String(name), id, p_pa])
 				break
@@ -46,7 +50,9 @@ func _init() -> void:
 		printerr("bulk modulus with no pressure derivative: %s" % String(", ").join(flat))
 	if slack.size() > 0:
 		printerr("density falls as pressure rises: %s" % String(", ").join(slack))
-	var failures: int = bare.size() + flat.size() + slack.size()
-	print('CONDENSED_MODULI={"asked":%d,"bare":%d,"flat":%d,"slack":%d,"failures":%d}'
-		% [asked, bare.size(), flat.size(), slack.size(), failures])
+	if unstated.size() > 0:
+		printerr("no density stated: %s" % String(", ").join(unstated))
+	var failures: int = bare.size() + flat.size() + slack.size() + unstated.size()
+	print('CONDENSED_MODULI={"asked":%d,"bare":%d,"flat":%d,"slack":%d,"unstated":%d,"failures":%d}'
+		% [asked, bare.size(), flat.size(), slack.size(), unstated.size(), failures])
 	quit(1 if failures > 0 else 0)

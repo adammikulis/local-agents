@@ -38,13 +38,13 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 		{"reaction_defs": defs_ssbo}))
 
 
-func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: int) -> void:
+func dispatch(_rd: RenderingDevice, ctx: Dictionary, cc: int, groups: int) -> void:
 	if not _dispatchable() or _n_records <= 0 or not _set.is_valid():
 		return
 	# The solar kernel and the reaction engine must see the IDENTICAL sun, magnitude included: it carries
 	# orbit-distance squared times atmospheric transmission, so what dims the sky suppresses photosynthesis
 	# directly rather than second-hand through cooling.
-	var sun_dir: Vector3 = ctx.get("sun_dir", Vector3(0.0, 1.0, 0.0))
+	var sun_dir: Vector3 = ctx.get("sun_dir", Vector3.ZERO)
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(32)
 	pc.encode_u32(0, cc)
@@ -55,5 +55,5 @@ func dispatch(_rd: RenderingDevice, cl: int, ctx: Dictionary, cc: int, groups: i
 	pc.encode_float(20, sun_dir.y)
 	pc.encode_float(24, sun_dir.z)
 	pc.encode_u32(28, 0)   # pad2
-	_driver.run(cl, _pipe, [_set], [pc], PackedInt32Array([groups]), [RID()],
-		PackedInt32Array([0]), false)
+	_driver.run(_pipe, [_set], [pc], PackedInt32Array([groups]), [RID()],
+		PackedInt32Array([0]), false, PackedStringArray([_label() + "/records"]))

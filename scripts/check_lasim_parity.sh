@@ -45,16 +45,16 @@ lock_rc=$?
 
 # ARM A: the same state Godot reduced, reduced again by lasim. Both fold the same float32 partials in
 # float64, so every row must be the same double.
-if ! la_lasim --load "$WORK/godot_mirrors.lafs" --plan "$WORK/plan_reduce.lapl" \
-		--step 1 --report > "$WORK/fold.log" 2>&1; then
+if ! la_lasim --load "$WORK/godot_mirrors.lafs" --plan "$WORK/plan_reduce.lapl" --passes reduce \
+		--steps 1 --report > "$WORK/fold.log" 2>&1; then
 	echo "check_lasim_parity: lasim did not complete the fold arm." >&2
 	tail -25 "$WORK/fold.log" >&2
 	exit 2
 fi
 # ARM B: the same seed state, derived and reduced by lasim, with its derived channels written back.
 # Not exact: Godot's Metal driver compiles with fast math, la::Device with MTLMathModeSafe.
-if ! la_lasim --load "$WORK/field.lafs" --plan "$WORK/plan.lapl" \
-		--step "$STEPS" --mirrors "$WORK/lasim_mirrors.lafs" > "$WORK/derive.log" 2>&1; then
+if ! la_lasim --load "$WORK/field.lafs" --plan "$WORK/plan.lapl" --passes derive,reduce \
+		--steps "$STEPS" --mirrors "$WORK/lasim_mirrors.lafs" > "$WORK/derive.log" 2>&1; then
 	echo "check_lasim_parity: lasim did not complete the derive arm." >&2
 	tail -25 "$WORK/derive.log" >&2
 	exit 2
@@ -118,14 +118,14 @@ for mutant in plan_mutated plan_mutated_fold; do
 		exit 2
 	}
 done
-if ! la_lasim --load "$WORK/godot_mirrors.lafs" --plan "$WORK/plan_mutated.lapl" \
-		--step 1 --report > "$WORK/mutant.log" 2>&1; then
+if ! la_lasim --load "$WORK/godot_mirrors.lafs" --plan "$WORK/plan_mutated.lapl" --passes reduce \
+		--steps 1 --report > "$WORK/mutant.log" 2>&1; then
 	echo "check_lasim_parity: the mutated plan did not run; the control proves nothing." >&2
 	tail -20 "$WORK/mutant.log" >&2
 	exit 2
 fi
-if ! la_lasim --load "$WORK/godot_mirrors.lafs" --plan "$WORK/plan_mutated_fold.lapl" \
-		--step 1 --report > "$WORK/mutant_fold.log" 2>&1; then
+if ! la_lasim --load "$WORK/godot_mirrors.lafs" --plan "$WORK/plan_mutated_fold.lapl" --passes reduce \
+		--steps 1 --report > "$WORK/mutant_fold.log" 2>&1; then
 	echo "check_lasim_parity: the fold-mutated plan did not run; the control proves nothing." >&2
 	tail -20 "$WORK/mutant_fold.log" >&2
 	exit 2
@@ -164,7 +164,7 @@ def differ(a, b):
 		if k not in a or k not in b:
 			out.append("row %s: only %s has it" % (k, "the oracle" if k in a else "the native run"))
 			continue
-		x, y = float(a[k]), float(b[k])
+		x, y = (float("nan") if v is None else float(v) for v in (a[k], b[k]))
 		if x == y or (math.isnan(x) and math.isnan(y)):
 			continue
 		out.append("row %s: %.17g against %.17g" % (k, x, y))

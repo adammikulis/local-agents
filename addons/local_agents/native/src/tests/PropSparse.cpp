@@ -27,6 +27,9 @@ struct Push {
 	uint32_t count;
 	uint32_t cell_count;
 	uint32_t same;
+	// chunk.glsli: the whole dispatch in one submit.
+	uint32_t chunk_stride = 1;
+	uint32_t chunk_phase = 0;
 };
 
 struct Edit {
@@ -218,6 +221,54 @@ bool prop_edits_stay_inside_the_stock(Case &c) {
 	return c.examined > 0;
 }
 
+// A WORKGROUP WHOSE FIRST INDEX WOULD PASS THE LAST UINT HOLDS NO ENTRY (chunk.glsli): an indirect piece
+// launches its whole count. At phase 1 this piece's own workgroup holds no entry, and at a stride of
+// 2^26 - 1 its second workgroup's first index is 2^32, which would wrap onto the first entry.
+bool prop_chunk_never_wraps(Case &c) {
+	std::string err;
+	Rig rig(c.dev, "sparse_edit", kWords, err);
+	if (!rig.ok()) {
+		c.why = err;
+		return false;
+	}
+	Rng rng(c.seed);
+	rng.stream(83);
+	uint32_t moved = 0;
+	for (uint32_t d = 0; d < kDraws; ++d) {
+		const Edit e = draw(rng);
+		load(rig, e);
+		Push once{ 0u, kEntries, kCells, e.same };
+		rig.run(&once, sizeof(once), kEntries);
+		const std::vector<float> applied = rig.get(LA_BIND_INJECT_SRC, kCells);
+		for (uint32_t i = 0; i < kCells; ++i) {
+			moved += applied[i] != e.src[i] ? 1u : 0u;
+		}
+		load(rig, e);
+		Push wide{ 0u, kEntries, kCells, e.same };
+		wide.chunk_stride = (1u << 26) - 1u;
+		wide.chunk_phase = 1u;
+		// Two workgroups of sparse_edit.glsl's 64.
+		rig.run(&wide, sizeof(wide), 2u * 64u);
+		const std::vector<float> src = rig.get(LA_BIND_INJECT_SRC, kCells);
+		const std::vector<float> dst = rig.get(LA_BIND_INJECT_DST, kCells);
+		for (uint32_t i = 0; i < kCells; ++i) {
+			c.examined += 1;
+			if (shifted(src[i], c.mutate) != e.src[i] || dst[i] != e.dst[i]) {
+				char buf[160];
+				std::snprintf(buf, sizeof(buf),
+						"draw %u cell %u: a workgroup whose first index passed the last uint edited it", d, i);
+				c.why = buf;
+				return false;
+			}
+		}
+	}
+	if (moved == 0) {
+		c.why = "no entry changed a stock, so an edit that wrapped could not show";
+		return false;
+	}
+	return c.examined > 0;
+}
+
 } // namespace
 
 void add_sparse_properties(std::vector<Property> &out) {
@@ -225,6 +276,7 @@ void add_sparse_properties(std::vector<Property> &out) {
 			prop_move_conserves_matter });
 	out.push_back({ "sparse_edit.glsl", "sparse_edit_stays_inside_the_stock",
 			prop_edits_stay_inside_the_stock });
+	out.push_back({ "sparse_edit.glsl", "sparse_edit_chunk_never_wraps", prop_chunk_never_wraps });
 }
 
 } // namespace lasim

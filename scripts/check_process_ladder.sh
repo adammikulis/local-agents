@@ -3,14 +3,14 @@
 # only when the rung below it is green. This runs them bottom-up, stops at the first red one and names
 # it, and never examines a rung above it. Every rung takes one short arm at its own rung for the cost
 # reading, then its own gates; rung 8's gate is the conservation soak, so nobody blocks on this.
-# EXIT 0 every rung is green · 1 a rung is red · 2 a rung's run or gate could not run.
+# EXIT 0 every selected rung is green · 1 a rung is red · 2 a rung's run or gate could not run.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_rung.sh"
 . "$ROOT/scripts/lib_godot.sh"
 . "$ROOT/scripts/lib_lint_queue.sh"
 
-PLAYABLE="$ROOT/docs/PLAYABLE_RUNG"
+THROUGH_RUNG=""
 FRAMES="${LA_LADDER_FRAMES:-8}"
 GODOT="${GODOT:-godot}"
 command -v "$GODOT" >/dev/null 2>&1 || { echo "ERROR: godot not on PATH — a gate that cannot run FAILS." >&2; exit 2; }
@@ -19,6 +19,12 @@ command -v "$GODOT" >/dev/null 2>&1 || { echo "ERROR: godot not on PATH — a ga
 # is declared; an explicit spec overrides it. Said first, because a reader must know which world was climbed.
 while [ $# -gt 0 ]; do
   case "$1" in
+    --through-rung)
+      [ $# -ge 2 ] || { echo "check_process_ladder: --through-rung needs a rung." >&2; exit 2; }
+      case "$2" in ""|*[!0-9]*) echo "check_process_ladder: invalid rung '$2'." >&2; exit 2 ;; esac
+      THROUGH_RUNG="$2"
+      shift 2
+      ;;
     --slice)
       shift
       case "${1:-}" in
@@ -70,6 +76,14 @@ if [ -z "$rows" ]; then
   exit 2
 fi
 
+if [ -n "$THROUGH_RUNG" ]; then
+  if ! printf '%s\n' "$rows" | grep -Eq "^LADDER_ROW=${THROUGH_RUNG}"$'\t'; then
+    echo "check_process_ladder: rung '$THROUGH_RUNG' is absent from the process registry." >&2
+    exit 2
+  fi
+  printf 'LADDER_LIMIT={"through_rung":%s,"higher_rungs":"not examined"}\n' "$THROUGH_RUNG"
+fi
+
 # THE ASSIGNMENT FIRST. A process in no rung would run at every rung or at none, and no rung below is
 # then the world it claims to be.
 if ! "$ROOT/scripts/check_process_set.sh"; then
@@ -85,6 +99,7 @@ rc_out=0
 
 while IFS=$'\t' read -r tag name gates; do
   n="${tag#LADDER_ROW=}"
+  if [ -n "$THROUGH_RUNG" ] && [ "$n" -gt "$THROUGH_RUNG" ]; then break; fi
   echo
   echo "=== rung $n $name ==="
   t0=$(date +%s)
@@ -149,18 +164,4 @@ fi
 printf 'LADDER={"green":"%s","first_red":"%s","frames":%s}\n' "$green_name" "${red_name:-none}" "$FRAMES"
 la_timing_line "$LADDER_TIMING" LADDER_TIMING
 
-# THE RATCHET. The rung the demo world runs at only rises; a lower finding is reported, never written.
-if [ "$green" -ge 0 ] && [ -f "$PLAYABLE" ]; then
-  cur="$(grep -v '^#' "$PLAYABLE" | grep -E '^[0-9]+$' | head -1)"
-  if [ -n "$cur" ] && [ "$green" -gt "$cur" ]; then
-    tmp="$(mktemp)"
-    grep '^#' "$PLAYABLE" > "$tmp"
-    printf '%s\n' "$green" >> "$tmp"
-    mv "$tmp" "$PLAYABLE"
-    echo "docs/PLAYABLE_RUNG raised to \"$green_name\"."
-  elif [ -n "$cur" ] && [ "$green" -lt "$cur" ]; then
-    echo "docs/PLAYABLE_RUNG stands above the highest green rung. The demo world declares more physics"
-    echo "than the ladder can prove; lowering it is the maintainer's call, so nothing was written."
-  fi
-fi
 exit "$rc_out"

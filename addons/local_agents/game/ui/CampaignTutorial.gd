@@ -278,7 +278,7 @@ func _population() -> int:
 	var tree: SceneTree = get_tree()
 	if tree == null:
 		return 0
-	return tree.get_nodes_in_group("creature").size()
+	return tree.get_node_count_in_group("creature")
 
 
 ## The active campaign objective as sentence text (lower-cased lead so it reads inside the callout copy).

@@ -1,0 +1,36 @@
+[gd_scene format=3]
+
+[ext_resource type="PackedScene" path="res://addons/local_agents/game/render/events/EventView.tscn" id="1_eventview"]
+[ext_resource type="Script" path="res://addons/local_agents/game/render/events/SplashView.gd" id="2_splashview"]
+
+[sub_resource type="ParticleProcessMaterial" id="ParticleProcessMaterial_burst"]
+resource_local_to_scene = true
+emission_shape = 1
+emission_sphere_radius = 0.15
+direction = Vector3(0, 1, 0)
+spread = 35.0
+initial_velocity_min = 2.5
+initial_velocity_max = 5.0
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_droplet"]
+transparency = 1
+albedo_color = Color(0.3, 0.6, 0.9, 0.75)
+
+[sub_resource type="SphereMesh" id="SphereMesh_droplet"]
+material = SubResource("StandardMaterial3D_droplet")
+radius = 0.12
+height = 0.24
+radial_segments = 6
+rings = 3
+
+[node name="SplashView" instance=ExtResource("1_eventview")]
+script = ExtResource("2_splashview")
+ablation_name = "splash_view"
+
+[node name="Particles" parent="." index="1"]
+amount = 16
+one_shot = true
+explosiveness = 1.0
+visibility_aabb = AABB(-30, -10, -30, 60, 50, 60)
+process_material = SubResource("ParticleProcessMaterial_burst")
+draw_pass_1 = SubResource("SphereMesh_droplet")

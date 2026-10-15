@@ -60,7 +60,11 @@ layout(push_constant, std430) uniform Params {
 	float oy;
 	float oz;
 	float r_datum;     // m: the potential's zero is the reference monopole's at this radius
+	uint chunk_stride; // chunk.glsli
+	uint chunk_phase;
 } params;
+
+#include "chunk.glsli"
 
 shared float s_red[64];
 
@@ -187,7 +191,7 @@ void mode_density(uint gidx, bool live) {
 	float acc_y = wg_sum(m * p.y);
 	float acc_z = wg_sum(m * p.z);
 	if (gl_LocalInvocationID.x == 0u) {
-		uint b = gl_WorkGroupID.x * PART_STRIDE;
+		uint b = la_group() * PART_STRIDE;
 		partials[b] = acc_m;
 		partials[b + 1u] = acc_x;
 		partials[b + 2u] = acc_y;
@@ -267,7 +271,7 @@ void mode_gradient(uint gidx, bool live) {
 	float flux = wg_sum(outflux);
 	float mass_in = wg_sum(m_in);
 	if (gl_LocalInvocationID.x == 0u) {
-		uint b = gl_WorkGroupID.x * PART_STRIDE;
+		uint b = la_group() * PART_STRIDE;
 		partials[b + 4u] = acc;
 		partials[b + 5u] = hits;
 		partials[b + 8u] = flux;
@@ -372,7 +376,7 @@ void mode_vert_down_key(uint gidx) {
 }
 
 void main() {
-	uint gidx = gl_GlobalInvocationID.x;
+	uint gidx = la_cell();
 	bool live = gidx < params.cell_count;
 	switch (params.mode) {
 		case MODE_VERT_UP:

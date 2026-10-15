@@ -6,12 +6,21 @@
 # kind = "headless" can start an engine or reads this run's ledger; runs alone, in order.
 # kind = "gpu"      needs a real device; LA_NO_GPU=1 skips exactly these.
 # marker            the verdict line a passing gate must print, so silence is not a pass.
-# mutation          a shell command that must turn the gate red, for --mutate.
-# needs             what a --mutate scratch tree must be given: "import", "capture", "body"
-#                   (a body-scoped gate: NOT EXAMINED on a slice arm).
+# mutation          a shell command, or a list of them, each of which must turn the gate red.
+# needs             what a --mutate scratch tree must be given: "build" (its own extension compiled,
+#                   since a launch refuses a bin built from other sources), "import", "capture",
+#                   "body" (a body-scoped gate: NOT EXAMINED on a slice arm).
 
 [defaults]
 timeout_s = 900
+
+[[gate]]
+name = "check_chat_prompt"
+script = "scripts/check_chat_prompt.sh"
+kind = "text"
+needs = ["build"]
+marker = "^check_chat_prompt: OK"
+mutation = "python3 -c \"from pathlib import Path; p=Path('addons/local_agents/gdextensions/localagents/src/RuntimeChatPrompt.cpp'); s=p.read_text(); a=s.index('    if (!user_prompt.empty()'); b=s.index(' {', a); p.write_text(s[:a] + '    if (!user_prompt.empty())' + s[b:])\""
 
 [[gate]]
 name = "check_max_file_length"
@@ -52,6 +61,16 @@ script = "scripts/check_gate_shapes.sh"
 kind = "text"
 marker = "^check_gate_shapes: OK"
 mutation = "git update-index --chmod=-x scripts/check_conservation.sh"
+
+[[gate]]
+name = "check_capture_publication"
+script = "scripts/check_capture_publication.sh"
+kind = "text"
+marker = "^check_capture_publication: OK"
+mutation = [
+	"perl -0pi -e 's/0\\|122\\|123\\|126\\) mv/0|4|122|123|126) mv/' scripts/lib_slice_capture.sh",
+	"perl -0pi -e 's/LA_SLICE_CAPTURE=\"\\$\\(la_slice_capture_partial \"\\$SLICE_CAPTURE\"\\)\"/LA_SLICE_CAPTURE=\"\\$SLICE_CAPTURE\"/' scripts/sim_run.sh",
+]
 
 [[gate]]
 name = "check_boundary_buffers"
@@ -129,6 +148,10 @@ name = "check_demo_catalog"
 script = "scripts/check_demo_catalog.sh"
 kind = "text"
 marker = "^check_demo_catalog: OK"
+mutation = [
+	"python3 -c \"p='addons/local_agents/examples/DemoLauncher.tscn'; s=open(p).read(); open(p,'w').write(s.replace('examples/DemoRow.tscn', 'examples/DemoRowGone.tscn'))\"",
+	"sed -i '' -e 's|/ id=|/id=|' -e 's|RSTART + 5, RLENGTH - 6|RSTART + 4, RLENGTH - 5|' scripts/lib_demo_fragment.sh",
+]
 
 [[gate]]
 name = "check_fakes"
@@ -158,7 +181,22 @@ name = "check_life_demo"
 script = "scripts/check_life_demo.sh"
 kind = "gpu"
 marker = "^check_life_demo: OK"
-mutation = "perl -0pi -e 's/LAFakes\\.draw\\(\"plant_carbon\", want_mass\\)/0.0/' addons/local_agents/sim/actors/Plant.gd"
+mutation = [
+	"perl -0pi -e 's/LAFakes\\.draw\\(\"plant_carbon\", want_mass\\)/0.0/' addons/local_agents/sim/actors/Plant.gd",
+	"perl -0pi -e 's/(func step\\(_delta: float\\) -> void:\\n)/$1\\tvar mutant_t0: int = Time.get_ticks_usec()\\n\\twhile Time.get_ticks_usec() - mutant_t0 < 50000:\\n\\t\\tpass\\n/' addons/local_agents/game/RenderLayer.gd",
+]
+needs = ["import"]
+
+[[gate]]
+name = "check_group_index"
+script = "scripts/check_group_index.sh"
+kind = "gpu"
+marker = "^check_group_index: OK"
+mutation = [
+	"perl -0pi -e 's/(func moved\\(n: Node3D\\) -> void:\\n)/$1\\treturn\\n/' addons/local_agents/creatures/creature/GroupIndex.gd",
+	"perl -0pi -e 's/(func joined\\(n: Node3D\\) -> void:\\n)/$1\\treturn\\n/' addons/local_agents/creatures/creature/GroupIndex.gd",
+	"perl -0pi -e 's/_add\\(g, n3, _cell_of\\(n3\\.position\\)\\)/_add(g, n3, _cell_of(n3.global_position))/' addons/local_agents/creatures/creature/GroupIndex.gd",
+]
 needs = ["import"]
 
 [[gate]]
@@ -238,6 +276,12 @@ name = "check_stack_ssot"
 script = "scripts/check_stack_ssot.sh"
 kind = "text"
 marker = "^check_stack_ssot: OK"
+
+[[gate]]
+name = "check_derive_props_layout"
+script = "scripts/check_derive_props_layout.sh"
+kind = "text"
+marker = "^check_derive_props_layout: OK"
 
 [[gate]]
 name = "check_stack_balance"
@@ -361,6 +405,7 @@ name = "check_process_set"
 script = "scripts/check_process_set.sh"
 kind = "headless"
 marker = "^check_process_set: OK"
+mutation = "perl -0pi -e 's/(\\t\\t\\{\"key\": \"solid_detritus\")/\\t\\t{\"key\": \"all_org_h\", \"source\": \"org_h\", \"op\": Rec.Op.SUM, \"mask\": Rec.Mask.ALL, \"weight\": true},\\n$1/' addons/local_agents/sim/material/reduce/LifeRows.gd"
 
 [[gate]]
 name = "check_fly_nav"
@@ -487,6 +532,12 @@ name = "check_generated_constants"
 script = "scripts/check_generated_constants.sh"
 kind = "text"
 marker = "^Generated-constants gate passed"
+mutation = [
+	"perl -pi -e 's/^const RIPPLE_MAX: int = 16/const RIPPLE_MAX: int = 17/' addons/local_agents/game/render/WaterSurfaceView.gd",
+	"printf 'const int RIPPLE_MAX = 16;\\n' >> addons/local_agents/game/render/FieldArrow.gdshader",
+	"printf '#include \"res://addons/local_agents/game/render/shaders/generated.gdshaderinc\"\\n' >> addons/local_agents/game/render/FieldArrow.gdshader",
+	"perl -pi -e 's#game/render/shaders/generated#sim/shaders/generated#' addons/local_agents/game/render/shaders/VoxelWater.gdshader",
+]
 
 [[gate]]
 name = "check_seed_phase"
@@ -518,6 +569,26 @@ name = "check_condensed_moduli"
 script = "scripts/check_condensed_moduli.sh"
 kind = "headless"
 marker = "^check_condensed_moduli: OK"
+
+[[gate]]
+name = "check_modulus_paths"
+script = "scripts/check_modulus_paths.sh"
+kind = "text"
+marker = "^check_modulus_paths: OK"
+mutation = [
+	"perl -0pi -e 's/LAPhaseEosFn::isothermal_modulus\\((pc\\(\"ROCK_BULK_MODULUS_S_PA\"\\)),[^;]*;/$1;/s' addons/local_agents/gdextensions/localagents/src/LASubstances.cpp",
+	"perl -pi -e 's/QUARTZ_BULK_MODULUS_T_PA/QUARTZ_BULK_MODULUS_PA/g' addons/local_agents/sim/material/PhysicalConstants.gd addons/local_agents/gdextensions/localagents/src/LASubstances.cpp",
+	"printf 'const MUTANT_K: float = LAPhysical.ROCK_BULK_MODULUS_S_PA\\n' >> scripts/dump_substances.gd",
+	"printf 'not an index' > \"$(git rev-parse --git-path index)\" && { scripts/check_modulus_paths.sh >/dev/null 2>&1; test $? -eq 2; }",
+	"rm scripts/*.gd && { scripts/check_modulus_paths.sh >/dev/null 2>&1; test $? -eq 2; }",
+	"perl -pi -e 's/float\\(LASubstances\\.table\\(\\)\\[\"silicate\"\\]\\[\"bulk_modulus_pa\"\\]\\)/PC.ROCK_BULK_MODULUS_S_PA/' addons/local_agents/tests/test_density_eos.gd",
+]
+
+[[gate]]
+name = "check_melting_lines"
+script = "scripts/check_melting_lines.sh"
+kind = "headless"
+marker = "^check_melting_lines: OK"
 
 [[gate]]
 name = "check_reaction_balance"
@@ -561,6 +632,7 @@ name = "check_no_global_cfl"
 script = "scripts/check_no_global_cfl.sh"
 kind = "text"
 marker = "^check_no_global_cfl: OK"
+mutation = "perl -0pi -e 's/PASS_LEVEL_SEED/PASS_LEVEL_FIRST/g' addons/local_agents/sim/material/kernels3d/active_levels.glsli"
 
 [[gate]]
 name = "check_active_rows"
@@ -575,6 +647,46 @@ kind = "gpu"
 marker = "^check_driver_native: OK"
 
 [[gate]]
+name = "check_submit_budget"
+script = "scripts/check_submit_budget.sh"
+kind = "gpu"
+marker = "^check_submit_budget: OK"
+mutation = [
+	"perl -0pi -e 's/return gl_WorkGroupID\\.x \\* params\\.chunk_stride \\+ params\\.chunk_phase;/return gl_WorkGroupID.x;/' addons/local_agents/sim/material/kernels3d/chunk.glsli",
+	"perl -0pi -e 's/partials\\[params\\.base \\+ la_group\\(\\)\\]/partials[params.base + gl_WorkGroupID.x]/' addons/local_agents/sim/material/kernels3d/reduce.glsl",
+	"perl -0pi -e 's/alone > _wait\\(\\)/false/' addons/local_agents/gdextensions/localagents/src/LAFieldDriver.cpp",
+	"perl -0pi -e 's/it->second\\.known\\s*&& _pred\\(it->second, p_groups\\) <= _target\\(it->second\\);/it->second.known;/' addons/local_agents/gdextensions/localagents/src/LAFieldDriver.cpp",
+	"perl -0pi -e 's/indirect \\? _count\\(p_args, p_offset\\) : p_groups;/indirect ? 1 : p_groups;/' addons/local_agents/gdextensions/localagents/src/LAFieldDriver.cpp",
+	"perl -0pi -e 's/put_u32\\(w, n, \\(uint32_t\\)p_stride\\);\\n\\tput_u32\\(w, n \\+ 4, \\(uint32_t\\)p_phase\\);/put_u32(w, n, p_args.is_valid() ? 1u : (uint32_t)p_stride);\\n\\tput_u32(w, n + 4, p_args.is_valid() ? 0u : (uint32_t)p_phase);/' addons/local_agents/gdextensions/localagents/src/LAFieldDriver.cpp",
+	"perl -0pi -e 's/std::min\\(cost\\.floor_usec, p_usec\\)/std::max(cost.floor_usec, p_usec)/' addons/local_agents/gdextensions/localagents/src/LAFieldDriver.cpp",
+	"perl -0pi -e 's/\\t\\t_abort = p_key;\\n//' addons/local_agents/gdextensions/localagents/src/LAFieldDriver.cpp",
+	"perl -0pi -e 's/\\(pc\\.slice\\(4, 12\\) \\+ pc\\.slice\\(20, 32\\) \\+ pc\\.slice\\(40, 44\\)\\)\\.hex_encode\\(\\)/\"rows\"/' addons/local_agents/sim/material/sphere_passes/ReducePass.gd",
+	"perl -0pi -e 's/\\tdm_z\\[c\\] = dm\\.z;\\n/\\tdm_z[c] = dm.z;\\n\\tvel_x[c] += dm.x;\\n/' addons/local_agents/sim/material/kernels3d/flux.glsl",
+	"perl -0pi -e 's/\\tLASimReport\\.register\\(_submit_report\\)\\n//' addons/local_agents/sim/material/MaterialSphereGPU3D.gd",
+	"perl -0pi -e 's/atomicMax\\(tlevel\\[uint\\(rnb\\)\\], lv\\);/atomicMax(tlevel[uint(rnb)], tlevel[c]);/' addons/local_agents/sim/material/kernels3d/active_levels.glsli",
+]
+needs = ["build", "import", "capture"]
+
+[[gate]]
+name = "check_world_refusal"
+script = "scripts/check_world_refusal.sh"
+kind = "gpu"
+marker = "^check_world_refusal: OK"
+mutation = [
+	"perl -0pi -e 's/if failure == \"\" and _subscribers\\[i\\]\\.is_valid\\(\\):/if _subscribers[i].is_valid():/' addons/local_agents/sim/SimLoop.gd",
+	"perl -0pi -e 's/\\t\\t\\t_step -= 1\\n//' addons/local_agents/sim/SimLoop.gd",
+	"perl -0pi -e 's/\\t\\tif _f\\._gpu\\.refused\\(\"the seed\"\\):\\n\\t\\t\\treturn false\\n//' addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd",
+	"perl -0pi -e 's/\\tif not submitted:\\n\\t\\treturn\\n//' addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd",
+	"perl -0pi -e 's/\\tLASimReport\\.event\\(\"field_step\"\\)\\n(\\tif _f\\._seal != null)/$1/; s/(\\tvar t0: int = Time\\.get_ticks_usec\\(\\)\\n)/\\tLASimReport.event(\"field_step\")\\n$1/' addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd",
+	"perl -0pi -e 's/\\tif refused\\(\"field step %d\" % _step_index\\):\\n\\t\\treturn false\\n//' addons/local_agents/sim/material/MaterialSphereGPU3D.gd",
+	"perl -0pi -e 's/\\t\\tif refused\\(\"the seeded derive\"\\):\\n\\t\\t\\tbreak\\n//' addons/local_agents/sim/material/MaterialSphereGPU3D.gd",
+	"perl -0pi -e 's/\\tif piece != \"\" and LASimLoop\\.active\\(\\) != null:/\\tif false:/' addons/local_agents/sim/material/MaterialSphereGPU3D.gd",
+	"perl -0pi -e 's/\\tif _driver\\.aborted\\(\\) != \"\":\\n\\t\\treturn INF\\n//' addons/local_agents/sim/material/sphere_passes/GravityPass.gd",
+	"perl -0pi -e 's/ and _f\\._gpu\\._driver\\.aborted\\(\\) == \"\"//' addons/local_agents/sim/material/MaterialFieldGravity3D.gd",
+]
+needs = ["import"]
+
+[[gate]]
 name = "check_comment_claims"
 script = "scripts/check_comment_claims.sh"
 kind = "text"
@@ -585,6 +697,10 @@ name = "check_no_silent_fallback"
 script = "scripts/check_no_silent_fallback.sh"
 kind = "text"
 marker = "^check_no_silent_fallback: OK"
+mutation = [
+	"printf 'func _m(legs: Dictionary) -> void:\\n\\tvar f = legs.get(\"rock_fill\", _f._rock_fill)\\n' >> addons/local_agents/sim/material/MaterialFieldConservation3D.gd",
+	"perl -0pi -e 's/ctx\\.get\\(\"sun_dir\", Vector3\\.ZERO\\)/ctx.get(\"sun_dir\", Vector3(0.0, 1.0, 0.0))/' addons/local_agents/sim/material/sphere_passes/ReactionsPass.gd",
+]
 
 [[gate]]
 name = "check_no_invented_fallback"
@@ -597,6 +713,30 @@ name = "check_no_shim"
 script = "scripts/check_no_shim.sh"
 kind = "text"
 marker = "^check_no_shim: OK"
+
+[[gate]]
+name = "check_presentation_in_sim"
+script = "scripts/check_presentation_in_sim.sh"
+kind = "text"
+marker = "^check_presentation_in_sim: OK"
+mutation = [
+	"printf 'func _m() -> void:\\n\\tvar m: MeshInstance3D = MeshInstance3D.new()\\n' >> addons/local_agents/sim/material/MaterialField3D.gd",
+	"printf 'const MUT_S: Shader = preload(\"res://addons/local_agents/game/render/shaders/VoxelSky.gdshader\")\\n' >> addons/local_agents/sim/material/MaterialField3D.gd",
+	"printf '[gd_resource type=\"ShaderMaterial\" format=3]\\n\\n[resource]\\n' > addons/local_agents/sim/mutant_material.tres && printf 'const MUT_M: Material = preload(\"res://addons/local_agents/sim/mutant_material.tres\")\\n' >> addons/local_agents/sim/material/MaterialField3D.gd",
+	"printf '[gd_scene format=3]\\n\\n[node name=\"M\" type=\"Node3D\"]\\n\\n[node name=\"Mesh\" type=\"MeshInstance3D\" parent=\".\"]\\n' > addons/local_agents/sim/mutant_visual.tscn && printf 'const MUT_V: PackedScene = preload(\"res://addons/local_agents/sim/mutant_visual.tscn\")\\n' >> addons/local_agents/sim/material/MaterialField3D.gd",
+	"printf '[gd_scene format=3]\\n\\n[node name=\"M\" type=\"Node3D\"]\\n\\n[node name=\"Mesh\" type=\"MeshInstance3D\" parent=\".\"]\\n' > addons/local_agents/sim/mutant_visual.tscn && printf '[gd_scene format=3]\\n\\n[ext_resource type=\"PackedScene\" uid=\"uid://bmutant\" path=\"res://addons/local_agents/sim/mutant_visual.tscn\" id=\"1_v\"]\\n\\n[node name=\"O\" type=\"Node3D\"]\\n\\n[node name=\"V\" parent=\".\" instance=ExtResource(\"1_v\")]\\n' > addons/local_agents/sim/mutant_outer.tscn && printf 'const MUT_O: PackedScene = preload(\"res://addons/local_agents/sim/mutant_outer.tscn\")\\n' >> addons/local_agents/sim/material/MaterialField3D.gd",
+	"printf 'const MUT_SHADER_PATH: String = \"res://addons/local_agents/game/render/shaders/VoxelSky.gdshader\"\\nfunc _mut_s() -> Resource:\\n\\treturn load(MUT_SHADER_PATH)\\n' >> addons/local_agents/sim/material/MaterialField3D.gd",
+	"printf '[gd_resource type=\"ShaderMaterial\" format=3]\\n\\n[resource]\\n' > addons/local_agents/sim/mutant_material.tres && printf 'const MUT_MAT_PATH: String = \"res://addons/local_agents/sim/mutant_material.tres\"\\n' >> addons/local_agents/sim/material/MaterialFieldSeal3D.gd && printf 'func _mut_m() -> Resource:\\n\\treturn load(LAMaterialFieldSeal3D.MUT_MAT_PATH)\\n' >> addons/local_agents/sim/material/MaterialField3D.gd",
+	"printf 'shader_type spatial;\\n' > addons/local_agents/sim/material/mutant.gdshader",
+	"printf '[gd_resource type=\"StandardMaterial3D\" format=3]\\n\\n[resource]\\n' > addons/local_agents/sim/mutant_standard.tres",
+]
+
+[[gate]]
+name = "check_game_deletable"
+script = "scripts/check_game_deletable.sh"
+kind = "text"
+marker = "^check_game_deletable: OK"
+mutation = "perl -pi -e 's/\\bLAAppQuit\\.request\\(/LAAppExit.request(/' addons/local_agents/runtime/SceneShooter.gd"
 
 [[gate]]
 name = "check_duplicate_logic"
@@ -635,7 +775,7 @@ name = "check_sparse_edit"
 script = "scripts/check_sparse_edit.sh"
 kind = "gpu"
 marker = "^check_sparse_edit: OK"
-needs = "import"
+needs = ["import"]
 mutation = "python3 -c \"p='addons/local_agents/sim/material/kernels3d/sparse_edit.glsl'; s=open(p).read(); open(p,'w').write(s.replace('int s = inj_idx[e * 3u];', 'int s = inj_idx[e * 3u] + 1;'))\""
 
 [[gate]]
@@ -650,15 +790,52 @@ name = "check_live_toggles"
 script = "scripts/check_live_toggles.sh"
 kind = "gpu"
 marker = "^check_live_toggles: OK"
-mutation = "perl -0pi -e 's/not LAAblate\\.step_switches\\(_f\\._gpu\\._step_index\\)/true/' addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd"
+mutation = "perl -0pi -e 's/LAAblate\\.step_switches\\(sim_step\\)/false/' addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd"
+
+[[gate]]
+name = "check_audit_at_rest"
+script = "scripts/check_audit_at_rest.sh"
+kind = "gpu"
+marker = "^check_audit_at_rest: OK"
+mutation = [
+	"python3 -c \"p='addons/local_agents/sim/material/kernels3d/state_derive.glsl'; s=open(p).read(); open(p,'w').write(s.replace('e_j_m3[g] += ke;', 'e_j_m3[g] += ke + 1.0e6;', 1))\"",
+	"perl -0pi -e 's/\\t_f\\._gpu\\._step_index = sim_step\\n//' addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd",
+	"perl -0pi -e 's/sim_step % REST_AUDIT_EVERY != 0/true/' addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd",
+	"perl -0pi -e 's/\"energy_residual_stock_rel\"/\"energy_residual_stock_rel_absent\"/' addons/local_agents/sim/material/MaterialFieldConservation3D.gd",
+	"perl -0pi -e 's/if books >= 0:/if true:/' addons/local_agents/sim/material/MaterialFieldReport3D.gd",
+	"perl -0pi -e 's/report\\(books\\), books\\)/report(books), int(_f._gpu._step_index))/' addons/local_agents/sim/material/MaterialFieldReport3D.gd",
+	"perl -0pi -e 's/ or \\(books_step < 0 and _clock_since_seal\\(\\) >= REFERENCE_STEPS\\)//' addons/local_agents/sim/material/MaterialFieldConservation3D.gd",
+]
+needs = ["import"]
 
 [[gate]]
 name = "check_test_mass"
 script = "scripts/check_test_mass.sh"
 kind = "gpu"
-needs = "import"
+needs = ["import"]
 marker = "^check_test_mass: OK"
 mutation = "perl -0pi -e 's/GRAVITATIONAL_CONSTANT: float = [0-9.e-]+/GRAVITATIONAL_CONSTANT: float = 0.0/' addons/local_agents/sim/material/PhysicalConstants.gd"
+
+[[gate]]
+name = "check_mutate_scratch_build"
+script = "scripts/check_mutate_scratch_build.sh"
+kind = "text"
+marker = "^check_mutate_scratch_build: OK"
+mutation = "perl -0pi -e 's/shutil\\.copytree\\(os\\.path\\.join\\(ROOT, BIN_REL\\)[^\\n]*/pass/' scripts/gate_runner.py"
+
+[[gate]]
+name = "check_sky_air"
+script = "scripts/check_sky_air.sh"
+kind = "gpu"
+needs = ["import"]
+marker = "^check_sky_air: OK"
+mutation = [
+	"perl -0pi -e 's/var scale_h: float = LAPhysical\\.GAS_CONSTANT_J_MOL_K[^\\n]+/var scale_h: float = 8000.0/' addons/local_agents/game/render/SkyView.gd",
+	"perl -0pi -e 's/var g: float = LABallistics\\.g_at\\(at\\)\\.length\\(\\)/var g: float = 9.80665/' addons/local_agents/game/render/SkyView.gd",
+	"perl -0pi -e 's/var per_m3: float = /var per_m3: float = 1.25 * /' addons/local_agents/game/render/SkyView.gd",
+	"perl -0pi -e 's/ \\* exp\\(above_ground \\/ scale_h\\)//' addons/local_agents/game/render/SkyView.gd",
+	"perl -0pi -e 's/\\{ 1\\.1364, 25\\.3e-12 \\* 1\\.0e8 \\}/{ 1.0 }/' addons/local_agents/gdextensions/localagents/src/LASubstanceOptics.cpp",
+]
 
 [[gate]]
 name = "check_finite_channels"
@@ -723,6 +900,17 @@ kind = "gpu"
 marker = "^check_boundary_books: OK"
 
 [[gate]]
+name = "check_boundary_replay"
+script = "scripts/check_boundary_replay.sh"
+kind = "gpu"
+marker = "^check_boundary_replay: OK"
+mutation = [
+	"perl -0pi -e 's/var idx: int = \\(step - first\\) \\/ cadence/var idx: int = step \\/ cadence/' addons/local_agents/sim/material/FieldBoundaryCapture3D.gd",
+	"perl -0pi -e 's/_fold\\(step, legs\\)/_fold(step + 1, legs)/' addons/local_agents/sim/material/FieldBoundaryCapture3D.gd",
+]
+needs = ["import"]
+
+[[gate]]
 name = "check_escape_law"
 script = "scripts/check_escape_law.sh"
 kind = "gpu"
@@ -760,7 +948,7 @@ mutation = "python3 -c \"p='scripts/sim_run.sh'; s=open(p).read(); open(p,'w').w
 name = "check_box_outline"
 script = "scripts/check_box_outline.sh"
 kind = "gpu"
-needs = "import"
+needs = ["import"]
 marker = "^check_box_outline: OK"
 mutation = "perl -0pi -e 's/1\\.0 - smoothstep\\(0\\.0, 1\\.0, clampf\\(t, 0\\.0, 1\\.0\\)\\)/1.0/' addons/local_agents/game/render/FieldBoxOutline.gd"
 
@@ -769,7 +957,45 @@ name = "check_shot_look"
 script = "scripts/check_shot_look.sh"
 kind = "gpu"
 marker = "^check_shot_look: OK"
-mutation = "python3 -c \"p='addons/local_agents/sim/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); s=s.replace('ALBEDO = col;','ALBEDO = vec3(0.0);'); open(p,'w').write(s.replace('EMISSION = incandescence(temp) * 3.8;','EMISSION = vec3(0.35);'))\""
+mutation = "python3 -c \"p='addons/local_agents/game/render/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); s=s.replace('ALBEDO = col;','ALBEDO = vec3(0.0);'); open(p,'w').write(s.replace('EMISSION = max(glow, vec3(0.0));','EMISSION = vec3(0.35);'))\""
+
+[[gate]]
+name = "check_block_seams"
+script = "scripts/check_block_seams.sh"
+kind = "gpu"
+needs = ["import"]
+marker = "^check_block_seams: OK"
+mutation = [
+	'''python3 -c "p='addons/local_agents/game/render/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); o='specular_schlick_ggx, skip_vertex_transform;'; assert o in s, o; open(p,'w').write(s.replace(o, 'specular_schlick_ggx;'))"''',
+	'''python3 -c "p='addons/local_agents/game/render/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); o='VERTEX = mat3(VIEW_MATRIX) * (to_world * rel);'; assert o in s, o; open(p,'w').write(s.replace(o, 'VERTEX = (MODELVIEW_MATRIX * vec4(v, 1.0)).xyz;'))"''',
+]
+
+[[gate]]
+name = "check_terrain_glow"
+script = "scripts/check_terrain_glow.sh"
+kind = "gpu"
+needs = ["import"]
+marker = "^check_terrain_glow: OK"
+mutation = [
+	'''python3 -c "p='addons/local_agents/game/render/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); o='EMISSION = max(glow, vec3(0.0));'; assert o in s, o; s=s.replace('void fragment() {', 'vec3 incandescence(float t) {\n\tif (t < 450.0) {\n\t\treturn vec3(0.0);\n\t}\n\tfloat g = smoothstep(450.0, 1300.0, t);\n\tvec3 c = mix(vec3(0.75, 0.06, 0.0), vec3(1.0, 0.5, 0.08), smoothstep(450.0, 850.0, t));\n\tc = mix(c, vec3(1.0, 0.96, 0.82), smoothstep(850.0, 1300.0, t));\n\treturn c * g;\n}\n\nvoid fragment() {'); open(p,'w').write(s.replace(o, 'EMISSION = incandescence(temp_c) * 3.8;'))"''',
+	'''python3 -c "p='addons/local_agents/game/render/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); o='EMISSION = max(glow, vec3(0.0));'; assert o in s, o; open(p,'w').write(s.replace(o, 'EMISSION = max(glow, vec3(0.0)) * 2.0;'))"''',
+	'''python3 -c "p='addons/local_agents/game/render/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); o='glow = (1.0 - col) * planck_srgb('; assert o in s, o; open(p,'w').write(s.replace(o, 'glow = planck_srgb('))"''',
+	'''python3 -c "p='addons/local_agents/game/world/HeatFieldTexture.gd'; s=open(p).read(); o='return Color(t_k, (r_m / d_m) * (r_m / d_m), 0.0)'; assert o in s, o; open(p,'w').write(s.replace(o, 'return Color(t_k, r_m / d_m, 0.0)'))"''',
+	'''python3 -c "p='addons/local_agents/game/world/HeatFieldTexture.gd'; s=open(p).read(); o='var t_k: float = pow(l_w / (4.0 * PI * r_m * r_m * LAPhysical.STEFAN_BOLTZMANN), 0.25)'; assert o in s, o; open(p,'w').write(s.replace(o, 'var t_k: float = 5772.0'))"''',
+]
+
+[[gate]]
+name = "check_terrain_field"
+script = "scripts/check_terrain_field.sh"
+kind = "gpu"
+needs = ["import"]
+marker = "^check_terrain_field: OK"
+mutation = [
+	'''python3 -c "p='addons/local_agents/game/world/HeatFieldTexture.gd'; s=open(p).read(); o='mirrors.cells() != _cells:'; assert o in s, o; open(p,'w').write(s.replace(o, 'mirrors.cells() != _field._grid.nx * _field._grid.ny * _field._grid.nz:'))"''',
+	'''python3 -c "p='addons/local_agents/game/render/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); o='v_box_pos = (u_block_local_transform[3].xyz - field_box_min) + v;'; assert o in s, o; open(p,'w').write(s.replace(o, 'v_box_pos = (MODEL_MATRIX * vec4(v, 1.0)).xyz - field_box_min;'))"''',
+	'''python3 -c "p='addons/local_agents/game/world/HeatFieldTexture.gd'; s=open(p).read(); o='\"field_box_min\": terrain.terrain_node().to_local(pivot) + (grid.origin - pivot),'; assert o in s, o; open(p,'w').write(s.replace(o, '\"field_box_min\": grid.origin,'))"''',
+	'''python3 -c "p='addons/local_agents/game/render/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); o='(spread3(f.z) << 2)'; assert o in s, o; open(p,'w').write(s.replace(o, '(spread3(f.z) << 1)'))"''',
+]
 
 [[gate]]
 name = "check_impact_books"
@@ -811,7 +1037,7 @@ name = "check_lasim_parity"
 script = "scripts/check_lasim_parity.sh"
 kind = "gpu"
 marker = "^check_lasim_parity: OK"
-mutation = "sed -i '' 's|acc += x;|acc += x * 1.0000001;|' addons/local_agents/native/src/field/FieldRun.cpp"
+mutation = "sed -i '' 's|acc += x;|acc += x * 1.0000001;|' addons/local_agents/native/src/field/FieldSession.cpp"
 
 [[gate]]
 name = "check_shaders_compile"
@@ -845,7 +1071,7 @@ name = "check_snapshot_roundtrip"
 script = "scripts/check_snapshot_roundtrip.sh"
 kind = "gpu"
 marker = "^check_snapshot_roundtrip: OK"
-mutation = "python3 -c \"p='addons/local_agents/sim/material/MaterialFieldSnapshot3D.gd'; s=open(p).read(); open(p,'w').write(s.replace('LAMaterialSphereGPU3D.channels() + LAMaterialSphereGPU3D.SEED_PRODUCTS', 'LAMaterialSphereGPU3D.channels()'))\""
+mutation = "python3 -c \"p='addons/local_agents/sim/material/MaterialFieldSnapshot3D.gd'; s=open(p).read(); open(p,'w').write(s.replace('LAChannels.channels() + LAMaterialSphereGPU3D.SEED_PRODUCTS', 'LAChannels.channels()'))\""
 
 [[gate]]
 name = "check_atmosphere_mass"
@@ -856,8 +1082,114 @@ marker = "^check_atmosphere_mass: OK"
 mutation = "python3 -c \"p='scripts/check_atmosphere_mass.sh'; s=open(p).read(); open(p,'w').write(s.replace('k = m * mm;', 'k = 4 * m * mm;'))\""
 
 [[gate]]
+name = "check_sealed_state_range"
+script = "scripts/check_sealed_state_range.sh"
+kind = "gpu"
+needs = ["import", "capture", "body"]
+marker = "^check_sealed_state_range: OK"
+mutation = [
+	"python3 -c \"p='addons/local_agents/sim/material/reduce/PressureRows.gd'; s=open(p).read(); open(p,'w').write(s.replace('\\\"less\\\": \\\"pressure\\\", ', ''))\"",
+	"python3 -c \"p='addons/local_agents/sim/material/kernels3d/reduce.glsl'; s=open(p).read(); open(p,'w').write(s.replace('return v - aux[i];', 'return v + aux[i];'))\"",
+	"perl -0pi -e 's/lw\\[c\\] = float\\(h_l \\/ cell_m3\\);/lw[c] = float(-h_l \\/ cell_m3);/' addons/local_agents/gdextensions/localagents/src/LAFieldCellMass.cpp && addons/local_agents/gdextensions/localagents/scripts/build_extension.sh",
+	"perl -0pi -e 's/if \\(dry > 0\\.0\\) \\{/if (false \\&\\& dry > 0.0) {/' addons/local_agents/gdextensions/localagents/src/LAFieldLithostaticSeed.cpp && addons/local_agents/gdextensions/localagents/scripts/build_extension.sh",
+	"python3 -c \"p='addons/local_agents/sim/material/kernels3d/state_derive.glsl'; s=open(p).read(); open(p,'w').write(s.replace('nf += (t_l + LA_KELVIN_OFFSET <= 0.0)', 'nf += (t_l + LA_KELVIN_OFFSET > 0.0)'))\"",
+	"python3 -c \"p='addons/local_agents/sim/material/reduce/PressureRows.gd'; s=open(p).read(); open(p,'w').write(s.replace('Rec.Op.COUNT_LT', 'Rec.Op.COUNT_GT'))\"",
+]
+
+[[gate]]
 name = "check_gate_registered"
 script = "scripts/check_gate_registered.sh"
 kind = "text"
 marker = "^check_gate_registered: OK"
 mutation = "printf '#!/usr/bin/env bash\\nexit 0\\n' > scripts/check_mutant_orphan.sh"
+
+[[gate]]
+name = "check_hud_palette"
+script = "scripts/check_hud_palette.sh"
+kind = "text"
+marker = "^check_hud_palette: OK"
+mutation = "printf 'theme_override_colors/font_color = Color(0.62, 0.66, 0.72, 1)\\n' >> addons/local_agents/game/ui/GameHud.tscn"
+
+[[gate]]
+name = "check_event_views"
+script = "scripts/check_event_views.sh"
+kind = "headless"
+needs = ["import"]
+marker = "^check_event_views: OK"
+mutation = [
+	"python3 -c \"p='addons/local_agents/game/render/events/CycloneView.tscn'; s=open(p).read(); open(p,'w').write(s.replace('ablation_name = \\\"cyclone_view\\\"\\n',''))\"",
+	"python3 -c \"p='addons/local_agents/game/render/events/PhenomenaMarkers.gd'; s=open(p).read(); open(p,'w').write(s.replace('if rec == null or not rec.offered() or not _adopt','if rec == null or not _adopt'))\"",
+	"python3 -c \"p='addons/local_agents/game/render/events/EventViewRecord.gd'; s=open(p).read(); open(p,'w').write(s.replace('\\t\\t\\treturn false\\n','\\t\\t\\tpass\\n'))\"",
+	"python3 -c \"p='addons/local_agents/game/render/events/PhenomenaMarkers.gd'; s=open(p).read(); open(p,'w').write(s.replace('if box == null or not box.can_process() or','if box == null or'))\"",
+	"python3 -c \"p='addons/local_agents/game/render/events/PhenomenaMarkers.gd'; s=open(p).read(); open(p,'w').write(s.replace(' or box.get_child_count() >= max_drawn_per_kind',''))\"",
+	"python3 -c \"p='addons/local_agents/game/RenderLayer.gd'; s=open(p).read(); open(p,'w').write(s.replace('\\tfor actor in actors.get_children():\\n\\t\\t_draw_actor(actor)\\n',''))\"",
+	"python3 -c \"p='addons/local_agents/game/RenderLayer.gd'; s=open(p).read(); open(p,'w').write(s.replace('\\tactors.child_entered_tree.connect(_draw_actor)\\n',''))\"",
+	"python3 -c \"p='addons/local_agents/game/render/events/CycloneView.tscn'; s=open(p).read(); open(p,'w').write(s.replace('gravity = Vector3(0, -0.001, 0)','gravity = Vector3(0, 0, 0)'))\"",
+	"python3 -c \"p='addons/local_agents/game/render/events/CycloneView.tscn'; s=open(p).read(); open(p,'w').write(s.replace('local_coords = true','local_coords = false'))\"",
+	"python3 -c \"p='addons/local_agents/game/render/events/EventView.gd'; s=open(p).read(); open(p,'w').write(s.replace('Transform3D(Basis(side, up, side.cross(up)), point)','Transform3D(Basis.IDENTITY, point)'))\"",
+	"python3 -c \"p='addons/local_agents/game/render/events/CycloneView.tscn'; s=open(p).read(); open(p,'w').write(s.replace('visibility_aabb = AABB(-6, -2, -6, 12, 4, 12)','visibility_aabb = AABB(-1, -0.1, -1, 2, 0.2, 2)'))\"",
+	"python3 -c \"p='addons/local_agents/game/render/events/PhenomenaMarkers.gd'; s=open(p).read(); open(p,'w').write(s.replace('_field._grid.cell_edge(c)','_field._grid.cell_size'))\"",
+]
+
+[[gate]]
+name = "check_stream_text"
+script = "scripts/check_stream_text.sh"
+kind = "text"
+marker = "^check_stream_text: OK"
+mutation = "python3 -c \"from pathlib import Path; p=Path('addons/local_agents/gdextensions/localagents/src/RuntimeStreamText.cpp'); s=p.read_text().replace('return text.substr(0, valid);', 'return text;'); p.write_text(s)\""
+
+[[gate]]
+name = "check_llm_request_ownership"
+script = "scripts/check_llm_request_ownership.sh"
+kind = "headless"
+needs = ["build", "import"]
+marker = "LLM request ownership tests passed"
+mutation = "python3 -c \"from pathlib import Path; p=Path('addons/local_agents/controllers/ChatController.gd'); p.write_text(p.read_text().replace('if not _is_generating or generation != _request_generation:', 'if not _is_generating:'))\""
+
+[[gate]]
+name = "check_llm_http_stream"
+script = "scripts/check_llm_http_stream.sh"
+kind = "headless"
+needs = ["build", "import"]
+marker = "^check_llm_http_stream: OK"
+mutation = "python3 -c \"from pathlib import Path; p=Path('addons/local_agents/gdextensions/localagents/src/RuntimeHttp.cpp'); p.write_text(p.read_text().replace('state.progress.call_deferred(state.text);', ''))\""
+
+[[gate]]
+name = "check_ladder_scope"
+script = "scripts/check_ladder_scope.py"
+kind = "text"
+marker = "^check_ladder_scope: OK"
+mutation = "python3 -c \"import pathlib; p=pathlib.Path('scripts/check_process_ladder.sh'); p.write_text(p.read_text().replace('then break; fi', 'then :; fi'))\""
+
+[[gate]]
+name = "check_native_service_protocol"
+script = "scripts/check_native_service_protocol.sh"
+kind = "text"
+marker = "^check_native_service_protocol: OK"
+mutation = [
+  "python3 -c \"from pathlib import Path; p=Path('addons/local_agents/native/src/cli/ServiceProtocol.cpp'); p.write_text(p.read_text().replace('uint16_t(operation_version) != version', 'false'))\"",
+  "python3 -c \"from pathlib import Path; p=Path('addons/local_agents/native/src/cli/ServiceProtocol.cpp'); p.write_text(p.read_text().replace('if (length > max_payload)', 'if (false)'))\"",
+  "python3 -c \"from pathlib import Path; p=Path('addons/local_agents/native/src/field/ViewPublication.cpp'); p.write_text(p.read_text().replace('temporary = directory / \\\"view.tmp\\\";', 'temporary = final;'))\"",
+]
+
+
+[[gate]]
+name = "check_native_service"
+script = "scripts/check_native_service.sh"
+kind = "gpu"
+needs = ["import"]
+marker = "^check_native_service: OK"
+mutation = [
+  "python3 -c \"from pathlib import Path; p=Path('addons/local_agents/native/src/cli/Service.cpp'); p.write_text(p.read_text().replace('revision++;', 'revision++; imported_time_s += 1.0;'))\"",
+  "python3 -c \"from pathlib import Path; p=Path('addons/local_agents/native/src/cli/Service.cpp'); p.write_text(p.read_text().replace('request.generation != generation', 'false'))\"",
+]
+
+[[gate]]
+name = "check_seed_cancellation"
+script = "scripts/check_seed_cancellation.sh"
+kind = "text"
+marker = "^check_seed_cancellation: OK"
+mutation = [
+  "python3 -c \"from pathlib import Path; p=Path('addons/local_agents/gdextensions/localagents/include/LAParallel.hpp'); p.write_text(p.read_text().replace('LASeedCancellation cancellation(token);', 'LASeedCancellation cancellation(nullptr);'))\"",
+  "python3 -c \"from pathlib import Path; p=Path('addons/local_agents/gdextensions/localagents/include/LAParallel.hpp'); p.write_text(p.read_text().replace('if (failure) { std::rethrow_exception(failure); }', ''))\"",
+]

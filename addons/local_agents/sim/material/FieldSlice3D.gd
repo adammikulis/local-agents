@@ -32,8 +32,10 @@ var coast: bool = false
 var _terrain = null                   # set by apply(), the only caller that has one
 ## Face slot -> Array of per-sample states, fed through replay(); empty outside replay mode.
 var replay_series: Dictionary = {}
-## Field steps one replay sample spans.
+## Loop steps one replay sample spans.
 var replay_cadence: int = 0
+## LASimLoop's step whose start the first replay sample holds.
+var replay_first: int = -1
 
 
 ## The configured slice, or null when none is configured anywhere.
@@ -188,6 +190,7 @@ func _configure_boundary(field) -> void:
 		if replay:
 			var series: Dictionary = CaptureScript.series_states(data)
 			replay_cadence = int(series.get("cadence", 0))
+			replay_first = int(series.get("first", -1))
 			for d in [d_down, d_up]:
 				var arr: Array = series.get("faces", {}).get(d, [])
 				if arr.is_empty() or replay_cadence <= 0:

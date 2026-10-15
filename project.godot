@@ -45,3 +45,7 @@ common/max_physics_steps_per_frame=1
 [rendering]
 
 textures/vram_compression/import_etc2_astc=true
+
+[voxel]
+
+threads/main/time_budget_ms=2

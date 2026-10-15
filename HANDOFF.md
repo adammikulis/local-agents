@@ -1,193 +1,95 @@
-# What to do next
+# Resume here
 
-Work down this list; an item is DELETED the moment it lands. Physics work is in `docs/PHYSICS_TODO.md`,
-cost in `docs/PERFORMANCE_TODO.md`. Check the code, then act; report what was deleted and no number
-this substrate printed. **AN ITEM CARRIES A SYMPTOM AND THE COMMAND THAT REPRODUCES IT, NEVER A
-DIAGNOSIS** (`scripts/check_doc_prose.sh`). **THE LIST IS ORDERED BY WHAT IS UPSTREAM OF WHAT.**
-**THE LADDER ADVANCES ONE APPROVED DEMO AT A TIME, AND EACH DEMO ADDS EVIDENCE OF ITS OWN PROCESS THE
-MAINTAINER CAN SEE OR HEAR**: a run shows only what its rung contains; a rung is built only after the
-demo below it (a scene plus a `LocalAgentDemoEntry` in `addons/local_agents/examples/demos/`) is
-approved. Rung 0 is approved. A process the world contains switches off and on mid-run through
-`LAAblate`, one registry for modules, physics and stand-ins. A fake is a record in `sim/LAFakes.gd`
-naming the rung whose landing makes its `real` state the default; every record switches off, fake or
-real (`--ablate=<name>:off|fake|real`, `scripts/check_fakes.sh`, `scripts/check_fakes_states.sh`).
+Read `CLAUDE.md`, `GODOT_BEST_PRACTICES.md` and [the release scope](docs/0.4_RELEASE_SCOPE.md).
+Resume the authorized standalone-native simulation migration; keep physics independent of UI framerate.
+Require flowing water and basic weather for the reduced 0.4. Keep async execution and genuine streaming
+where applicable. Creature cognition stays in [the 0.5 handoff](docs/0.5_RUNTIME_COGNITION.md).
 
----
+## 1. PRESERVE AND RECONCILE THE OPEN BATCHES
 
-## 1. THE PLANET'S POISSON RESIDUAL STOPS FALLING, AND THE MASS IT WEIGHS GROWS
+Run `git worktree list`, `git status --short` in relevant trees, `git fetch origin`, `git cherry` both
+directions and `git merge-base --is-ancestor main 0.4-dev` before integrating. Preserve unrelated dirty
+trees and identify their owners before changing them.
 
-`scripts/sim_run.sh --body --frames 6 --report gravity_residual_rel,gravity_vcycles,gravity_total_mass_kg`
-reads a residual above `GravityPass.RESIDUAL_TOLERANCE` with the V-cycles spent, so
-`MaterialFieldGravity3D.solve` invalidates the run, and a mass maximum several times its own minimum
-while `mineral_total` and `h2o_total` drift by nothing. Branch `multigrid-gravity` holds an unlanded
-V-cycle solver, green on the slice, red on the planet.
-Reading: `MODE_SEED` in `kernels3d/gravity_poisson.glsl` writes `grav_ref` as one monopole.
+- `.claude/worktrees/agent-a1e18a654b3681741`: native dispatch-plan construction; finish the preserved
+  merge, then reconcile current development and the service foundation. Working/index backups are in
+  `/private/tmp/la-native-plans-interrupted-{working,index}.patch`. Keep the native channel-specific
+  heat-capacity correction and remove duplicate GDS push-block builders.
+- `../la-fix-ablate-ui`: subtree ownership, dynamic reparenting and panel-free captures; affected checks
+  pass, but its abort reconciliation still needs committing and integration.
+- `.claude/worktrees/agent-aceee89a389f0d24d`: reviewed creature absence/carcass fixes, reconciled with
+  abort-safe activation; integrate the published batch.
+- `.claude/worktrees/agent-ad34c9b0a584b80ec`: shared validation captures and gate deadlines; preserve
+  strict timeout/mutation classification, complete-run budget banking and the local-validation policy.
+  Finish the follow-up controls and full local integration.
+- `../la-fix-boxfield-rocks`, `../la-fix-sea-radius-cloud`, and the remaining `agent-*` trees contain
+  unlanded box/injection, water/crust/mesh, lobs, tides and implicit-acoustic work. Reconcile every
+  substantive change before pruning. Choose one authoritative water fill; preserve current APIs.
 
-## 2. THE PLANET'S SEEDED COLUMN IS NOT A FIXED POINT OF ITS DERIVE
+Complete when bounded batches pass affected checks and independent review, land through
+`scripts/integrate.sh <branch>`, and `0.4-dev` is pushed after each integration. Preserve unfinished
+source across this requested session boundary; prune owned worktrees after their work lands.
 
-`scripts/sim_run.sh --body --rung 2 --frames 6 --report pressure_rest_rel,derive_unconverged_cells`
-reads `pressure_rest_rel` above its bar with every cell converged; the slice column
-(`scripts/sim_run.sh --rung 2 --frames 6`) reads zero. `scripts/check_derive_safe_math.sh` counts
-`pressure`, `p_fluid`, `k_cond`, `temp` and `temp_lith` as channels whose readings differ between
-Godot's fast math and lasim's `MTLMathModeSafe`; its `once`/`twice` arms replay `plan_derive.lapl`
-through `lasim --passes derive`. `docs/DERIVE_SAFE_MATH_CEILING` ratchets the count to zero.
-Reading: `state_derive.glsl` ends the (T, p) solve on `abs(f) <= LA_STATE_TOL * max(p_pa, 1.0)`.
+## 2. MOVE LIVE PHYSICS AND THE CLOCK OUT OF GODOT
 
-## 3. THE BOUNDARY GATES CANNOT RECORD THEIR OWN CAPTURE, AND A GHOST'S REST GRAVITY IS READ PAST ITS BUFFER
+Reproduce the active coupling through `scripts/show_demo.sh SliceRung1Demo`; inspect `LASimLoop`,
+`LAFieldDriver::step`, native `FieldRun` and the exporter in `scripts/lib_lasim_oracle.sh`.
+The persistent derive/reduce service is not a live planet simulator.
 
-`scripts/check_boundary_books.sh` with no `LA_LINT_CAPTURE` exits 2: its capture run,
-`scripts/sim_run.sh --body --frames 20 --rung 3 --slice-capture C`, ends `RUN FAILED, exit 122` with
-`PRESSURE_BROKEN: pressure fell going down.` `rg -n 'g_rest.*cc \* 3' addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd`
-Reading: `_allocate_declared` in `MaterialSphereGPU3D.gd` adds `_ng` once to a declared length, so a
-three-vector declared `{"n": cc * 3, "ghosts": true}` is `cc * 3 + ng` long.
+Give the native process its own authoritative clock, solver schedule and compute-device ownership;
+make Godot an asynchronous client for commands, views and steering. Extract shared ballistics numerics
+rather than duplicating the solver. Advance committed time only after successful complete intervals;
+preserve every conserved exchange, cancellation boundaries and independent audits. Audit reaction-rate
+timestep handling before variable integration intervals. Provide production bootstrap/export, client
+lifecycle, owned-child shutdown and disconnect handling.
+Complete when native CLI gates exercise live physics without Godot and the active Godot client remains
+responsive while that process advances independently.
 
-## 4. THE BODY RECORD OMITS THE PORE WATER BELOW THE SEA FLOOR, AND ONE POROSITY LAW SERVES EVERY ROCK
+### Snapshot publication decision
 
-`scripts/check_hydrosphere_mass.sh --body` is red: the declared `hydrosphere_kg`/`groundwater_kg` in
-`LABodySystem.cpp` (Gleick 1996) count the surface ocean and continental groundwater only, and
-`REGOLITH_SURFACE_POROSITY`/`COMPACTION_LENGTH_M` (Athy 1930, shales) are applied to basalt and basement.
+Coalesce obsolete view requests before GPU extraction and serialization. Publish selected immutable
+views when new authoritative state and consumer capacity are available; use bounded prefetch and
+timestamped history for presentation. Keep reliable events, accounting and compact resolved trajectory
+history so an entire fall cannot disappear between displayed full snapshots. Keep full checkpoints
+explicit; validate future deltas against an acknowledged baseline. UI framerate may reduce publication
+work, never physics work or elapsed-time integration.
 
-## 5. THE PLANET CARRIES LESS AIR THAN IT WAS GIVEN, AND A BOX CANNOT WEIGH ITS OWN SHARE
+Reproduce the synthetic socket comparison with `/private/tmp/la_snapshot_ipc_bench.py` if present;
+its results are not production GPU performance. Verify actual service throughput/latency, bounded
+memory, slow/disconnected clients and observer independence at equal simulated time before completion.
 
-`scripts/check_atmosphere_mass.sh` prints a seeded nitrogen below the declared inventory, and its test is
-one-sided because the deficit is not the seed's: `scripts/sim_run.sh --body --rung 2 --frames 2 --report
-nitrogen_all,body_seed_atmosphere_n2_kg`. The same gate cannot read a slab, because a box's footprint on
-the sphere is not a rectangle: `scripts/sim_run.sh --slice --rung 2 --frames 2 --report nitrogen_all`
-reads a box whose long axis is the world axis nearest the local vertical, not the vertical itself.
-Reading: `solid_of` in `LAPlanetTables.cpp` calls a cell solid at half rock, and `shape_atmosphere`
-floods `sky` only through cells whose `solid[c] == 0`.
+## 3. VERIFY THE EXACT DESKTOP GRAVITY DEMO
 
-## 6. THE CRUST HAS TWO REPRESENTATIONS, AND THE SEA IS A SPHERE AT ONE RADIUS
+Reproduce with `/Users/adammikulis/Desktop/Planet Demos/Launch Gravity Demo.command` after activating
+the integrated candidate in the primary checkout. Complete only when that exact shortcut opens a
+responsive world, accepts input and closes cleanly on the Mac. Run `scripts/check_test_mass.sh` and
+verify falling motion in a real visible launch; static screenshots cannot demonstrate a fall.
 
-Maintainer's decision, standing: one substrate everywhere. The field is the only representation of
-matter; the ground and the water surface are detectors on it (an isosurface a compute kernel extracts
-into mesh buffers per block, which is also the collider); the generator is sampled into the field once
-at seed; a body of water is where the inventory settled under the solved gravity, one liquid in one
-channel. `rg -n "sea_radius|OceanPlane|_open_sea|sea_level_m|resample_terrain" addons/local_agents`
-finds the sea as a declared shell radius and the field sampling the generator after the seal.
+Candidate startup checks do not verify the Desktop shortcut. Consult
+`/private/tmp/la-startup-native-*.log` if present. Keep terrain seams, safe spawn, walkable collision and
+water placement in the visible acceptance arm. Obtain maintainer approval of rung 1 before advancing;
+only rung 0 has approval. Reconcile `docs/PLAYABLE_RUNG` with the accepted demo.
 
-## 7. THE LEVEL BOUNDARY DRAWS AS A LINE ACROSS THE GROUND
+## 4. COMPLETE THE REDUCED PLANET RELEASE
 
-`scripts/shoot_demo.sh addons/local_agents/examples/SliceRung1Demo.tscn <dir>` carries thin dark lines
-running to the horizon in every pose under a kilometre, straight in world space and jointed at right
-angles. Read the PNGs.
-Reading: `get_transvoxel_position` in `VoxelTerrainTriplanar.gdshader` moves a transition vertex onto
-the coarse surface and leaves its `NORMAL` at the fine one's.
+Follow [the release scope](docs/0.4_RELEASE_SCOPE.md). Preserve comprehensive physics in
+[PHYSICS_TODO.md](docs/PHYSICS_TODO.md), reproductions in [PLANET_BACKLOG.md](docs/PLANET_BACKLOG.md)
+and cost work in [PERFORMANCE_TODO.md](docs/PERFORMANCE_TODO.md).
+Run `scripts/agent_harness.sh all`, `scripts/agent_harness.sh bounded` and approved demo gates;
+investigate combustion-rate-law and mixture-enthalpy failures without claiming a fully passing suite.
+Complete when required active-path checks pass, installed hardware behavior is verified, the maintainer
+accepts the planet with water flow and weather, and the accepted candidate is synchronized and tagged.
 
-## 8. THE DEMO SITE HOLDS NO WATER A VIEWER CAN STAND BESIDE
+### Lava scope discussion
 
-`LA_SHOTS="30:-3:0" scripts/shoot_demo.sh addons/local_agents/examples/SliceRung1Demo.tscn <dir>` shows
-the nearest free water surface a kilometre off and reads as an opaque dark plate with a straight edge;
-`scripts/sim_run.sh --slice --rung 1 --frames 4 --report water_liquid_total,wet_cells` counts what stands
-in the box.
-Reading: `coast_site` in `LAPlanetTables.cpp` bisects onto the waterline and then scores the site by
-`land_m + depth_m`, which is largest where the relief is steepest rather than where the box's own
-footprint is half wet.
+Treat baked underground passages/weak zones, a coarse pressure/heat/mass network, new breakthroughs
+and local surface flow as a proposal for reducing geology work. The user asks about this option;
+implementation and a physical exemption have no approval. Establish the desired scope before adding
+lava-specific mechanisms; preserve conservation and declare permitted solver approximations.
 
-## 9. THE SURFACE IS STILL: EVERY WEATHER-SHAPED STAND-IN IS ABSENT RATHER THAN FAKED
+### Unreproduced shutdown fault
 
-`docs/FAKES.md` carries what creatures need and nothing the surface shows: `wind_field` (real at
-ACOUSTIC), `rain` (WATER), `streams` (ADVECT), `diurnal_heat` (RADIATION), each read through the query
-the real row will answer, offered in the HUD as a stand-in.
-
-## 10. THE SLICE'S OWN GRAVITY READS ZERO IN THE REPORT WHILE A MASS FALLS AT ~9.5 m/s^2 IN IT
-
-`scripts/sim_run.sh --slice --rung 1 --frames 4 --report gravity_mean_g,gravity_solves` reads
-`gravity_mean_g` 0 in the box where `scripts/check_test_mass.sh` measures `g_release` near 9.5.
-Reading: `dispatch_slab` in `GravityPass.gd` issues `MODE_FIELD_STATS` without the `MODE_MOMENTS` sweep
-that `PRE_MODES` runs before it.
-
-## 11. A FALL IS OVER BETWEEN TWO RENDERED FRAMES, AND ONE DRAG COEFFICIENT SERVES EVERY SPEED
-
-`scripts/shoot_demo.sh addons/local_agents/examples/SliceRung1Demo.tscn <dir>` photographs a test mass
-already landed: the world advances 43.2 simulated seconds per rendered frame, so a two-kilometre fall is
-over between two frames and nothing is seen falling. `SPHERE_CD` in `LABallistics.cpp` is the hypersonic
-limit at every Reynolds and Mach number, so a body the air has already slowed is over-braked
-(`newtonian_sphere_drag` in `docs/APPROXIMATIONS.md`).
-Reading: `stride_m` in `LABallistics.cpp` reads no sound speed and no viscosity.
-
-## 12. A THROWN BODY FALLS UNDER THE ENGINE'S GRAVITY, NOT THE FIELD'S
-
-`rg -n "gravity_scale" addons/local_agents/creatures/creature/CreatureRagdoll.gd` reads `1.0`, so the
-live gravity switch never reaches a flung or dying creature; `impulse.length() > 3.0` in `Creature.gd`
-is an invented threshold. The design: kinematic until thrown; then a Jolt `RigidBody3D` with
-`gravity_scale = 0` pushed each tick by `m·g(pos)` from `LABallistics.g_at` plus the seeded air's drag
-(bound, not copied), the impulse from the overpressure in its cell, kinematic again when asleep.
-
-## 13. THE LIFE DEMO'S ANIMALS BURN WHERE THEY STAND
-
-`LA_LIFE_LOG=/tmp/life.log scripts/check_life_demo.sh` then
-`grep -o '"death/burned":[0-9]*' /tmp/life.log` reads the run's dominant death cause in a rung-1 box
-that contains no combustion process.
-Reading: `tick_environment` in `CreatureMetabolism.gd` calls `_combust()` whenever
-`c._material.temp_at(pos) >= COMBUST_TEMP`.
-
-## 14. NOT EXAMINED UNTIL THE RUNG-2 DEMO IS APPROVED — rung 3
-
-- `scripts/check_bench_shock_tube.sh`: at a 10:1 Sod jump the rarefaction head stands outside the bound
-  and the overshoot grows as the grid halves; at a 1% jump every claim passes.
-- `scripts/sim_run.sh --rung 3 --frames 8` on the planet ends with `timeout waiting for fence`.
-- `LA_REST_CELL_M=68000 LA_REST_CELLS=8 scripts/check_atmosphere_at_rest.sh` reads a rest departure
-  above its bar on a land column; its vent arm reads an energy residual near a tenth of the turnover.
-- `scripts/sim_run.sh --rung 3 --frames 3 --report nonfinite_cells,mach_max` refuses a water record at
-  light speed by the second frame; `LA_PASS_PROBE=mach LA_PASS_PROBE_STEPS=1` names the cell.
-- Maintainer's decision, standing: the acoustic part of the momentum equation goes implicit (one
-  Helmholtz solve per field step on `gravity_poisson.glsl`'s operator shape), the step is derived from
-  the advective CFL, `SIM_SECONDS_PER_STEP` and the acoustic temporal levels are deleted; declared in
-  `docs/APPROXIMATIONS.md` when built.
-
-## 15. NOT EXAMINED UNTIL RUNG 3 IS GREEN — the rows above it and their books
-
-- `scripts/check_bench_heat_slab.sh` (rung 4): a slab held between 20 and 520 °C leaves that range.
-  Reading: `la_row_need` in `flux.glsl` gates the conduction row on `cap_sensible[c] > 0`.
-- `scripts/check_bench_darcy.sh` (rung 5): six regolith columns under a head difference transfer zero.
-- `scripts/check_bench_grey_atmosphere.sh` (rung 7): identical neighbours exchange unevenly past the
-  bound; the lit plate settles below the grey Eddington skin temperature.
-- `scripts/sim_run.sh --frames 20 --slice-capture C` then `LA_RUN_TIMEOUT=900 scripts/sim_run.sh --slice
-  --slice-state C --frames 650` fires CONSERVATION_VIOLATION on h2o, nitrogen, mineral, element_C and
-  element_O; with every wall shut, `scripts/agent_harness.sh sim --rung=8 --frames 20` ends with
-  `h2o_total` below its sealed baseline while the element and mineral books close.
-- `LA_RUN_TIMEOUT=110 scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn --
-  --sandbox --ui --run-frames=20` prints no report and logs no error; `--planet-only --no-fauna` reports.
-
-## 16. TWO ROWS THE ENGINE READS ARE EMPTY
-
-`scripts/check_bench_phase_change.sh` melts iron and forsterite off their own rows; `apatite` carries
-neither a melting point nor a fusion enthalpy, so `LAMixtureEnthalpy::thermal_row` keeps it linear in T,
-and every planet mineral carries basalt's `albedo` and `emissivity`.
-
-## 17. THE PHYSICS RUNS INSIDE GODOT'S PROCESS
-
-Maintainer's decision, standing: a standalone native process with its own device, clock and CLI; gates
-run it with no Godot launch; Godot attaches as a viewer.
-
-`lasim` replays a recorded plan and takes its kernels off that plan, so it steps whatever a capture
-holds. Nothing writes a capture of the seeded world: give `LAFieldDriver` a recording seam, so that the
-dispatches it issues in `run`, `_fire`, `_fire_on` and `run_reduce` are written out beside the buffers
-`MaterialSphereGPU3D` holds and the sets `SpherePass._uset` builds.
-Reading: `LAFieldDriver` declares no `record_dispatch`, so no plan of the seeded world is ever written.
-Until then `scripts/check_hydrostatic_seed.sh` and `scripts/check_atmosphere_at_rest.sh` launch Godot
-for a world of their own: `rg -n 'sim_run.sh|la_rung_report' scripts/check_hydrostatic_seed.sh
-scripts/check_atmosphere_at_rest.sh`.
-
-## 18. THE LEDGER RECONSTRUCTS ELEMENTS FROM CHANNEL AMOUNTS
-
-Maintainer's decision, standing: per-cell moles of elements are the state and species are derived
-(`docs/PHYSICS_TODO.md` B); today the ledger reconstructs them from `Channels.gd` (`mol_per_unit`).
-
-## 19. PRESENTATION LIVES ON THE SIM SIDE OF THE EJECTA MODULE, AND THE GPU LINT RUNS HERE ONLY
-
-`rg -n 'MultiMeshInstance3D|la_effects_scale' addons/local_agents/sim/material/MaterialEjecta3D.gd`
-finds a draw cap read off the graphics preset and a MultiMesh built under `sim/`.
-`.github/workflows/gpu-lint.yml` targets a self-hosted macOS runner labelled `gpu`; none is registered.
-
-## How to run
-
-`scripts/agent_harness.sh sim --rung=N --frames 20` runs a world holding only the processes up to rung N;
-`scripts/agent_harness.sh ladder` names the first red rung; `scripts/shoot_demo.sh <scene> [outdir]`
-renders the poses `--shots=alt:pitch:yaw;...` declares (look at the PNGs); `--ablate=name[@step]` switches
-one off (`+name@step` back on), process or module alike, `--ablate=name:off|fake|real` puts a stand-in in
-one of its three states, and `--ablate-sweep=N` measures its frame cost. A lane runs `LA_NO_GPU=1 scripts/agent_harness.sh lint`
-plus its own gates; the full lint is `scripts/integrate.sh`'s, one landing at a time, and a source-file
-merge conflict is resolved by hand. Worktrees come from `scripts/new_worktree.sh`; without its kernel
-import the GPU field is dead and the report looks fine. Mutation-test every gate you write, both ways.
+An earlier seed run printed a missing voxel worker callback and hung during shutdown. Repeated
+canonical seed runs and a minimal project with both installed extensions have since closed cleanly.
+The cause remains unconfirmed; preserve the reproduction evidence and verify clean close on the active
+Mac. Do not treat the failed original run as a pass or apply a speculative vendor patch.

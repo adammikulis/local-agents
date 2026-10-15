@@ -44,8 +44,8 @@ lock_rc=$?
 [ "$lock_rc" -eq 1 ] && { echo "check_derive_safe_math: the GPU lock did not come free." >&2; exit 2; }
 for arm in "once 1" "twice 2"; do
 	set -- $arm
-	if ! la_lasim --load "$WORK/field.lafs" --plan "$WORK/plan_derive.lapl" \
-			--step "$2" --mirrors "$WORK/$1.lafs" > "$WORK/$1.log" 2>&1; then
+	if ! la_lasim --load "$WORK/field.lafs" --plan "$WORK/plan_derive.lapl" --passes derive \
+			--steps "$2" --mirrors "$WORK/$1.lafs" > "$WORK/$1.log" 2>&1; then
 		echo "check_derive_safe_math: lasim did not complete the $1 arm." >&2
 		tail -20 "$WORK/$1.log" >&2
 		exit 2

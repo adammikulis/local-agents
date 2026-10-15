@@ -11,14 +11,19 @@ class StubRuntime extends Object:
 	var load_calls: Array = []
 	var next_result: bool = true
 	var loaded: bool = false
+	var loaded_path: String = ""
 
 	func load_model(model_path: String, options: Dictionary) -> bool:
 		load_calls.append({"path": model_path, "options": options.duplicate(true)})
 		loaded = next_result
+		loaded_path = model_path if loaded else ""
 		return next_result
 
 	func is_model_loaded() -> bool:
 		return loaded
+
+	func get_loaded_model_path() -> String:
+		return loaded_path if loaded else ""
 
 
 class StubAgentNode extends Object:
@@ -111,17 +116,19 @@ func _assert_load_model_contract(stub: StubRuntime) -> void:
 	if AgentStatusScript.resident_model_path() != first_path:
 		_fail("resident_model_path() is '%s' after a successful load of '%s'." % [AgentStatusScript.resident_model_path(), first_path])
 
-	# Same path, still resident: short-circuits rather than reloading (the runtime always unloads and
-	# re-reads from disk, so a speculative call is a real cost).
-	AgentStatusScript.load_model(first_path, {})
-	if stub.load_calls.size() != 1:
-		_fail("Reloading the already-resident path called the runtime again (%d calls)." % stub.load_calls.size())
-
-	# STALENESS: the model is unloaded underneath. load_model must reload, not short-circuit.
-	stub.loaded = false
-	AgentStatusScript.load_model(first_path, {})
+	# Constructor reuse belongs to the native runtime; the adapter forwards each configuration.
+	AgentStatusScript.load_model(first_path, {"context_size": 256})
 	if stub.load_calls.size() != 2:
-		_fail("The resident path went stale: the model was unloaded underneath, but load_model short-circuited instead of reloading.")
+		_fail("The adapter suppressed the same-path configuration request.")
+	elif int((stub.load_calls[1]["options"] as Dictionary).get("context_size", -1)) != 256:
+		_fail("The adapter dropped changed context settings.")
+
+	stub.loaded = false
+	if AgentStatusScript.resident_model_path() != "":
+		_fail("Residency did not reflect native unloading.")
+	AgentStatusScript.load_model(first_path, {})
+	if stub.load_calls.size() != 3:
+		_fail("The adapter suppressed a load after native unloading.")
 
 	# A failed load must clear residency rather than claim the path.
 	stub.next_result = false
@@ -157,7 +164,7 @@ func _assert_load_model_contract(stub: StubRuntime) -> void:
 			if int((call["options"] as Dictionary).get("context_size", -1)) != 512:
 				_fail("ensure_model_loaded() dropped its options argument.")
 
-	# Leave the shared static residency clean for every later test in this process.
+	# Clear the fixture residency before restoring the real singleton.
 	stub.next_result = false
 	AgentStatusScript.load_model("/tmp/local_agents_test_reset.gguf", {})
 	if AgentStatusScript.resident_model_path() != "":

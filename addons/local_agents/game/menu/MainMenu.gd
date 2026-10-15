@@ -85,7 +85,7 @@ func _on_sandbox() -> void:
 
 
 func _on_quit() -> void:
-	LAAppExit.request(self, 0)
+	LAAppQuit.request(self, 0)
 
 
 func _change_scene(path: String) -> void:

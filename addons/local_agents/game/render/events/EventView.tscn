@@ -1,0 +1,24 @@
+[gd_scene format=3]
+
+[sub_resource type="ParticleProcessMaterial" id="ParticleProcessMaterial_event"]
+resource_local_to_scene = true
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_event"]
+transparency = 1
+shading_mode = 0
+vertex_color_use_as_albedo = true
+billboard_mode = 3
+
+[sub_resource type="QuadMesh" id="QuadMesh_event"]
+material = SubResource("StandardMaterial3D_event")
+
+[node name="EventView" type="Node3D"]
+
+[node name="Light" type="OmniLight3D" parent="."]
+visible = false
+
+[node name="Particles" type="GPUParticles3D" parent="."]
+cast_shadow = 0
+emitting = false
+process_material = SubResource("ParticleProcessMaterial_event")
+draw_pass_1 = SubResource("QuadMesh_event")

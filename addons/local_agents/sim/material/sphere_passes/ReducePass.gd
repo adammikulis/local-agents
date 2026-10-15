@@ -1,7 +1,7 @@
 extends "res://addons/local_agents/sim/material/sphere_passes/SpherePass.gd"
 
 ## The field reduces itself. One kernel, one dispatch per LAReduceRecords row, one partial per workgroup.
-## Last in the chain, so every row reads settled state. The blocks and the fold table are the driver's.
+## Last in the chain, so every row reads settled state.
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/reduce.glsl"
 const PARTIALS: String = "reduce_partials"
@@ -47,7 +47,7 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 		return
 	for row: Dictionary in LAProcessSet.reduce_rows():
 		var src: String = String(row["source"])
-		var aux: String = String(row.get("aux", ""))
+		var aux: String = String(row.get("aux", row.get("less", "")))
 		var aux2: String = String(row.get("aux2", ""))
 		var ref: String = String(row.get("ref", ""))
 		var gate: String = String(row.get("gate", ""))
@@ -71,11 +71,10 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 			"reduce_gate_aux": _single(bufs, gate_aux) if gate_aux != "" else solid,
 			"reduce_partials": _partials})))
 		_rows.append(row)
-	_driver.plan_reduce({"pipe": _pipe, "sets": _sets, "rows": _rows, "cell_count": cc,
-		"groups": _groups})
+	_driver.plan_reduce({"pipe": _pipe, "sets": _sets, "rows": _rows, "cell_count": cc, "groups": _groups})
 
 
-func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, _cc: int, _groups_in: int) -> void:
+func dispatch(rd: RenderingDevice, ctx: Dictionary, cc: int, _groups_in: int) -> void:
 	if not _dispatchable() or _sets.is_empty():
 		if not _failed_announced:
 			_failed_announced = true
@@ -85,34 +84,29 @@ func dispatch(rd: RenderingDevice, cl: int, ctx: Dictionary, _cc: int, _groups_i
 		return
 	_step = int(ctx.get("step_index", -1))
 	# A REFERENCE IS THE STATE THE WORLD WAS BUILT WITH, so a mid-seed derive takes none.
-	_run(rd, cl, not bool(ctx.get("seeding", false)))
+	_run(rd, ctx, cc, not bool(ctx.get("seeding", false)))
 
 
-## Every row the latch policy admits this call. `latch_ok` false leaves every reference where it is.
-func _run(_rd: RenderingDevice, cl: int, latch_ok: bool) -> void:
+## Every row. `latch_ok` false leaves every reference where it is.
+func _run(_rd: RenderingDevice, _ctx: Dictionary, _cc: int, latch_ok: bool) -> void:
 	var rows: PackedInt32Array = PackedInt32Array()
 	for r in _rows.size():
 		var row: Dictionary = _rows[r]
+		var ref: String = String(row.get("ref", ""))
 		if int(row["op"]) == LAReduceRecords.Op.LATCH:
-			var ref: String = String(row.get("ref", ""))
-			# A reference is the state the world was built with, taken once per row.
 			if _latch_step.has(ref) or not latch_ok:
 				continue
 			_latch_step[ref] = _step
 		rows.append(r)
-	_driver.run_reduce(cl, rows)
+	_driver.run_reduce(rows)
 
 
-## A reduce taken BETWEEN passes: this pass runs last, so a row cannot say WHICH pass moved a total.
-## Leaves every reference and `latest()` alone — arming a probe may not move what an instrument reads.
-func checkpoint(rd: RenderingDevice, _ctx: Dictionary, _cc: int) -> Dictionary:
+func checkpoint(rd: RenderingDevice, ctx: Dictionary, cc: int) -> Dictionary:
 	if not _dispatchable() or _sets.is_empty():
 		return {}
-	var cl: int = rd.compute_list_begin()
-	_run(rd, cl, false)
-	rd.compute_list_end()
-	rd.submit()
-	rd.sync()
+	_driver.open()
+	_run(rd, ctx, cc, false)
+	_driver.close()
 	return _fold_rows()
 
 

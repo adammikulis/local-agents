@@ -23,6 +23,7 @@ SCRIPTS = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(SCRIPTS)
 GATES_TOML = os.path.join(SCRIPTS, "gates.toml")
 KINDS = ("text", "headless", "gpu")
+NEEDS = ("import", "capture", "body", "build")
 
 
 def load_gates(path=GATES_TOML):
@@ -42,16 +43,20 @@ def load_gates(path=GATES_TOML):
             raise ValueError("%s: kind must be one of %s" % (name, ", ".join(KINDS)))
         if not g.get("marker"):
             raise ValueError("%s: no marker, so a silent exit 0 would read as a pass" % name)
+        needs = g.get("needs", [] if g["kind"] == "text" else ["import", "capture"])
+        if not isinstance(needs, list) or any(n not in NEEDS for n in needs):
+            raise ValueError("%s: needs must be a list drawn from %s, not %r" % (name, ", ".join(NEEDS), needs))
         gates.append({
             "name": name,
             "label": g.get("label", name + ".sh"),
             "script": g["script"],
             "kind": g["kind"],
             "marker": g["marker"],
-            "mutation": g.get("mutation"),
+            "mutations": [m for m in ([g["mutation"]] if isinstance(g.get("mutation"), str)
+                                      else g.get("mutation", [])) if m],
             "args": list(g.get("args", [])),
             "env": dict(g.get("env", {})),
-            "needs": list(g.get("needs", [] if g["kind"] == "text" else ["import", "capture"])),
+            "needs": needs,
             "timeout_s": int(g.get("timeout_s", defaults.get("timeout_s", 900))),
         })
     if not gates:
@@ -141,6 +146,8 @@ def drain(gates, root, jobs, ledger_dir, shared_ledger, no_gpu, on_result):
     ledger_of = {i: os.path.join(ledger_dir, "%d.launch" % i) for i in range(len(gates))}
     futures = {i: pool.submit(run_gate, g, root, ledger_of[i], False)
                for i, g in enumerate(gates) if g["kind"] == "text"}
+    # An engine gate times frames on this machine: none starts while the pool still holds a core.
+    concurrent.futures.wait(futures.values())
     try:
         for i, g in enumerate(gates):
             if no_gpu and g["kind"] == "gpu":
@@ -247,9 +254,16 @@ def git(root, *argv, check=True):
                           stderr=subprocess.PIPE, text=True, errors="replace", check=check)
 
 
+BIN_REL = os.path.join("addons", "local_agents", "gdextensions", "localagents", "bin")
+
+
 def stage_scratch(scratch):
     """A detached copy of HEAD carrying this tree's uncommitted work, so it tests what is here."""
     git(ROOT, "worktree", "add", "--detach", scratch, "HEAD")
+    # THIS TREE'S EXTENSION BUILD: a lane that changed the native sources carries its own, and the primary
+    # checkout's, which ensure_worktree_ready.sh would copy in its place, is refused against these sources.
+    if os.path.isdir(os.path.join(ROOT, BIN_REL)):
+        shutil.copytree(os.path.join(ROOT, BIN_REL), os.path.join(scratch, BIN_REL), symlinks=True)
     diff = git(ROOT, "diff", "HEAD", "--binary").stdout
     if diff.strip():
         subprocess.run(["git", "-C", scratch, "apply", "--whitespace=nowarn", "-"],
@@ -261,8 +275,23 @@ def stage_scratch(scratch):
             shutil.copy2(src, dst)
 
 
+EXT_REL = "addons/local_agents/gdextensions/localagents"
+
+
+def build_scratch(scratch):
+    """A native mutation is one only once compiled: every launch refuses a bin built from other sources."""
+    deps = os.path.join(scratch, EXT_REL, "thirdparty")
+    if not os.path.lexists(deps):
+        os.symlink(os.path.realpath(os.path.join(ROOT, EXT_REL, "thirdparty")), deps)
+    return subprocess.run([os.path.join(scratch, EXT_REL, "scripts/build_extension.sh"), "--platform", "macos"],
+                          cwd=scratch, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+
+
 def arm_scratch(g, scratch):
-    """Give the scratch tree what the gate declares it needs. A mutation may break either, on purpose."""
+    """Give the scratch tree what the gate declares it needs. A mutation may break either, on purpose.
+    False when the tree's own extension does not build, which leaves nothing to run the gate on."""
+    if "build" in g["needs"] and not build_scratch(scratch):
+        return False
     if "import" in g["needs"]:
         subprocess.run([os.path.join(scratch, "scripts/ensure_worktree_ready.sh")], cwd=scratch)
     os.environ.pop("LA_LINT_CAPTURE", None)
@@ -270,6 +299,7 @@ def arm_scratch(g, scratch):
         cap, _ = make_capture(scratch, arm="body" if "body" in g["needs"] else "slice")
         if cap:
             os.environ["LA_LINT_CAPTURE"] = cap
+    return True
 
 
 def cmd_mutate(args):
@@ -278,34 +308,47 @@ def cmd_mutate(args):
     if g is None:
         print("gate_runner: no gate named '%s'." % args.mutate, file=sys.stderr)
         return 2
-    if not g["mutation"]:
+    if not g["mutations"]:
         print("gate_runner: %s declares no mutation in gates.toml. A gate nobody can make fail on "
               "purpose is not a gate — write one." % g["name"], file=sys.stderr)
         return 2
+    return max(mutate_one(g, m) for m in g["mutations"])
+
+
+def mutate_one(g, mutation):
+    """One mutation, in its own scratch tree."""
     scratch = os.path.join(tempfile.mkdtemp(prefix="la_mutate_"), "tree")
     ledger = os.path.join(tempfile.mkdtemp(prefix="la_mutate_ledger."), "launches.log")
     open(ledger, "w").close()
     os.environ["LA_LAUNCH_LOG"] = ledger
     try:
         stage_scratch(scratch)
-        arm_scratch(g, scratch)
+        if not arm_scratch(g, scratch):
+            print("MUTATION_UNRUNNABLE: %s — the unmutated scratch tree's extension did not build." % g["name"])
+            return 2
         rc0, out0, _ = run_gate(g, scratch, ledger, False)
         sys.stdout.write(out0)
         if rc0 != 0:
             print("MUTATION_UNRUNNABLE: %s is already %d on the unmutated tree, so this proves "
                   "nothing." % (g["name"], rc0))
             return 2
-        if subprocess.run(["bash", "-c", g["mutation"]], cwd=scratch).returncode != 0:
+        if subprocess.run(["bash", "-c", mutation], cwd=scratch).returncode != 0:
             print("MUTATION_UNRUNNABLE: %s — the mutation command itself failed." % g["name"])
             return 2
-        arm_scratch(g, scratch)
+        if not arm_scratch(g, scratch):
+            print("MUTATION_UNRUNNABLE: %s — `%s` left an extension that does not build." % (g["name"], mutation))
+            return 2
         rc1, out1, _ = run_gate(g, scratch, ledger, False)
         sys.stdout.write(out1)
+        # A gate that could not run under the mutation reported no violation, so it caught nothing.
+        if rc1 == 2:
+            print("MUTATION_UNRUNNABLE: %s could not run under `%s`, which proves nothing." % (g["name"], mutation))
+            return 2
         if rc1 == 0:
             print("MUTATION_SURVIVED: %s stayed green under `%s`. It cannot fail, so it is not a "
-                  "gate." % (g["name"], g["mutation"]))
+                  "gate." % (g["name"], mutation))
             return 1
-        print("MUTATION_KILLED: %s went %d under `%s`." % (g["name"], rc1, g["mutation"]))
+        print("MUTATION_KILLED: %s went %d under `%s`." % (g["name"], rc1, mutation))
         return 0
     finally:
         git(ROOT, "worktree", "remove", "--force", scratch, check=False)
