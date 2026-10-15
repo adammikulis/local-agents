@@ -2,8 +2,8 @@
 # NO SUBMIT OUTRUNS THE DEVICE'S FENCE WAIT (LAFieldDriver::METAL_FENCE_WAIT_MS).
 # Arm 1  derive, reduce and active-list dispatches leave every buffer bit-identical whole and split; a floor is
 #        the least lone submit; reduce kinds price apart; a refused piece is said aloud and nothing after it runs.
-# Arm 2  the seeded world's report carries the ledger: nothing refused, no submit reached the wait. Arm 3  only
-#        a rig sets a wait; every pass kernel reads chunk.glsli. EXIT 0 clean · 1 a claim is false · 2 could not run.
+# Arm 2  the world's report carries the ledger: nothing refused, no submit reached the wait, if it has one.
+# Arm 3  only a rig sets a wait; every pass kernel reads chunk.glsli. EXIT 0 clean · 1 a claim is false · 2 could not run.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh"
@@ -16,7 +16,8 @@ PROBE="addons/local_agents/tests/gate_submit_budget.gd"
 REFUSAL="fence wait, so it was NOT submitted"
 
 # --- arm three: the wait is the backend's everywhere but a rig ----------------------------------------
-hits="$(rg -n 'set_wait_usec' "$ROOT/addons/local_agents" -g '*.gd' -g '!**/tests/**' 2>/dev/null)"
+hits="$(rg -n 'rig_wait_usec' "$ROOT/addons/local_agents" -g '*.gd' -g '*.cpp' -g '*.hpp' -g '!**/tests/**' \
+	-g '!**/LAFieldDriver.*' 2>/dev/null)"
 if [ -n "$hits" ]; then
 	echo "check_submit_budget: simulation code plans against a wait other than its device's own:" >&2
 	printf '%s\n' "$hits" >&2
@@ -90,12 +91,14 @@ for k in ("submit_refused", "submit_worst_ms", "submit_wait_ms"):
         print("check_submit_budget: the seeded world's report carries no %s." % k, file=sys.stderr)
         sys.exit(1)
     v = ast.literal_eval(raw)
-    got[k] = float(v["max"]) if isinstance(v, dict) else float(v)
+    got[k] = None if v is None else float(v["max"]) if isinstance(v, dict) else float(v)
 print("SUBMIT_WORLD=" + str(got))
 if got["submit_refused"] != 0:
     print("check_submit_budget: the seeded world refused %d dispatches." % got["submit_refused"], file=sys.stderr)
     sys.exit(1)
-if not got["submit_worst_ms"] < got["submit_wait_ms"]:
+if got["submit_wait_ms"] is None:
+    print("check_submit_budget: the seeded world's device waits without limit (no wait), so no submit outruns it.")
+elif not got["submit_worst_ms"] < got["submit_wait_ms"]:
     print("check_submit_budget: a submit took %.1f ms of a %.1f ms fence wait."
           % (got["submit_worst_ms"], got["submit_wait_ms"]), file=sys.stderr)
     sys.exit(1)

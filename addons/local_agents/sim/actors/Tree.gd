@@ -66,7 +66,7 @@ func setup(_terrain, _config: Dictionary = {}) -> void:
 	if loop == null:
 		push_error("LATree: no simulation loop, so nothing advances this one's growth.")
 	else:
-		loop.stepped.connect(_on_sim_step)
+		loop.subscribe(_on_sim_step)
 
 	species = String(config.get("species", species)).to_lower()
 	if not SPECIES.has(species):

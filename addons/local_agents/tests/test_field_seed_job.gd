@@ -88,6 +88,8 @@ class MeasureFixture extends RefCounted:
 		pass
 
 class GpuFixture extends DeviceStub:
+	var reject_derive: bool = false
+	var rejected: bool = false
 	func _seed_regolith() -> void:
 		pass
 	func _seed(_name: String, _values: PackedFloat32Array) -> void:
@@ -99,7 +101,9 @@ class GpuFixture extends DeviceStub:
 	func mark_h_dirty() -> void:
 		pass
 	func derive_seeded(_initial: bool) -> void:
-		pass
+		rejected = reject_derive
+	func refused(_what: String) -> bool:
+		return rejected
 
 class ReadyStub extends RefCounted:
 	var _gpu: DeviceStub = DeviceStub.new()
@@ -191,8 +195,18 @@ func run_test(_tree: SceneTree) -> bool:
 	ok = field._grid.volume_reads == 0 and ok
 	ok = cancelled.failed() and cancelled.publish(field).is_empty() and ok
 	ok = not cancelled.complete(field, false) and not field._ready_sim and ok
+	ok = LAFieldSeedJob3D.finish_restore(field, false) and ok
+	field._gpu.reject_derive = true
+	ok = not LAFieldSeedJob3D.finish_restore(field, false) and not field._ready_sim and ok
+	field._gpu.rejected = false
+	var device_refusal = LAFieldSeedJob3D.new()
+	ok = device_refusal.begin(field, gravity, false) and ok
+	ok = _wait(device_refusal) and ok
+	for stage in range(5):
+		ok = not device_refusal.complete(field, false) and not field._ready_sim and ok
+	ok = device_refusal.failed() and ok
 	if not ok:
-		push_error("worker seed publication, cancellation or accounting failed")
+		push_error("worker seed publication, cancellation, device refusal or accounting failed")
 	return ok
 
 
