@@ -48,6 +48,7 @@ set(SRC
     src/LAPhaseEos.cpp
     src/LABodySystem.cpp
     src/LAFieldCellMass.cpp
+    src/LAFieldSeedJob.cpp
     src/LAGridGeometry.cpp
     src/LAGravitySolve.cpp
     src/LAFieldDriver.cpp
