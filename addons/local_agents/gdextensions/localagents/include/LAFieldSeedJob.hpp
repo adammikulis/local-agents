@@ -52,7 +52,8 @@ public:
 	bool finished() const;
 	void cancel() { cancel_requested.store(true, std::memory_order_relaxed); }
 	Dictionary publish(Object *p_field);
-	static void prepare_gravity(Object *p_field);
+	static bool prepare_gravity(Object *p_field);
+	static bool finish_restore(Object *p_field, bool p_gravity);
 	bool complete(Object *p_field, bool p_gravity);
 	bool failed() const { return failure || cancel_requested.load(std::memory_order_relaxed) || (finished() && worker_failed); }
 

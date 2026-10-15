@@ -283,7 +283,8 @@ func _tick_run() -> void:
 	if loop != null and loop.failure != "":
 		_done = true
 		emit_report()
-		print("RUN_FAILED=" + JSON.stringify({"step": loop.step_index(), "reason": loop.failure}))
+		print("RUN_FAILED=" + JSON.stringify({"step": loop.failed_step, "committed": loop.step_index(),
+			"reason": loop.failure}))
 		_quit(EXIT_RUN_FAILED)
 		return
 	_frame = loop.step_index() if loop != null else _frame + 1

@@ -67,8 +67,9 @@ public:
 
 	// The driver of one device, planning against that backend's own fence wait.
 	static Ref<LAFieldDriver> on(RenderingDevice *p_rd);
-	// The wait a rig plans against in place of the backend's.
-	void set_wait_usec(double p_usec);
+	// The wait every driver plans against in place of its backend's, from its next piece on; NAN hands each
+	// back its backend's. Only a rig sets it (scripts/check_submit_budget.sh).
+	static void rig_wait_usec(double p_usec);
 	// The dispatch whose refusal aborted the step, or empty. Once aborted, nothing more is recorded.
 	String aborted() const;
 
@@ -99,11 +100,9 @@ public:
 			const PackedStringArray &p_keys, int p_groups);
 
 	// Submits and the dispatches and classes they carried (indirect ones apart), the counts read back,
-	// refusals and the dispatch that aborted, submits planned past their target, the longest submit and
-	// the last one that carried work (usec), each measured dispatch's floor (usec), and the wait.
+	// refusals, submits planned past their target, the longest submit and the last one that carried work
+	// (usec), each measured dispatch's floor (usec), and the wait (usec, INF on a backend with none).
 	Dictionary ledger() const;
-	// The report's own readings of the ledger: submit_refused, submit_worst_ms and submit_wait_ms.
-	Dictionary report() const;
 	// A pass's block with the chunk words appended: the Params block its kernel declares.
 	static PackedByteArray dispatched_block(const PackedByteArray &p_pc, int64_t p_stride, int64_t p_phase);
 
@@ -128,6 +127,7 @@ private:
 	RenderingDevice *_rd = nullptr;
 	int64_t _cl = 0;
 	bool _open = false;
+	// The backend's own fence wait.
 	double _wait_usec = 0.0;
 	std::unordered_map<std::string, Cost> _costs;
 	std::vector<Carried> _carried;
@@ -177,6 +177,8 @@ private:
 
 	Dictionary _off_last;         // pass label -> its switch was off when the last step ran
 
+	// The wait this driver plans against: a rig's, else its backend's.
+	double _wait() const;
 	bool _bounded() const;
 	// A dispatch's submit target: as many times shorter than the wait as it is longer than its latency floor.
 	double _target(const Cost &p_cost) const;
