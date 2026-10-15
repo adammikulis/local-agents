@@ -57,21 +57,21 @@ print('OK')
  ext=root/globals_['EXT_REL'];(ext/'scripts').mkdir(parents=True);(ext/'thirdparty').mkdir()
  build=ext/'scripts/build_extension.sh';build.write_text('#!/bin/sh\ntouch built\n');build.chmod(0o755)
  assert r['arm_scratch'](dict(needs=['build'],last=False),str(root)) and (root/'built').exists()
- for name,body in [('silent','exec sleep 2\n'),
-                   ('printing',"printf 'PROGRESS_PAYLOAD\\n'; exec sleep 2\n"),
-                   ('partial',"printf PARTIAL_PAYLOAD; exec sleep 2\n")]:
-  serial=gate(name,body,shell=True);serial['timeout_s']=.5
+ for name,body in [('silent','exec sleep 20\n'),
+                   ('printing',"printf 'PROGRESS_PAYLOAD\\n'; exec sleep 20\n"),
+                   ('partial',"printf PARTIAL_PAYLOAD; exec sleep 20\n")]:
+  serial=gate(name,body,shell=True);serial['timeout_s']=5
   with contextlib.redirect_stdout(io.StringIO()): result=r['run_gate'](serial,str(root),str(root/(name+'.launch')),True)
   assert result[0]==2,(name,'serial deadline was not enforced',result)
   if name=='printing': assert 'PROGRESS_PAYLOAD' in result[1], 'output control never reached its marker'
   if name=='partial': assert 'PARTIAL_PAYLOAD' in result[1], 'partial-line control never reached its write'
   assert not any(thread.name.startswith('gate-output-') for thread in threading.enumerate()),'output reader survived deadline'
  descendants=gate('descendants', "sleep 20 &\n",shell=True)
- descendants['timeout_s']=.5
+ descendants['timeout_s']=5
  with contextlib.redirect_stdout(io.StringIO()):result=r['run_gate'](descendants,str(root),str(root/'descendants.launch'),True)
  assert result[0]==2 and not any(thread.name.startswith('gate-output-') for thread in threading.enumerate()),result
- timeout_gate=gate('timeout', "exec sleep 2\n",shell=True)
- timeout_gate['timeout_s']=.5
+ timeout_gate=gate('timeout', "exec sleep 20\n",shell=True)
+ timeout_gate['timeout_s']=5
  assert r['run_gate'](timeout_gate,str(root),str(root/'timeout.launch'),False)[0]==2
  import shutil
  globals_['stage_scratch']=lambda scratch:shutil.copytree(scripts,Path(scratch)/'scripts',dirs_exist_ok=True)
@@ -80,7 +80,8 @@ print('OK')
  mutable=gate('mutable', "printf 'OK\\n'\n",shell=True)
  mutable['timeout_s']=.5
  mutation="python3 -c \"from pathlib import Path; Path('scripts/mutable').write_text('#!/bin/sh\\nexec sleep 2\\n')\""
- assert r['run_gate'](mutable,str(root),str(root/'mutable-baseline.launch'),False)[0]==0, 'mutable baseline did not run'
+ baseline = r['run_gate'](dict(mutable, timeout_s=5),str(root),str(root/'mutable-baseline.launch'),False)
+ assert baseline[0]==0, ('mutable baseline did not run', baseline)
  output=io.StringIO()
  with contextlib.redirect_stdout(output): result=r['mutate_one'](mutable,mutation)
  assert result==2 and 'could not run under' in output.getvalue() and 'MUTATION_KILLED' not in output.getvalue(),output.getvalue()

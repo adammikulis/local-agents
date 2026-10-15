@@ -11,8 +11,6 @@ Run `git worktree list`, `git status --short` in relevant trees, `git fetch orig
 directions and `git merge-base --is-ancestor main 0.4-dev` before integrating. Preserve unrelated dirty
 trees and identify their owners before changing them.
 
-- `../la-fix-native-sim-service`, branch `fix/native-sim-service`: reviewed resident derive/reduce service;
-  finish its combined integration. `Advance` still refuses physical integration.
 - `.claude/worktrees/agent-a1e18a654b3681741`: native dispatch-plan construction; finish the preserved
   merge, then reconcile current development and the service foundation. Working/index backups are in
   `/private/tmp/la-native-plans-interrupted-{working,index}.patch`. Keep the native channel-specific
@@ -32,18 +30,7 @@ Complete when bounded batches pass affected checks and independent review, land 
 `scripts/integrate.sh <branch>`, and `0.4-dev` is pushed after each integration. Preserve unfinished
 source across this requested session boundary; prune owned worktrees after their work lands.
 
-## 2. LAND THE VERIFIED NATIVE SERVICE FOUNDATION
-
-In `../la-fix-native-sim-service`, inspect `Service*`, `field/FieldSession*`, `../la-fix-native-sim-service/addons/local_agents/native/src/field/FieldView.cpp` and
-`field/ViewPublication*`. The focused child, computation, protocol, device, parity and snapshot checks
-have passed on this Mac. Time, generation and partial-publication regressions were caught at their
-intended assertions. A reply timeout is unexamined, not a caught regression.
-
-Reconcile the current development branch, run `scripts/integrate.sh fix/native-sim-service`, push
-`0.4-dev` immediately and prune the landed tree. Keep the overall migration open: `wire::AlgebraicOnly`
-permits derive/reduce and `Advance` returns `INTEGRATION_NOT_AVAILABLE`.
-
-## 3. MOVE LIVE PHYSICS AND THE CLOCK OUT OF GODOT
+## 2. MOVE LIVE PHYSICS AND THE CLOCK OUT OF GODOT
 
 Reproduce the active coupling through `scripts/show_demo.sh SliceRung1Demo`; inspect `LASimLoop`,
 `LAFieldDriver::step`, native `FieldRun` and the exporter in `scripts/lib_lasim_oracle.sh`.
@@ -71,7 +58,7 @@ Reproduce the synthetic socket comparison with `/private/tmp/la_snapshot_ipc_ben
 its results are not production GPU performance. Verify actual service throughput/latency, bounded
 memory, slow/disconnected clients and observer independence at equal simulated time before completion.
 
-## 4. VERIFY THE EXACT DESKTOP GRAVITY DEMO
+## 3. VERIFY THE EXACT DESKTOP GRAVITY DEMO
 
 Reproduce with `/Users/adammikulis/Desktop/Planet Demos/Launch Gravity Demo.command` after activating
 the integrated candidate in the primary checkout. Complete only when that exact shortcut opens a
@@ -83,7 +70,7 @@ Candidate startup checks do not verify the Desktop shortcut. Consult
 water placement in the visible acceptance arm. Obtain maintainer approval of rung 1 before advancing;
 only rung 0 has approval. Reconcile `docs/PLAYABLE_RUNG` with the accepted demo.
 
-## 5. COMPLETE THE REDUCED PLANET RELEASE
+## 4. COMPLETE THE REDUCED PLANET RELEASE
 
 Follow [the release scope](docs/0.4_RELEASE_SCOPE.md). Preserve comprehensive physics in
 [PHYSICS_TODO.md](docs/PHYSICS_TODO.md), reproductions in [PLANET_BACKLOG.md](docs/PLANET_BACKLOG.md)
