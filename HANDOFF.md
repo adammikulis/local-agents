@@ -15,10 +15,6 @@ trees and identify their owners before changing them.
   merge, then reconcile current development and the service foundation. Working/index backups are in
   `/private/tmp/la-native-plans-interrupted-{working,index}.patch`. Keep the native channel-specific
   heat-capacity correction and remove duplicate GDS push-block builders.
-- `../la-fix-ablate-ui`: subtree ownership, dynamic reparenting and panel-free captures; affected checks
-  pass, but its abort reconciliation still needs committing and integration.
-- `.claude/worktrees/agent-aceee89a389f0d24d`: reviewed creature absence/carcass fixes, reconciled with
-  abort-safe activation; integrate the published batch.
 - `.claude/worktrees/agent-ad34c9b0a584b80ec`: shared validation captures and gate deadlines; preserve
   strict timeout/mutation classification, complete-run budget banking and the local-validation policy.
   Finish the follow-up controls and full local integration.
