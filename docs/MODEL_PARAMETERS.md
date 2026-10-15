@@ -15,7 +15,7 @@ question, which nothing could previously ask: should this be a number at all, an
 Every row names what would have to exist for the number to stop being needed. A row that never acquires
 that field is a value nobody intends to fix.
 
-**MAX_DECLARED: 219**
+**MAX_DECLARED: 202**
 
 The gate fails if the table grows past that ceiling. To add a number, derive it, bind it, or raise the
 ceiling in the same commit and argue for it in the message. When the count drops, lower the ceiling to bank
@@ -58,7 +58,6 @@ and 1 nC/m^3/s is the top of the lab-constrained range.
 | `addons/local_agents/sim/material/PhysicalConstants.gd` | `NIC_CHARGE_RATE_C_M3_S` | 1.0e-9 | bulk stand-in for a collision process whose microphysics this grid cannot resolve; the top of the lab-constrained 0.1-1 nC/m^3/s range | hydrometeor size distributions in the substrate, at which point the rate is computed rather than chosen |
 | `addons/local_agents/sim/material/PhysicalConstants.gd` | `CONVECTIVE_UPDRAFT_M_S` | 10.0 | the updraft at which the charging rate is taken to saturate; observed mature-cell updrafts span 5-25 m/s and one had to be picked | same as above: with real collision kinetics the updraft enters through fall speed, not through a reference value |
 | `addons/local_agents/sim/material/PhysicalConstants.gd` | `CHARGING_LWC_KG_M3` | 1.0e-3 | the cloud liquid water content at which the riming rate is taken to saturate; lab rates climb over 0.1-2 g/m^3 | same as above |
-| `addons/local_agents/sim/material/PhysicalConstants.gd` | `SILICATE_HEAT_PRODUCTION_W_KG` | derived: `BSE_*_KG_PER_KG` x `HEAT_PRODUCTION_*_W_KG` | the U/Th/K abundances are the cited bulk silicate Earth average (McDonough & Sun 1995) and the per-element rates are Rybach 1988, so the number is measured; the MODELLING CHOICE is applying one bulk average to every rock cell when continental crust is enriched ~50x over depleted mantle, and taking the PRESENT-DAY rate on a body with no age | a second rock substance in `Substances.gd` carrying its own U/Th/K, and a planet age driving the four decay constants |
 
 ## Which substances get a measured phase curve
 
@@ -139,13 +138,8 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/streamer/StreamerOverlay.gd` | `FEED_MAX` | 4 | presentation or diagnostic buffer length, not physics | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/sim/actors/Meteor.gd` | `TRANSIENT_DEPTH_PER_DIAMETER` | 1.0 / 3.0 | the observed depth-to-diameter ratio of a transient impact cavity (Melosh 1989, ch. 7), a measured shape of craters rather than a property of matter | a solved excavation flow, which produces the cavity shape instead of asserting it |
 | `addons/local_agents/sim/material/MaterialEjecta3D.gd` | `EJECTION_ANGLE_RAD` | PI / 4.0 | the ejection angle crater ejecta clusters at (Melosh 1989, ch. 5) | the Maxwell Z-model, which gives each parcel its own angle from its launch position |
-| `addons/local_agents/sim/actors/Meteor.gd` | `FX_LINGER` | 1.8 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Nest.gd` | `IDLE_TIMEOUT` | 120.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Nest.gd` | `DISREPAIR_START` | 60.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/LightningStrike.gd` | `STRIKE_HEIGHT` | 130.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/LightningStrike.gd` | `FLASH_ENERGY` | 34.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/LightningStrike.gd` | `LINGER` | 0.7 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/LightningStrike.gd` | `SEGMENTS` | 14 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Tree.gd` | `MATURE_YEARS` | 60.0 | years from germination to full stem height for a temperate tree | the wood the tree has actually fixed sets its height, and the years fall out |
 | `addons/local_agents/sim/actors/Tree.gd` | `TREE_BIOMASS_FULL` | 0.0025 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/Tree.gd` | `TOPPLE_TIME` | 1.5 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
@@ -170,7 +164,7 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/actors/ThrownRock.gd` | `HIT_RADIUS` | 1.3 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/ThrownRock.gd` | `MAX_LIFETIME` | 4.0 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
 | `addons/local_agents/sim/actors/ThrownRock.gd` | `ARC_HEIGHT` | 1.5 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
-| `addons/local_agents/sim/actors/ThrownRock.gd` | `STONE_SIDE` | 0.35 | disaster actor, inherited | dissolve-dont-patch: the actor becomes a seed, the constant goes with it |
+| `addons/local_agents/sim/actors/ThrownRock.gd` | `STONE_SIDE` | 0.35 | the thrown stone's edge, which sets its mass and the view's mesh | the stone becomes rock the thrower picked up from the field, and its mass is what it took |
 | `addons/local_agents/sim/TrackSystem.gd` | `STEP_DISTANCE` | 1.2 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/TrackSystem.gd` | `FADE_SECONDS` | 5.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/TrackSystem.gd` | `SURFACE_OFFSET` | 0.25 | inherited, unreviewed | Stage 2 substrate rewrite |
@@ -262,23 +256,12 @@ registry does not read as if everything in it is merely unreviewed.
 | `addons/local_agents/sim/material/MaterialFieldAtmos3D.gd` | `CLOUD_WATER_CRIT_KG_KG` | 0.5e-3 | Kessler (1969) q_crit | deleted when condensation is a reaction record and the detector reads the record |
 | `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `ALOFT_CELLS` | 2.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldQueries3D.gd` | `UPDRAFT_SAMPLE_M` | 40.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialFieldAtmos3D.gd` | `CLOUD_BASE_ALT` | 62.0 | a renderer band radius, not a measured cloud base | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialFieldAtmos3D.gd` | `FOG_TOP_ALT` | 16.0 | a renderer band radius, not a measured fog top | Stage 2 substrate rewrite |
-| `addons/local_agents/sim/material/MaterialFieldAtmos3D.gd` | `FOG_LO_ALT` | 0.0 | a renderer band radius, not a measured fog base | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldBiota3D.gd` | `GROUND_SEARCH` | 6 | a march bound, not a physical quantity | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldChannels3D.gd` | `HEAD_REACH` | 4 | a march bound, not a physical quantity | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldBiota3D.gd` | `HEAT_RADIUS` | 0.0 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialEjecta3D.gd` | `PARCELS_PER_EJECT` | 6 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/game/render/WaterParticles.gd` | `MAX_PARTICLES` | 12000 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/game/render/WaterParticles.gd` | `LIFETIME` | 7.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/game/render/WaterParticles.gd` | `CAP_ANGLE` | 1.4 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldConservation3D.gd` | `REFERENCE_STEPS` | 600 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `CAP_ANGLE` | 0.8 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `REBUILD_PERIOD` | 0.22 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `RECENTER_DOT` | 0.999 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `RIPPLE_MAX` | 16 | presentation or diagnostic buffer length, not physics | not owed: presentation may choose numbers, but it may not write the field |
-| `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `RIPPLE_SPEED` | 9.0 | inherited, unreviewed | Stage 2 substrate rewrite |
-| `addons/local_agents/game/render/MaterialFieldRender3D.gd` | `RIPPLE_DECAY` | 0.7 | inherited, unreviewed | Stage 2 substrate rewrite |
+| `addons/local_agents/game/render/WaterSurfaceView.gd` | `RIPPLE_MAX` | 16 | presentation or diagnostic buffer length, not physics | not owed: presentation may choose numbers, but it may not write the field |
 | `addons/local_agents/sim/material/MaterialFieldReport3D.gd` | `HEAVY_EVERY_FRAMES` | 64 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/sim/material/MaterialFieldReport3D.gd` | `CLIMATE_BANDS` | 6 | inherited, unreviewed | Stage 2 substrate rewrite |
 | `addons/local_agents/gdextensions/localagents/src/LABodySystem.cpp` | `PLANET_OBLIQUITY_DEG` | 23.439279 | the angle between the spin axis and the orbital normal at the epoch is not measured; the present value (IERS Conventions 2010) is the declared initial condition | a giant-impact or obliquity-evolution solve that hands the epoch its own tilt |

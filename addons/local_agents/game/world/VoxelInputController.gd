@@ -237,8 +237,8 @@ func parse_cmdline() -> void:
 
 
 ## Esc opens the pause menu (pausing the sim); G toggles geosync, F toggles fly, P toggles the solar-system
-## view, K toggles the orbit-mode auto-spin. While the menu is OPEN the tree is paused so this controller stops
-## receiving input and the menu itself owns Esc-to-close.
+## view, K toggles the orbit-mode auto-spin, Z frames the simulated box. While the menu is OPEN the tree
+## is paused so this controller stops receiving input and the menu itself owns Esc-to-close.
 func _unhandled_input(event: InputEvent) -> void:
 	if not (event is InputEventKey) or not event.pressed or event.echo:
 		return
@@ -246,7 +246,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if kc == KEY_ESCAPE and (event as InputEventKey).ctrl_pressed:
 		# Ctrl+Esc quits the game directly (the old bare-Esc autoquit, kept as a deliberate two-key combo so a
 		# stray Esc can never drop the player out — plain Esc opens the pause menu, which also has a Quit button).
-		LAAppExit.request(self, 0)
+		LAAppQuit.request(self, 0)
 		get_viewport().set_input_as_handled()
 	elif kc == KEY_ESCAPE and _pause_menu != null and not _pause_menu.is_open():
 		_pause_menu.open()
@@ -262,6 +262,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 	elif kc == KEY_K:
 		toggle_auto_spin()
+		get_viewport().set_input_as_handled()
+	elif kc == KEY_Z:
+		frame_simulation()
 		get_viewport().set_input_as_handled()
 
 
@@ -414,9 +417,34 @@ func _apply_fly_view() -> void:
 	_camera.place_fly(pos, look_target)
 
 
+## True where this run simulates a declared box, so a control that frames it has something to frame.
+func has_slice() -> bool:
+	return _material != null and _body != null \
+		and LARenderLayer.slice_body_aabb(_material, _body).size.length() > 0.0
+
+
+## FRAME THE SIMULATION: turn the eye onto the box this run simulates and stand back far enough that its
+## footprint fits. A world with no slice box has nothing to frame and the control is not offered.
+func frame_simulation() -> void:
+	if _camera == null or not _camera.has_method("frame_simulation") or not has_slice():
+		return
+	var box: AABB = LARenderLayer.slice_body_aabb(_material, _body)
+	var site: Vector3 = LARenderLayer.slice_site_dir(_material)
+	if site == Vector3.ZERO:
+		return
+	if not bool(_camera.call("frame_simulation", site, box)):
+		return
+	# The framing leaves the rig in the drone's frame in either mode, so the bar says so: WASD now flies.
+	if _camera.has_method("is_fly") and _camera.is_fly():
+		_fly = true
+		_geosync = false
+		_solar_view = false
+		_refresh_view_controls()
+
+
 func _refresh_view_controls() -> void:
 	if _view_controls != null:
-		_view_controls.call("refresh", _solar_view, _geosync, _fly, _auto_spin)
+		_view_controls.call("refresh", _solar_view, _geosync, _fly, _auto_spin, has_slice())
 
 
 ## Wire the scene refs the auto-demo hooks act on (called from the world once the scene is composed).

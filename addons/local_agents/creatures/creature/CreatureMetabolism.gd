@@ -35,8 +35,6 @@ static func tick(c, delta: float) -> bool:
 	return false
 
 
-## Evaporative cooling. A body over its band's optimum sheds heat as water; the band's far edge is where
-## the oxidation stops, and LACreatureRespiration kills on that deficit.
 static func tick_environment(c, pos: Vector3, delta: float) -> void:
 	if c._material == null:
 		return

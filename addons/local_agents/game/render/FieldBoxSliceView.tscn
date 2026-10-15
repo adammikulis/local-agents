@@ -1,0 +1,21 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/game/render/FieldBoxSliceView.gd" id="1_sliceview"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_cell"]
+shading_mode = 0
+vertex_color_use_as_albedo = true
+
+[sub_resource type="BoxMesh" id="BoxMesh_cell"]
+material = SubResource("StandardMaterial3D_cell")
+
+[sub_resource type="MultiMesh" id="MultiMesh_slice"]
+resource_local_to_scene = true
+transform_format = 1
+use_colors = true
+mesh = SubResource("BoxMesh_cell")
+
+[node name="FieldBoxSliceView" type="MultiMeshInstance3D"]
+cast_shadow = 0
+multimesh = SubResource("MultiMesh_slice")
+script = ExtResource("1_sliceview")

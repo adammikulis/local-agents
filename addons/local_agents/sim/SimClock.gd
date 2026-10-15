@@ -44,7 +44,7 @@ static func days_elapsed_now() -> float:
 	return _active.days_elapsed() if _active != null else 0.0
 
 
-func _ready() -> void:
+func _enter_tree() -> void:
 	_active = self
 
 

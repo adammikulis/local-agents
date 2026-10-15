@@ -136,7 +136,7 @@ func _build() -> Dictionary:
 	_write(bufs, "o2", o2)
 	_write(bufs, "co2", co2)
 	_write(bufs, "h2o_liquid", _filled(cc, 1.0))
-	_write(bufs, "k_cond", _filled(cc, LAPhysical.WATER_BULK_MODULUS_PA))
+	_write(bufs, "k_cond", _filled(cc, LAPhysical.WATER_BULK_MODULUS_T_PA))
 	_write(bufs, "rho_bulk", _filled(cc, RHO))
 	_write(bufs, "water_rho", _filled(cc, RHO))
 	_write(bufs, "pressure", _filled(cc, P))
@@ -161,7 +161,7 @@ func _attach(bufs: Dictionary) -> RefCounted:
 			RenderingDevice.STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT if indirect else 0)
 		_owned.append(r)
 		bufs[String(key)] = r
-	p.setup(_rd, bufs, cc)
+	p.setup(_rd, LAFieldDriver.on(_rd), bufs, cc)
 	return p
 
 
@@ -190,11 +190,9 @@ func _init() -> void:
 		return
 	for _s in STEPS:
 		p.pre_step(_rd, ctx, cc, groups)
-		var cl: int = _rd.compute_list_begin()
-		p.dispatch(_rd, cl, ctx, cc, groups)
-		_rd.compute_list_end()
-		_rd.submit()
-		_rd.sync()
+		p._driver.open()
+		p.dispatch(_rd, ctx, cc, groups)
+		p._driver.close()
 	var names: PackedStringArray = LAChannels.channels()
 	names.append_array(LAChannels.derived_buffers())
 	names.sort()

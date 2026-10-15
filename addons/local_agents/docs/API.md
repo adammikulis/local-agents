@@ -17,7 +17,7 @@ signatures, signals, and the configuration warnings each node shows in the edito
 | [Agents and chat](API_AGENTS.md) | `LocalAgent`, `LocalAgent3D`, `LocalAgentChatPanel`, `LocalAgentConversation`, `LocalAgentStatusLabel`, `LocalAgentLlmService`, `LocalAgentLlmClient` |
 | [Configuration, status and settings](API_CONFIG.md) | `LocalAgentModelProfile`, `LocalAgentInferenceParams`, `LocalAgentStatus`, `LocalAgentSettings`, `LocalAgentManager` |
 | [The memory graph](API_MEMORY.md) | `LocalAgentGraph`, `LocalAgentGraphNode`, `LocalAgentGraphEdge`, `LocalAgentGraphRule`, `LocalAgentBackstoryGraphService` |
-| [Simulation nodes](API_SIMULATION.md) | `LocalAgentCreature`, `LocalAgentCreatureSpawner`, `LocalAgentCognitionScheduler`, `LocalAgentSimWorld`, `LocalAgentFieldBox` |
+| [Simulation nodes](API_SIMULATION.md) | `LocalAgentCreature`, `LocalAgentCreatureSpawner`, `LocalAgentCognitionScheduler`, `LocalAgentSimWorld`, `LocalAgentFieldBox`, and the views `LASimWorldView` and `LAFieldBoxSliceView` |
 | [Demo harness and catalogue](API_DEMOS.md) | `LocalAgentDemoHarness`, `LocalAgentDemoEntry`, `LocalAgentTutorialStep` |
 
 ## What is public

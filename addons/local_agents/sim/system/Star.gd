@@ -4,20 +4,12 @@ extends Node3D
 ## A star is a BODY. Its mass pulls like any other mass and its luminosity is what it radiates; the flux
 ## reaching anything else is that luminosity over the sphere it has spread across by the time it arrives.
 
-var _light: DirectionalLight3D = null       # for a single close body, a directional light reads as "the sun"
 var _seed_key: String = "star"
 
 
 func setup(opts: Dictionary = {}) -> void:
 	_seed_key = String(opts.get("seed_key", "star"))
 	position = seed_row().get("position_m", Vector3.ZERO)
-
-	_light = DirectionalLight3D.new()
-	_light.name = "StarLight"
-	_light.shadow_enabled = true
-	add_child(_light)
-	aim_at(Vector3.ZERO)
-
 	# Join the N-body group only once the position above is real. Registering in _ready() would put a mass
 	# this large at the world origin — on top of the planet — for the window between add_child and setup.
 	add_to_group(LAGravity.GROUP)
@@ -54,13 +46,3 @@ func xuv_irradiance_at(world_pos: Vector3) -> float:
 ## World-space centre — the N-body contract shared with LAPlanetBody and LAMoon.
 func center() -> Vector3:
 	return global_position
-
-func light() -> DirectionalLight3D:
-	return _light
-
-func aim_at(target: Vector3) -> void:
-	if _light == null:
-		return
-	var to: Vector3 = target - global_position
-	if to.length() > 0.001:
-		_light.look_at_from_position(global_position, target, Vector3.UP)

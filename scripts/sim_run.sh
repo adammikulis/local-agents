@@ -108,8 +108,12 @@ if [ -n "$SLICE_CAPTURE" ]; then
     echo "sim_run: --slice-capture needs --body; a slice cannot record its own exterior." >&2
     exit 2
   fi
-  export LA_SLICE_CAPTURE="$SLICE_CAPTURE"
+  . "$SCRIPT_DIR/lib_slice_capture.sh"
+  rm -f "$SLICE_CAPTURE"
+  LA_SLICE_CAPTURE="$(la_slice_capture_partial "$SLICE_CAPTURE")"
+  export LA_SLICE_CAPTURE
   export LA_SLICE_CAPTURE_BOX="$SLICE_BOX"
+  trap 'rm -f "$LA_SLICE_CAPTURE"' EXIT
 fi
 
 ARGS=(--sandbox "--run-frames=${FRAMES}" "--seed=${SEED}")
@@ -227,5 +231,8 @@ if [ "$KEEP" -eq 1 ]; then
   echo "sim_run: log kept at $LOG" >&2
 else
   rm -f "$LOG"
+fi
+if [ -n "$SLICE_CAPTURE" ] && ! la_publish_slice_capture "$SLICE_CAPTURE" "$RC"; then
+  echo "sim_run: this run (exit $RC) publishes no face-state capture at $SLICE_CAPTURE." >&2
 fi
 exit $RC

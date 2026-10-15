@@ -10,6 +10,7 @@ const CORE_TESTS := TestLaneRegistry.DETERMINISTIC_TESTS
 # more than the whole rest of this lane put together; it runs in the full sweep instead.
 const FAST_CORE_TESTS := [
     "res://addons/local_agents/tests/test_smoke_agent.gd",
+	"res://addons/local_agents/tests/test_creature_absence.gd",
     "res://addons/local_agents/tests/test_agent_utilities.gd",
     "res://addons/local_agents/tests/test_synth_dsp.gd",
     "res://addons/local_agents/tests/test_audio_music.gd",

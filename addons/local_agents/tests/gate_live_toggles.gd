@@ -30,7 +30,7 @@ func _say(msg: String) -> void:
 
 func _boxes_of(node: Node, out: Array) -> void:
 	for child in node.get_children():
-		if child is CheckButton:
+		if child is CheckButton or child is OptionButton:
 			out.append(child)
 		_boxes_of(child, out)
 
@@ -61,11 +61,31 @@ func _init() -> void:
 	var want: PackedStringArray = LAAblate.names()
 	if boxes.size() != want.size():
 		_say("The panel drew %d switches for %d names." % [boxes.size(), want.size()])
-	for i in mini(boxes.size(), want.size()):
-		if not String((boxes[i] as CheckButton).text).begins_with(want[i]):
-			_say("Switch %d reads \"%s\" where the registry names \"%s\"."
-				% [i, String((boxes[i] as CheckButton).text), want[i]])
+	for name in want:
+		if panel.control_of(name) == null:
+			_say("The panel drew no switch for \"%s\"." % name)
+
+	# --- a stand-in is a THREE-position switch, off / fake / real ------------------------------------
+	for r in LAFakes.RECORDS:
+		var fake_name: String = String(r["name"])
+		var opt: OptionButton = panel.control_of(fake_name) as OptionButton
+		if opt == null:
+			_say("The stand-in \"%s\" has no three-position control." % fake_name)
+		elif opt.item_count != 3:
+			_say("The \"%s\" control offers %d states, not three." % [fake_name, opt.item_count])
 	panel.free()
+
+	# --- and each of the three reaches the seam ------------------------------------------------------
+	var mark: String = String(LAFakes.RECORDS[0]["name"])
+	LAAblate.set_state(mark, LAAblate.state_fake())
+	if not LAFakes.stands_in(mark) or LAFakes.draw(mark, 1.0) != 1.0:
+		_say("\"%s\" switched to fake hands nothing out." % mark)
+	for state in [LAAblate.state_off(), LAAblate.state_real()]:
+		LAAblate.set_state(mark, state)
+		if LAFakes.stands_in(mark) or LAFakes.draw(mark, 1.0) != 0.0:
+			_say("\"%s\" switched to %s still hands out the stand-in's own supply." % [mark, state])
+	LAAblate.set_state(mark, LAAblate.default_state(mark))
+	LAFakes.reset()
 
 	# --- a process the rung lacks has no switch -----------------------------------------------------
 	if LAProcessSet.set_live("mom_flux", false):
@@ -105,7 +125,7 @@ func _init() -> void:
 		g_field[c * 3 + 2] = gv.z
 		solid[c] = 1 if p.y < 0.0 else 0
 	LABallistics.set_system([])
-	LABallistics.set_field(grid, g_field, solid, [], Basis.IDENTITY, Vector3.ZERO)
+	LABallistics.set_field(grid, g_field, solid, null, [], Basis.IDENTITY, Vector3.ZERO)
 
 	var start: Vector3 = Vector3(0.0, DROP_H, 0.0)
 	# The ground's tangential velocity at the release point: what LATestMasses hands drop().

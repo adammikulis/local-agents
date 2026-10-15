@@ -28,16 +28,13 @@ fi
 out="$("$ROOT/scripts/sim_run.sh" --body --rung 2 --frames "$FRAMES" \
 	--report nitrogen_all,body_seed_atmosphere_n2_kg 2>&1)"
 rc=$?
+la_rung_require "$out" nitrogen_all body_seed_atmosphere_n2_kg || {
+	r=$?
+	echo "check_atmosphere_mass: the air was not weighed to a number (sim_run exit $rc)." >&2
+	exit "$r"
+}
 moles="$(la_rung_value "$out" nitrogen_all)"
 declared="$(la_rung_value "$out" body_seed_atmosphere_n2_kg)"
-for n in "$moles" "$declared"; do
-	la_rung_numeric "$n" || {
-		echo "check_atmosphere_mass: the run published no numeric nitrogen_all or atmosphere declaration" >&2
-		echo "                        (sim_run exit $rc), so nothing was weighed." >&2
-		printf '%s\n' "$out" | tail -20 >&2
-		exit 2
-	}
-done
 if ! awk -v d="$declared" 'BEGIN{exit !(d > 0)}'; then
 	echo "check_atmosphere_mass: the body record declares no atmosphere, so the seed has no air to be" >&2
 	echo "                       held to." >&2

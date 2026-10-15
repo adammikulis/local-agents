@@ -28,13 +28,14 @@ text. Change the `.tres` for content, or the generator for wording.
 
 `scripts/run_demo.sh <name>` runs an example scene with no window in about a second and prints a
 `RUN_DEMO={...}` line carrying the exit code. It only accepts a scene that builds a
-`LocalAgentDemoHarness`, and 5 of the 15 entries have one. An example scene without that harness
-ignores `--run-frames` and never exits, so it gets `--quit-after` instead. Each demo below carries
-the command that applies to it.
+`LocalAgentDemoHarness` and needs no window, and 4 of the 15 entries are one. An example scene
+without that harness ignores `--run-frames` and never exits, so it gets `--quit-after` instead. Each
+demo below carries the command that applies to it.
 
-`scripts/run_demo.sh --all` runs every harnessed demo in turn at 40 frames each, then prints a
-`RUN_DEMO_ALL={"ran":N,"failed":N,"frames":N}` line and exits non-zero if any of them failed. Pass a
-frame count to override the default, as in `scripts/run_demo.sh --all 200`.
+`scripts/run_demo.sh --all` runs every harnessed demo that needs no window in turn at 40 frames
+each, prints a `RUN_DEMO_SKIPPED={...}` line for each one that needs a window, then prints a
+`RUN_DEMO_ALL={"ran":N,"failed":N,"skipped":N,"frames":N}` line and exits non-zero if any of them
+failed. Pass a frame count to override the default, as in `scripts/run_demo.sh --all 200`.
 
 `scripts/run_demo.sh --list` prints which is which. It walks the scenes in
 `addons/local_agents/examples/` rather than the catalogue, so it also lists `DemoLauncher.tscn`,
@@ -134,11 +135,11 @@ The simulation substrate in a bare box: inject heat at the floor, watch it diffu
 
 ## 11. A whole planet from one node
 
-LocalAgentSimWorld in SPHERE mode: the cubed-sphere body, the material field and a living ecology from a single node, framed by a camera. There is no game shell around it, so no HUD, menus, disasters or streamer.
+LocalAgentSimWorld in SPHERE mode: a planet turning under its star, the material field it steps and a living ecology from a single node, framed by a camera. There is no game shell around it, so no HUD, menus, disasters or streamer.
 
 - Scene: `res://addons/local_agents/examples/SimWorldPlanetDemo.tscn`
 - Requires: the godot_voxel GDExtension (addons/zylann.voxel/)
-- Run headless: `scripts/run_demo.sh SimWorldPlanetDemo`, or `scripts/run_demo.sh SimWorldPlanetDemo 200` for more than the default 40 frames.
+- Run: `scripts/run_sim_offscreen.sh --path . addons/local_agents/examples/SimWorldPlanetDemo.tscn -- --run-frames=200`. Headless has no compute device for the planet's field, so the wrapper gives it a real window placed off-screen.
 
 ## 12. Play the planet
 
@@ -146,7 +147,7 @@ The whole game shell around the planet: herds, emergent disasters, a HUD and a l
 
 - Scene: `res://addons/local_agents/game/VoxelWorld.tscn`
 - Requires: the godot_voxel GDExtension (addons/zylann.voxel/)
-- Run: `scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn -- --run-frames=200`. It lives outside `addons/local_agents/examples/`, so `scripts/run_demo.sh` cannot address it, and headless has no compute device for its field, so the wrapper gives it a real window placed off-screen.
+- Run: `scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn -- --run-frames=200`. Headless has no compute device for the planet's field, so the wrapper gives it a real window placed off-screen.
 
 ## 13. Slice, rung 0: state
 
@@ -154,7 +155,7 @@ One box of the planet, laid on the real terrain and stepped by the bottom rung a
 
 - Scene: `res://addons/local_agents/examples/SliceRung0Demo.tscn`
 - Requires: the godot_voxel GDExtension (addons/zylann.voxel/)
-- Run headless: `godot --headless --path . addons/local_agents/examples/SliceRung0Demo.tscn --quit-after 120`, since it builds no harness.
+- Run: `scripts/run_sim_offscreen.sh --path . addons/local_agents/examples/SliceRung0Demo.tscn -- --run-frames=200`. Headless has no compute device for the planet's field, so the wrapper gives it a real window placed off-screen.
 
 ## 14. Slice, rung 1: gravity
 
@@ -162,12 +163,12 @@ The same box as rung 0 with one process added: the potential of the mass that is
 
 - Scene: `res://addons/local_agents/examples/SliceRung1Demo.tscn`
 - Requires: the godot_voxel GDExtension (addons/zylann.voxel/)
-- Run headless: `godot --headless --path . addons/local_agents/examples/SliceRung1Demo.tscn --quit-after 120`, since it builds no harness.
+- Run: `scripts/run_sim_offscreen.sh --path . addons/local_agents/examples/SliceRung1Demo.tscn -- --run-frames=200`. Headless has no compute device for the planet's field, so the wrapper gives it a real window placed off-screen.
 
 ## 15. Life on the planet, backdrop faked
 
-The same coastal box the rung-0 demo lays down, run at the highest rung the ladder has passed, with plants, trees, herds, birds, insects and fish living in it. Everything the ladder has not yet reached is a declared stand-in, listed in docs/FAKES.md and printed by the run: drinking water, breathable oxygen and the carbon a plant grows on. Nothing here moves water, weather or fire; those arrive as their rungs land, and each landing deletes its fake.
+The same coastal box the rung-0 demo lays down, run at the highest rung the ladder has passed, with plants, trees, herds, birds, insects and fish living in it. Everything the ladder has not yet reached is a declared stand-in, listed in docs/FAKES.md and printed by the run: drinking water, breathable oxygen and the carbon a plant grows on. Nothing here moves water, weather or fire; those arrive as their rungs land, and each landing moves its stand-in from fake to real; every stand-in switches off, fake or real at any time.
 
 - Scene: `res://addons/local_agents/examples/LifeDemo.tscn`
 - Requires: the godot_voxel GDExtension (addons/zylann.voxel/)
-- Run headless: `godot --headless --path . addons/local_agents/examples/LifeDemo.tscn --quit-after 120`, since it builds no harness.
+- Run: `scripts/run_sim_offscreen.sh --path . addons/local_agents/examples/LifeDemo.tscn -- --run-frames=200`. Headless has no compute device for the planet's field, so the wrapper gives it a real window placed off-screen.

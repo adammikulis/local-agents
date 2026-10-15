@@ -110,16 +110,21 @@ if "drinking_water" in fakes:
     if thirst > 0:
         fails.append("creatures died of thirst while the 'drinking_water' stand-in was in force")
 
-# NO SLOW FRAME. `fps` keeps its own running minimum, so this is the worst frame the run had.
-fps = gauges.get("fps", {})
-worst = float(fps.get("min", 0.0)) if isinstance(fps, dict) else 0.0
-if worst < min_fps:
-    fails.append("the worst frame of the run fell below %g fps, which is not watchable" % min_fps)
+# NO SLOW FRAME. `frame_cost_ms` is the demo's own work per frame, main-thread CPU time or GPU time, so
+# its max is the worst frame whatever else the machine runs. `gpu_timed` false: the driver kept no GPU time.
+cost = gauges.get("frame_cost_ms")
+if not isinstance(cost, dict) or cost.get("max") is None:
+    print("check_life_demo: the run published no frame_cost_ms, so its frames went unmeasured.",
+          file=sys.stderr)
+    sys.exit(2)
+if float(cost["max"]) > 1000.0 / min_fps:
+    fails.append("the worst frame of the run cost more than 1/%g s, which is not watchable" % min_fps)
 
-print("LIFE_DEMO={\"kinds\":%s,\"in_box\":%s,\"outside_box\":%s,\"fakes\":%s,\"sealed\":%s,\"errors\":%d}"
+print("LIFE_DEMO={\"kinds\":%s,\"in_box\":%s,\"outside_box\":%s,\"fakes\":%s,\"sealed\":%s,\"errors\":%d,\"gpu_timed\":%s}"
       % (json.dumps({k: int(counts.get(k, 0)) for k in ("creatures", "plants", "trees", "fish")}),
          box.get("in"), box.get("out"),
-         json.dumps(sorted(fakes.keys())), str("WORLD_SEALED=" in text).lower(), len(errs)))
+         json.dumps(sorted(fakes.keys())), str("WORLD_SEALED=" in text).lower(), len(errs),
+         str("frame_gpu_ms" in gauges).lower()))
 if rc != 0:
     fails.append("the run exited %d" % rc)
 if fails:

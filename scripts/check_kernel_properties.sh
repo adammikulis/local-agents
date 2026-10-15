@@ -38,10 +38,16 @@ rm -f /tmp/check_kernel_properties_build.$$
 # The substance-table offsets the derive property writes are the kernel's own. One declaration, held
 # to the other by name.
 prop_drift=0
-for pair in "PROP_STRIDE:kPropStride" "PROP_M:kPropM" "PROP_C:kPropC" \
+for pair in "PROP_STRIDE:kPropStride" "PROP_M:kPropM" \
 		"PROP_MOL_PER_KG:kPropMolPerKg" "PROP_ENTRY:kPropEntry" "PROP_LAMBDA:kPropLambda" \
-		"PROP_FULL:kPropFull" "PROP_ALPHA:kPropAlpha" "PROP_BULK:kPropBulk" "PROP_TREF:kPropTref" \
-		"PROP_LITHIC:kPropLithic" "PROP_RAD_GROUP:kPropRadGroup" "PROP_CONDENSED:kPropCondensed"; do
+		"PROP_FULL:kPropFull" "PROP_LITHIC:kPropLithic" "PROP_RAD_GROUP:kPropRadGroup" \
+		"PROP_CONDENSED:kPropCondensed" "PROP_SOLID:kPropSolid" "PROP_LIQUID:kPropLiquid" \
+		"PH_FULL:kPhFull" "PH_ALPHA:kPhAlpha" "PH_BULK:kPhBulk" "PH_KP:kPhKp" "PH_B4:kPhB4" "PH_TREF:kPhTref" \
+		"PH_LINEAR:kPhLinear" "PH_F_LO:kPhFLo" "PH_F_HI:kPhFHi" \
+		"PROP_LADDER:kPropLadder" "TH_C_SOL:kThCSol" "TH_C_LIQ:kThCLiq" "TH_C_GAS:kThCGas" \
+		"TH_LINE_A1:kThLineA1" "TH_LINE_P0:kThLineP0" "TH_FUSION_T0:kThFusionT0" \
+		"TH_FUSION_T1:kThFusionT1" "TH_L_FUS:kThLFus" "TH_NU:kThNu" "TH_HAS_FUSION:kThHasFusion" \
+		"TH_N_EL:kThNEl" "TH_EL_N:kThElN" "TH_CRIT_T:kThCritT" "TH_CRIT_P:kThCritP" "TH_PR_KAPPA:kThPrKappa"; do
 	g="${pair%%:*}"
 	c="${pair##*:}"
 	gv="$(sed -n "s/^const int ${g} = \([0-9]*\);.*/\1/p" "$DERIVE" | head -1)"
@@ -130,7 +136,11 @@ plant() {  # plant <file> <sed expr> <property that must go red>
 
 plant "pressure.glsl" 's|acc += la_load(uint(a));|acc += 1.5 * la_load(uint(a));|' \
 	"pressure_column_is_the_integral_of_rho_g"
+plant "pressure.glsl" 's|top = pressure\[uint(a)\] + 0.5 \* (la_load(uint(a)) + la_weight(uint(a), lithic_kg\[uint(a)\]));|top = pressure[uint(a)];|' \
+	"pressure_column_is_the_integral_of_rho_g"
 plant "flux.glsl" 's|float open = min(open_c, 1.0 - clamp(resist\[n\], 0.0, 1.0));|float open = open_c;|' \
 	"flux_crossings_are_antisymmetric"
+plant "chunk.glsli" 's|return 0xFFFFFFFFu;|return la_group() * gl_WorkGroupSize.x + gl_LocalInvocationID.x;|' \
+	"sparse_edit_chunk_never_wraps"
 
 echo "check_kernel_properties: OK ($red against a ceiling of $CEIL; planted defects come back red)"

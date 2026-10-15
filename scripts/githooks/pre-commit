@@ -17,6 +17,14 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
 ROOT="$(git rev-parse --show-toplevel)"
 [ -x "$ROOT/scripts/agent_harness.sh" ] || exit 0
 
+# A merge that brings extension sources leaves bin/ built from the old ones, and every engine gate refuses it.
+. "$ROOT/scripts/lib_godot.sh"
+if ! la_extension_current "$ROOT" >/dev/null 2>&1; then
+  echo "pre-commit: bin/ does not match the extension sources; building."
+  "$ROOT/addons/local_agents/gdextensions/localagents/scripts/build_extension.sh" >/dev/null 2>&1 \
+    || { echo "COMMIT BLOCKED: build_extension.sh failed."; exit 1; }
+fi
+
 if [ -x "$ROOT/scripts/check_comment_ratio.sh" ] && ! "$ROOT/scripts/check_comment_ratio.sh"; then
   echo "COMMIT BLOCKED: more comment than code."
   exit 1

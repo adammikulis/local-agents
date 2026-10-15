@@ -48,6 +48,34 @@ if [ "$GOT" != "slow fast" ]; then
   fail=1
 fi
 
+# --- NO OVERTAKING: a newcomer may not claim a number under a lane already waiting --------------------
+# Ticket 0 is held and then released while `waiting` sits on ticket 1: a newcomer must queue above it.
+: > "$ORDER"
+ln -s "$$" "$T/g"
+mkdir -p "$T/g.q/p" "$T/g.q/n"
+ln -s "$$" "$T/g.q/n/0"
+overtake() {  # overtake <name>
+  bash -c '
+    . "'"$ROOT"'/scripts/lib_godot_lock.sh"
+    la_dir_lock "'"$T"'/g" 40 1 || exit 1
+    echo "$1" >> "'"$ORDER"'"
+    rm -rf "'"$T"'/g"
+    la_dir_unqueue "'"$T"'/g"
+  ' _ "$1" &
+}
+overtake waiting
+sleep 2
+rm -f "$T/g.q/n/0"
+overtake newcomer
+sleep 2
+rm -rf "$T/g"
+wait
+GOT="$(tr '\n' ' ' < "$ORDER" | sed 's/ *$//')"
+if [ "$GOT" != "waiting newcomer" ]; then
+  echo "the lock was handed out \"$GOT\": a newcomer took a freed number under a waiting lane" >&2
+  fail=1
+fi
+
 # --- TIERS: a priority waiter queued LAST is served FIRST ---------------------------------------------
 : > "$ORDER"
 ln -s "$$" "$T/f"
@@ -92,6 +120,35 @@ if ! LA_LOCKS_HELD="$(basename "$GODOT_LOCK_DIR")" la_dir_lock "$GPU" 2 1 2>/dev
 else
   rm -rf "$GPU"
 fi
+
+(
+  . "$ROOT/scripts/lib_godot.sh"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$T/launcher_fixture"
+  chmod +x "$T/launcher_fixture"
+  GODOT="$T/launcher_fixture"
+  LA_LAUNCH_LOG="$T/fixture_launches"
+  la_agent_exe() { printf '%s' "$GODOT"; }
+  la_extension_current() { return 0; }
+  consulted=0
+  la_gpu_lock() { consulted=$((consulted + 1)); return 1; }
+  la_gpu_unlock() { :; }
+  if ! LA_CPU_VALIDATION=1 la_godot --headless --version >/dev/null 2>&1 || [ "$consulted" -ne 0 ]; then
+    echo "explicit CPU validation queued for the GPU lock" >&2
+    exit 1
+  fi
+  LA_CPU_VALIDATION=0 la_godot --headless --version >/dev/null 2>&1
+  rc=$?
+  if [ "$rc" -ne 2 ] || [ "$consulted" -ne 1 ]; then
+    echo "headless native work did not require the GPU lock" >&2
+    exit 1
+  fi
+  LA_CPU_VALIDATION=1 la_godot --version >/dev/null 2>&1
+  rc=$?
+  if [ "$rc" -ne 2 ] || [ "$consulted" -ne 2 ]; then
+    echo "rendered work did not require the GPU lock" >&2
+    exit 1
+  fi
+) || fail=1
 
 [ "$fail" -eq 0 ] && echo "check_lock_reclaim: OK"
 exit $fail

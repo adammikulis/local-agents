@@ -16,7 +16,6 @@ extends Node3D
 @onready var _orbits: LASystemOrbits = $SystemOrbits
 @onready var _test_masses: LATestMasses = $TestMasses
 @onready var _impacts: LAMeteorImpacts = $MeteorImpacts
-@onready var _markers: LAPhenomenaMarkers = $PhenomenaMarkers
 @onready var _spawn: LAVoxelSpawnController = $SpawnController
 @onready var _save: LAWorldSaveController = $WorldSaveController
 @onready var _timeline: LAVoxelTimeline = $Timeline
@@ -85,13 +84,13 @@ func _wire_loop() -> void:
 	_loop.hold()
 	_loop.seeding.connect(_on_seeding)
 	_loop.stepped.connect(_on_step)
-	_loop.stepped.connect(Callable(_material.step_driver(), "step").unbind(1))
+	_loop.stepped.connect(Callable(_material.step_driver(), "step"))
 	_subscribe("test_mass", _test_masses)
 	_subscribe("ecology", _ecology)
 	_subscribe("events", _events)
 	_subscribe("timeline", _timeline)
-	for pair in [["orbits", _orbits], ["impacts", _impacts], ["markers", _markers], ["spawn", _spawn],
-			["save", _save], ["llm", _llm_service], ["star", _star], ["moon", _moon]]:
+	for pair in [["orbits", _orbits], ["impacts", _impacts], ["spawn", _spawn], ["save", _save],
+			["llm", _llm_service]]:
 		LAAblate.adopt(pair[0], pair[1])
 
 
@@ -146,10 +145,11 @@ func _build_field() -> void:
 	LASimReport.register(func() -> Dictionary: return {"process_live": LAProcessSet.live_mask()})
 	LASimReport.register(func() -> Dictionary: return _body_block())
 	LASimReport.register(func() -> Dictionary: return LASimReportSources.population(self), true)
-	LASimReport.register(func() -> Dictionary: return LASimReportSources.cognition(self), true)
+	LASimReport.register(func() -> Dictionary: return LASimReportSources.lineage(self), true)
+	LASimReport.register(func() -> Dictionary: return LASimReportSources.cognition(self))
 	LASimReport.register(func() -> Dictionary: return LASimReportSources.disease(self))
-	# The STAR's light, never the sky cycle's: direction from its basis, intensity from `insolation`.
-	_material.set_sun(_star.light())
+	# The star itself, never the sky cycle's light: its flux is read off its position and luminosity.
+	_material.set_star(_star)
 	_material.set_body(_body)
 	# The body IS the field's matter: its mass, inertia and spin are read back off it, never typed.
 	_body.set_field(_material)
@@ -202,10 +202,6 @@ func _build_geology_and_life() -> void:
 	# The camera + audio are rendering, injected by those layers when they exist.
 	_impacts.setup(_terrain, _ecology, _actors_root, null)
 
-	_markers.setup(_material)
-	if _material.has_method("set_lightning_visual"):
-		_material.set_lightning_visual(Callable(_markers, "show_bolt"))
-
 	_spawn.setup(self, _body, _terrain, _ecology, null, _material, null)
 
 
@@ -247,7 +243,6 @@ func moon() -> LAMoon: return _moon
 func orbits() -> LASystemOrbits: return _orbits
 func test_masses() -> LATestMasses: return _test_masses
 func meteor_impacts() -> LAMeteorImpacts: return _impacts
-func phenomena_markers() -> LAPhenomenaMarkers: return _markers
 func spawn_controller() -> LAVoxelSpawnController: return _spawn
 func save_controller() -> LAWorldSaveController: return _save
 func timeline() -> LAVoxelTimeline: return _timeline

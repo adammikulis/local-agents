@@ -134,13 +134,10 @@ func _is_veg_kind(kind: String) -> bool:
 	return kind == "plant" or kind == "tree" or _is_plant_kind(kind)
 
 
-# The config an LAPlant is built from: the fast hardcoded default for the generic "plant", else the species
-# DATA file for a flagged vegetation kind (flowers/shrubs carry their own colour/nectar/pop_cap).
+# The row an LAPlant is built from: the generic "plant"'s authored default, else the species DATA file
+# for a flagged vegetation kind. A kind with no row is built from LAPlant's own declared properties.
 func _veg_config(kind: String) -> Dictionary:
-	if kind == "plant":
-		return _plant_config()
-	var cfg: Dictionary = _species_config(kind)
-	return cfg if not cfg.is_empty() else _plant_config()
+	return _plant_config() if kind == "plant" else _species_config(kind)
 
 
 func setup(_terrain, _actors_root: Node3D) -> void:
@@ -230,9 +227,9 @@ func vegetation_report() -> Dictionary:
 
 
 ## Every stand-in this world is running on and what each has made, so a reader of the report never
-## mistakes a faked leg for a simulated one.
+## mistakes a faked leg for a simulated one, and the state every record is switched to.
 func fakes_report() -> Dictionary:
-	return {"fakes": LAFakes.report()}
+	return {"fakes": LAFakes.report(), "fake_states": LAFakes.states()}
 
 
 ## °C. Growing-degree-day base: below it a temperate plant accumulates no degree-days and makes no growth.
@@ -257,7 +254,7 @@ func _can_grow_here(placed: Vector3, woody: bool = false) -> bool:
 		return false
 	var air: Vector3 = _air_point(placed)
 	if not (_material.temp_at(air) - (TREELINE_ISOTHERM_C if woody else GDD_BASE_C) > 0.0):
-		return false
+		return false   # below the isotherm, or no matter there to have a temperature
 	if _material.has_method("snow_depth_at") and _material.snow_depth_at(air) > 0.0:
 		return false   # lying snow: a seed never reaches the soil
 	return true
@@ -293,8 +290,8 @@ func _place_on_surface(world_pos):
 	return _spawner._place_on_surface(world_pos)
 
 
-func _tangent_offset_point(anchor: Vector3, u: float, v: float) -> Vector3:
-	return _spawner._tangent_offset_point(anchor, u, v)
+func _tangent_offset_raw(anchor: Vector3, u: float, v: float) -> Vector3:
+	return _spawner._tangent_offset_raw(anchor, u, v)
 
 
 func _surface_radius(dir: Vector3) -> float:
@@ -343,8 +340,6 @@ func _instance_actor(kind: String, placed: Vector3, genome = null, family_id: in
 		actors_root.add_child(rock)
 		rock.global_position = placed
 		rock.setup(terrain)
-		if rock.has_method("set_material_field"):
-			rock.set_material_field(_material)          # so a thrown rock lands as a real amount of sediment
 		node = rock
 	elif kind == "tree":
 		var tree: TreeScript = TreeScript.new()
@@ -489,7 +484,7 @@ func debug_seed_family() -> Node:
 		var pb: Node3D = adults[1] as Node3D
 		var kids: Array = []
 		for i in range(2):
-			var placed = _place_on_surface(_tangent_offset_point(pa.global_position, LASimRng.for_domain("life").randf_range(-2.0, 2.0), LASimRng.for_domain("life").randf_range(-2.0, 2.0)))
+			var placed = _place_on_surface(_tangent_offset_raw(pa.global_position, LASimRng.for_domain("life").randf_range(-2.0, 2.0), LASimRng.for_domain("life").randf_range(-2.0, 2.0)))
 			if placed == null:
 				continue
 			var child = _instance_actor(kind, placed, _breeding._breed_genome(pa, pb))

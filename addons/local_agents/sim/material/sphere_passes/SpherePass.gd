@@ -3,7 +3,7 @@ extends RefCounted
 ## Base for every field pass: device handle, kernel compilation, uniform sets, and RID ownership.
 
 var _rd: RenderingDevice = null
-## The native driver: every compute list a pass records is issued through it.
+## The device's one driver, handed down by whoever owns the device: every submit on it goes through it.
 var _driver: LAFieldDriver = null
 
 var _owned_sets: Array[RID] = []
@@ -24,13 +24,12 @@ var grid_origin: Vector3 = Vector3.ZERO
 var grid_cell_size: float = 0.0
 
 
-func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
-	if rd == null:
-		push_error("%s: null RenderingDevice" % _label())
+func setup(rd: RenderingDevice, driver: LAFieldDriver, bufs: Dictionary, cc: int) -> void:
+	if rd == null or driver == null:
+		push_error("%s: no RenderingDevice or no driver" % _label())
 		return
 	_rd = rd
-	_driver = LAFieldDriver.new()
-	_driver.set_device(rd)
+	_driver = driver
 	_setup(bufs, cc)
 
 

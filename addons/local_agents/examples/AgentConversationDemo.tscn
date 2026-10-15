@@ -1,4 +1,4 @@
-[gd_scene load_steps=7 format=3 uid="uid://d3convo0demo01"]
+[gd_scene load_steps=8 format=3 uid="uid://d3convo0demo01"]
 
 [ext_resource type="Script" path="res://addons/local_agents/examples/AgentConversationDemo.gd" id="1_convo"]
 [ext_resource type="Script" path="res://addons/local_agents/agents/Agent.gd" id="2_agent"]
@@ -6,11 +6,20 @@
 [ext_resource type="Script" path="res://addons/local_agents/agents/StatusLabel.gd" id="4_status"]
 [ext_resource type="Script" path="res://addons/local_agents/graph/Graph.gd" id="5_graph"]
 
+[ext_resource type="Theme" path="res://addons/local_agents/agents/ui/ChatTheme.tres" id="llm_theme"]
+
 [sub_resource type="Resource" id="Resource_memory"]
 script = ExtResource("5_graph")
 
 [node name="AgentConversationDemo" type="Node"]
 script = ExtResource("1_convo")
+
+[node name="Background" type="ColorRect" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+color = Color(0.027, 0.043, 0.078, 1)
 
 [node name="Ada" type="Node" parent="."]
 script = ExtResource("2_agent")
@@ -30,29 +39,30 @@ memory_graph = SubResource("Resource_memory")
 canned_lines = PackedStringArray("Let's start with tomatoes, they give the most for a first season.", "Tomatoes need cages and daily water though. Can we afford that?", "Fair. Herbs are cheaper and hard to kill, so maybe basil and mint first.", "Agreed, herbs it is. We can graduate to tomatoes once we know we can keep up.")
 
 [node name="Margin" type="MarginContainer" parent="."]
+theme = ExtResource("llm_theme")
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-theme_override_constants/margin_left = 16
-theme_override_constants/margin_top = 16
-theme_override_constants/margin_right = 16
-theme_override_constants/margin_bottom = 16
+theme_override_constants/margin_left = 48
+theme_override_constants/margin_top = 32
+theme_override_constants/margin_right = 48
+theme_override_constants/margin_bottom = 32
 
 [node name="Column" type="VBoxContainer" parent="Margin"]
 layout_mode = 2
-theme_override_constants/separation = 10
+theme_override_constants/separation = 16
 
 [node name="Title" type="Label" parent="Margin/Column"]
 layout_mode = 2
-theme_override_font_sizes/font_size = 22
-text = "Two agents converse, and the conversation is the memory"
+theme_override_font_sizes/font_size = 32
+text = "Two perspectives. One conversation."
 
 [node name="Hint" type="Label" parent="Margin/Column"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.7, 0.74, 0.8, 1)
-text = "The LocalAgentConversation node holds the cast, the topic and the offline lines, so select it to change any of them. Every utterance becomes a node in its memory graph, chained by a \"then\" edge."
+text = "Ada and Ben plan a shared garden. Advance a turn to follow the conversation and its saved memory."
 autowrap_mode = 3
 
 [node name="SetupStatus" type="Label" parent="Margin/Column"]
@@ -76,23 +86,19 @@ text = "Reset"
 [node name="MemoryLabel" type="Label" parent="Margin/Column"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Memory graph: 0 nodes, 0 edges"
-autowrap_mode = 3
-
-[node name="LastRecordedLabel" type="Label" parent="Margin/Column"]
-unique_name_in_owner = true
-layout_mode = 2
-theme_override_colors/font_color = Color(0.7, 0.74, 0.8, 1)
-text = "Last recorded: -"
+text = "Memory · Turns: 0 · Links: 0"
 autowrap_mode = 3
 
 [node name="Transcript" type="RichTextLabel" parent="Margin/Column"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
+selection_enabled = true
 bbcode_enabled = true
 scroll_following = true
 
 [connection signal="turn_taken" from="Conversation" to="." method="_on_conversation_turn_taken"]
 [connection signal="pressed" from="Margin/Column/Buttons/NextButton" to="Conversation" method="next_turn"]
 [connection signal="pressed" from="Margin/Column/Buttons/ResetButton" to="." method="_on_reset_button_pressed"]
+
+[connection signal="turn_updated" from="Conversation" to="." method="_on_conversation_turn_updated"]

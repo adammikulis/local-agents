@@ -115,18 +115,21 @@ if not (lo <= rate <= hi):
     fails.append("bodies booked %.6g mol of carbon a second; %d-%d animals at Kleiber's rate oxidise "
                  "%.6g to %.6g" % (rate, int(alive), int(spawned), lo, hi))
 
-# --- ARM 3: THE CAUSE. A death names a mechanism, and the world must contain the process that runs it.
-# Each row is a death cause and the report field that reads true only when its process was reduced at
-# all. Combustion is a chemistry-rung reaction (LAProcessSet CHEMISTRY_REACTIONS "CombustionRecords.gd",
-# CHEMISTRY_REDUCE "fire_peak"/"fire_cells"), so below that rung `fire_live` is false and no body can
-# burn; a burned death there is a mechanism the creature code carried on its own.
-CAUSE_NEEDS = {"burned": "fire_live"}
+# A death cannot name a process absent from its world.
+def absent_death_processes(report):
+    out = []
+    for cause, live_key in {"burned": "fire_live"}.items():
+        n = int((report.get("events") or {}).get("death/%s" % cause, 0))
+        if n > 0 and not report.get(live_key):
+            out.append("%d bodies died '%s' without %s" % (n, cause, live_key))
+    return out
+
+if not absent_death_processes({"events": {"death/burned": 1}, "fire_live": False}) \
+        or absent_death_processes({"events": {"death/burned": 1}, "fire_live": True}) \
+        or absent_death_processes({"events": {}, "fire_live": False}):
+    fails.append("death process controls failed")
+fails.extend(absent_death_processes(snap))
 events = snap.get("events") or {}
-for cause, live_key in CAUSE_NEEDS.items():
-    n = int(events.get("death/%s" % cause, 0))
-    if n > 0 and not snap.get(live_key):
-        fails.append("%d body/bodies died '%s' in a world whose reduce never measured %s"
-                     % (n, cause, live_key))
 
 print("CREATURE_ENERGY_WORLD={\"alive\":%d,\"spawned\":%d,\"seconds\":%g,\"o2_draws\":%d,\"causes\":%s}"
       % (int(alive), int(spawned), seconds, int(o2.get("draws", 0)),

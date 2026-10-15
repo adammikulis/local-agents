@@ -14,8 +14,8 @@ command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 not on PATH." >&2; 
 PROBE="addons/local_agents/tests/bench_shock_tube.gd"
 [ -f "$REPO_ROOT/$PROBE" ] || { echo "ERROR: $PROBE missing." >&2; exit 2; }
 
-JUDGE="$(mktemp "${TMPDIR:-/tmp}/bench_shock.XXXXXX.py")"
-trap 'rm -f "$JUDGE"' EXIT INT TERM
+JUDGE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/bench_shock.XXXXXX")"; JUDGE="$JUDGE_DIR/judge.py"
+trap 'rm -rf "$JUDGE_DIR"' EXIT INT TERM
 cat > "$JUDGE" <<'PY'
 import json, math, os, sys
 
@@ -237,7 +237,7 @@ rc=$?
 FRAMES="${LA_BENCH_ST_FRAMES:-8}"
 . "$REPO_ROOT/scripts/lib_rung.sh"
 world="$(la_rung_report 3 "$FRAMES" "mach_max,wind_speed_max,transport_levels")"
-la_rung_require "$world" mach_max wind_speed_max || exit 2
+la_rung_require "$world" mach_max wind_speed_max || exit $?
 printf 'BENCH_SHOCK_TUBE_WORLD={"mach_max":%s,"wind_speed_max":%s}\n' \
   "$(la_rung_value "$world" mach_max)" "$(la_rung_value "$world" wind_speed_max)"
 echo "check_bench_shock_tube: OK"

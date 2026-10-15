@@ -116,7 +116,7 @@ func _solve(grid, fill: PackedFloat32Array) -> Array:
 	_rd.buffer_update(bufs[SOURCE_CHANNEL], 0, src_bytes.size(), src_bytes)
 
 	p.grid_dims = Vector3i(N, N, N)
-	p.setup(_rd, bufs, cc)
+	p.setup(_rd, LAFieldDriver.on(_rd), bufs, cc)
 	var groups: int = int(ceil(float(cc) / 64.0))
 	p.solve_converged(_rd, grid, cc, groups)
 	var readings: Dictionary = p._drain(_rd)

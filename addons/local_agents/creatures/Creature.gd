@@ -117,8 +117,8 @@ var _held: bool = false
 var _ragdoll: bool = false
 var _carcass: bool = false
 var _dead: bool = false
-var _shadow: RigidBody3D = null
-var _settle_t: float = 0.0
+var _fall_id: int = -1                      # LABallistics free body carrying a flung creature
+var _fall_push: Vector3 = Vector3.ZERO        # velocity it was flung with, m/s
 var _decay_age: float = 0.0
 var _carrion: float = 0.0                     # meat MASS left on the carcass (drawn from the live body at death)
 var _carrion_initial: float = 0.0             # what the body weighed when it died — the rot/shrink denominator
@@ -317,6 +317,11 @@ func setup(_terrain, _config: Dictionary, _genome_arg = null) -> void:
 	LACreatureSetup.apply(self, _terrain, _config, _genome_arg)
 
 
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_LOCAL_TRANSFORM_CHANGED:
+		LAGroupIndex.shared().moved(self)
+
+
 # Library drop-in self-config: a Creature.tscn placed in a scene with standalone_on_ready = true
 # configures itself here (config empty + no terrain injected). Inert for sim creatures (flag default off).
 func _ready() -> void:
@@ -413,7 +418,7 @@ func _physics_process(delta: float) -> void:
 	if senescence != null:
 		senescence.tick(self, delta)
 	if _think_phase < 0:
-		_think_phase = int(get_instance_id())                  # raw id; the think stagger is (id % stride)
+		_think_phase = int(get_instance_id())                  # LALodStride.should_run mixes the id
 	_throw_cd -= delta
 	# Night perception: nocturnal species gain range after dark, diurnal ones lose it.
 	_sense_mult = 1.0
@@ -449,7 +454,7 @@ func _physics_process(delta: float) -> void:
 
 	LACreatureFieldForces.tick(self, delta)
 
-	# Evaporative cooling against the field at my feet.
+	# Evaporative cooling of an overheated body.
 	LACreatureMetabolism.tick_environment(self, pos, delta)
 	# Breathing: drown when submerged past my breath reserve, or suffocate in O2-depleted smoke.
 	if LACreatureMetabolism.tick_breath(self, pos, delta):
@@ -483,7 +488,7 @@ func _physics_process(delta: float) -> void:
 		LACreatureProfile.add("cr_glue", _pt)
 		_pt = Time.get_ticks_usec()
 	var stride: int = LACreatureLod.think_stride(self)
-	var do_think: bool = _force_think or ((int(Engine.get_physics_frames()) + _think_phase) % stride == 0)
+	var do_think: bool = _force_think or LALodStride.should_run(int(Engine.get_physics_frames()), _think_phase, stride)
 	_think_dt += delta
 	if do_think:
 		var think_dt: float = _think_dt

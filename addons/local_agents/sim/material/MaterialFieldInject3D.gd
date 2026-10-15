@@ -1,7 +1,7 @@
 class_name LAMaterialFieldInject3D
 extends RefCounted
 
-## LAMaterialFieldInject3D: the WRITE-side injection + FX API of the dense 3D MaterialField3D, factored
+## LAMaterialFieldInject3D: the write-side injection API of the dense 3D MaterialField3D.
 
 const QueueScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldInjectQueue3D.gd")
 
@@ -18,8 +18,6 @@ var _crater_mass: float = 0.0            # cumulative mineral volume fraction ex
 var _crater_sea: int = 0                 # cumulative opened cells that were under the water line and flooded
 
 var _flood_unsourced: int = 0            # below-sea crater cells left DRY because no live water was in reach
-
-signal splashed(world_pos: Vector3, strength: float)
 
 
 func setup(field) -> void:
@@ -91,17 +89,6 @@ func land_ejecta(src_cell: int, world_pos: Vector3, mass: float) -> void:
 	queue.transfer("silicate", PackedInt32Array([src_cell]), PackedFloat32Array([mass]),
 		"silicate", PackedInt32Array([dst]))
 	_uncement(PackedInt32Array([dst]))
-
-
-## Loose mineral arriving at a point. What lands is grains, so the cell's consolidated share goes with it.
-func deposit_sediment(world_pos: Vector3, amount: float) -> void:
-	if amount <= 0.0 or not _device_ready():
-		return
-	var c: int = _f.world_to_cell(world_pos)
-	if c < 0 or c >= _f._cell_count:
-		return
-	queue.add("silicate", PackedInt32Array([c]), PackedFloat32Array([amount]))
-	_uncement(PackedInt32Array([c]))
 
 
 ## Drain the consolidated share of these cells to zero. `cement` is a fraction, not matter, so this moves
@@ -331,37 +318,3 @@ func crater_report() -> Dictionary:
 		"crater_dry_pockets": _flood_unsourced,
 	}
 
-
-# --- Physical splash droplets (FX) ------------------------------------------
-
-## A few short-lived rigidbody droplets flung from a world point — the splash accent an impact calls.
-func splash(world_pos: Vector3, strength: float) -> void:
-	if not _f.is_inside_tree() or is_nan(world_pos.x):
-		return
-	var s: float = clampf(strength, 0.1, 4.0)
-	splashed.emit(world_pos, s)                          # ring the fluid surface (renderer listens); droplets below
-	var mesh: SphereMesh = SphereMesh.new()
-	mesh.radius = 0.12
-	mesh.height = 0.24
-	mesh.radial_segments = 6
-	mesh.rings = 3
-	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.albedo_color = Color(0.3, 0.6, 0.9, 0.75)
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mesh.material = mat
-	for n in range(5):
-		var body: RigidBody3D = RigidBody3D.new()
-		body.mass = 0.05
-		body.collision_mask = 1
-		body.collision_layer = 0
-		var mi: MeshInstance3D = MeshInstance3D.new()
-		mi.mesh = mesh
-		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		body.add_child(mi)
-		_f.add_child(body)
-		var rng: LASimRng = LASimRng.shared()
-		body.global_position = world_pos + Vector3(rng.randf_range(-0.15, 0.15), 0.1, rng.randf_range(-0.15, 0.15))
-		var ang: float = rng.randf() * TAU
-		body.linear_velocity = Vector3(cos(ang) * rng.randf_range(1.0, 2.5) * s, rng.randf_range(2.5, 4.5) * s, sin(ang) * rng.randf_range(1.0, 2.5) * s)
-		var tm: SceneTreeTimer = _f.get_tree().create_timer(2.0)
-		tm.timeout.connect(func(): if is_instance_valid(body): body.queue_free())

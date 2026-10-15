@@ -1,6 +1,7 @@
 class_name LAUiLayer
 extends Node
 
+const SwitchPanelScene: PackedScene = preload("res://addons/local_agents/game/ui/SwitchPanel.tscn")
 
 var _world: Node = null
 var _sim: LASimulation = null
@@ -47,7 +48,7 @@ func build(world: Node, sim: LASimulation, render: LARenderLayer, input: LAVoxel
 	if _hud.has_signal("music_auto_adapt_changed") and _world.has_method("_on_music_auto_adapt_changed"):
 		_hud.music_auto_adapt_changed.connect(Callable(_world, "_on_music_auto_adapt_changed"))
 
-	_debug.setup(_world, sim.material_field(), terrain, render.sky_controller(), _hud, _input, sim.ecology())
+	_debug.setup(_world, sim.material_field(), terrain, render.sky(), _hud, _input, sim.ecology())
 	# The vector glyphs and the key they are read against: the debug panel's own view toggle drives them.
 	_debug.set_field_vectors(render.field_vectors())
 	_vector_legend.bind_vectors(render.field_vectors())
@@ -83,26 +84,14 @@ func build(world: Node, sim: LASimulation, render: LARenderLayer, input: LAVoxel
 	# The stings and the status line these sim controllers accept but never require.
 	if sim.meteor_impacts() != null:
 		sim.meteor_impacts().set_presentation(camera)
-	if sim.phenomena_markers() != null:
-		sim.phenomena_markers().set_presentation(_audio)
 	if sim.spawn_controller() != null and sim.spawn_controller().has_method("set_presentation"):
 		sim.spawn_controller().set_presentation(camera, _hud)
 
 
 ## The live switch list: one CanvasLayer of its own, so nothing else's visibility decides whether the
-## maintainer can reach a process mid-run.
+## maintainer can reach a process mid-run. SwitchPanel.tscn lays it out.
 func _build_switches() -> void:
-	var layer: CanvasLayer = CanvasLayer.new()
-	layer.name = "Switches"
-	var panel: PanelContainer = PanelContainer.new()
-	panel.position = Vector2(12.0, 140.0)
-	var margin: MarginContainer = MarginContainer.new()
-	for side in ["left", "right", "top", "bottom"]:
-		margin.add_theme_constant_override("margin_" + String(side), 8)
-	margin.add_child(LASwitchPanel.new())
-	panel.add_child(margin)
-	layer.add_child(panel)
-	add_child(layer)
+	add_child(SwitchPanelScene.instantiate())
 
 
 func step(delta: float) -> void:
@@ -114,6 +103,8 @@ func step(delta: float) -> void:
 	_brush.update_brush_ring()
 
 
+## The generating-planet screen still stands over the frame, fading or not.
+func loading_shown() -> bool: return get_node_or_null("GeneratingPlanetScreen") != null
 func hud() -> CanvasLayer: return _hud
 func game_hud() -> CanvasLayer: return _game_hud
 func audio() -> LAAudioDirector: return _audio

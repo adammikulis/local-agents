@@ -8,10 +8,8 @@
 # Exit 0 when written, or when --check finds it current. Exit 1 on drift (the diff prints first) or when
 # the catalogue cannot be rendered. check_demo_catalog.sh runs --check under lint, so a stale page fails.
 
-# The .tres files are parsed as text, by the same rules check_demo_catalog.sh uses: a property left at
-# its default is omitted when Godot saves, so every field defaults here exactly as in
-# examples/DemoEntry.gd; the id match carries a leading space, because a bare /id="/ matches inside
-# uid="..." first and would read the uid as the resource id. `description` is @export_multiline, so
+# The .tres files are parsed as text: a property left at its default is omitted when Godot saves, so
+# every field defaults here exactly as in examples/DemoEntry.gd. `description` is @export_multiline, so
 # Godot writes \n as two characters — turned back here, as is \". Text parsing takes no editor lock.
 
 # macOS ships bash 3.2: no mapfile, no associative arrays. `set -e` plus a grep that legitimately
@@ -21,6 +19,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+. "$ROOT/scripts/lib_demo_fragment.sh" || exit 2
 
 EXAMPLES_DIR="addons/local_agents/examples"
 CATALOG_DIR="$EXAMPLES_DIR/demos"
@@ -68,26 +67,20 @@ fi
 parse_meta() {
   awk -v entry_script="$ENTRY_SCRIPT" '
     /^\[ext_resource/ {
-      type=""; path=""; id="";
+      type=""; path="";
       if (match($0, /type="[^"]*"/)) type = substr($0, RSTART+6, RLENGTH-7);
       if (match($0, /path="[^"]*"/)) path = substr($0, RSTART+6, RLENGTH-7);
-      if (match($0, / id="[^"]*"/))  id   = substr($0, RSTART+5, RLENGTH-6);
-      if (id != "") res_path[id] = path;
       if (type == "Script" && path == entry_script) is_entry = 1;
       next
     }
     /^order = /                  { order = $3; next }
-    # `scene_path = "res://..."` is the current form. The ExtResource branch stays for a .tres still
-    # holding a PackedScene reference, so an un-migrated entry renders its scene rather than a blank.
-    /^scene_path = "/            { if (match($0, /"[^"]*"/)) scene_direct = substr($0, RSTART+1, RLENGTH-2); next }
-    /^scene = ExtResource\(/     { if (match($0, /"[^"]*"/)) scene_id = substr($0, RSTART+1, RLENGTH-2); next }
+    /^scene_path = "/            { if (match($0, /"[^"]*"/)) scene = substr($0, RSTART+1, RLENGTH-2); next }
     /^requires_model = /         { model = $3; next }
     /^requires_voxel_backend = / { voxel = $3; next }
     END {
       if (order == "") order = 0;
       if (model == "") model = "false";
       if (voxel == "") voxel = "false";
-      scene = (scene_direct != "") ? scene_direct : ((scene_id == "") ? "" : res_path[scene_id]);
       printf "%s|%s|%s|%s|%s\n", order, scene, model, voxel, (is_entry ? "yes" : "no");
     }
   ' "$1"
@@ -109,10 +102,8 @@ entry_text() {
   ' "$1"
 }
 
-# A scene honours --run-frames when it, or its sibling script, builds a LocalAgentDemoHarness. Same
-# test scripts/run_demo.sh makes, so this page cannot claim a command that script would refuse.
 scene_has_harness() {
-  grep -qs 'DemoHarness' "$EXAMPLES_DIR/$1.gd" "$EXAMPLES_DIR/$1.tscn"
+  demo_has_harness "$ROOT" "$EXAMPLES_DIR/$1.tscn"
 }
 
 # --- Rendering ----------------------------------------------------------------------------------
@@ -133,7 +124,7 @@ requires_line() {
 # headless is never described as if it could.
 run_label() {
   local scene_rel="$1"
-  if [[ "$(dirname "$scene_rel")" != "$EXAMPLES_DIR" ]]; then echo "Run"; else echo "Run headless"; fi
+  if demo_needs_window "$ROOT" "$scene_rel"; then echo "Run"; else echo "Run headless"; fi
 }
 
 # The harness rule itself is stated once in the header, so the per-demo line is the command plus the
@@ -142,9 +133,9 @@ run_line() {
   local scene_rel="$1"
   local name
   name="$(basename "$scene_rel" .tscn)"
-  if [[ "$(dirname "$scene_rel")" != "$EXAMPLES_DIR" ]]; then
-    printf '`%s --path . %s -- --run-frames=200`. It lives outside `%s/`, so `scripts/run_demo.sh` cannot address it, and headless has no compute device for its field, so the wrapper gives it a real window placed off-screen.\n' \
-      "$WINDOWED_RUNNER" "$scene_rel" "$EXAMPLES_DIR"
+  if demo_needs_window "$ROOT" "$scene_rel"; then
+    printf '`%s --path . %s -- --run-frames=200`. Headless has no compute device for the planet'"'"'s field, so the wrapper gives it a real window placed off-screen.\n' \
+      "$WINDOWED_RUNNER" "$scene_rel"
   elif scene_has_harness "$name"; then
     printf '`scripts/run_demo.sh %s`, or `scripts/run_demo.sh %s 200` for more than the default %s frames.\n' \
       "$name" "$name" "$DEFAULT_FRAMES"
@@ -201,18 +192,19 @@ MD
 `scripts/run_demo.sh <name>` runs an example scene with no window in about a second and prints a
 `RUN_DEMO={...}` line carrying the exit code. It only accepts a scene that builds a
 MD
-    printf '`LocalAgentDemoHarness`, and %s of the %s entries have one. An example scene without that harness\n' \
+    printf '`LocalAgentDemoHarness` and needs no window, and %s of the %s entries are one. An example scene\n' \
       "$harnessed" "$total"
     cat <<'MD'
-ignores `--run-frames` and never exits, so it gets `--quit-after` instead. Each demo below carries
-the command that applies to it.
+without that harness ignores `--run-frames` and never exits, so it gets `--quit-after` instead. Each
+demo below carries the command that applies to it.
 MD
     echo ''
-    printf '`scripts/run_demo.sh --all` runs every harnessed demo in turn at %s frames each, then prints a\n' \
+    printf '`scripts/run_demo.sh --all` runs every harnessed demo that needs no window in turn at %s frames\n' \
       "$DEFAULT_FRAMES"
     cat <<'MD'
-`RUN_DEMO_ALL={"ran":N,"failed":N,"frames":N}` line and exits non-zero if any of them failed. Pass a
-frame count to override the default, as in `scripts/run_demo.sh --all 200`.
+each, prints a `RUN_DEMO_SKIPPED={...}` line for each one that needs a window, then prints a
+`RUN_DEMO_ALL={"ran":N,"failed":N,"skipped":N,"frames":N}` line and exits non-zero if any of them
+failed. Pass a frame count to override the default, as in `scripts/run_demo.sh --all 200`.
 MD
     echo ''
     cat <<'MD'
@@ -300,7 +292,9 @@ generate() {
       scene_rel="${scene#res://}"
       name="$(basename "$scene_rel" .tscn)"
       if [[ "$(dirname "$scene_rel")" == "$EXAMPLES_DIR" ]]; then
-        if scene_has_harness "$name"; then harnessed=$((harnessed + 1)); fi
+        if scene_has_harness "$name" && ! demo_needs_window "$ROOT" "$scene_rel"; then
+          harnessed=$((harnessed + 1))
+        fi
       else
         if [[ -n "$outside" ]]; then outside="$outside, "; fi
         outside="$outside$(printf '`%s`' "$scene_rel")"

@@ -34,7 +34,7 @@ func _tick_plant_seeding() -> void:
 		# each vegetation type self-limits. No type-branch: the kind + cap come from the parent + its data file.
 		var kind: String = String(p.species) if "species" in p else "plant"
 		var cap: int = int(_eco._veg_config(kind).get("pop_cap", 0))
-		if LAFakes.capped("population_caps", _eco.get_tree().get_nodes_in_group("species_%s" % kind).size(), cap):
+		if LAFakes.capped("population_caps", _eco.get_tree().get_node_count_in_group("species_%s" % kind), cap):
 			if p.has_method("consume"):
 				p.consume()                         # at cap: consume the seed so it re-readies later
 			continue
@@ -50,7 +50,7 @@ func _tick_plant_seeding() -> void:
 				p.consume()
 			continue
 		ledger().seed_cost += paid * LAPlant.BIOMASS_PER_FOOD   # booked in the FIELD's mass units, like the rest
-		var placed = _eco._place_on_surface(_eco._tangent_offset_point((p as Node3D).global_position, _rng().randf_range(-3.5, 3.5), _rng().randf_range(-3.5, 3.5)))
+		var placed = _eco._place_on_surface(_eco._tangent_offset_raw((p as Node3D).global_position, _rng().randf_range(-3.5, 3.5), _rng().randf_range(-3.5, 3.5)))
 		var child = null
 		if placed != null and _eco._can_grow_here(placed):
 			child = _eco._instance_actor(kind, placed)  # seed only takes on warm, snow-free ground (emergent treeline)
@@ -87,11 +87,11 @@ func _tick_tree_seeding() -> void:
 		if not is_instance_valid(parent) or _eco._biomass_at(parent.global_position) < thresh:
 			continue                                # parent isn't on rich enough ground to spread a grove
 		seeded += 1
-		var placed = _eco._place_on_surface(_eco._tangent_offset_point(parent.global_position, _rng().randf_range(-TREE_SEED_SPREAD, TREE_SEED_SPREAD), _rng().randf_range(-TREE_SEED_SPREAD, TREE_SEED_SPREAD)))
+		var placed = _eco._place_on_surface(_eco._tangent_offset_raw(parent.global_position, _rng().randf_range(-TREE_SEED_SPREAD, TREE_SEED_SPREAD), _rng().randf_range(-TREE_SEED_SPREAD, TREE_SEED_SPREAD)))
 		if placed == null or _eco._is_water_pos(placed) or not _eco._can_grow_here(placed, true):
 			continue                                # off the treeline / into the sea — the grove's edge
 		if _eco._biomass_at(placed) < thresh:
 			continue                                # seedling site not fertile enough — keeps groves dense, not scattered
 		_eco._instance_actor("tree", placed)
-		if LAFakes.capped("population_caps", _eco.get_tree().get_nodes_in_group("tree").size(), TREE_POP_CAP):
+		if LAFakes.capped("population_caps", _eco.get_tree().get_node_count_in_group("tree"), TREE_POP_CAP):
 			return

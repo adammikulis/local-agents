@@ -45,7 +45,7 @@ var _ecology: Node = null
 var _body: Node3D = null
 var _actors_root: Node3D = null
 var _spawn: LAVoxelSpawnController = null
-var _sky_ctrl: LAVoxelSkyController = null
+var _sky: LASkyView = null
 var _progression: LAGameProgression = null
 var _camera: Camera3D = null
 var _hud: CanvasLayer = null
@@ -112,7 +112,7 @@ func _ready() -> void:
 		add_child(_render)
 		_render.build(self, _sim, _input)
 		_camera = _render.camera()
-		_sky_ctrl = _render.sky_controller()
+		_sky = _render.sky()
 
 	if _input.ui():
 		_ui = UiLayerScene.instantiate()
@@ -205,8 +205,7 @@ func _on_sim_step(step: int) -> void:
 
 func _process(delta: float) -> void:
 	_render_frame += 1
-	# Track the physics-tick cost every frame so SimReport's max = the heavy STEP-FRAME spike.
-	LASimReport.gauge("physics_ms", Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0)
+	LAVoxelHarness.gauge_frame_cost(shot_viewport(), _sim.is_spawned())
 	if _render != null:
 		_render.step(delta)
 	if _ui != null:
@@ -242,10 +241,10 @@ func _perf_probe(delta: float) -> void:
 		int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)),
 		Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME) / 1.0e6,
 		_actors_root.get_child_count(),
-		get_tree().get_nodes_in_group("creature").size(),
+		get_tree().get_node_count_in_group("creature"),
 		int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)),
 		_fps_count])
-	LAAppExit.request(self, 0)
+	LAAppQuit.request(self, 0)
 
 
 ## The LocalAgentDemoHarness contract.
@@ -323,8 +322,8 @@ func _update_music_mood() -> void:
 	if not _music_auto_adapt:
 		return
 	_audio.set_music_mood({
-		"population": get_tree().get_nodes_in_group("creature").size(),
-		"time_of_day": _sky_ctrl.time_of_day() if _sky_ctrl != null else 0.30,
+		"population": get_tree().get_node_count_in_group("creature"),
+		"time_of_day": _sky.time_of_day(),
 		"destruction_intensity": _music_destruction,
 		"threat": _music_destruction,
 	})

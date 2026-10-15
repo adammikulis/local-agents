@@ -17,7 +17,7 @@ const BASK_CHANCE: float = 0.05       # per-eligible-frame chance to haul out wh
 const THINK_STRIDE: int = 3            # recompute the swim intention (wander + schooling) every N frames
 
 var terrain = null                    # LAVoxelTerrainService (surface_height)
-var material = null                      # LAMaterialField (splash on entry)
+var material = null                      # LAMaterialField3D
 var config: Dictionary = {}
 
 var species: String = "fish"
@@ -456,8 +456,6 @@ func die(_cause: String = "", _impulse: Vector3 = Vector3.ZERO) -> void:
 	structural_mass = 0.0
 	energy = 0.0
 	gut = 0.0
-	if material != null and material.has_method("splash"):
-		material.splash(global_position, 0.6)
 	queue_free()
 
 
@@ -524,7 +522,7 @@ func _physics_process(delta: float) -> void:
 		return
 	age += delta
 	if _think_phase < 0:
-		_think_phase = int(get_instance_id())                  # raw id; the think stagger is (id % stride)
+		_think_phase = int(get_instance_id())                  # LALodStride.should_run mixes the id
 	if age >= max_age:
 		die("old age")
 		return

@@ -29,7 +29,8 @@ func species_below_cap(kind: String) -> bool:
 	var cfg: Dictionary = _eco._species_config(kind)
 	var cap: int = int(cfg.get("pop_cap", 0))
 	var members: Array = _eco.get_tree().get_nodes_in_group("species_%s" % kind)
-	var below: bool = members.size() < cap
+	# The authored ceiling is the `population_caps` stand-in; without it, the energy budget bounds breeding.
+	var below: bool = not LAFakes.capped("population_caps", members.size(), cap)
 	_cap_frame[kind] = [frame, below]
 	return below
 
@@ -41,7 +42,7 @@ func birth_child(kind: String, pa: Node3D, pb: Node3D) -> Node:
 	var base_pos: Vector3 = pa.global_position
 	if bool(pa.get("has_nest")) and not is_inf(float((pa.get("nest_pos") as Vector3).x)):
 		base_pos = pa.get("nest_pos")
-	var placed = _eco._place_on_surface(_eco._tangent_offset_point(base_pos, LASimRng.for_domain("life").randf_range(-2.0, 2.0), LASimRng.for_domain("life").randf_range(-2.0, 2.0)))
+	var placed = _eco._place_on_surface(_eco._tangent_offset_raw(base_pos, LASimRng.for_domain("life").randf_range(-2.0, 2.0), LASimRng.for_domain("life").randf_range(-2.0, 2.0)))
 	if placed == null:
 		return null
 	var mate: Node3D = pb if (pb != null and is_instance_valid(pb)) else pa
