@@ -1164,3 +1164,13 @@ mutation = [
   "python3 -c \"from pathlib import Path; p=Path('addons/local_agents/native/src/cli/Service.cpp'); p.write_text(p.read_text().replace('revision++;', 'revision++; imported_time_s += 1.0;'))\"",
   "python3 -c \"from pathlib import Path; p=Path('addons/local_agents/native/src/cli/Service.cpp'); p.write_text(p.read_text().replace('request.generation != generation', 'false'))\"",
 ]
+
+[[gate]]
+name = "check_seed_cancellation"
+script = "scripts/check_seed_cancellation.sh"
+kind = "text"
+marker = "^check_seed_cancellation: OK"
+mutation = [
+  "python3 -c \"from pathlib import Path; p=Path('addons/local_agents/gdextensions/localagents/include/LAParallel.hpp'); p.write_text(p.read_text().replace('LASeedCancellation cancellation(token);', 'LASeedCancellation cancellation(nullptr);'))\"",
+  "python3 -c \"from pathlib import Path; p=Path('addons/local_agents/gdextensions/localagents/include/LAParallel.hpp'); p.write_text(p.read_text().replace('if (failure) { std::rethrow_exception(failure); }', ''))\"",
+]

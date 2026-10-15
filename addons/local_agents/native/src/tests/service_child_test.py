@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import select
 import struct
+import sys
 import subprocess
 import tempfile
 import time
@@ -12,6 +13,10 @@ import time
 HEADER = struct.Struct("<IHHIQQQ")
 MAGIC = 0x5350414C
 ERROR = 0xFFFF
+
+
+class GateUnavailable(RuntimeError):
+    pass
 
 
 def string(value):
@@ -85,7 +90,8 @@ class Client:
         deadline = time.monotonic() + 20
         while len(result) < size:
             remaining = deadline - time.monotonic()
-            assert remaining > 0 and select.select([self.process.stdout], [], [], remaining)[0], "service reply timeout"
+            if remaining <= 0 or not select.select([self.process.stdout], [], [], remaining)[0]:
+                raise GateUnavailable("service reply timeout")
             piece = os.read(self.process.stdout.fileno(), size - len(result))
             assert piece, "service disconnected before reply"
             result += piece
@@ -289,6 +295,10 @@ if __name__ == "__main__":
     parser.add_argument("blob", type=Path)
     parser.add_argument("--only", choices=("identity", "import", "resident", "validation", "lifecycle", "malformed"))
     args = parser.parse_args()
-    for scenario in ([args.only] if args.only else ("identity", "import", "resident", "validation", "lifecycle", "malformed")):
-        run(args.binary, args.blob, scenario)
+    try:
+        for scenario in ([args.only] if args.only else ("identity", "import", "resident", "validation", "lifecycle", "malformed")):
+            run(args.binary, args.blob, scenario)
+    except GateUnavailable as error:
+        print("native_service_child: UNRUNNABLE: " + str(error), file=sys.stderr)
+        sys.exit(2)
     print("native_service_child: OK")

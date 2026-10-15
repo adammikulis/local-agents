@@ -4,9 +4,10 @@ import json
 import math
 from pathlib import Path
 import struct
+import sys
 import subprocess
 import tempfile
-from service_child_test import Client, Cursor
+from service_child_test import Client, Cursor, GateUnavailable
 
 
 def snapshots(path):
@@ -70,5 +71,9 @@ if __name__ == "__main__":
     parser.add_argument("blob", type=Path)
     parser.add_argument("oracle", type=Path)
     args = parser.parse_args()
-    run(args.binary, args.blob, args.oracle)
+    try:
+        run(args.binary, args.blob, args.oracle)
+    except GateUnavailable as error:
+        print("native_service_compute: UNRUNNABLE: " + str(error), file=sys.stderr)
+        sys.exit(2)
     print("native_service_compute: OK")

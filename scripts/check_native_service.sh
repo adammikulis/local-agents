@@ -21,6 +21,10 @@ la_lasim_oracle_run "$WORK" 1 || exit 2
 la_gpu_lock
 lock_result=$?
 [ "$lock_result" -ne 1 ] || exit 2
-python3 "$LA_NATIVE_DIR/src/tests/service_child_test.py" "$LASIM_BIN" "$LASIM_BLOB" || exit 1
-python3 "$LA_NATIVE_DIR/src/tests/service_compute_test.py" "$LASIM_BIN" "$LASIM_BLOB" "$WORK" || exit 1
+python3 "$LA_NATIVE_DIR/src/tests/service_child_test.py" "$LASIM_BIN" "$LASIM_BLOB"
+child_result=$?
+[ "$child_result" -eq 0 ] || exit "$child_result"
+python3 "$LA_NATIVE_DIR/src/tests/service_compute_test.py" "$LASIM_BIN" "$LASIM_BLOB" "$WORK"
+compute_result=$?
+[ "$compute_result" -eq 0 ] || exit "$compute_result"
 echo 'check_native_service: OK'

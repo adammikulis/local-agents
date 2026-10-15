@@ -58,8 +58,10 @@ int main() {
 			view.sequence++;
 			if (!publication.publish(view, path, err)) { code = 1; break; }
 			std::ifstream input(path, std::ios::binary);
-			const std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(input)), {});
-			if (bytes != view.bytes || !publication.busy()) { code = 1; }
+			std::vector<uint8_t> bytes(view.bytes.size());
+			input.read(reinterpret_cast<char *>(bytes.data()), bytes.size());
+			if (input.gcount() != static_cast<std::streamsize>(bytes.size()) || input.peek() != EOF
+					|| bytes != view.bytes || !publication.busy()) { code = 1; }
 			std::string refused;
 			if (publication.publish(view, refused, err) || publication.acknowledge(view.sequence + 1, err)
 					|| !fs::exists(path)) { code = 1; }

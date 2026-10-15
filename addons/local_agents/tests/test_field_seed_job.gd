@@ -5,9 +5,14 @@ const Snapshot: GDScript = preload("res://addons/local_agents/sim/material/Mater
 class GridFixture extends LAVoxelGrid:
 	var gate: Mutex = Mutex.new()
 	var open: bool = true
+	var entered: bool = false
+	var volume_reads: int = 0
 
 	func set_open(value: bool) -> void:
 		gate.lock()
+		if not value:
+			entered = false
+			volume_reads = 0
 		open = value
 		gate.unlock()
 
@@ -17,7 +22,22 @@ class GridFixture extends LAVoxelGrid:
 		gate.unlock()
 		return value
 
+	func has_entered() -> bool:
+		gate.lock()
+		var result: bool = entered
+		gate.unlock()
+		return result
+
+	func cell_volumes() -> PackedFloat32Array:
+		gate.lock()
+		volume_reads += 1
+		gate.unlock()
+		return super.cell_volumes()
+
 	func cell_edges() -> PackedFloat32Array:
+		gate.lock()
+		entered = true
+		gate.unlock()
 		var deadline: int = Time.get_ticks_msec() + 2000
 		while not is_open() and Time.get_ticks_msec() < deadline:
 			OS.delay_msec(1)
@@ -52,8 +72,11 @@ class GravityFixture extends RefCounted:
 
 class LedgerFixture extends RefCounted:
 	var amounts: Dictionary = {}
+	var accept: bool = true
 
 	func note_creation(what: String, amount: float) -> bool:
+		if not accept:
+			return false
 		amounts[what] = float(amounts.get(what, 0.0)) + amount
 		return true
 
@@ -145,6 +168,36 @@ func run_test(_tree: SceneTree) -> bool:
 		ok = not job.complete(field, false) and ok
 		ok = not Snapshot.is_ready(field) and ok
 	ok = job.complete(field, false) and Snapshot.is_ready(field) and ok
+	field._ready_sim = false
+	field._seal.accept = false
+	var refused = LAFieldSeedJob3D.new()
+	ok = refused.begin(field, gravity, false) and ok
+	ok = _wait(refused) and ok
+	ok = refused.publish(field).is_empty() and ok
+	for stage in range(5):
+		ok = not refused.complete(field, false) and not field._ready_sim and ok
+	ok = refused.failed() and ok
+	field._seal.accept = true
+	var cancelled = LAFieldSeedJob3D.new()
+	field._grid.set_open(false)
+	ok = cancelled.begin(field, gravity, false) and ok
+	deadline = Time.get_ticks_msec() + 1000
+	while not field._grid.has_entered() and Time.get_ticks_msec() < deadline:
+		OS.delay_msec(1)
+	ok = field._grid.has_entered() and ok
+	cancelled.cancel()
+	field._grid.set_open(true)
+	ok = _wait(cancelled) and ok
+	ok = field._grid.volume_reads == 0 and ok
+	ok = cancelled.failed() and cancelled.publish(field).is_empty() and ok
+	ok = not cancelled.complete(field, false) and not field._ready_sim and ok
 	if not ok:
-		push_error("worker seed differs from synchronous native seed, lost accounting")
+		push_error("worker seed publication, cancellation or accounting failed")
 	return ok
+
+
+func _wait(job) -> bool:
+	var deadline: int = Time.get_ticks_msec() + 2000
+	while not job.finished() and Time.get_ticks_msec() < deadline:
+		OS.delay_msec(1)
+	return job.finished()

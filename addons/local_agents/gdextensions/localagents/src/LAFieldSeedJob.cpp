@@ -1,10 +1,13 @@
 #include "LAFieldSeedJob.hpp"
+#include "LASeedCancellation.hpp"
 #include "LABodySystem.hpp"
 #include "LAFieldCellMass.hpp"
 #include "LAFieldLithostaticSeed.hpp"
 #include "LAFieldMirrors.hpp"
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
+#include <cstdio>
+#include <exception>
 #include <system_error>
 
 using namespace godot;
@@ -60,6 +63,7 @@ Dictionary LAFieldSeedContext::run(const PackedFloat32Array &p_gravity, bool p_p
 }
 
 LAFieldSeedJob3D::~LAFieldSeedJob3D() {
+	cancel();
 	if (worker.joinable()) {
 		worker.join();
 	}
@@ -77,7 +81,19 @@ bool LAFieldSeedJob3D::begin(Object *p_field, const PackedFloat32Array &p_gravit
 	context = capture(p_field, p_present);
 	try {
 		worker = std::thread([this, p_gravity, p_present]() {
-			balance = context->run(p_gravity, p_present);
+			LASeedCancellation cancellation(&cancel_requested);
+			try {
+				LASeedCancellation::check();
+				balance = context->run(p_gravity, p_present);
+			} catch (const LASeedCancellation::Cancelled &) {
+				balance.clear();
+			} catch (const std::exception &error) {
+				std::fprintf(stderr, "SEED_WORKER_FAILED: %s\n", error.what());
+				worker_failed = true;
+			} catch (...) {
+				std::fprintf(stderr, "SEED_WORKER_FAILED: unknown exception\n");
+				worker_failed = true;
+			}
 			done.store(true, std::memory_order_release);
 		});
 	} catch (const std::system_error &error) {
@@ -92,16 +108,21 @@ bool LAFieldSeedJob3D::finished() const {
 }
 
 Dictionary LAFieldSeedJob3D::publish(Object *p_field) {
-	if (published || !finished()) {
+	if (failed() || published || !finished()) {
 		return Dictionary();
 	}
 	worker.join();
-	published = true;
-	ERR_FAIL_COND_V_MSG(balance.is_empty(), Dictionary(), "SEED_FAILED: no native balance");
+	if (balance.is_empty()) {
+		failure = true;
+		return Dictionary();
+	}
 	Object *seal = p_field->get("_seal");
 	const Dictionary amounts = context->get("amounts");
 	for (const Variant &name : amounts.keys()) {
-		ERR_FAIL_COND_V(!bool(seal->call("note_creation", name, amounts[name])), Dictionary());
+		if (!bool(seal->call("note_creation", name, amounts[name]))) {
+			failure = true;
+			return Dictionary();
+		}
 	}
 	LAFieldMirrors *source = LAFieldMirrors::mirrors_of(context.ptr());
 	LAFieldMirrors *target = LAFieldMirrors::mirrors_of(p_field);
@@ -109,6 +130,7 @@ Dictionary LAFieldSeedJob3D::publish(Object *p_field) {
 		target->set_array(name, source->array(name));
 	}
 	context.unref();
+	published = true;
 	return balance;
 }
 
@@ -121,7 +143,7 @@ void LAFieldSeedJob3D::prepare_gravity(Object *p_field) {
 }
 
 bool LAFieldSeedJob3D::complete(Object *p_field, bool p_gravity) {
-	if (failure || !finished()) {
+	if (failed() || !finished()) {
 		return false;
 	}
 	if (!published && publish(p_field).is_empty()) {
@@ -173,6 +195,7 @@ void LAFieldSeedJob3D::_bind_methods() {
 	ClassDB::bind_static_method("LAFieldSeedJob3D", D_METHOD("prepare_gravity", "field"), &LAFieldSeedJob3D::prepare_gravity);
 	ClassDB::bind_method(D_METHOD("capture", "field", "gravity"), &LAFieldSeedJob3D::capture);
 	ClassDB::bind_method(D_METHOD("begin", "field", "gravity", "present"), &LAFieldSeedJob3D::begin);
+	ClassDB::bind_method(D_METHOD("cancel"), &LAFieldSeedJob3D::cancel);
 	ClassDB::bind_method(D_METHOD("finished"), &LAFieldSeedJob3D::finished);
 	ClassDB::bind_method(D_METHOD("publish", "field"), &LAFieldSeedJob3D::publish);
 	ClassDB::bind_method(D_METHOD("complete", "field", "gravity"), &LAFieldSeedJob3D::complete);
