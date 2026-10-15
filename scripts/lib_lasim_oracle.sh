@@ -342,7 +342,7 @@ func _snapshot(grid: LAVoxelGrid, cc: int, names: PackedStringArray, file: Strin
 func _write_mirrors(grid: LAVoxelGrid, cc: int, buffers: Array) -> void:
 	var names: PackedStringArray = PackedStringArray()
 	for b in buffers:
-		if int(b["kind"]) == 0:
+		if int(b["kind"]) == 0 and int(b["elems"]) == cc:
 			names.append(String(b["name"]))
 	_snapshot(grid, cc, names, "godot_mirrors.lafs")
 
@@ -363,7 +363,17 @@ func _plan_buffers(sets: Array, cc: int) -> Array:
 			var bytes: PackedByteArray = _rd.buffer_get_data(rid)
 			var name: String = String(by_rid.get(rid, "pass_buffer_%d" % out.size()))
 			out.append({"name": name, "elems": bytes.size() / 4, "bytes": bytes, "rid": rid,
-				"kind": 0 if (_mirror_of.has(name) and bytes.size() / 4 == cc) else 1})
+				"kind": 0 if (_mirror_of.has(name) and bytes.size() / 4 == cc) or name == ReduceScript.PARTIALS else 1})
+	var authoritative: PackedStringArray = LAChannels.channels()
+	authoritative.append_array(PackedStringArray(["pressure", "p_fluid"]))
+	for name in authoritative:
+		var rid: RID = _bufs[String(name)]
+		if seen.has(rid):
+			continue
+		var bytes: PackedByteArray = _rd.buffer_get_data(rid)
+		out.append({"name": String(name), "elems": bytes.size() / 4, "bytes": bytes,
+			"rid": rid, "kind": 0})
+
 	return out
 
 

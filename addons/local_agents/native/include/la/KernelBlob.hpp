@@ -31,6 +31,7 @@ struct BlobKernel {
 // Every kernel compiled from one GLSL source, in one file. Carries a hash of its own payload: a blob
 // that has been truncated or edited must announce that, not hand a device half a pipeline.
 struct KernelBlob {
+	uint64_t content_hash = 0;
 	std::vector<BlobKernel> kernels;
 
 	static bool write(const std::string &path, const KernelBlob &blob, std::string &err);
