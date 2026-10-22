@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# A CACHE HIT AND A COLD RUN AGREE. Real runner and cache code, synthetic gates, a throwaway repository:
-# a pass is stored and then reused; the same bytes after a failing edit are a hit again; a failure, a silent
-# exit 0 and an unrunnable gate are never stored; an integration run, CI and --no-cache read nothing; a
-# `last` row sees the launches of the rows after it in the file; a `last` row may declare no inputs.
-# EXIT 0 clean · 1 the cache lied · 2 could not run.
+# A CACHE HIT AND A COLD RUN AGREE. Real runner and cache code on synthetic gates in a throwaway repository: a
+# pass is stored and reused by content; a failure, a silent exit 0, an unrunnable gate and a pass whose inputs
+# changed while it ran never are; an integration run, CI and --no-cache read nothing; a `last` row sees the
+# launches of the rows after it and declares no inputs. EXIT 0 clean · 1 the cache lied · 2 could not run.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh"
@@ -53,16 +52,21 @@ try:
         'echo "check_data: OK"\n')
     put("scripts/check_quiet.sh", '#!/usr/bin/env bash\nexit 0\n')
     put("scripts/check_broken.sh", '#!/usr/bin/env bash\nexit 7\n')
-    put("scripts/check_launcher.sh", '#!/usr/bin/env bash\necho "la_godot --headless" >> "$LA_LAUNCH_LOG"\n'
+    put("scripts/check_launcher.sh", '#!/usr/bin/env bash\nsleep 0.4\necho "la_godot --headless" >> "$LA_LAUNCH_LOG"\n'
         'echo "check_launcher: OK"\n')
     put("scripts/check_count.sh", '#!/usr/bin/env bash\nn="$(grep -c . "$LA_LAUNCH_LOG")"\n'
         '[ "$n" -ge 1 ] || exit 1\necho "check_count: OK ($n)"\n')
     put("data/a.txt", "good\n", 0o644)
+    put("data/b.txt", "x\n", 0o644)
+    put("scripts/check_race.sh", '#!/usr/bin/env bash\necho "edited while it ran" >> "$(dirname "$0")/../data/b.txt"\n'
+        'echo "check_race: OK"\n')
     put("scripts/gates.toml", "\n".join([
         '[[gate]]\nname = "check_count"\nscript = "scripts/check_count.sh"\nkind = "headless"\n'
         'marker = "^check_count: OK"\nlast = true\n',
         '[[gate]]\nname = "check_data"\nscript = "scripts/check_data.sh"\nkind = "text"\n'
         'marker = "^check_data: OK"\ninputs = ["data/**"]\n',
+        '[[gate]]\nname = "check_race"\nscript = "scripts/check_race.sh"\nkind = "text"\n'
+        'marker = "^check_race: OK"\ninputs = ["data/**"]\n',
         '[[gate]]\nname = "check_quiet"\nscript = "scripts/check_quiet.sh"\nkind = "text"\n'
         'marker = "^check_quiet: OK"\ninputs = []\n',
         '[[gate]]\nname = "check_broken"\nscript = "scripts/check_broken.sh"\nkind = "text"\n'
@@ -95,6 +99,11 @@ try:
     expect("--no-cache", rc == 0 and c is None and "LINT_CACHED" not in out, (rc, c))
     rc, out, c = lint(*only, env={"LA_PROBE_KNOB": "1"})
     expect("an LA_ variable is an input", rc == 0 and c["hits"] == 0, (rc, c))
+
+    rc, out, c = lint("--only", "check_race")
+    expect("an input edited while the gate ran", rc == 0 and c["stored"] == 0, (rc, c))
+    rc, out, c = lint("--only", "check_race")
+    expect("and is not stored on the next run either", rc == 0 and c["hits"] == 0 and c["stored"] == 0, (rc, c))
 
     rc, out, c = lint("--only", "check_quiet")
     expect("a silent exit 0 is unrunnable", rc == 2 and c["stored"] == 0, (rc, c))

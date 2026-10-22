@@ -229,15 +229,15 @@ class Job:
         self.index, self.gate = index, gate
         self.lines, self.done = [], False
         self.rc, self.seconds, self.launches = None, 0.0, 0
-        self.verdict, self.key = None, None
+        self.verdict, self.key, self.watch = None, None, []
 
 
 class Lint:
     """Every gate of one run: planned, run in two lanes, and replayed in definition order. A gate that may
     read the shared capture waits for `release`; every other gate starts at once."""
 
-    def __init__(self, gates, root, width, ledger_dir, shared_ledger, no_gpu, cache, waits):
-        self.root, self.cache, self.waits = root, cache, waits
+    def __init__(self, gates, root, width, ledger_dir, shared_ledger, no_gpu, cache, waits, tree):
+        self.root, self.cache, self.waits, self.tree = root, cache, waits, tree
         self.jobs = [Job(i, g) for i, g in enumerate(gates)]
         self.width, self.shared = width, shared_ledger
         self.ledger_of = {j.index: os.path.join(ledger_dir, "%d.launch" % j.index) for j in self.jobs}
@@ -256,9 +256,9 @@ class Lint:
 
     def plan(self, keys, read_cache):
         """Give each keyed gate its key, and settle the ones whose pass is already on file."""
-        for index, key in keys.items():
+        for index, (key, watch) in keys.items():
             job = self.jobs[index]
-            job.key = key
+            job.key, job.watch = key, watch
             if read_cache and not job.done and self.cache.has(job.gate["name"], key):
                 self.settle(job, 0, "LINT_CACHED: %s\n" % job.gate["label"], 0.0, 0, "cached")
 
@@ -294,7 +294,8 @@ class Lint:
         except Exception as exc:
             rc, secs, launches, found = 2, 0.0, 0, "unrunnable"
             self.emit(job)("%s: the runner failed while running it: %r\n" % (g["label"], exc))
-        if found == "pass" and job.key and self.cache and self.cache.put(g["name"], job.key, secs):
+        if found == "pass" and job.key and self.cache and self.tree.unchanged(job.watch) \
+                and self.cache.put(g["name"], job.key, secs):
             self.stored += 1
         with self.cv:
             job.rc, job.seconds, job.launches, job.verdict, job.done = rc, secs, launches, found, True
@@ -408,9 +409,9 @@ def open_cache(args):
 
 
 def plan_keys(gates, sets, no_gpu, tree, ambient, capture, indexes):
-    """A content key for each of `indexes` that declares inputs, or none when the tree cannot be read."""
+    """A (content key, files) for each of `indexes` that declares inputs, or none when the tree cannot be read."""
     try:
-        return {i: gate_cache.gate_key(gates[i], sets, tree, ambient, capture) for i in indexes
+        return {i: gate_cache.keyed(gates[i], sets, tree, ambient, capture) for i in indexes
                 if gates[i]["inputs"] is not None and not (no_gpu and gates[i]["kind"] == "gpu")}
     except (OSError, ValueError, subprocess.CalledProcessError) as exc:
         print("LINT_CACHE_OFF: %s" % exc)
@@ -439,7 +440,7 @@ def cmd_lint(args):
     cache, read_cache = open_cache(args)
     tree, ambient = gate_cache.Tree(ROOT), gate_cache.Ambient(ROOT)
     waits = {i for i, g in enumerate(gates) if gate_cache.reads_capture(g, tree)}
-    lint = Lint(gates, ROOT, args.jobs or pool_size(), ledger_dir, shared, no_gpu, cache, waits)
+    lint = Lint(gates, ROOT, args.jobs or pool_size(), ledger_dir, shared, no_gpu, cache, waits, tree)
     keys = {}
     if cache:
         keys = plan_keys(gates, sets, no_gpu, tree, ambient, None, [i for i in range(len(gates)) if i not in waits])

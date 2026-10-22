@@ -15,7 +15,7 @@
 #                   reused while those bytes, the row, the LA_* environment and, for an engine gate, the
 #                   extension build and engine binary are unchanged. "@name" is a [sets] entry. Omit it when
 #                   the verdict also reads the index, history, a clock or a ledger. check_gate_inputs holds it.
-# exclusive         runs with the pool idle; for a gate that times something on this host.
+# exclusive         runs with the pool idle; for a gate that times something on this host or edits the tree.
 # last              runs after every other gate, on the whole run's launch ledger; never cached.
 
 [defaults]
@@ -92,6 +92,7 @@ mutation = [
 	"perl -0pi -e 's/\"LA_GATE_CACHE\"\\}\\)/\"LA_GATE_CACHE\", \"LA_PROBE_KNOB\"})/' scripts/lib_gate_cache.py",
 	"perl -0pi -e 's/if not j\\.gate\\[\"last\"\\] and j\\.gate\\[\"kind\"\\] != \"gpu\"/if j.gate[\"kind\"] != \"gpu\"/' scripts/gate_runner.py",
 	"perl -0pi -e 's/launches = 0 if g\\[\"last\"\\] else self\\.merge\\(ledger\\)/launches = 0/' scripts/gate_runner.py",
+	"perl -0pi -e 's/ and self\\.tree\\.unchanged\\(job\\.watch\\)//' scripts/gate_runner.py",
 ]
 
 [[gate]]
@@ -1197,6 +1198,8 @@ name = "check_cache_invalidation"
 script = "scripts/check_cache_invalidation.sh"
 kind = "text"
 marker = "^check_cache_invalidation: OK"
+needs = ["capture"]
+exclusive = true
 
 [[gate]]
 name = "check_launch_count"

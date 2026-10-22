@@ -112,6 +112,7 @@ class Tree:
         self.files = files if files is not None else list_files(root)
         self.fileset = set(self.files)
         self.digests, self._match, self._text, self._code = {}, {}, {}, {}
+        self.stats = {}
 
     def forget(self, rel):
         self.digests.pop(rel, None)
@@ -121,8 +122,22 @@ class Tree:
 
     def digest(self, rel):
         if rel not in self.digests:
-            self.digests[rel] = digest_file(os.path.join(self.root, rel))
+            path = os.path.join(self.root, rel)
+            st = os.stat(path)
+            self.stats[rel] = (st.st_size, st.st_mtime_ns)
+            self.digests[rel] = digest_file(path)
         return self.digests[rel]
+
+    def unchanged(self, rels):
+        """Whether every file is as it was when its digest was taken."""
+        for rel in rels:
+            try:
+                st = os.stat(os.path.join(self.root, rel))
+            except OSError:
+                return False
+            if self.stats.get(rel) != (st.st_size, st.st_mtime_ns):
+                return False
+        return True
 
     def match(self, pat):
         if pat not in self._match:
@@ -233,8 +248,9 @@ class Ambient:
 
 
 def reads_capture(g, tree):
-    """Whether a gate may read the shared capture: an engine gate, or a script or lib of its own that says so."""
-    if g["kind"] != "text" or "capture" in g["needs"]:
+    """Whether a gate may read the shared capture or the import it leaves: an engine gate, one declaring
+    needs capture or import, or one whose own script or lib says so."""
+    if g["kind"] != "text" or "capture" in g["needs"] or "import" in g["needs"]:
         return True
     return any(mark in strip_comments(tree.text(rel)) for rel in tree.code(g["script"], [])
                if rel.endswith((".sh", ".py")) for mark in CAPTURE_MARKS)
@@ -259,10 +275,15 @@ def key_parts(g, sets, tree, ambient, capture=None):
     }
 
 
+def keyed(g, sets, tree, ambient, capture=None):
+    """(key, the files it was taken over): a pass is stored only while those files are still as hashed."""
+    parts = key_parts(g, sets, tree, ambient, capture)
+    body = json.dumps(parts, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(body.encode()).hexdigest(), [p for p, _ in parts["code"] + parts["inputs"]]
+
+
 def gate_key(g, sets, tree, ambient, capture=None):
-    body = json.dumps(key_parts(g, sets, tree, ambient, capture), sort_keys=True, separators=(",", ":"),
-                      default=str)
-    return hashlib.sha256(body.encode()).hexdigest()
+    return keyed(g, sets, tree, ambient, capture)[0]
 
 
 class Cache:
