@@ -876,7 +876,10 @@ script = "scripts/check_lob.sh"
 kind = "gpu"
 needs = ["import"]
 marker = "^check_lob: OK"
-mutation = "perl -0pi -e 's/GRAVITATIONAL_CONSTANT: float = [0-9.e-]+/GRAVITATIONAL_CONSTANT: float = 0.0/' addons/local_agents/sim/material/PhysicalConstants.gd"
+mutation = [
+	"perl -0pi -e 's/GRAVITATIONAL_CONSTANT: float = [0-9.e-]+/GRAVITATIONAL_CONSTANT: float = 0.0/' addons/local_agents/sim/material/PhysicalConstants.gd",
+	"perl -0pi -e 's/tide_m = 0\\.5 \\* float\\(lob\\[\"tide_m_s2\"\\]\\) \\* t \\* t/tide_m = 0.0/' scripts/check_lob.sh",
+]
 
 [[gate]]
 name = "check_mutate_scratch_build"
@@ -1033,8 +1036,6 @@ mutation = [
 name = "check_shot_look"
 script = "scripts/check_shot_look.sh"
 kind = "gpu"
-launches = false
-capture_reader = true
 marker = "^check_shot_look: OK"
 mutation = "python3 -c \"p='addons/local_agents/game/render/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); s=s.replace('ALBEDO = col;','ALBEDO = vec3(0.0);'); open(p,'w').write(s.replace('EMISSION = max(glow, vec3(0.0));','EMISSION = vec3(0.35);'))\""
 
@@ -1088,8 +1089,6 @@ mutation = "python3 -c \"p='addons/local_agents/sim/material/MaterialEjecta3D.gd
 name = "check_shot_protocol"
 script = "scripts/check_shot_protocol.sh"
 kind = "gpu"
-launches = false
-capture_reader = true
 marker = "^check_shot_protocol: OK"
 mutation = [
 	"python3 -c \"p='addons/local_agents/runtime/DemoHarness.gd'; s=open(p).read(); open(p,'w').write(s.replace('_poses[_pose_index].x, _poses[_pose_index].y,\\n\\t\\t\\t_poses[_pose_index].z', '_poses[0].x, _poses[0].y, _poses[0].z'))\"",

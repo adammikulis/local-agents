@@ -24,10 +24,15 @@ trees and identify their owners before changing them.
 - `../la-fix-boxfield-rocks`: integrate gas-box/injection work after remaining signed-edit and heat
   refusal checks. Gas-only geometry initialization passes the real compression worker and Metal box
   gate; preserve async seed cancellation and native fill cache identities.
-- `.claude/worktrees/agent-a70399c1adb4cda07`: repair outside-slice gravity before landing probes;
-  Its check_lob.sh fails at the box boundary. `LABodyMeasure::measure` assigns the slice's local
-  mass to `mass_kg`. Preserve native timestamped trajectory history and radial ray/box intersection;
-  run `scripts/agent_harness.sh lint --mutate check_probe_history` after the fix.
+- `.claude/worktrees/agent-a70399c1adb4cda07`: preserve native timestamped trajectory history and radial
+  ray/box intersection; run `scripts/agent_harness.sh lint --mutate check_probe_history`.
+- `scripts/check_launch_count.sh` is red at 76 launches against `docs/LAUNCH_CEILING` 19: reproduce with
+  `scripts/agent_harness.sh lint`. Reading: `gate_runner.py` now folds every gate's ledger into
+  `LA_LINT_LAUNCHES`, which the gate used to read as its own empty one, so the roster of 19 was never
+  a count; 38 gates start their own engine (`check_fakes_states` 15, `check_live_toggles` 4,
+  `check_audit_at_rest` 4, `check_driver_native` 3, `check_world_refusal` 3).
+- `scripts/agent_harness.sh lint --mutate check_lob` reports its `GRAVITATIONAL_CONSTANT` arm as
+  MUTATION_UNRUNNABLE.
 - `.claude/worktrees/agent-a3f0945f92280e933`: finish the unverified tide reconciliation; test static
   and moving-source energy exchanges, excess-body refusal and seeded CPU/GPU agreement. Review the
   signed tidal-work ledger, native buffer capacity checks and zero-duration seeded derives. Repair
