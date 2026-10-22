@@ -50,6 +50,7 @@ la_native_build() {
 	[ "${1:-}" = "--target" ] && target="$2"
 	key="$(la_native_key)" || key=""
 	[ -n "$key" ] && entry="$LA_NB_CACHE/$key"
+	[ -f "$entry/COMPLETE" ] && touch "$entry"
 	# A tree that has built before holds its own incremental state, which is the authority; one that has
 	# not copies the pair.
 	if [ -n "$entry" ] && [ -f "$entry/COMPLETE" ] && [ ! -f "$LA_NB_DIR/build/CMakeCache.txt" ]; then
