@@ -1,52 +1,28 @@
 #!/usr/bin/env bash
 # THE SIMULATED BOX IS IN THE PICTURE, AND ONLY WHERE THE BOX IS. The rung-1 slice is photographed twice
-# from one pose, once with the outline drawn and once with it ablated, and the two frames are compared
-# against the polyline the renderer published: the ground perimeter differs, the rest of the frame does
-# not, and each corner pillar has faded under its own declared floor by the fade height.
+# from one pose in ONE launch, once with the outline drawn and once with it ablated, and the two frames are
+# compared against the polyline the renderer published: the ground perimeter differs, the rest of the frame
+# does not, and each corner pillar has faded under its own declared floor by the fade height.
 # EXIT 0 the box is drawn where the box is · 1 it is not · 2 the gate could not run.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh"
-. "$ROOT/scripts/lib_godot.sh"
-. "$ROOT/scripts/lib_capture.sh"
+. "$ROOT/scripts/lib_shot_arm.sh"
 la_examined "$(basename "$0")" || exit $?
 require_tool python3
 
-SCENE="addons/local_agents/examples/SliceRung1Demo.tscn"
-[ -f "$ROOT/$SCENE" ] || { echo "check_box_outline: no scene at $SCENE" >&2; exit 2; }
-# THE POSE THE FADE IS READ FROM: the one that separates a pillar's foot from its fade height by the
-# most pixels, so the two discs never overlap, turned onto the two corners whose feet no relief hides.
-POSE="${LA_BOX_OUTLINE_POSE:-6000:-40:180}"
-SIZE="${LA_BOX_OUTLINE_SIZE:-1280x800}"
-# THE FRAME IS THE WORLD, NOT THE INTERFACE: the protocol drops every panel, and this every module that
-# moves on its own -- a marching arrow stripe and a falling probe differ between two launches wherever
-# they stand, and the difference this gate reads must be the outline's.
-STILL="vectors,test_masses"
-# THE SIMULATED STEP BOTH PICTURES ARE OF: the loop halts there, so the sun and the ground are one world.
-STEP="${LA_BOX_OUTLINE_STEP:-60}"
-
+[ -f "$ROOT/$LA_ARM_SCENE_R1" ] || { echo "check_box_outline: no scene at $LA_ARM_SCENE_R1" >&2; exit 2; }
 DIR="$(mktemp -d "${TMPDIR:-/tmp}/la_box_outline.XXXXXX")"
 trap 'rm -rf "$DIR"' EXIT INT TERM
 
-shoot() {  # <name> <ablations>
-	LA_RUN_TIMEOUT="${LA_BOX_OUTLINE_TIMEOUT:-110}" "$ROOT/scripts/run_sim_offscreen.sh" --path "$ROOT" \
-		"$SCENE" -- --sandbox "--shoot=$DIR/$1.png" "--shots=$POSE" --local-hour=12 \
-		"--shoot-step=$STEP" --shoot-frames=150 "--shoot-size=$SIZE" "--ablate=$2" > "$DIR/$1.log" 2>&1
-	echo $?
-}
+ARM="$(la_shot_arm outline "$DIR")" || exit 2
+if grep -qE 'SHADER ERROR|Shader compilation failed' "$ARM/run.log"; then
+	echo "check_box_outline: the run refused a shader, so its frames are of a broken renderer." >&2
+	grep -m4 -E 'SHADER ERROR|Shader compilation failed|\.gdshader' "$ARM/run.log" >&2
+	exit 2
+fi
 
-on_rc="$(shoot on "$STILL")"
-off_rc="$(shoot off "$STILL,box_outline")"
-
-for a in on off; do
-	if grep -qE 'SHADER ERROR|Shader compilation failed' "$DIR/$a.log"; then
-		echo "check_box_outline: the $a arm refused a shader, so its frame is of a broken renderer." >&2
-		grep -m4 -E 'SHADER ERROR|Shader compilation failed|\.gdshader' "$DIR/$a.log" >&2
-		exit 2
-	fi
-done
-
-python3 - "$DIR" "$on_rc" "$off_rc" <<'PY'
+python3 - "$ARM" <<'PY'
 import json, math, os, sys
 
 try:
@@ -56,7 +32,7 @@ except ImportError:
           "FAILS.", file=sys.stderr)
     sys.exit(2)
 
-d, on_rc, off_rc = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+arm = sys.argv[1]
 
 # 8-bit steps a glow must clear to be in the picture at all. Below this two frames of the same world
 # differ by their own rounding.
@@ -72,71 +48,62 @@ LOW_MAX = 0.25
 PILLARS = 2
 
 
-def log(name):
-    return open(os.path.join(d, name + ".log"), errors="replace").read()
+text = open(os.path.join(arm, "run.log"), errors="replace").read()
+rc = int(open(os.path.join(arm, "rc")).read())
+lines = text.splitlines()
+shots = [i for i, l in enumerate(lines) if l.startswith("SHOT_SAVED=")]
 
 
-def shot_path(text):
-    for line in text.splitlines():
-        if line.startswith("SHOT_SAVED="):
-            return line[len("SHOT_SAVED="):].split()[0]
+def shot_flag(i, name):
+    for tok in lines[i].split():
+        if tok.startswith(name + "="):
+            return tok[len(name) + 1:]
     return None
 
 
-on_log, off_log = log("on"), log("off")
-if on_rc != 0 or off_rc != 0:
-    print("check_box_outline: the arms exited %d and %d, so no pair of frames was taken."
-          % (on_rc, off_rc), file=sys.stderr)
-    print("\n".join(on_log.splitlines()[-20:]), file=sys.stderr)
-    sys.exit(2)
-if "BOX_OUTLINE_ABSENT=" in on_log:
+if "BOX_OUTLINE_ABSENT=" in text:
     print("check_box_outline: the body reported no surface under the box footprint, so the ground line "
           "was never laid.", file=sys.stderr)
+    sys.exit(2)
+# THE FRAMES WERE TAKEN ONCE THEIR GROUND WAS BUILT AND UNCOVERED, whichever of them the run reached.
+for i, name in zip(shots, ("drawn", "ablated")):
+    if shot_flag(i, "ground_meshed") != "true":
+        print("check_box_outline: the %s frame was shot before its ground was built and uncovered." % name,
+              file=sys.stderr)
+        sys.exit(2)
+if len(shots) != 2 or shot_flag(shots[0], "shot_without") is not None \
+        or shot_flag(shots[1], "shot_without") != "box_outline" or rc != 0:
+    print("check_box_outline: the run exited %d with %d frames, so no pair of the drawn and the ablated "
+          "outline was taken." % (rc, len(shots)), file=sys.stderr)
+    print("\n".join(lines[-20:]), file=sys.stderr)
     sys.exit(2)
 
 # THE LAST READING BEFORE THE SHUTTER: the eye is standing still by then, so the geometry it published
 # is the geometry the photograph caught.
 pub = None
-for line in on_log.splitlines():
+for line in lines[:shots[0]]:
     if line.startswith("BOX_OUTLINE="):
         pub = json.loads(line[len("BOX_OUTLINE="):])
-    elif line.startswith("SHOT_SAVED=") and pub is not None:
-        break
 if pub is None:
-    print("check_box_outline: the drawn arm published no BOX_OUTLINE line, so nothing says where the "
+    print("check_box_outline: the drawn frame published no BOX_OUTLINE line, so nothing says where the "
           "box stands in the frame.", file=sys.stderr)
     sys.exit(2)
 
 fails = []
-# THE ABLATION IS REAL: --ablate=box_outline stops the module, so the dark arm publishes nothing.
-if "BOX_OUTLINE=" in off_log:
-    fails.append("--ablate=box_outline left the outline running: the dark arm published its geometry")
+# THE ABLATION IS REAL: switched off, the module stops, so nothing is published between the two frames.
+if any(l.startswith("BOX_OUTLINE=") for l in lines[shots[0] + 1:shots[1]]):
+    fails.append("--shot-without=box_outline left the outline running: it published its geometry between "
+                 "the drawn frame and the ablated one")
 
-def shot_flag(text, name):
-    for line in text.splitlines():
-        if line.startswith("SHOT_SAVED="):
-            for tok in line.split():
-                if tok.startswith(name + "="):
-                    return tok[len(name) + 1:]
-    return None
-
-
-# ONE WORLD TWICE: both frames at one simulated step, each taken once its ground was built and uncovered.
-steps = (shot_flag(on_log, "sim_step"), shot_flag(off_log, "sim_step"))
+# ONE WORLD TWICE: both frames at one simulated step.
+steps = (shot_flag(shots[0], "sim_step"), shot_flag(shots[1], "sim_step"))
 if steps[0] is None or steps[0] != steps[1] or int(steps[0]) < 0:
-    print("check_box_outline: the arms were shot at simulated steps %s and %s, so they are two worlds."
+    print("check_box_outline: the frames were shot at simulated steps %s and %s, so they are two worlds."
           % steps, file=sys.stderr)
     sys.exit(2)
-for name, text in (("on", on_log), ("off", off_log)):
-    if shot_flag(text, "ground_meshed") != "true":
-        print("check_box_outline: the %s arm was shot before its ground was built and uncovered." % name,
-              file=sys.stderr)
-        sys.exit(2)
 
-pa, pb = shot_path(on_log), shot_path(off_log)
-if pa is None or pb is None:
-    print("check_box_outline: an arm published no shot, so nothing was photographed.", file=sys.stderr)
-    sys.exit(2)
+pa = lines[shots[0]][len("SHOT_SAVED="):].split()[0]
+pb = lines[shots[1]][len("SHOT_SAVED="):].split()[0]
 a = Image.open(pa).convert("RGB")
 b = Image.open(pb).convert("RGB")
 if a.size != b.size:

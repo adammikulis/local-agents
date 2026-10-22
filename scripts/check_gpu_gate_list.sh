@@ -40,7 +40,7 @@ done
 # A gate needs a GPU when it EXECUTES a run — a quoted \$var path to a launching script, the native sim
 # binary, or a lib function that starts either — when it READS the shared arm lint_capture.sh records,
 # which only a GPU could produce, or when the run it MEASURES is the device lint itself.
-CAP_READ='report|report_raw|marker|cap_state|cap_front|cap_report|body_report|cap_life_log|cap_life|rig'
+CAP_READ='report|report_raw|marker|cap_state|cap_front|cap_report|body_report|cap_life_log|cap_life|rig|shot_arm'
 actual=""
 for b in $in_lint; do
 	f="$ROOT/scripts/$b.sh"

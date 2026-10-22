@@ -1,39 +1,42 @@
 #!/usr/bin/env bash
-# ONE RUN, MANY PICTURES. The shot protocol photographs each pose of a list in a single launch: one PNG per
-# pose, each carrying the pose it was asked for, a lit scene rather than one flat colour, no HUD panel over
-# it, and NO TWO CONSECUTIVE FRAMES THE SAME — a pose that never moves the camera photographs the one
-# before it again, and identical bytes are how that shows.
-# EXIT 0 every pose is its own picture · 1 one is not · 2 could not run.
+# ONE RUN, MANY PICTURES: one PNG per pose, each the pose it was asked for, a lit scene, no HUD panel over
+# it, and NO TWO CONSECUTIVE FRAMES THE SAME (a pose that never moves the camera repeats the last frame).
+# THE GROUND IS A LIT SURFACE AND NOT A PLATE: over the lower half of each of the first two frames the
+# median per-row standard deviation of luminance beats one 8-bit step.
+# EXIT 0 every pose is its own picture and holds · 1 one does not · 2 could not run.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh"
+. "$ROOT/scripts/lib_shot_arm.sh"
 require_tool rg
 require_tool cmp
-SCENE="addons/local_agents/examples/SliceRung0Demo.tscn"
-# The gate's own protocol: eye level, up and back, and over the top of the box looking down. Spanning
-# poses whose pictures cannot coincide, inside the run ceiling docs/RUN_TIMEOUT_CEILING declares.
-SHOTS="${LA_SHOT_PROTOCOL:-30:-3:0;2000:-35:0;2000:-35:180;10000:-60:0}"
+require_tool python3
+python3 -c "import PIL.Image" 2>/dev/null || {
+	echo "check_shot_protocol: python3 cannot open a PNG (no Pillow), so no picture was examined." >&2
+	exit 2
+}
+LOOK_POSES=2
 
 DIR="$(mktemp -d "${TMPDIR:-/tmp}/la_shot_gate.XXXXXX")"
-LOG="$(mktemp "${TMPDIR:-/tmp}/la_shot_gate_log.XXXXXX")"
-trap 'rm -rf "$DIR" "$LOG"' EXIT
+trap 'rm -rf "$DIR"' EXIT
 
-LA_SHOTS="$SHOTS" "$ROOT/scripts/shoot_demo.sh" "$SCENE" "$DIR" > "$LOG" 2>&1
-rc=$?
+ARM="$(la_shot_arm protocol "$DIR")" || exit 2
+rc="$(cat "$ARM/rc")"
 if [ "$rc" -ne 0 ]; then
 	echo "check_shot_protocol: the protocol run exited $rc, so no pose was photographed." >&2
-	tail -25 "$LOG" >&2
+	tail -25 "$ARM/run.log" >&2
 	exit 2
 fi
 
 WANT=()
-while IFS= read -r p; do WANT+=("$p"); done < <(printf '%s' "$SHOTS" | tr ';' '\n' | grep .)
+while IFS= read -r p; do WANT+=("$p"); done < <(printf '%s' "$LA_ARM_PROTOCOL_POSES" | tr ';' '\n' | grep .)
 LINES=()
-while IFS= read -r l; do LINES+=("$l"); done < <(grep '^SHOT_SAVED=' "$LOG")
+while IFS= read -r l; do LINES+=("$l"); done < <(grep '^SHOT_SAVED=' "$ARM/run.log")
 require_scanned "${#LINES[@]}" "${#WANT[@]}" "published shots"
 
 fail=0
 prev=""
+PNGS=()
 for i in "${!WANT[@]}"; do
 	line="${LINES[$i]}"
 	path="$(printf '%s' "$line" | cut -d= -f2- | cut -d' ' -f1)"
@@ -51,6 +54,7 @@ for i in "${!WANT[@]}"; do
 		fail=1
 		continue
 	fi
+	PNGS+=("$path")
 	# AND THE EYE WENT WHERE IT WAS TOLD: the aim the frame was taken at is the aim that was asked for.
 	aimed="$(printf '%s' "$line" | rg -N -o -e 'cam_pitch_deg=-?[0-9.]+' | cut -d= -f2)"
 	asked="$(printf '%s' "${WANT[$i]}" | cut -d: -f2)"
@@ -97,5 +101,39 @@ for i in "${!WANT[@]}"; do
 	prev="$path"
 done
 
+python3 - "$LOOK_POSES" "${PNGS[@]}" <<'PY' || fail=1
+import sys
+from PIL import Image
+
+STEP = 1.0 / 255.0                        # one 8-bit step: the picture's own resolution
+n = int(sys.argv[1])
+paths = sys.argv[2:2 + n]
+if len(paths) < n:
+    print("FAIL  the protocol photographed %d pictures and the look claim reads %d." % (len(paths), n),
+          file=sys.stderr)
+    raise SystemExit(1)
+
+fail = 0
+for path in paths:
+    im = Image.open(path).convert("L")
+    w, h = im.size
+    px = im.load()
+    lum = [[px[x, y] / 255.0 for x in range(w)] for y in range(h // 2, h)]
+    name = path.rsplit("/", 1)[-1]
+
+    # A lit surface varies along a row; a plate does not.
+    devs = []
+    for row in lum:
+        m = sum(row) / len(row)
+        devs.append((sum((v - m) ** 2 for v in row) / len(row)) ** 0.5)
+    devs.sort()
+    if not devs[len(devs) // 2] > STEP:
+        print("FAIL  %s draws one flat colour under its horizon: half its rows vary less across the"
+              % name, file=sys.stderr)
+        print("      frame than the picture's own 8-bit step.", file=sys.stderr)
+        fail = 1
+raise SystemExit(fail)
+PY
+
 [ "$fail" -eq 0 ] || exit 1
-echo "check_shot_protocol: OK (${#WANT[@]} poses, one distinct picture each)"
+echo "check_shot_protocol: OK (${#WANT[@]} poses, one distinct picture each, $LOOK_POSES lit under the horizon)"
