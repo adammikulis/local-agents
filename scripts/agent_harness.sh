@@ -41,7 +41,7 @@ Commands:
   single <f> [a] Run one test via scripts/run_single_test.sh <f> [--timeout=120].
   smoke         Boot the main scene headless briefly; fail on script/parse errors.
   demo [args]   Run example scenes BARE HEADLESS via scripts/run_demo.sh (~1s each).
-                e.g. demo --list | demo --all [frames] | demo BoxFieldDemo [frames]
+                e.g. demo --list | demo --all [frames] | demo CoreCreatureSmoke [frames]
   extension     Validate the GDExtension via scripts/check_extension.gd.
   dropin        Prove the addon works as a drop-in: stage a consumer project holding only
                 addons/local_agents/, author a scene with no script in it, and run it.

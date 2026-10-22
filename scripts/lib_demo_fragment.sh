@@ -47,8 +47,8 @@ demo_has_harness() {
 	return 1
 }
 
-# A planet's field needs a compute device, which headless lacks: the voxel world, every scene inheriting
-# it, and every scene holding a SPHERE LocalAgentSimWorld run through scripts/run_sim_offscreen.sh.
+# A field needs a compute device, which headless lacks: the voxel world, every scene inheriting it, and
+# every scene holding a SPHERE LocalAgentSimWorld or a LocalAgentFieldBox run through run_sim_offscreen.sh.
 #   demo_needs_window <repo_root> <scene_rel>
 demo_needs_window() {
 	demo_window_reason "$1" "$2" >/dev/null
@@ -67,6 +67,11 @@ demo_window_reason() {
 		if demo_holds_sphere_world "$1/$f"; then
 			if [ "$f" = "$2" ]; then echo "holds a SPHERE LocalAgentSimWorld"
 			else echo "inherits $f, which holds a SPHERE LocalAgentSimWorld"; fi
+			return 0
+		fi
+		if grep -qF 'path="res://addons/local_agents/sim/material/FieldBox.gd"' "$1/$f"; then
+			if [ "$f" = "$2" ]; then echo "holds a LocalAgentFieldBox"
+			else echo "inherits $f, which holds a LocalAgentFieldBox"; fi
 			return 0
 		fi
 	done <<< "$(demo_scene_chain "$1" "$2")"

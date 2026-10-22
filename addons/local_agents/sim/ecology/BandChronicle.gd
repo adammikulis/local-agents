@@ -14,7 +14,6 @@ const MAX_WRITES_PER_SCAN: int = 4
 
 var _service: Node = null
 var _enabled: bool = false
-var _owns_service: bool = false
 
 var _accum: float = 0.0
 var _now: float = 0.0                  # chronicle-local seconds, advanced by the scans themselves
@@ -38,7 +37,6 @@ func _ready() -> void:
 	if _service == null:
 		_service = BackstoryServiceScript.new()
 		_service.name = "BackstoryGraphService"
-		_owns_service = true
 		# Path BEFORE add_child: _ready() is what opens the database.
 		_service.set_database_path(CHRONICLE_DB_PATH)
 		add_child(_service)
@@ -54,7 +52,6 @@ func _ready() -> void:
 ## same ordering LocalAgentBackstoryGraphService.set_database_path documents: _ready() is what opens things.
 func set_service(service: Node) -> void:
 	_service = service
-	_owns_service = false
 
 
 func service() -> Node:

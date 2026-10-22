@@ -25,6 +25,7 @@
 #include "LAFieldStateCache.hpp"
 #include "LAFieldHydrosphereSeed.hpp"
 #include "LAFieldLithostaticSeed.hpp"
+#include "LAFieldFill.hpp"
 #include "LAPlanetTables.hpp"
 #include "LASubstances.hpp"
 #include "NetworkGraph.hpp"
@@ -98,6 +99,7 @@ void initialize_local_agents(ModuleInitializationLevel p_level) {
     ClassDB::register_class<LABodyMeasure>();
     ClassDB::register_class<LAFieldHydrosphereSeed>();
     ClassDB::register_class<LAFieldLithostaticSeed>();
+    ClassDB::register_class<LAFieldFill>();
     ClassDB::register_class<LASubstances>();
     ClassDB::register_class<LAMixtureEnthalpy>();
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Run the addon's example scenes headless. A fragment (scripts/lib_demo_fragment.sh) is not run.
 #   scripts/run_demo.sh --list              # which scenes honour --run-frames, and which do not
-#   scripts/run_demo.sh BoxFieldDemo        # one demo, 40 frames
-#   scripts/run_demo.sh BoxFieldDemo 200    # one demo, 200 frames
+#   scripts/run_demo.sh CoreCreatureSmoke   # one demo, 40 frames
+#   scripts/run_demo.sh CoreCreatureSmoke 200 # one demo, 200 frames
 #   scripts/run_demo.sh --all [frames]      # every demo that honours the contract and needs no window
 
 # `--run-frames` is LocalAgentDemoHarness's contract (addons/local_agents/runtime/DemoHarness.gd), not an
@@ -47,7 +47,7 @@ list_demos() {
   echo ""
   echo "  Scenes with no harness: run them with the engine flag instead, e.g."
   echo "    $GODOT --headless --path . $EXAMPLES_REL/<name>.tscn --quit-after 120"
-  echo "  game/VoxelWorld.tscn, the scenes inheriting it and the scenes holding a SPHERE LocalAgentSimWorld"
+  echo "  game/VoxelWorld.tscn, the scenes inheriting it and the scenes holding a SPHERE LocalAgentSimWorld or a LocalAgentFieldBox"
   echo "  need a real window: use scripts/run_sim_offscreen.sh."
 }
 
@@ -69,7 +69,7 @@ run_one() {
   [ "$frag" -eq 1 ] || return 2
   local why
   if why="$(demo_window_reason "$REPO_ROOT" "$scene")"; then
-    echo "run_demo: '$name' $why; a planet's field needs a compute device, which headless lacks." >&2
+    echo "run_demo: '$name' $why; its field needs a compute device, which headless lacks." >&2
     echo "  scripts/run_sim_offscreen.sh --path . $scene -- --run-frames=$frames" >&2
     return 2
   fi

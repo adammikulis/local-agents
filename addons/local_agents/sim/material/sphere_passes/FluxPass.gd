@@ -66,8 +66,6 @@ var _scr: Dictionary = {}
 ## resist 0 and aux 1 for a record that names neither.
 var _zero: RID = RID()
 var _one: RID = RID()
-## Enthalpy of transported enthalpy: none, so a record moving `e_j_m3` carries this zero buffer.
-var _no_h: RID = RID()
 ## Band edges, absorption coefficients and the Planck CDF the RADIATE record reads.
 var _rad_table: RID = RID()
 var _band_count: int = 0
@@ -137,7 +135,6 @@ func _setup(bufs: Dictionary, cc: int) -> void:
 	for i in SCRATCH.size():
 		_scr[i] = _scratch(face_count if i < FACE_SCRATCH else tc)
 	_zero = _scratch(tc)
-	_no_h = _scratch(tc)
 	_one = _storage_buffer(_filled(tc, 1.0))
 	var rad_table: PackedFloat32Array = LAAbsorptionBands.packed()
 	_band_count = int(rad_table[0])

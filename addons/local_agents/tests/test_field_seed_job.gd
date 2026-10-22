@@ -173,6 +173,15 @@ func run_test(_tree: SceneTree) -> bool:
 		ok = not Snapshot.is_ready(field) and ok
 	ok = job.complete(field, false) and Snapshot.is_ready(field) and ok
 	field._ready_sim = false
+	field._body_measure = null
+	var bodyless = LAFieldSeedJob3D.new()
+	ok = bodyless.begin(field, gravity, false) and _wait(bodyless) and ok
+	for stage in range(3):
+		ok = not bodyless.complete(field, false) and not field._ready_sim and ok
+	ok = bodyless.complete(field, false) and field._ready_sim and ok
+	field._ready_sim = false
+	ok = LAFieldSeedJob3D.finish_restore(field, false) and ok
+	field._body_measure = MeasureFixture.new()
 	field._seal.accept = false
 	var refused = LAFieldSeedJob3D.new()
 	ok = refused.begin(field, gravity, false) and ok
@@ -205,6 +214,35 @@ func run_test(_tree: SceneTree) -> bool:
 	for stage in range(5):
 		ok = not device_refusal.complete(field, false) and not field._ready_sim and ok
 	ok = device_refusal.failed() and ok
+	var stepper = LAMaterialFieldSphereStep3D.new()
+	stepper._f = field
+	var seed_loop: LASimLoop = LASimLoop.new()
+	_tree.root.add_child(seed_loop)
+	seed_loop.set_physics_process(false)
+	field.set_meta(stepper.FILL_META, {"pressure_pa": 101325.0})
+	ok = not stepper.seed_tick() and seed_loop.failure == "SEED_GAS_FILL_INVALID" and ok
+	ok = not field._ready_sim and seed_loop.step_index() == 0 and ok
+	seed_loop.free()
+	field.remove_meta(stepper.FILL_META)
+	var fill: Dictionary = {"mole_fractions": {"n2": 1.0}, "pressure_pa": 101325.0}
+	var reordered: Dictionary = {"pressure_pa": 101325.0, "mole_fractions": {"n2": 1.0}}
+	var changed: Dictionary = {"mole_fractions": {"n2": 1.0}, "pressure_pa": 101325.000000001}
+	ok = LAFieldFill.cache_key("fixture", fill, LABodySeeds.surface_temp_c()) == LAFieldFill.cache_key("fixture", reordered, LABodySeeds.surface_temp_c()) and ok
+	ok = LAFieldFill.cache_key("fixture", fill, LABodySeeds.surface_temp_c()) != LAFieldFill.cache_key("fixture", changed, LABodySeeds.surface_temp_c()) and ok
+	var gas_field = FieldFixture.new()
+	gas_field._grid = LAVoxelGrid.new()
+	gas_field._grid.build(1, 2, 1, 1.0, Vector3.ZERO)
+	gas_field._cell_count = 2
+	gas_field._solid = PackedByteArray([0, 0])
+	gas_field._gravity = GravityFixture.new()
+	gas_field._mirrors = LAFieldMirrors.new()
+	gas_field._mirrors.alloc(PackedStringArray(LAChannels.rows().keys()), 2)
+	ok = LAFieldFill.lay_gas(gas_field, {"n2": 1.0}, LABodySeeds.surface_temp_c(), 101325.0) and ok
+	ok = gas_field._rock_fraction == PackedFloat32Array([0.0, 0.0]) and gas_field._water_fraction == PackedFloat32Array([0.0, 0.0]) and ok
+	ok = gas_field._surface_depth.size() == 2 and is_nan(gas_field._surface_depth[0]) and ok
+	var gas_job = LAFieldSeedJob3D.new()
+	var gas_context = gas_job.capture(gas_field, false)
+	ok = not gas_context.run(gravity, false).is_empty() and ok
 	if not ok:
 		push_error("worker seed publication, cancellation, device refusal or accounting failed")
 	return ok

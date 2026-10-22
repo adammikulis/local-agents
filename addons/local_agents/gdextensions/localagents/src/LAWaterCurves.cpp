@@ -12,29 +12,29 @@ double pc(const char *p_name) {
 
 // Wagner & Pruss 2002, J. Phys. Chem. Ref. Data 31:387, eq. 2.5.
 constexpr double PSAT_A1 = -7.85951783;
-constexpr double PSAT_A2 = 1.84408259;
-constexpr double PSAT_A3 = -11.7866497;
-constexpr double PSAT_A4 = 22.6807411;
-constexpr double PSAT_A5 = -15.9618719;
-constexpr double PSAT_A6 = 1.80122502;
+constexpr double PSAT_A2 = 1.84408259;  // Wagner & Pruss 2002
+constexpr double PSAT_A3 = -11.7866497;  // Wagner & Pruss 2002
+constexpr double PSAT_A4 = 22.6807411;  // Wagner & Pruss 2002
+constexpr double PSAT_A5 = -15.9618719;  // Wagner & Pruss 2002
+constexpr double PSAT_A6 = 1.80122502;  // Wagner & Pruss 2002
 // IAPWS 2011, revised release R14-08, J. Phys. Chem. Ref. Data 40:043103: sublimation over ice Ih from
 // 50 K to the triple point.
 constexpr double SUBL_A1 = -0.212144006e2;
-constexpr double SUBL_A2 = 0.273203819e2;
-constexpr double SUBL_A3 = -0.610598130e1;
-constexpr double SUBL_B1 = 0.333333333e-2;
-constexpr double SUBL_B2 = 0.120666667e1;
-constexpr double SUBL_B3 = 0.170333333e1;
-constexpr double SUBL_MIN_T_C = -223.15;
+constexpr double SUBL_A2 = 0.273203819e2;  // IAPWS R14-08
+constexpr double SUBL_A3 = -0.610598130e1;  // IAPWS R14-08
+constexpr double SUBL_B1 = 0.333333333e-2;  // IAPWS R14-08
+constexpr double SUBL_B2 = 0.120666667e1;  // IAPWS R14-08
+constexpr double SUBL_B3 = 0.170333333e1;  // IAPWS R14-08
+constexpr double SUBL_MIN_T_C = -223.15;  // IAPWS R14-08
 // IAPWS 2011, R14-08: the melting curve of ice Ih, and the ice Ih/III/liquid triple point it ends at.
 constexpr double MELT_IH_A1 = 0.119539337e7;
-constexpr double MELT_IH_A2 = 0.808183159e5;
-constexpr double MELT_IH_A3 = 0.333826860e4;
-constexpr double MELT_IH_B1 = 0.300000e1;
-constexpr double MELT_IH_B2 = 0.257500e2;
-constexpr double MELT_IH_B3 = 0.103750e3;
-constexpr double ICE_IH_MIN_MELT_T_C = -21.985;
-constexpr double ICE_IH_MAX_MELT_P_PA = 2.08566e8;
+constexpr double MELT_IH_A2 = 0.808183159e5;  // IAPWS R14-08
+constexpr double MELT_IH_A3 = 0.333826860e4;  // IAPWS R14-08
+constexpr double MELT_IH_B1 = 0.300000e1;  // IAPWS R14-08
+constexpr double MELT_IH_B2 = 0.257500e2;  // IAPWS R14-08
+constexpr double MELT_IH_B3 = 0.103750e3;  // IAPWS R14-08
+constexpr double ICE_IH_MIN_MELT_T_C = -21.985;  // IAPWS R14-08
+constexpr double ICE_IH_MAX_MELT_P_PA = 2.08566e8;  // IAPWS R14-08
 
 // Each boundary is inverted by Newton on its own analytic derivative from a seed built out of the same
 // equation, so no second curve enters and this is the only knob the solve has.

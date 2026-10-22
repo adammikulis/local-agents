@@ -9,7 +9,6 @@ signal event_emitted(event: LAEvent)
 const SAMPLE_INTERVAL: float = 1.0    # simulated seconds between detection passes (phenomena last seconds)
 const RECENT_MAX: int = 32            # ring-buffer of the latest events a consumer can pull
 
-var _world: Node = null
 var _material = null                  # LAMaterialField3D — the shared substrate; source of the field aggregates
 var _queries = null                   # LAMaterialFieldQueries3D — the field's read accessors
 var _ecology = null                   # LAEcologyService — source of the fire count
@@ -24,7 +23,6 @@ var _kind_counts: Dictionary = {}     # type -> count, for the SIM_REPORT summar
 ## Wire from the composition root. Pulls the substrate + ecology off the world (no extra args needed), builds
 ## the detector registry, and registers itself as a SIM_REPORT telemetry source.
 func setup(world: Node) -> void:
-	_world = world
 	_material = world.get("_material")
 	_ecology = world.get("_ecology")
 	if _material != null:

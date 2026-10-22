@@ -7,6 +7,7 @@ const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/sp
 
 const OP_ADD: int = 0
 const OP_MOVE: int = 1
+const OP_ADD_SIGNED: int = 2
 
 const KIND_MOVED: int = 0
 const KIND_CREATED: int = 1
@@ -87,13 +88,14 @@ func _plan_pair(key: String, ops: Array, idx: PackedInt32Array, val: PackedFloat
 	if not uset.is_valid():
 		return
 	var same: bool = src == dst
+	var add: int = OP_ADD_SIGNED if bool(LAChannels.rows().get(src, {}).get("signed", false)) else OP_ADD
 	var seen: Array = []       # per round: the cells it already names
 	var rounds: Array = []     # per round: its entries, each [s, d, op, amount, ceiling, book kind]
 	for op: Dictionary in ops:
 		var cells: PackedInt32Array = op["src_cells"]
 		var amounts: PackedFloat32Array = op["amounts"]
 		var dsts: PackedInt32Array = op["dst_cells"]
-		var kind: int = OP_ADD if String(op["kind"]) == "add" else OP_MOVE
+		var kind: int = add if String(op["kind"]) == "add" else OP_MOVE
 		var ceiling: float = float(op["ceiling"])
 		for i in cells.size():
 			var s: int = cells[i]

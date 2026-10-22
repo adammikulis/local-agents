@@ -63,7 +63,6 @@ PHYSICS_TICK_ALLOW = {
     f"{SIM}/actors/Nest.gd": "counts its own neglect clock each engine tick",
     f"{SIM}/actors/Meteor.gd": "copies its LABallistics free body onto the node each engine tick",
     f"{SIM}/actors/ThrownRock.gd": "steers its own flight each engine tick, not an LABallistics free body",
-    f"{SIM}/material/FieldBox.gd": "adds its heat source's watts times the engine delta to its own box",
     f"{SIM}/TrackSystem.gd": "footprint decals laid under bodies moving on the physics tick",
 }
 

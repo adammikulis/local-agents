@@ -17,6 +17,8 @@ const SnapshotScript: GDScript = preload("res://addons/local_agents/sim/material
 ## do not run at all rather than reading a flat field.
 const GRAVITY_PASS: String = "GravityPass.gd"
 
+const FILL_META: StringName = &"field_fill"
+
 var _f = null                                          # back-reference to the owning LAMaterialField3D
 var _mineral_profile = null                            # holds the SIM_REPORT provider it registered
 # The driver's ONE between-pass probe.
@@ -95,20 +97,32 @@ func seed_tick() -> bool:
 			return false
 		_store_seeded(_seed_bake)
 		return true
-	if _f._terrain == null or not _f._terrain.has_method("is_solid"):
+	var fill: Variant = _f.get_meta(FILL_META, {})
+	if not LAFieldFill.valid_spec(fill):
+		LASimLoop.active().fail("SEED_GAS_FILL_INVALID")
 		return false
-	_f.sample_solidity()          # solid mask -> the bedrock silicate + cement the gravity solve weighs
+	if fill.is_empty():
+		if _f._terrain == null or not _f._terrain.has_method("is_solid"):
+			LASimLoop.active().fail("SEED_MATTER_ABSENT")
+			return false
+		_f.sample_solidity()
+	elif not LAFieldFill.lay_gas(_f, fill["mole_fractions"], LABodySeeds.surface_temp_c(), fill["pressure_pa"]):
+		LASimLoop.active().fail("SEED_GAS_FILL_FAILED")
+		return false
+	# The gas fill and the terrain walk both feed the same asynchronous seed job.
 	_f.activate()                 # builds the GPU driver, which owns the solve the walks below read
 	var g: LAVoxelGrid = _f._grid
 	var bake: String = LAFieldStateCache.state_key(OS.get_environment("LA_SEAL_KEY"),
 			g.nx, g.ny, g.nz, g.cell_size, g.origin)
+	if bake != "" and not fill.is_empty():
+		bake = LAFieldFill.cache_key(bake, fill, LABodySeeds.surface_temp_c())
 	var loaded: bool = OS.get_environment("LA_SEAL_RESEED") == "" and _load_seeded(bake)
 	if _f._gpu.refused("the seed"):
 		return false
 	if loaded:
 		_f._ready_sim = true
 		return true
-	if LAProcessSet.has_record("pass", GRAVITY_PASS) and not LAFieldSeedJob3D.prepare_gravity(_f):
+	if fill.is_empty() and LAProcessSet.has_record("pass", GRAVITY_PASS) and not LAFieldSeedJob3D.prepare_gravity(_f):
 		LASimLoop.active().fail("SEED_GRAVITY_FAILED")
 		return false
 	# THE WORLD PUT INTO THE BALANCE THE STEPPER HOLDS: a locked cell's rock under the column over it, an
@@ -121,7 +135,7 @@ func seed_tick() -> bool:
 	# and the water stands under the air that law lays.
 	_seed_bake = bake
 	_seed_job = LAFieldSeedJob3D.new()
-	if not _seed_job.begin(_f, g_rest, LAProcessSet.has_record("pass", GRAVITY_PASS)):
+	if not _seed_job.begin(_f, g_rest, fill.is_empty() and LAProcessSet.has_record("pass", GRAVITY_PASS)):
 		LASimLoop.active().fail("SEED_WORKER_START_FAILED")
 	return false
 

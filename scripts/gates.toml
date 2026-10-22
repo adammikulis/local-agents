@@ -238,7 +238,11 @@ name = "check_cited_authority"
 script = "scripts/check_cited_authority.sh"
 kind = "text"
 marker = "^check_cited_authority: OK"
-mutation = "printf '\\nconst MUTANT_UNCITED: float = 1.5\\n' >> addons/local_agents/sim/material/PhysicalConstants.gd"
+mutation = [
+	"printf '\\nconst MUTANT_UNCITED: float = 1.5\\n' >> addons/local_agents/sim/material/PhysicalConstants.gd",
+	'''perl -0pi -e 's/## Basalt BCR-1 specific heat[^\n]*\nconst ROCK_SPECIFIC_HEAT_J_KGK: float = 738\.3\n/const ROCK_SPECIFIC_HEAT_J_KGK: float = 840.0\n/' addons/local_agents/sim/material/PhysicalConstants.gd''',
+	"printf '\\nconst MUTANT_SELF_CITED: float = 1598.0  # 1598 kJ/mol\\n' >> addons/local_agents/sim/material/PhysicalConstants.gd",
+]
 
 [[gate]]
 name = "check_kernel_paths"
@@ -753,6 +757,13 @@ marker = "^check_never_assigned: OK"
 mutation = "printf '\\nvar mutant_never_assigned: int = 0\\nfunc _mutant_read() -> int:\\n\\treturn mutant_never_assigned\\n' >> addons/local_agents/sim/material/MaterialField3D.gd"
 
 [[gate]]
+name = "check_write_only_state"
+script = "scripts/check_write_only_state.sh"
+kind = "text"
+marker = "^check_write_only_state: OK"
+mutation = '''perl -0pi -e 's/(var _idle: float = 0\.0[^\n]*\n)/$1var _age: float = 0.0\n/; s/(\t_idle \+= delta\n)/\t_age += delta\n$1/' addons/local_agents/sim/actors/Nest.gd'''
+
+[[gate]]
 name = "check_voxel_grid"
 script = "scripts/check_voxel_grid.sh"
 kind = "headless"
@@ -819,6 +830,19 @@ kind = "gpu"
 needs = ["import"]
 marker = "^check_test_mass: OK"
 mutation = "perl -0pi -e 's/GRAVITATIONAL_CONSTANT: float = [0-9.e-]+/GRAVITATIONAL_CONSTANT: float = 0.0/' addons/local_agents/sim/material/PhysicalConstants.gd"
+
+[[gate]]
+name = "check_field_box"
+script = "scripts/check_field_box.sh"
+kind = "gpu"
+needs = ["build", "import"]
+marker = "^check_field_box: OK"
+mutation = [
+	'''perl -pi -e 's/LAMaterialFieldSphereStep3D\.FILL_META, \{/&"mutant_fill", {/' addons/local_agents/sim/material/FieldBox.gd''',
+	'''perl -pi -e 's/op == LA_INJECT_ADD \? max\(0\.0, before \+ delta\) : before \+ delta/max(0.0, before + delta)/' addons/local_agents/sim/material/kernels3d/sparse_edit.glsl''',
+	'''perl -pi -e 's/queue\.heat_landed_j/queue.heat_energy_j/' addons/local_agents/sim/material/MaterialFieldLedger3D.gd''',
+	'''perl -ni -e 'print unless /_loop\.stepped\.connect\(Callable\(_field\.step_driver\(\), "step"\)\)/' addons/local_agents/sim/material/FieldBox.gd''',
+]
 
 [[gate]]
 name = "check_mutate_scratch_build"

@@ -55,7 +55,7 @@ constexpr double WATER_LIQUID_REFRACTIVE_INDEX = 1.334344;
 const std::vector<double> WATER_LIQUID_OPTICS_NM = { 440.0, 550.0, 680.0 };
 const std::vector<double> WATER_LIQUID_ABSORPTION_PER_M = { 0.00635, 0.0565, 0.465 };
 const std::vector<double> WATER_LIQUID_SCATTERING_PER_M = { 0.0038, 0.0015, 0.0006 };
-constexpr double WATER_LIQUID_SCATTERING_DEPOLARIZATION = 0.09;
+constexpr double WATER_LIQUID_SCATTERING_DEPOLARIZATION = 0.09;  // Morel 1974
 
 Array doubles_of(const std::vector<double> &p_v) {
 	Array a;

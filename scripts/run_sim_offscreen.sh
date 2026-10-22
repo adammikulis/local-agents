@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_godot.sh"
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib_import.sh"
-# Launch a run that needs a real GPU: game/VoxelWorld.tscn, every scene inheriting it, every scene holding
-# a SPHERE LocalAgentSimWorld (lib_demo_fragment.sh), and any script that dispatches a compute kernel.
+# Launch a run that needs a real GPU: VoxelWorld.tscn and every scene inheriting it or holding a SPHERE
+# LocalAgentSimWorld or a LocalAgentFieldBox (lib_demo_fragment.sh), or a script dispatching a kernel.
 # Headless has no compute device. Pass the normal godot args, e.g.:
 #   scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn -- --run-frames=200
 # la_godot opens and places the window (scripts/lib_godot.sh); LA_WIN_POS="x,y" overrides the place.

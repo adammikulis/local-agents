@@ -392,6 +392,15 @@ void LAProcessSet::declare_records(const PackedStringArray &p_ids) {
 	g_booked_cache() = PackedStringArray();
 }
 
+void LAProcessSet::declare_world(int p_node) {
+	const PackedStringArray ids = records_from_args();
+	if (ids.is_empty()) {
+		declare(resolve(p_node));
+	} else {
+		declare_records(ids);
+	}
+}
+
 int LAProcessSet::active() {
 	return g_active;
 }
@@ -790,6 +799,7 @@ void LAProcessSet::_bind_methods() {
 	ClassDB::bind_static_method("LAProcessSet", D_METHOD("playable"), &playable);
 	ClassDB::bind_static_method("LAProcessSet", D_METHOD("declare", "rung"), &declare);
 	ClassDB::bind_static_method("LAProcessSet", D_METHOD("declare_records", "ids"), &declare_records);
+	ClassDB::bind_static_method("LAProcessSet", D_METHOD("declare_world", "node"), &declare_world);
 	ClassDB::bind_static_method("LAProcessSet", D_METHOD("active"), &active);
 	ClassDB::bind_static_method("LAProcessSet", D_METHOD("custom"), &custom);
 	ClassDB::bind_static_method("LAProcessSet", D_METHOD("name_of", "rung"), &name_of);
