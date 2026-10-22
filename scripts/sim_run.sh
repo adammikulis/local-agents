@@ -128,7 +128,8 @@ ARGS=(--sandbox "--run-frames=${FRAMES}" "--seed=${SEED}")
 # A CALLER THAT NAMED ITS OWN BAKE KEEPS IT: the key it set names the world it means to compare.
 if [ "$FROM_SEAL" -eq 1 ] && [ -z "${LA_SEAL_KEY:-}" ]; then
   SEAL_KEY="$("$SCRIPT_DIR/cache_key.sh" capture --path "$PROJ" "seed=$SEED" "rung=${RUNG:-default}" \
-    "full=$FULL" "fauna=$FAUNA" "slice=$SLICE" \
+    "playable=$(md5 -q "$PROJ/docs/PLAYABLE_RUNG" 2>/dev/null || echo none)" "env_rung=${LA_RUNG:-}" \
+    "extra=${EXTRA[*]-}" "full=$FULL" "fauna=$FAUNA" "slice=$SLICE" \
     "box=$(if [ "$SLICE" -eq 1 ]; then printf '%s' "$SLICE_BOX"; fi)" \
     "state=$(if [ -n "$SLICE_STATE" ] && [ -f "$SLICE_STATE" ]; then md5 -q "$SLICE_STATE"; else echo none; fi)" \
     "faces=${LA_BOUNDARY_FACES:-default}" 2>/dev/null || echo "")"

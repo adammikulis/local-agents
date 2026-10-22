@@ -97,7 +97,6 @@ func seed_tick() -> bool:
 		return true
 	if _f._terrain == null or not _f._terrain.has_method("is_solid"):
 		return false
-	_f.sample_solidity()          # solid mask -> the bedrock silicate + cement the gravity solve weighs
 	_f.activate()                 # builds the GPU driver, which owns the solve the walks below read
 	var g: LAVoxelGrid = _f._grid
 	var bake: String = LAFieldStateCache.state_key(OS.get_environment("LA_SEAL_KEY"),

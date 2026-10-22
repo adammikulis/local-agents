@@ -4,6 +4,7 @@
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
+#include <godot_cpp/variant/packed_float64_array.hpp>
 #include <godot_cpp/variant/vector3.hpp>
 
 namespace godot {
@@ -29,6 +30,14 @@ public:
 	static Dictionary load_blob(const String &p_key);
 	static void save_blob(const String &p_key, const Dictionary &p_data);
 	static void save_state(const String &p_key, const Dictionary &p_data);
+
+	// A PURE NATIVE FUNCTION'S ANSWER, under the content it is a function of: its arguments, the compiled
+	// sources and the constants file la_physical reads. Empty on a miss.
+	static PackedFloat64Array pure_load(const String &p_name, const PackedFloat64Array &p_in);
+	static void pure_store(const String &p_name, const PackedFloat64Array &p_in, const PackedFloat64Array &p_out);
+	// Answers this process read off disk rather than solving, and the whole store dropped.
+	static int pure_hits();
+	static void pure_clear();
 
 protected:
 	static void _bind_methods();

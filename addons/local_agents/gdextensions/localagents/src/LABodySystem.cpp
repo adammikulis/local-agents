@@ -1,6 +1,7 @@
 #include "LABodySystem.hpp"
 
 #include "LAColumnRadiation.hpp"
+#include "LAFieldStateCache.hpp"
 #include "LAFieldCellMass.hpp"
 #include "LAFieldLithostaticSeed.hpp"
 #include "LAPhysicalRead.hpp"
@@ -116,6 +117,15 @@ const PlanetSeed &planet_seed() {
 		return s;
 	}
 	solved = true;
+	// A function of the constants alone, so it is read back when this content has been solved before.
+	const PackedFloat64Array none;
+	const PackedFloat64Array stored = LAFieldStateCache::pure_load("planet_seed", none);
+	if (stored.size() == 3) {
+		s.t_c = stored[0];
+		s.r_m = stored[1];
+		s.p_surface_pa = stored[2];
+		return s;
+	}
 	const Dictionary x = LAFieldLithostaticSeed::seeded_air_mole_fractions();
 	const double x_n2 = double(x.get("n2", 0.0));
 	if (!(x_n2 > 0.0)) {
@@ -158,6 +168,11 @@ const PlanetSeed &planet_seed() {
 	}
 	s.t_c = t_c;
 	s.r_m = r;
+	PackedFloat64Array answer;
+	answer.push_back(s.t_c);
+	answer.push_back(s.r_m);
+	answer.push_back(s.p_surface_pa);
+	LAFieldStateCache::pure_store("planet_seed", none, answer);
 	return s;
 }
 
