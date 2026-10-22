@@ -87,7 +87,7 @@ func _wire_loop() -> void:
 	_loop.subscribe(Callable(_material.step_driver(), "step"))
 	# The calendar counts committed steps, so it turns once the field's step has completed.
 	_loop.subscribe(func(_step: int) -> void: _clock.advance())
-	_subscribe("test_mass", _test_masses)
+	_subscribe("test_masses", _test_masses)
 	_subscribe("ecology", _ecology)
 	_subscribe("events", _events)
 	_subscribe("timeline", _timeline)
