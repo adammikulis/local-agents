@@ -14,6 +14,7 @@
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/variant/vector3i.hpp>
 
+#include <algorithm>
 #include <cmath>
 
 
@@ -223,6 +224,9 @@ Dictionary LATestMasses::row_of(const Orb &p_orb) const {
 	const Vector3 dir = body_basis().xform(p_orb.dir);
 	const double along = double(flat.dot(dir));
 	out["range_m"] = double(flat.length());
+	// The most the pull of the other bodies, less the pull at the centre, moved it: the larger of the two ends.
+	out["tide_m_s2"] = std::max(double(LABallistics::tidal_at(from).length()),
+			double(LABallistics::tidal_at(at).length()));
 	out["along_m"] = along;
 	out["cross_m"] = double((flat - dir * float(along)).length());
 	const double omega = _body ? double(_body->call("angular_velocity_rad_s")) : NAN;
@@ -350,7 +354,7 @@ void LATestMasses::on_bodies_landed(const Array &p_landed) {
 			out["id"] = id;
 			out["time"] = row.get("time", 0.0);
 			for (const char *key : { "height_m", "g_release", "speed", "cell", "throw_speed_m_s",
-						 "range_m", "along_m", "cross_m" }) {
+						 "range_m", "along_m", "cross_m", "tide_m_s2" }) {
 				out[String(key)] = state.get(String(key), 0.0);
 			}
 			if (state.has("omega_rad_s")) {

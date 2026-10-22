@@ -21,7 +21,6 @@ var _restore_deadline: int = 0                    # frames to wait for the field
 var _restore_min_wait: int = 0                    # frames to hold before applying (lets a live reset's queue_free complete)
 # The cells of every held moment. GDScript holds handles into it, never the cells.
 var _snapshots: LAFieldSnapshot = null
-var _frame: int = 0
 # --snapshot-roundtrip: capture, let the world diverge, restore in place, and report what came back.
 var _rt_stage: int = 0                            # 0 off · 1 armed · 2 done
 var _rt_handle: int = -1
@@ -105,7 +104,6 @@ func _begin_load(slot: String) -> void:
 
 
 func _process(_delta: float) -> void:
-	_frame += 1
 	if _rt_stage > 0:
 		_run_snapshot_roundtrip()
 	if not _restore_pending:
@@ -254,7 +252,7 @@ func restore_snapshot(data: Dictionary) -> void:
 # at rest, so the state a restore has to overwrite is made rather than waited for: wipe the cells to
 # nothing, put the capture back, and read every channel again — from memory and through the save bytes.
 func _run_snapshot_roundtrip() -> void:
-	if _rt_stage != 1 or _frame < 60 or not FieldSnapshotScript.is_ready(_world._material):
+	if _rt_stage != 1 or not FieldSnapshotScript.is_ready(_world._material):
 		return
 	_rt_store = _lone_store()
 	if _rt_store == null:

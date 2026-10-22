@@ -102,17 +102,22 @@ if not (h > 0.0 and g > 0.0 and t > 0.0):
 t_free = math.sqrt(2.0 * h / g)
 # The most a rotating frame can move it: |a| <= 2 w |v| for the whole flight, so |d| <= w |v| t^2.
 coriolis_m = w * v * t * t
+# The most the other bodies can: their pull less the pull at the centre is at most the larger of the
+# release's and the landing's for the whole flight, so |d| <= |a| t^2 / 2.
+if "tide_m_s2" not in lob:
+    cannot("the orb row carries no tide, so the pull of the other bodies went unread.", flew)
+tide_m = 0.5 * float(lob["tide_m_s2"]) * t * t
 flat = lob_speed * t
 # The floor under any displacement read off single-precision world positions: 32 ulps of the range.
 noise_m = 32.0 * 2.0 ** -24 * max(flat, 1.0)
 if abs(t - t_free) / t_free > bound:
     fails.append("it flew for %.4g s where sqrt(2h/g) is %.4g s" % (t, t_free))
-if abs(along - flat) > coriolis_m + noise_m + bound * flat:
+if abs(along - flat) > coriolis_m + tide_m + noise_m + bound * flat:
     fails.append("it came down %.4g m along the throw where v0*t is %.4g m, past the %.3g m the frame's "
-                 "own rotation could move it" % (along, flat, coriolis_m))
-if across > coriolis_m + noise_m:
-    fails.append("it drifted %.4g m across the throw where the frame's rotation allows %.3g m"
-                 % (across, coriolis_m + noise_m))
+                 "rotation and the other bodies' tide could move it" % (along, flat, coriolis_m + tide_m))
+if across > coriolis_m + tide_m + noise_m:
+    fails.append("it drifted %.4g m across the throw where the frame's rotation and the other bodies' "
+                 "tide allow %.3g m" % (across, coriolis_m + tide_m + noise_m))
 if int(lob.get("cell", -1)) < 0:
     fails.append("it stopped outside the field box, so it landed on a declared radius and not on rock")
 
@@ -177,8 +182,8 @@ if dry_rc != 0:
     fails.append("the rung-0 run exited %d" % dry_rc)
 
 print('LOB={"g_release":%.4f,"drop_m":%.1f,"flight_rel":%.2e,"along_rel":%.2e,"across_m":%.3g,'
-      '"coriolis_m":%.3g,"noise_m":%.3g,"spin":"%s","cell":%d}'
-      % (g, h, abs(t - t_free) / t_free, abs(along - flat) / flat, across, coriolis_m, noise_m,
+      '"coriolis_m":%.3g,"tide_m":%.3g,"noise_m":%.3g,"spin":"%s","cell":%d}'
+      % (g, h, abs(t - t_free) / t_free, abs(along - flat) / flat, across, coriolis_m, tide_m, noise_m,
          "measured" if "omega_rad_s" in lob else "unmeasured", int(lob.get("cell", -1))))
 print('LOB_FACE={"edge_m":%.1f,"g_out":%.6g,"g_in":%.6g,"mu_rel":%.2e,"face_bound":%.2e,'
       '"speed_rel":%.2e,"drop_bound":%.2e,"cell_out":%d,"cell_in":%d,"crossed":%s}'

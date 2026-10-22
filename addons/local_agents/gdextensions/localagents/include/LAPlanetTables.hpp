@@ -74,6 +74,9 @@ public:
 	static Dictionary site_box(Object *p_terrain, bool p_coast, const Vector3 &p_offset,
 			const Vector3i &p_dims, double p_cell_m, int p_surface_axis);
 	static double radius_for_mass(double p_mass_kg, double p_t_c);
+	// The mass of the relaxed body whose surface stands at `p_radius_m`: the mass `body_field`'s monopole
+	// is the field of. Negative where the profile does not solve.
+	static double profile_mass_kg(double p_radius_m, double p_t_c);
 	static double core_radius_m(double p_radius_m, double p_t_c);
 	// Depth of the conductive lid, metres: where its geotherm meets the mantle adiabat.
 	static double lid_thickness_m(double p_radius_m, double p_t_c);

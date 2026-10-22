@@ -767,6 +767,11 @@ Dictionary LAPlanetComposition::upload_body_field(RenderingDevice *p_rd, const D
 	return bf;
 }
 
+double LAPlanetComposition::profile_mass_kg(double p_radius_m, double p_t_c) {
+	const RadialProfile prof = radial_profile(p_radius_m, p_t_c);
+	return prof.n > 0 ? prof.mass : -1.0;
+}
+
 // The core boundary of the relaxed body of radius R, metres.
 double LAPlanetComposition::core_radius_m(double p_radius_m, double p_t_c) {
 	const RadialProfile prof = radial_profile(p_radius_m, p_t_c);
@@ -1495,6 +1500,7 @@ void LAPlanetComposition::_bind_methods() {
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("shell_density", "t_c", "p_pa"), &shell_density);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("core_radius_frac", "t_c", "p_pa"), &core_radius_frac);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("radius_for_mass", "mass_kg", "t_c"), &radius_for_mass);
+	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("profile_mass_kg", "radius_m", "t_c"), &profile_mass_kg);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("core_radius_m", "radius_m", "t_c"), &core_radius_m);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("lid_thickness_m", "radius_m", "t_c"), &lid_thickness_m);
 	ClassDB::bind_static_method("LAPlanetComposition", D_METHOD("body_field", "grid", "centre", "radius_m", "t_c"), &body_field);

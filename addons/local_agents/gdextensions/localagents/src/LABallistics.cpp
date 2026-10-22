@@ -128,10 +128,10 @@ Dvec pull(double p_mu, double p_r_body, const Dvec &p_from, const Dvec &p_at) {
 	return dir * (p_mu / (len * len));
 }
 
-// The gravity switch, not the gravity record: a world whose gravity is off has no pull anywhere, and
-// no tide either.
+// A pull exists where the world contains the gravity process and it is switched on; a rung below it, or a
+// world with it off, has no pull anywhere and no tide either.
 bool gravity_on() {
-	return LAProcessSet::is_switched_on("pass", "GravityPass.gd");
+	return LAProcessSet::is_active("pass", "GravityPass.gd", LAProcessSet::ANY);
 }
 
 int frame_index() {
@@ -411,7 +411,7 @@ Vector3 LABallistics::acceleration_at(const Vector3 &p_at, int p_exclude) {
 
 Vector3 LABallistics::tidal_at(const Vector3 &p_at) {
 	const int fr = frame_index();
-	if (fr < 0) {
+	if (fr < 0 || !gravity_on()) {
 		return Vector3();
 	}
 	const Dvec at(p_at);
@@ -459,7 +459,7 @@ double LABallistics::tide_peak_ratio() {
 
 double LABallistics::tidal_potential_at(const Vector3 &p_at) {
 	const int fr = frame_index();
-	if (fr < 0) {
+	if (fr < 0 || !gravity_on()) {
 		return 0.0;
 	}
 	const Dvec c = tb().system[fr].centre;
