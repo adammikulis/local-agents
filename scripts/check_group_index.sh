@@ -7,11 +7,16 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh"
 . "$ROOT/scripts/lib_godot.sh"
+. "$ROOT/scripts/lib_capture.sh"
 require_tool python3
 
 UNIT="addons/local_agents/tests/gate_group_index.gd"
 [ -f "$ROOT/$UNIT" ] || { echo "check_group_index: no probe at $UNIT" >&2; exit 2; }
-unit="$(la_godot --headless --path "$ROOT" -s "res://$UNIT" 2>&1)"
+if la_cap_dir >/dev/null; then
+	unit="$(la_headless group_index)" || exit 2
+else
+	unit="$(la_godot --headless --path "$ROOT" -s "res://$UNIT" 2>&1)"
+fi
 line="$(printf '%s\n' "$unit" | grep -m1 '^GROUP_INDEX=')"
 if [ -z "$line" ]; then
 	echo "check_group_index: the probe printed no GROUP_INDEX line." >&2

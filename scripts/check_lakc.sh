@@ -6,6 +6,7 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh"
+. "$ROOT/scripts/lib_native_build.sh"
 require_tool cmake
 
 NATIVE="$ROOT/addons/local_agents/native"
@@ -16,13 +17,10 @@ LAKC="$NATIVE/bin/lakc"
 
 # The compiler alone. Baking the blob is check_native_device's arm, and building it here would turn a
 # kernel that does not compile into a build failure instead of this gate's own verdict.
-if ! "$NATIVE/build.sh" --target lakc >/tmp/check_lakc_build.$$ 2>&1; then
+if ! la_native_build --target lakc; then
 	echo "check_lakc: the native build failed; lakc could not be produced." >&2
-	tail -30 /tmp/check_lakc_build.$$ >&2
-	rm -f /tmp/check_lakc_build.$$
 	exit 2
 fi
-rm -f /tmp/check_lakc_build.$$
 [ -x "$LAKC" ] || { echo "check_lakc: the build produced no $LAKC" >&2; exit 2; }
 
 count="$(ls "$KERNELS"/*.glsl 2>/dev/null | wc -l | tr -d '[:space:]')"

@@ -75,7 +75,14 @@ script = "scripts/check_lock_reclaim.sh"
 kind = "text"
 marker = "^check_lock_reclaim: OK"
 inputs = ["@extension"]
-mutation = "python3 -c \"import pathlib; p = pathlib.Path('scripts/lib_godot_lock.sh'); s = p.read_text(); i = s.index('la_dir_next() {'); j = s.index(chr(10) + '}' + chr(10), i) + 3; p.write_text(s[:i] + 'la_dir_next() {' + chr(10) + '\\tlocal n=0' + chr(10) + '\\twhile [ -e \\\"$1/$n\\\" ] || [ -L \\\"$1/$n\\\" ]; do n=$((n + 1)); done' + chr(10) + '\\tprintf %s \\\"$n\\\"' + chr(10) + '}' + chr(10) + s[j:])\""
+mutation = [
+	"perl -0pi -e 's/\\[ -z \"\\$ahead\" \\] && //' scripts/lib_godot_lock.sh",
+	"perl -0pi -e 's/\\[ \"\\$head\" = \"\\$n\" \\] && //' scripts/lib_godot_lock.sh",
+	"perl -0pi -e 's/(if \\[ -z \"\\$owner\" \\]) \\|\\| ! kill -0 \"\\$owner\" 2>\\/dev\\/null; then(\\n\\t\\t\\t\\techo \"\\$\\(basename \"\\$lock\"\\): clearing)/$1; then$2/' scripts/lib_godot_lock.sh",
+	"perl -0pi -e 's/ln -s \"\\$\\$\" \"\\$lock\" 2>\\/dev\\/null; then/ln -sf \"\\$\\$\" \"\\$lock\" 2>\\/dev\\/null; then/' scripts/lib_godot_lock.sh",
+	"perl -0pi -e 's/\\[ \"\\$r_want\" -lt 0 \\] && return 0/return 0/' scripts/lib_godot_lock.sh",
+	"perl -0pi -e 's/\\[ \"\\$n\" -gt \"\\$best\" \\] && best=\"\\$n\"/[ \"\\$n\" -eq \"\\$((best + 1))\" ] && best=\"\\$n\"/' scripts/lib_godot_lock.sh",
+]
 
 [[gate]]
 name = "check_gate_shapes"
@@ -182,7 +189,10 @@ script = "scripts/check_gpu_gate_list.sh"
 kind = "text"
 marker = "^check_gpu_gate_list: OK"
 inputs = ["scripts/gates.toml", "scripts/gate_runner.py", "scripts/lib_gate_cache.py", "scripts/*.sh"]
-mutation = "python3 -c \"import pathlib; p = pathlib.Path('scripts/gates.toml'); t = p.read_text(); i = t.index('name = ' + chr(34) + 'check_boundary_wrap' + chr(34)); j = t.index('gpu', i); p.write_text(t[:j] + 'text' + t[j + 3:])\""
+mutation = [
+	"python3 -c \"import pathlib; p = pathlib.Path('scripts/gates.toml'); t = p.read_text(); i = t.index('name = ' + chr(34) + 'check_boundary_wrap' + chr(34)); j = t.index('gpu', i); p.write_text(t[:j] + 'text' + t[j + 3:])\"",
+	"python3 -c \"import pathlib; p = pathlib.Path('scripts/gates.toml'); t = p.read_text(); i = t.index('name = ' + chr(34) + 'check_tool_safety' + chr(34)); j = t.index('text', i); p.write_text(t[:j] + 'gpu' + t[j + 4:])\"",
+]
 
 [[gate]]
 name = "check_quiet_window"
@@ -919,6 +929,7 @@ mutation = "perl -0pi -e 's/GRAVITATIONAL_CONSTANT: float = [0-9.e-]+/GRAVITATIO
 name = "check_live_toggles"
 script = "scripts/check_live_toggles.sh"
 kind = "gpu"
+needs = ["import"]
 marker = "^check_live_toggles: OK"
 inputs = ["@engine", "@sim_run"]
 mutation = [
@@ -1232,20 +1243,26 @@ name = "check_lakc"
 script = "scripts/check_lakc.sh"
 kind = "text"
 marker = "^check_lakc: OK"
-inputs = ["@native", "addons/local_agents/sim/material/kernels3d/**"]
+inputs = ["@native", "@extension", "addons/local_agents/sim/material/kernels3d/**"]
 mutation = "printf 'void la_mut( {\\n' >> addons/local_agents/sim/material/kernels3d/pressure.glsl"
 
 [[gate]]
 name = "check_native_device"
 script = "scripts/check_native_device.sh"
 kind = "gpu"
+needs = []
 marker = "^check_native_device: OK"
 inputs = ["@engine", "@sim_run"]
+mutation = [
+	"perl -0pi -e 's/if \\(la::content_hash\\(body, body_size\\) != stored\\) \\{/if (false) {/' addons/local_agents/native/src/device/KernelBlob.cpp",
+	"perl -0pi -e 's/dev\\.dispatch\\(first, groups\\);/dev.dispatch(first, 0);/' addons/local_agents/native/src/cli/SelftestDevice.cpp",
+]
 
 [[gate]]
 name = "check_kernel_properties"
 script = "scripts/check_kernel_properties.sh"
 kind = "gpu"
+needs = []
 marker = "^check_kernel_properties: OK"
 inputs = ["@engine", "@sim_run", "docs/KERNEL_PROPERTY_CEILING"]
 mutation = "sed -i '' 's|acc += la_load(uint(a));|acc -= la_load(uint(a));|' addons/local_agents/sim/material/kernels3d/pressure.glsl"
