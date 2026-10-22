@@ -106,7 +106,8 @@ creatures and cognition. Broader requirements live in `docs/PHYSICS_TODO.md` and
   `scripts/integrate.sh <branch>`; prune every worktree you made. → `docs/agents/workflow.md`
 - Slow is a defect. A run over 3x its known time is a hang until sampled: `sample <pid>`, read the stack and fix
   the cause that turn; never report a duration and move on, never wait on it.
-- Lint before landing: `LA_NO_GPU=1 scripts/agent_harness.sh lint`; one sim at a time; runs answer inside
+- Lint before committing: `scripts/agent_harness.sh lint` (the fast tier: no engine, seconds); landing runs the fast
+  tier plus the slow gates its diff reaches; `lint --all` is CI's; one sim at a time; runs answer inside
   `docs/RUN_TIMEOUT_CEILING`; launch only via `la_godot`. → `docs/agents/validation.md`
 - Physics is built one rung at a time; acceptance is a slice; a rung is built only after the maintainer
   approves the demo below it; named phenomena are detectors, never causes. → `docs/agents/physics-ladder.md`

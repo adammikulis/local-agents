@@ -61,13 +61,14 @@ Commands:
                 scores is the half that moves. Prints the table row ready to paste. Takes its own
                 comparison runs for determinism and observer independence, so it is minutes.
                 e.g. agent_harness.sh score --frames 300
-  lint [args]   Run every structural gate listed in scripts/gates.toml, through
-                scripts/gate_runner.py. A worker pool runs every gate that needs no device beside one
-                in-order queue of gpu gates. A gate whose declared `inputs` are byte-identical to its
-                last pass is reported LINT_CACHED and not run; an integration run and CI read no cache.
-                CI runs this exact command, so a green here is a green there.
-                Args reach the runner: --only NAME (repeatable), --mutate NAME, --timing, --json OUT,
-                --jobs N, --no-cache.
+  lint [args]   Run the structural gates listed in scripts/gates.toml, through scripts/gate_runner.py.
+                Bare `lint` is the FAST tier: gates that start no engine, seconds. `lint --slow` is the
+                slow tier (engine launches, the shared capture, a device); `lint --all` is both, which is
+                what CI runs. `--affected-by REF` keeps only the slow gates a diff since REF reaches, as
+                scripts/integrate.sh does. A gate whose declared `inputs` are byte-identical to its last
+                pass is reported LINT_CACHED and not run; an integration run and CI read no cache.
+                Args reach the runner: --only NAME (repeatable, any tier), --mutate NAME, --timing,
+                --json OUT, --jobs N, --no-cache.
                 Exit 0 clean · 1 a gate reported a violation · 2 a gate COULD NOT RUN.
   -h | --help   Show this help and exit 0.
 

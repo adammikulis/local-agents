@@ -22,7 +22,7 @@ jobs:
       - name: Import
         run: scripts/godot_import.sh .
       - name: Lint (GPU arm)
-        run: scripts/agent_harness.sh lint
+        run: scripts/agent_harness.sh lint --all
       - name: Release ladder
         run: |
           rung="$(rg -N '^[0-9]+$' docs/PLAYABLE_RUNG)"

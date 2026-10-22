@@ -146,8 +146,8 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
   dependencies build once into `$HOME/.cache/local-agents/extdeps/<key>`; `bin/SOURCE_HASH` must match
   the sources or `la_godot` refuses. A `.glsli` edit re-imports exactly the kernels that include it
   (`.godot/la_kernel_includes`). `LA_LAUNCH_LOG` counts engine launches per lint against `docs/LAUNCH_CEILING`.
-- **`lint` is the gate CI runs.** A lane runs `LA_NO_GPU=1 scripts/agent_harness.sh lint`, which skips the
-  gates that need a real GPU and names each one it skipped. Exit 0 clean · 1 a violation · 2 a gate could
+- **`lint --all` is the gate CI runs.** A lane runs `scripts/agent_harness.sh lint`, the fast tier, which starts
+  no engine; `lint --slow` runs the gates that launch one. Exit 0 clean · 1 a violation · 2 a gate could
   not run.
 - Always run SceneTree harness scripts via `godot --headless --no-window -s <script>`.
 - Canonical harness scripts:

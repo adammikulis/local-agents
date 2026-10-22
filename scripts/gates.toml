@@ -7,6 +7,11 @@
 # launches          whether the gate starts an engine. Default: kind != "text". A gate that starts
 #                   none takes no device and waits on no machine lock, so it runs in the worker pool
 #                   whatever its kind; the launch ledger holds every row to its declaration.
+# tier              "fast" starts no engine; "slow" launches one, reads the capture one made, or needs a device.
+#                   Derived from launches, capture_reader and kind = "gpu"; declare `tier = "slow"` only on a row
+#                   that is slow for another reason. `lint` runs fast, `lint --slow` slow, `lint --all` both.
+#                   A slow row declares `inputs` so a landing can skip it; the exceptions are named in
+#                   docs/SLOW_GATES_WITHOUT_INPUTS.
 # capture_reader    a no-launch row reads shared capture; without one it starts its own engine.
 # last              the gate reads the ledgers of the whole run, so it runs after every other one wherever
 #                   it is listed, and is never cached: it declares no inputs.
@@ -21,9 +26,6 @@
 #                   extension build and engine binary are unchanged. "@name" is a [sets] entry. Omit it when
 #                   the verdict also reads the index, history, a clock or a ledger. check_gate_inputs holds it.
 # exclusive         runs with the pool idle; for a gate that times something on this host or edits the tree.
-
-[defaults]
-timeout_s = 900
 
 [sets]
 engine = ["project.godot", "addons/**", "docs/CELL_BUDGET", "docs/PLAYABLE_RUNG"]
@@ -121,6 +123,21 @@ mutation = [
 ]
 
 [[gate]]
+name = "check_gate_tiers"
+script = "scripts/check_gate_tiers.sh"
+kind = "text"
+marker = "^check_gate_tiers: OK"
+inputs = ["scripts/gates.toml", "scripts/gate_runner.py", "scripts/lib_gate_cache.py", "docs/SLOW_GATES_WITHOUT_INPUTS",
+	"docs/SLOW_GATES_WITHOUT_INPUTS_CEILING"]
+mutation = [
+	"python3 -c \"from pathlib import Path; p=Path('docs/SLOW_GATES_WITHOUT_INPUTS'); p.write_text(p.read_text().replace('check_field_budget\\n', ''))\"",
+	"printf 'check_chat_prompt\\n' >> docs/SLOW_GATES_WITHOUT_INPUTS",
+	"printf 'check_no_such_gate\\n' >> docs/SLOW_GATES_WITHOUT_INPUTS",
+	"python3 -c \"from pathlib import Path; p=Path('docs/SLOW_GATES_WITHOUT_INPUTS_CEILING'); p.write_text(p.read_text().replace('\\n8\\n', '\\n7\\n'))\"",
+	"perl -0pi -e 's/(name = \"check_snapshot_roundtrip\".*?)inputs = \\[[^\\]]*\\]\\n/$1/s' scripts/gates.toml",
+]
+
+[[gate]]
 name = "check_capture_publication"
 script = "scripts/check_capture_publication.sh"
 kind = "text"
@@ -156,7 +173,10 @@ name = "check_godot_launcher"
 script = "scripts/check_godot_launcher.sh"
 kind = "text"
 marker = "^check_godot_launcher: OK"
-mutation = "printf 'godot --headless --path .\\n' >> scripts/check_voxel_grid.sh"
+mutation = [
+	"printf 'godot --headless --path .\\n' >> scripts/check_voxel_grid.sh",
+	"perl -pi -e 's/agent_harness\\.sh\" lint 2>&1/agent_harness.sh\" lint --all 2>&1/' scripts/githooks/pre-commit",
+]
 
 [[gate]]
 name = "check_no_focus_theft"
@@ -1004,10 +1024,20 @@ mutation = [
   "perl -0pi -e 's/shutil\\.copytree\\(os\\.path\\.join\\(ROOT, BIN_REL\\)[^\\n]*/pass/' scripts/gate_runner.py",
   '''python3 -c 'from pathlib import Path; p=Path('"'"'scripts/gate_runner.py'"'"'); s=p.read_text(); old='"'"'return g["launches"] or (g["capture_reader"] and not capture)'"'"'; assert old in s; p.write_text(s.replace(old,'"'"'return g["launches"]'"'"'))'''',
   '''python3 -c 'from pathlib import Path; p=Path('"'"'scripts/gate_runner.py'"'"'); s=p.read_text(); old='"'"'if rc1 not in (0, 1):'"'"'; assert old in s; p.write_text(s.replace(old,'"'"'if rc1 == 2:'"'"'))'''',
-  '''python3 -c 'from pathlib import Path; p=Path("scripts/gate_runner.py"); s=p.read_text(); old='"'"'        note("%s printed no verdict inside %ds.\\n" % (g["label"], g["timeout_s"]))\n        rc = 2'"'"'; assert old in s; p.write_text(s.replace(old,'"'"'        note("%s printed no verdict inside %ds.\\n" % (g["label"], g["timeout_s"]))\n        rc = 124'"'"'))'''',
+  '''python3 -c 'from pathlib import Path; p=Path("scripts/gate_runner.py"); s=p.read_text(); old='"'"'        rc = 1\n    if reader.is_alive'"'"'; assert old in s; p.write_text(s.replace(old,'"'"'        rc = 0\n    if reader.is_alive'"'"'))'''',
   '''python3 -c 'from pathlib import Path; p=Path('"'"'scripts/write_ceilings.sh'"'"'); s=p.read_text(); old='"'"'\t\tgrep -Fxq "LINT_BANKABLE=1" "$log" 2>/dev/null || continue'"'"'; assert old in s; p.write_text(s.replace(old,'"'"'\t\t:'"'"'))'''',
   '''python3 -c 'from pathlib import Path; p=Path('"'"'scripts/lib_capture.sh'"'"'); s=p.read_text(); old='"'"'case "$result" in 0|1|2) return "$result" ;; *) return 2 ;; esac'"'"'; assert old in s; p.write_text(s.replace(old,'"'"'return 0'"'"'))'''',
   '''python3 -c 'from pathlib import Path; p=Path("scripts/gate_runner.py"); s=p.read_text(); old="        if rc in (0, 1):\n            rc = 1"; assert old in s; p.write_text(s.replace(old,"        rc = 1"))'''',
+	"perl -0pi -e 's/return \"declares no inputs\"/return None/' scripts/gate_runner.py",
+	"perl -0pi -e 's/if declared == \"fast\" and engine:/if False:/' scripts/gate_runner.py",
+	"perl -0pi -e 's/    if why:\\n        for g in gates:/    if True:\\n        for g in gates:/' scripts/gate_runner.py",
+	"perl -0pi -e 's/\"--no-renames\", //' scripts/gate_runner.py",
+	"perl -0pi -e 's/    wanted = any\\(/    wanted = True or any(/' scripts/gate_runner.py",
+	"perl -0pi -e 's/return \\{g\\[\"name\"\\] for g in gates if before\\.get\\(g\\[\"name\"\\]\\) != declaration\\(g\\[\"raw\"\\], sets\\)\\}/return set()/' scripts/gate_runner.py",
+	"perl -pi -e 's/\\$3 == \"fast\"/\\$3 != \"\"/g' scripts/check_lint_fast_budget.sh",
+	"perl -0pi -e 's/max\\(BUDGET_FLOOR, BUDGET_FACTOR \\* entries\\[name\\]\\)/BUDGET_FACTOR * entries[name]/' scripts/gate_runner.py",
+	"perl -0pi -e 's/min\\(entries\\.get\\(name, math\\.inf\\), (max\\(1, math\\.ceil\\(secs\\)\\))\\)/$1/' scripts/gate_runner.py",
+	"perl -0pi -e 's/return DEFAULT_SECONDS\\[tier\\]/return 3600/' scripts/gate_runner.py",
 ]
 
 [[gate]]
@@ -1295,7 +1325,6 @@ name = "check_cache_invalidation"
 script = "scripts/check_cache_invalidation.sh"
 kind = "text"
 marker = "^check_cache_invalidation: OK"
-needs = ["capture"]
 exclusive = true
 
 [[gate]]
@@ -1505,6 +1534,7 @@ script = "scripts/check_launch_count.sh"
 needs = []
 kind = "headless"
 launches = false
+tier = "slow"
 last = true
 marker = "^check_launch_count: OK"
 mutation = "printf '0\\n' > docs/LAUNCH_CEILING; printf 'la_godot --headless --path .\\n' >> \"$LA_LINT_LAUNCHES\""
@@ -1517,4 +1547,12 @@ kind = "gpu"
 launches = false
 last = true
 marker = "^check_lint_budget: OK"
-mutation = "printf '9999.0\\tcheck_mutant_sleep.sh\\n' >> \"$LA_LINT_TIMING_LOG\""
+mutation = "printf '9999.0\\tcheck_mutant_sleep.sh\\tslow\\n' >> \"$LA_LINT_TIMING_LOG\""
+
+[[gate]]
+name = "check_lint_fast_budget"
+script = "scripts/check_lint_fast_budget.sh"
+kind = "text"
+last = true
+marker = "^check_lint_fast_budget: OK"
+mutation = "printf '9999.0\\tcheck_mutant_sleep.sh\\tfast\\n' >> \"$LA_LINT_TIMING_LOG\""

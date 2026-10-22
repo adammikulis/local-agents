@@ -28,7 +28,8 @@ def put(rel, text, mode=0o755):
 
 def lint(*args, env=None):
     base = {k: v for k, v in os.environ.items() if k not in ("CI", "LA_INTEGRATE_BRANCH", "LA_LAUNCH_LOG",
-                                                              "LA_LINT_CAPTURE", "LA_NO_GPU")}
+                                                              "LA_LINT_CAPTURE", "LA_NO_GPU", "LA_LINT_TIMING_LOG",
+                                                              "LA_LOCK_WAIT_LOG", "LA_LINT_LAUNCHES")}
     base.update({"LA_GATE_CACHE": os.path.join(work, "cache"), "GODOT": "true"})
     base.update(env or {})
     run = subprocess.run([sys.executable, "scripts/gate_runner.py", *args], cwd=repo, env=base,
@@ -115,10 +116,10 @@ try:
     rows = open(os.path.join(repo, "scripts/gates.toml")).read().split("[[gate]]")
     last, launcher = [r for r in rows if "check_count" in r][0], [r for r in rows if "check_launcher" in r][0]
     put("scripts/gates.toml", "[[gate]]" + last + "[[gate]]" + launcher, 0o644)
-    rc, out, c = lint()
+    rc, out, c = lint("--all")
     expect("a last row counts the launches after it", rc == 0 and "check_count: OK (1)" in out, (rc, out[-400:]))
     put("scripts/gates.toml", "[[gate]]" + last.replace("last = true\n", "last = true\ninputs = []\n"), 0o644)
-    rc, out, c = lint()
+    rc, out, c = lint("--all")
     expect("a last row declares no inputs", rc == 2 and "never reusable" in out, (rc, out[-300:]))
 except (OSError, subprocess.CalledProcessError, AttributeError, KeyError, TypeError) as exc:
     print("check_gate_cache: could not build the fixture: %r" % exc, file=sys.stderr)

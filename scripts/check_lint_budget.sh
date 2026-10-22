@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Capture and gate wall durations, added up, less the seconds this runner scope
+# Capture and slow-tier gate wall durations, added up, less the seconds this runner scope
 # spent queued behind another lane on the machine locks — a budget that counted the queue would read how
 # busy the machine was, not what this tree costs to verify. Against docs/LINT_SECONDS_CEILING, a ratchet:
 # write the number it fell to, never raise it to turn a light green.
@@ -33,12 +33,12 @@ if ! grep -q 'LA_LOCK_WAIT_LOG' "$ROOT/scripts/lib_godot_lock.sh"; then
 	exit 2
 fi
 
-GATES="$(grep -c . "$TIMING" | tr -d ' ')"
+GATES="$(awk -F'\t' '$3 == "slow"' "$TIMING" | grep -c . | tr -d ' ')"
 if [ "$GATES" -lt 2 ]; then
 	echo "check_lint_budget: the run timed $GATES gate(s), so there is no lint here to weigh." >&2
 	exit 2
 fi
-SPENT="$(awk -F'\t' '{s += $1} END {printf "%.3f", s + 0}' "$TIMING")"
+SPENT="$(awk -F'\t' '$3 == "slow" {s += $1} END {printf "%.3f", s + 0}' "$TIMING")"
 QUEUED="$(awk -F'\t' '{s += $1} END {printf "%.3f", s + 0}' "${LA_LOCK_WAIT_LOG:-/dev/null}" 2>/dev/null)"
 [ -n "$QUEUED" ] || QUEUED=0
 OWN="$(awk -v a="$SPENT" -v b="$QUEUED" 'BEGIN{v = a - b; printf "%.3f", (v > 0 ? v : 0)}')"
@@ -56,5 +56,5 @@ echo >&2
 echo "This lint spent $OWN s of its own work, past docs/LINT_SECONDS_CEILING of $CEIL. The landing loop" >&2
 echo "is one lint per landing, so this is the cost of every change. Cut a launch, share the capture, or" >&2
 echo "cut an arm's frames to the fewest that prove its claim. The slowest gates:" >&2
-sort -rn "$TIMING" | head -12 >&2
+awk -F'\t' '$3 == "slow"' "$TIMING" | sort -rn | head -12 >&2
 exit 1
