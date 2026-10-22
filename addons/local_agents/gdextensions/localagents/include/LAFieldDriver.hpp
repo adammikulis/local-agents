@@ -72,6 +72,7 @@ public:
 	static void rig_wait_usec(double p_usec);
 	// The dispatch whose refusal aborted the step, or empty. Once aborted, nothing more is recorded.
 	String aborted() const;
+	void fail(const String &p_reason);
 
 	void open();
 	void close();

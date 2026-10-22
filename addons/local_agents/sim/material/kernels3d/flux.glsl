@@ -789,6 +789,9 @@ void move_momentum(uint c) {
 
 
 // PASS_MOMENTUM_APPLY: once every cell has read its neighbours' velocities, so a face's two sides trade equally.
+layout(set = 0, binding = LA_BIND_TIDAL_ACCEL, std430) restrict readonly buffer TideAccel { float tidal_accel[]; };
+layout(set = 0, binding = LA_BIND_TIDAL_WORK, std430) restrict buffer TideWork { float tidal_work[]; };
+
 void apply_momentum(uint c) {
 	if (solid[c] != 0.0 || collisionless(c)) {
 		return;
@@ -808,6 +811,9 @@ void apply_momentum(uint c) {
 	vec3 gv = g_at(c);
 	vec3 fg = (max(pressure[c], 0.0) > 0.0 && length(gv) > 0.0) ? rb * gv * la_level_dt(tlevel[c]) : vec3(0.0);
 	e[c] -= dot(0.5 * (v_old + v), dm - fg);
+	// Signed external work by the prescribed system bodies; their potential is excluded from pe_j_m3.
+	vec3 tide = vec3(tidal_accel[c * 3u], tidal_accel[c * 3u + 1u], tidal_accel[c * 3u + 2u]);
+	tidal_work[c] += dot(0.5 * (v_old + v), rb * tide * la_level_dt(tlevel[c]));
 	vel_x[c] = v.x;
 	vel_y[c] = v.y;
 	vel_z[c] = v.z;

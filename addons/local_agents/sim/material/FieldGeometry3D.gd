@@ -21,7 +21,9 @@ static func slot_toward(dir: Vector3) -> int:
 static func down(field, c: int) -> Vector3:
 	if field == null or field._gravity == null:
 		return Vector3.ZERO
-	return field._gravity.down_at(c)
+	var v: Vector3 = field._gravity.g_vec_at(c)
+	var l: float = v.length()
+	return (v / l) if l > 0.0 else Vector3.ZERO
 
 
 ## The local vertical, pointing away from the mass.

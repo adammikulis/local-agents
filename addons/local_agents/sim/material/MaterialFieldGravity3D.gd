@@ -125,14 +125,6 @@ func mean_g() -> float:
 	return float(_pass.mean_g()) if _pass != null else 0.0
 
 
-## The unit vector gravity points along at a cell — what "down" means here. Zero where g vanishes, and
-## zero before the first solve has been drained.
-func down_at(c: int) -> Vector3:
-	var v: Vector3 = g_vec_at(c)
-	var l: float = v.length()
-	return (v / l) if l > 0.0 else Vector3.ZERO
-
-
 ## The solved (or, in slice mode, declared-monopole) acceleration at a cell, m/s^2.
 func g_vec_at(c: int) -> Vector3:
 	_bind()

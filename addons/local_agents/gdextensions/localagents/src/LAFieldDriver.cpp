@@ -88,6 +88,13 @@ void LAFieldDriver::rig_wait_usec(double p_usec) {
 	g_rig_wait_usec = p_usec;
 }
 
+void LAFieldDriver::fail(const String &p_reason) {
+	if (_abort.empty()) {
+		_abort = p_reason.utf8().get_data();
+		UtilityFunctions::push_error("LAFieldDriver: " + p_reason);
+	}
+}
+
 String LAFieldDriver::aborted() const {
 	return String(_abort.c_str());
 }

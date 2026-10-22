@@ -60,6 +60,8 @@ func build(world: Node, sim: LASimulation, render: LARenderLayer, input: LAVoxel
 	_interaction.set_test_masses(sim.test_masses())
 	if _game_hud.has_method("set_test_masses"):
 		_game_hud.set_test_masses(sim.test_masses(), Callable(_interaction, "drop_test_mass"))
+	if _game_hud.has_method("set_tide"):
+		_game_hud.set_tide(camera)
 	_interaction.set_game_hud(_game_hud)
 	_companion.setup(camera, terrain, _hud)
 	_interaction.set_companion(_companion)
