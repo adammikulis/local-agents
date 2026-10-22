@@ -1,7 +1,8 @@
 extends SceneTree
 
 ## LAGroupIndex against a whole-group scan, in one physics frame: members moved across cells, the parent
-## turned under them, members joining and leaving. Prints GROUP_INDEX={"queries":N,"failures":N}.
+## turned under them, members joining and leaving. Prints GROUP_INDEX={"queries":N,"failures":N}. Run by its
+## own loop or lint_headless_batch.gd's, which calls `_after_frame` on the live tree.
 
 const GROUP: String = "gate_group_index"
 
@@ -16,15 +17,16 @@ class Member:
 
 
 var _done: bool = false
+var _tree: SceneTree = null
 var _queries: int = 0
 var _failures: int = 0
 
 
 func _check(index: LAGroupIndex, pos: Vector3, radius: float, what: String) -> void:
 	_queries += 1
-	var got: Array = index.nearby(self, GROUP, pos, radius)
+	var got: Array = index.nearby(_tree, GROUP, pos, radius)
 	var order: int = -1
-	var members: Array = get_nodes_in_group(GROUP)
+	var members: Array = _tree.get_nodes_in_group(GROUP)
 	for n in members:
 		var inside: bool = (n as Node3D).global_position.distance_to(pos) <= radius
 		if inside and not got.has(n):
@@ -53,15 +55,16 @@ func _member(parent: Node3D, index: LAGroupIndex, rng: RandomNumberGenerator, i:
 	return m
 
 
-func _process(_d: float) -> bool:
+func _after_frame() -> bool:
 	if _done:
 		return true
 	_done = true
+	_tree = Engine.get_main_loop() as SceneTree
 	var rng: RandomNumberGenerator = RandomNumberGenerator.new()
 	rng.seed = 97
 	var body: Node3D = Node3D.new()
 	body.position = Vector3(10.0, 6.6e6, -20.0)
-	get_root().add_child(body)
+	_tree.root.add_child(body)
 	var index: LAGroupIndex = LAGroupIndex.new()
 	var ms: Array = []
 	for i in 200:
@@ -87,5 +90,11 @@ func _process(_d: float) -> bool:
 				ms.append(_member(body, index, rng, 2000 + trial))
 		_check(index, q, r, "trial%d" % trial)
 	print("GROUP_INDEX=%s" % JSON.stringify({"queries": _queries, "failures": _failures}))
-	quit()
+	body.free()
 	return true
+
+
+func _process(_d: float) -> bool:
+	if _after_frame():
+		quit()
+	return false

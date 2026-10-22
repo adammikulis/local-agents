@@ -2,6 +2,7 @@
 
 #include "LAPhysicalRead.hpp"
 #include "LAPhaseEos.hpp"
+#include "LASubstanceRow.hpp"
 #include "LASubstances.hpp"
 
 #include <godot_cpp/core/class_db.hpp>
@@ -30,35 +31,32 @@ double prop(const String &p_id, const char *p_key, double p_default) {
 
 // A BOUNDARY WITH NO MEASURED LATENT HEAT IS NO BOUNDARY: crossing it would cost nothing, which is a
 // phase change for free. The row keeps whichever branches it does measure.
-bool has_fusion(const String &p_id) {
-	return std::isfinite(prop(p_id, "melt_c", kInf)) && prop(p_id, "latent_fusion_j_kg", 0.0) > 0.0;
+bool has_fusion(const LASubstanceRow &p_r) {
+	return std::isfinite(p_r.melt_c.or_(kInf)) && p_r.latent_fusion_j_kg.or_(0.0) > 0.0;
 }
 
-bool has_vaporisation(const String &p_id) {
-	const bool curve = bool(Dictionary(LASubstances::table().get(p_id, Dictionary())).get("iapws", false))
-			|| std::isfinite(prop(p_id, "boil_c", kInf)) || prop(p_id, "triple_p_pa", 0.0) > 0.0;
-	return curve && prop(p_id, "latent_vaporisation_j_kg", 0.0) > 0.0;
+bool has_vaporisation(const LASubstanceRow &p_r) {
+	const bool curve = p_r.iapws || std::isfinite(p_r.boil_c.or_(kInf)) || p_r.triple_p_pa.or_(0.0) > 0.0;
+	return curve && p_r.latent_vaporisation_j_kg.or_(0.0) > 0.0;
 }
-
-} // namespace
 
 // Where this substance's last condensed phase leaves: the frost point below the triple-point pressure,
 // the boiling point above it.
-double LAMixtureEnthalpy::vapour_boundary_c(const String &p_id, double p_p_pa) {
-	if (LASubstances::sublimes_at(p_id, p_p_pa)) {
-		return LASubstances::sublimation_c_at(p_id, p_p_pa);
+double vapour_boundary_of(const LASubstanceRow &p_r, double p_p_pa) {
+	if (la_substance::sublimes_at(p_r, p_p_pa)) {
+		return la_substance::sublimation_c_at(p_r, p_p_pa);
 	}
-	return LASubstances::boil_c_at(p_id, p_p_pa);
+	return la_substance::boil_c_at(p_r, p_p_pa);
 }
 
 // The vapour pressure of the phase actually present: sublimation while the condensate is solid, saturation
 // once it is liquid. ONE owner per boundary, both read off this table.
-double LAMixtureEnthalpy::vapour_p_at(const String &p_id, double p_t_c, double p_p_pa) {
-	const double melt = LASubstances::melt_c_at(p_id, p_p_pa, 0.0);
-	if (LASubstances::sublimes_at(p_id, p_p_pa) || (std::isfinite(melt) && p_t_c < melt)) {
-		return LASubstances::sublimation_p_at(p_id, p_t_c);
+double vapour_p_of(const LASubstanceRow &p_r, double p_t_c, double p_p_pa) {
+	const double melt = la_substance::melt_c_at(p_r, p_p_pa, 0.0);
+	if (la_substance::sublimes_at(p_r, p_p_pa) || (std::isfinite(melt) && p_t_c < melt)) {
+		return la_substance::sublimation_p_at(p_r, p_t_c);
 	}
-	return LASubstances::saturation_p_at(p_id, p_t_c);
+	return la_substance::saturation_p_at(p_r, p_t_c);
 }
 
 // THE SATURATION SPLIT AT FIXED VOLUME: the vapour fills the cell's gas room at its own saturation
@@ -66,50 +64,70 @@ double LAMixtureEnthalpy::vapour_p_at(const String &p_id, double p_t_c, double p
 // it is held at, so boiling is continuous in T and there is no plateau; the total pressure follows.
 // The split at a vapour pressure the caller already has. Solving the boundary is the expensive half, so
 // nothing that holds p_v pays for it twice.
-double LAMixtureEnthalpy::vapour_share(const String &p_id, double p_t_c, double p_m_kg, double p_room_m3,
-		double p_p_v) {
+double vapour_share_of(const LASubstanceRow &p_r, double p_t_c, double p_m_kg, double p_room_m3, double p_p_v) {
 	if (p_m_kg <= 0.0) {
 		return 0.0;
 	}
-	if (p_t_c >= prop(p_id, "critical_t_c", kInf)) {
+	if (p_t_c >= p_r.critical_t_c.or_(kInf)) {
 		return 1.0;
 	}
-	const double mm = prop(p_id, "molar_mass", 0.0);
+	const double mm = p_r.molar_mass.or_(0.0);
 	if (p_room_m3 <= 0.0 || mm <= 0.0 || p_p_v <= 0.0) {
 		return 0.0;
 	}
 	// The room holds saturated vapour at the density the gas's own equation of state gives it there.
 	const double t_k = p_t_c + la_physical("KELVIN_OFFSET");
-	const double z = LAPhaseEosFn::vapour_z(LAPhaseEosFn::fluid(p_id), t_k, p_p_v);
+	const double z = LAPhaseEosFn::vapour_z(p_r.fluid(), t_k, p_p_v);
 	return std::min(p_p_v * p_room_m3 / (z * la_physical("GAS_CONSTANT_J_MOL_K") * t_k) * mm / p_m_kg, 1.0);
+}
+
+} // namespace
+
+double LAMixtureEnthalpy::vapour_boundary_c(const String &p_id, double p_p_pa) {
+	return vapour_boundary_of(la_substance::row(p_id), p_p_pa);
+}
+
+double LAMixtureEnthalpy::vapour_p_at(const String &p_id, double p_t_c, double p_p_pa) {
+	return vapour_p_of(la_substance::row(p_id), p_t_c, p_p_pa);
+}
+
+double LAMixtureEnthalpy::vapour_share(const String &p_id, double p_t_c, double p_m_kg, double p_room_m3,
+		double p_p_v) {
+	return vapour_share_of(la_substance::row(p_id), p_t_c, p_m_kg, p_room_m3, p_p_v);
 }
 
 double LAMixtureEnthalpy::vapour_fraction(const String &p_id, double p_t_c, double p_p_pa, double p_m_kg,
 		double p_room_m3) {
-	if (!std::isfinite(vapour_boundary_c(p_id, p_p_pa))) {
+	const LASubstanceRow &r = la_substance::row(p_id);
+	if (!std::isfinite(vapour_boundary_of(r, p_p_pa))) {
 		return 0.0;
 	}
-	return vapour_share(p_id, p_t_c, p_m_kg, p_room_m3, vapour_p_at(p_id, p_t_c, p_p_pa));
+	return vapour_share_of(r, p_t_c, p_m_kg, p_room_m3, vapour_p_of(r, p_t_c, p_p_pa));
+}
+
+double LAMixtureEnthalpy::specific_enthalpy(const String &p_id, double p_t_c, double p_p_pa, double p_m_kg,
+		double p_room_m3) {
+	return specific_enthalpy_of(la_substance::row(p_id), p_t_c, p_p_pa, p_m_kg, p_room_m3);
 }
 
 // Specific enthalpy of one substance AS IT SITS IN THIS CELL: its own ladder's condensed and vapour
 // branches at this temperature, mixed by the room's vapour share, each read on its own side of the
 // saturation curve so the two meet at the critical point.
-double LAMixtureEnthalpy::specific_enthalpy(const String &p_id, double p_t_c, double p_p_pa, double p_m_kg,
-		double p_room_m3) {
-	if (!std::isfinite(vapour_boundary_c(p_id, p_p_pa)) || p_t_c >= prop(p_id, "critical_t_c", kInf)) {
-		return LASubstances::enthalpy_at(p_id, p_t_c, p_p_pa, 0.0);
+double LAMixtureEnthalpy::specific_enthalpy_of(const LASubstanceRow &p_r, double p_t_c, double p_p_pa,
+		double p_m_kg, double p_room_m3) {
+	if (!std::isfinite(vapour_boundary_of(p_r, p_p_pa)) || p_t_c >= p_r.critical_t_c.or_(kInf)) {
+		return la_substance::enthalpy_at(p_r, p_t_c, p_p_pa, 0.0);
 	}
-	const double p_v = vapour_p_at(p_id, p_t_c, p_p_pa);
-	const double f_v = vapour_share(p_id, p_t_c, p_m_kg, p_room_m3, p_v);
+	const double p_v = vapour_p_of(p_r, p_t_c, p_p_pa);
+	const double f_v = vapour_share_of(p_r, p_t_c, p_m_kg, p_room_m3, p_v);
 	if (f_v >= 1.0) {
-		return LASubstances::enthalpy_at(p_id, p_t_c, std::min(p_p_pa, p_v) * (1.0 - 1.0e-3), 0.0);
+		return la_substance::enthalpy_at(p_r, p_t_c, std::min(p_p_pa, p_v) * (1.0 - 1.0e-3), 0.0);
 	}
-	const double h_cond = LASubstances::enthalpy_at(p_id, p_t_c, std::max(p_p_pa, p_v * (1.0 + 1.0e-3)), 0.0);
+	const double h_cond = la_substance::enthalpy_at(p_r, p_t_c, std::max(p_p_pa, p_v * (1.0 + 1.0e-3)), 0.0);
 	if (f_v <= 0.0) {
 		return h_cond;
 	}
-	const double h_vap = LASubstances::enthalpy_at(p_id, p_t_c, std::min(p_p_pa, p_v) * (1.0 - 1.0e-3), 0.0);
+	const double h_vap = la_substance::enthalpy_at(p_r, p_t_c, std::min(p_p_pa, p_v) * (1.0 - 1.0e-3), 0.0);
 	return h_cond + f_v * (h_vap - h_cond);
 }
 
@@ -139,7 +157,7 @@ PackedFloat64Array LAMixtureEnthalpy::breakpoints(const Dictionary &p_masses, do
 		}
 		const double cand[4] = { LASubstances::melt_c_at(id, p_p_pa, 0.0),
 			LASubstances::liquidus_c_at(id, p_p_pa, 0.0), vapour_boundary_c(id, p_p_pa),
-			prop(id, "critical_t_c", kInf) };
+			la_substance::row(id).critical_t_c.or_(kInf) };
 		for (double t : cand) {
 			if (std::isfinite(t) && std::find(out.begin(), out.end(), t) == out.end()) {
 				out.push_back(t);
@@ -172,7 +190,7 @@ Dictionary LAMixtureEnthalpy::jump_at(const Dictionary &p_masses, double p_room_
 		const double liquidus = LASubstances::liquidus_c_at(id, p_p_pa, 0.0);
 		if (std::isfinite(solidus) && Math::is_equal_approx(solidus, p_t_b)
 				&& Math::is_equal_approx(liquidus, p_t_b)) {
-			const double l_fus = prop(id, "latent_fusion_j_kg", 0.0);
+			const double l_fus = la_substance::row(id).latent_fusion_j_kg.or_(0.0);
 			j += m * (1.0 - vapour_fraction(id, p_t_b, p_p_pa, m, p_room_m3)) * l_fus;
 		}
 		if (j > 0.0) {
@@ -349,8 +367,9 @@ PackedFloat32Array LAMixtureEnthalpy::thermal_row(const String &p_id) {
 	const bool has_vapour = iapws || std::isfinite(boil_c) || triple_p > 0.0;
 	ERR_FAIL_COND_V_MSG(has_vapour && !(l_vap > 0.0), out, vformat("LAMixtureEnthalpy: LASubstances gives \"%s\" "
 			"a vapour boundary and no latent_vaporisation_j_kg, so it would boil for nothing.", p_id));
-	const bool has_melt = has_fusion(p_id);
-	const bool has_boil = has_vaporisation(p_id);
+	const LASubstanceRow &row = la_substance::row(p_id);
+	const bool has_melt = has_fusion(row);
+	const bool has_boil = has_vaporisation(row);
 	out.resize(THERMAL_ROW_WORDS);
 	float *w = out.ptrw();
 	// A heat capacity the table does not measure is NaN: the state that needs it states nothing.
@@ -418,17 +437,18 @@ double LAMixtureEnthalpy::phase_specific_heat(const String &p_id, double p_t_c, 
 	const double c_liq = prop(p_id, "specific_heat", NAN);
 	const double c_sol = prop(p_id, "specific_heat_solid", NAN);
 	const double c_gas = prop(p_id, "specific_heat_gas", NAN);
-	if (!has_fusion(p_id) && !has_vaporisation(p_id)) {
+	const LASubstanceRow &row = la_substance::row(p_id);
+	if (!has_fusion(row) && !has_vaporisation(row)) {
 		return c_sol;
 	}
-	if (LASubstances::sublimes_at(p_id, p_p_pa) && has_vaporisation(p_id)) {
-		return p_t_c <= LASubstances::sublimation_c_at(p_id, p_p_pa) ? c_sol : c_gas;
+	if (la_substance::sublimes_at(row, p_p_pa) && has_vaporisation(row)) {
+		return p_t_c <= la_substance::sublimation_c_at(row, p_p_pa) ? c_sol : c_gas;
 	}
-	if (has_fusion(p_id) && p_t_c <= LASubstances::melt_c_at(p_id, p_p_pa, 0.0)) {
+	if (has_fusion(row) && p_t_c <= la_substance::melt_c_at(row, p_p_pa, 0.0)) {
 		return c_sol;
 	}
-	const double boil = LASubstances::boil_c_at(p_id, p_p_pa);
-	return (!has_vaporisation(p_id) || !std::isfinite(boil) || p_t_c <= boil) ? c_liq : c_gas;
+	const double boil = la_substance::boil_c_at(row, p_p_pa);
+	return (!has_vaporisation(row) || !std::isfinite(boil) || p_t_c <= boil) ? c_liq : c_gas;
 }
 
 void LAMixtureEnthalpy::_bind_methods() {

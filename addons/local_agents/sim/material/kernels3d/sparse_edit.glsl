@@ -22,6 +22,8 @@ layout(set = 0, binding = LA_BIND_INJECT_APPLIED, std430) restrict writeonly buf
 
 const int LA_INJECT_ADD = 0;
 const int LA_INJECT_MOVE = 1;
+// A credit to a stock with no zero: internal energy, momentum, charge.
+const int LA_INJECT_ADD_SIGNED = 2;
 
 layout(push_constant, std430) uniform Params {
 	uint base;         // first entry of this dispatch
@@ -50,13 +52,14 @@ void main() {
 	uint su = uint(s);
 	float amount = inj_val[e * 2u];
 	float ceiling = inj_val[e * 2u + 1u];
-	if (op == LA_INJECT_ADD) {
+	if (op != LA_INJECT_MOVE) {
 		float before = src_ch[su];
 		float delta = amount;
 		if (delta > 0.0) {
 			delta = min(delta, max(0.0, ceiling - before));   // fill the headroom, never push a cell down
 		}
-		float after = max(0.0, before + delta);
+		// An amount of matter stops at none; a signed stock has no zero to stop at.
+		float after = op == LA_INJECT_ADD ? max(0.0, before + delta) : before + delta;
 		src_ch[su] = after;
 		inj_applied[e] = after - before;
 		return;

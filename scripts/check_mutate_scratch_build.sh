@@ -9,7 +9,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 require_tool python3
 require_tool git
 
-python3 - "$ROOT" <<'PY'
+python3 - "$ROOT" <<'PY' || exit "$?"
 import os, shutil, subprocess, sys, tempfile
 
 sys.dont_write_bytecode = True
@@ -44,3 +44,5 @@ if got != "this-tree":
     sys.exit(1)
 print("check_mutate_scratch_build: OK")
 PY
+
+python3 "$ROOT/scripts/tests/gate_runner_behavior.py" "$ROOT"

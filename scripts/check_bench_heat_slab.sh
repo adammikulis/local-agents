@@ -107,8 +107,7 @@ for m in fails:
 sys.exit(1 if fails else 0)
 PY
 
-out="$(LA_DONE_RE='^BENCH_RAW_HEAT_SLAB=' "$REPO_ROOT/scripts/run_sim_offscreen.sh" \
-  --path "$REPO_ROOT" -s "res://$PROBE" 2>&1)"
+out="$(la_rig bench_heat_slab '^BENCH_RAW_HEAT_SLAB=' "res://$PROBE")" || { rig_result=$?; printf '%s\n' "$out" >&2; exit "$rig_result"; }
 raw="$(printf '%s\n' "$out" | grep -m1 '^BENCH_RAW_HEAT_SLAB=')"
 if [ -z "$raw" ]; then
   echo "ERROR: the rig published no BENCH_RAW_HEAT_SLAB line." >&2

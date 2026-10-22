@@ -14,7 +14,7 @@ PROBE_REL="addons/local_agents/tests/gate_event_views.gd"
 [ -f "$ROOT/$PROBE_REL" ] || {
 	echo "check_event_views: MISSING $PROBE_REL — there is no contract to run." >&2; exit 2; }
 
-probe="$(la_godot --headless --path "$ROOT" -s "res://$PROBE_REL" 2>&1)"
+probe="$(LA_CPU_VALIDATION=1 la_godot --headless --path "$ROOT" -s "res://$PROBE_REL" 2>&1)"
 line="$(printf '%s\n' "$probe" | grep -m1 '^EVENT_VIEWS=')"
 if [ -z "$line" ]; then
 	echo "check_event_views: the probe published no EVENT_VIEWS line, so nothing was asked." >&2

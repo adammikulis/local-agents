@@ -7,6 +7,7 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_rung.sh"
+. "$ROOT/scripts/lib_capture.sh"
 
 # THE AIR STANDS WHERE THE LAW PUTS IT, read at the grid's own resolution: the quadrature's departure
 # is a ratchet, docs/ATMOSPHERE_SEED_REL, never a budget the seed scales to.
@@ -24,10 +25,19 @@ if [ -z "$M_N2" ]; then
 	exit 2
 fi
 
-# Read at rung 2, the first rung that stands a vertical for the column to fall off along.
-out="$("$ROOT/scripts/sim_run.sh" --body --rung 2 --frames "$FRAMES" \
-	--report nitrogen_all,body_seed_atmosphere_n2_kg 2>&1)"
+# Read at rung 2, the first rung that stands a vertical for the column to fall off along. Above the rung
+# that opens escape the total is no longer the seed's, so a capture from another world is not read.
+RUNG=2
+CAP_RUNG="$(la_cap_rung 2>/dev/null || echo "$RUNG")"
+if [ "$CAP_RUNG" != "$RUNG" ]; then
+	echo "LINT_NOT_EXAMINED: check_atmosphere_mass.sh weighs the seed at rung $RUNG; the capture is rung $CAP_RUNG"
+	exit 3
+fi
+# The whole body, off the shared arm's own body run: the lint takes one on every landing to record the
+# slice's exterior, and this gate weighs its air rather than taking a second.
+out="$(la_body_report nitrogen_all,body_seed_atmosphere_n2_kg --path "$ROOT" --rung "$RUNG" --frames "$FRAMES")"
 rc=$?
+[ "$rc" -ne 2 ] || { printf '%s\n' "$out" >&2; exit 2; }
 la_rung_require "$out" nitrogen_all body_seed_atmosphere_n2_kg || {
 	r=$?
 	echo "check_atmosphere_mass: the air was not weighed to a number (sim_run exit $rc)." >&2

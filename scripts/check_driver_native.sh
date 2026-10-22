@@ -100,7 +100,8 @@ func _build() -> Dictionary:
 		var spec: Variant = derived[key]
 		var n: int = int(spec["n"]) if spec is Dictionary else int(spec)
 		var indirect: bool = spec is Dictionary and bool(spec.get("indirect", false))
-		var zeros: PackedByteArray = _filled(n, 0.0).to_byte_array()
+		var stride: int = int(spec.get("stride", 1)) if spec is Dictionary else 1
+		var zeros: PackedByteArray = _filled(n * stride, 0.0).to_byte_array()
 		var r: RID = _rd.storage_buffer_create(zeros.size(), zeros,
 			RenderingDevice.STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT if indirect else 0)
 		_owned.append(r)
@@ -156,7 +157,8 @@ func _attach(bufs: Dictionary) -> RefCounted:
 		var spec: Variant = want[key]
 		var n: int = int(spec["n"]) if spec is Dictionary else int(spec)
 		var indirect: bool = spec is Dictionary and bool(spec.get("indirect", false))
-		var zeros: PackedByteArray = _filled(n, 0.0).to_byte_array()
+		var stride: int = int(spec.get("stride", 1)) if spec is Dictionary else 1
+		var zeros: PackedByteArray = _filled(n * stride, 0.0).to_byte_array()
 		var r: RID = _rd.storage_buffer_create(zeros.size(), zeros,
 			RenderingDevice.STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT if indirect else 0)
 		_owned.append(r)
@@ -172,7 +174,7 @@ func _init() -> void:
 		printerr("no RenderingDevice — this gate cannot run.")
 		quit(2)
 		return
-	LAProcessSet.declare(LAProcessSet.ADVECT)
+	LAProcessSet.declare(LAProcessSet.ACOUSTIC)
 	var bufs: Dictionary = _build()
 	var cc: int = int(bufs["__cc"])
 	var p: RefCounted = _attach(bufs)
@@ -211,9 +213,9 @@ func _init() -> void:
 				printerr("the seam box reached a non-finite %s, so this state is not a state." % name)
 				quit(2)
 				return
-	var h2o_end: PackedFloat32Array = _rd.buffer_get_data(bufs["h2o"], 0, cc * 4).to_float32_array()
+	var co2_end: PackedFloat32Array = _rd.buffer_get_data(bufs["co2"], 0, cc * 4).to_float32_array()
 	for c in cc:
-		if h2o_end[c] != 500.0 - 40.0 * float(c):
+		if co2_end[c] != 50.0 + 3.0 * float(c):
 			moved = true
 	if not moved:
 		printerr("nothing crossed any face, so an identical state proves nothing.")

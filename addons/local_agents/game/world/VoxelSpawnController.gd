@@ -28,7 +28,6 @@ var _material: Node = null
 var _hud: CanvasLayer = null
 
 var _spawned_initial: bool = false
-var _ready_wait_ticks: int = 0
 
 
 func setup(world: Node, body: Node3D, terrain, ecology: Node, camera: Camera3D, material: Node, hud: CanvasLayer) -> void:
@@ -59,14 +58,32 @@ func suppress_initial_spawn() -> void:
 	_spawned_initial = true
 
 
+## THE WORLD'S OWN ANSWERS, never a tick count. A vegetation placement reads the ground under the site
+## and the temperature in the cell above it; a count of frames says only that time passed, so under load
+## the same world seeds a different census. Both answers exist or the seeding waits.
+func _world_ready() -> bool:
+	if _material == null or not _material.has_method("step_driver"):
+		return false
+	# A step is only counted once the world is sealed, so one of them means both.
+	var step = _material.step_driver()
+	if step == null or not step.has_method("full_steps") or step.full_steps() <= 0:
+		return false
+	if _terrain == null or not _terrain.has_method("surface_radius") \
+			or not _terrain.has_method("planet_center"):
+		return false
+	var site: Vector3 = _material.cell_world_pos(0, 0, 0) - _terrain.planet_center()
+	if is_nan(site.x) or site.length() < 0.001:
+		return false
+	return not is_nan(_terrain.surface_radius(site.normalized()))
+
+
 func try_spawn(_overview: bool, _farview: bool, _auto_meteor: bool, _auto_select: bool) -> void:
 	if _spawned_initial or _body == null:
 		return
 	# Gate on the body being built; the ground under a spawn is the SDF's, drawn or not.
 	if _body.radius() <= 0.0:
 		return
-	_ready_wait_ticks += 1
-	if _ready_wait_ticks <= 6:
+	if not _world_ready():
 		return
 	LASimReport.reset()
 	var no_fauna: bool = LAAblate.fauna_off()
@@ -93,6 +110,7 @@ func try_spawn(_overview: bool, _farview: bool, _auto_meteor: bool, _auto_select
 			_camera.orient_toward(herd_dir)
 	_seed_diseases()
 	_spawned_initial = true
+	LAVoxelHarness.emit_founding(_world)
 	if _hud != null:
 		_hud.set_status("World ready. Spawn things, click to inspect, press V for scent.")
 

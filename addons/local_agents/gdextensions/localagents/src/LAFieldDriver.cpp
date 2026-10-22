@@ -88,6 +88,13 @@ void LAFieldDriver::rig_wait_usec(double p_usec) {
 	g_rig_wait_usec = p_usec;
 }
 
+void LAFieldDriver::fail(const String &p_reason) {
+	if (_abort.empty()) {
+		_abort = p_reason.utf8().get_data();
+		UtilityFunctions::push_error("LAFieldDriver: " + p_reason);
+	}
+}
+
 String LAFieldDriver::aborted() const {
 	return String(_abort.c_str());
 }
@@ -521,20 +528,17 @@ void LAFieldDriver::step(const Array &p_passes, const PackedStringArray &p_names
 void LAFieldDriver::setup_transport(const Dictionary &p_plan) {
 	_pipe = plan_rid(p_plan, "pipe");
 	_row_sets = p_plan.get("row_sets", Array());
-	_row_group = p_plan.get("row_group", PackedInt32Array());
-	_row_radiate = p_plan.get("row_radiate", PackedInt32Array());
 	_rows = p_plan.get("rows", Array());
-	_groups = p_plan.get("groups", Array());
 	_args = plan_rid(p_plan, "args");
 	_wake_args = plan_rid(p_plan, "wake_args");
 	_grain_set = plan_rid(p_plan, "grain_set");
 	_list_sets = p_plan.get("list_sets", Array());
 	_queue_bin = plan_int(p_plan, "queue_bin", 0);
 	_slots = plan_int(p_plan, "slots", 0);
-	_group_count = plan_int(p_plan, "group_count", 1);
-	_level_off = plan_int(p_plan, "level_off", 0);
-	_k_off = plan_int(p_plan, "k_off", 0);
-	_n_off = plan_int(p_plan, "n_off", 0);
+	_encode_transport(p_plan);
+	_level_off = _off.level;
+	_k_off = _off.k;
+	_n_off = _off.n;
 	const int rows = _rows.size();
 	const int owners = rows + 1 + _list_sets.size();
 	_slot_keys.assign((size_t)owners * SLOT_COUNT, std::string());
@@ -652,7 +656,7 @@ void LAFieldDriver::_run_slot(int p_row, const Array &p_pc_rows, int p_slot, int
 	if (!uset.is_valid() || !_args.is_valid()) {
 		return;
 	}
-	const int group = p_row < _row_group.size() ? _row_group[p_row] : 0;
+	const int group = _transport_rows[p_row].group;
 	_plan(_key(p_row, p_slot), _pipe, uset, _block(p_pc_rows[p_row], p_slot, p_level, p_k, p_n), 0, _args,
 			_args_offset(group, p_level), true);
 }
@@ -665,9 +669,7 @@ void LAFieldDriver::_run_row(int p_row, const Array &p_pc_rows, int p_level, int
 	}
 	_run_slot(p_row, p_pc_rows, SLOT_OUTFLOW, p_level, p_k, p_n);
 	_run_slot(p_row, p_pc_rows, SLOT_GATHER, p_level, p_k, p_n);
-	if (p_row < _row_radiate.size() && _row_radiate[p_row] != 0) {
-		_run_slot(p_row, p_pc_rows, SLOT_SW, p_level, p_k, p_n);
-	}
+	_run_slot(p_row, p_pc_rows, SLOT_SW, p_level, p_k, p_n);
 }
 
 void LAFieldDriver::run_transport(const PackedInt32Array &p_peaks, const Array &p_pc_rows,
@@ -789,28 +791,27 @@ Dictionary LAFieldDriver::ledger() const {
 	return out;
 }
 
-Dictionary LAFieldDriver::fold_reduce(const RID &p_partials, const PackedInt32Array &p_folds,
-		const PackedStringArray &p_keys, int p_groups) {
+Dictionary LAFieldDriver::fold_reduce(const RID &p_partials) {
 	Dictionary out;
-	if (_rd == nullptr || !p_partials.is_valid() || p_groups <= 0) {
+	if (_rd == nullptr || !p_partials.is_valid() || _reduce_groups <= 0) {
 		return out;
 	}
 	const PackedByteArray raw = _rd->buffer_get_data(p_partials, 0, 0);
 	const int n = raw.size() / 4;
 	const float *v = (const float *)raw.ptr();
-	const int rows = p_folds.size() < p_keys.size() ? p_folds.size() : p_keys.size();
+	const int rows = _folds.size() < _keys.size() ? _folds.size() : _keys.size();
 	for (int r = 0; r < rows; ++r) {
-		const int fold = p_folds[r];
+		const int fold = _folds[r];
 		if (fold == FOLD_SKIP) {
 			continue;
 		}
-		const int base = r * p_groups;
-		if (base + p_groups > n) {
+		const int base = r * _reduce_groups;
+		if (base + _reduce_groups > n) {
 			continue;
 		}
 		double acc = fold == FOLD_MIN ? std::numeric_limits<double>::infinity()
 									  : (fold == FOLD_MAX ? -std::numeric_limits<double>::infinity() : 0.0);
-		for (int g = 0; g < p_groups; ++g) {
+		for (int g = 0; g < _reduce_groups; ++g) {
 			const double x = (double)v[base + g];
 			if (fold == FOLD_MIN) {
 				acc = x < acc ? x : acc;
@@ -828,12 +829,20 @@ Dictionary LAFieldDriver::fold_reduce(const RID &p_partials, const PackedInt32Ar
 		if (fold == FOLD_MAX && acc == -std::numeric_limits<double>::infinity()) {
 			continue;
 		}
-		out[p_keys[r]] = acc;
+		out[_keys[r]] = acc;
 	}
 	return out;
 }
 
 void LAFieldDriver::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("peak_block", "row", "group", "step"), &LAFieldDriver::peak_block);
+	ClassDB::bind_static_method("LAFieldDriver", D_METHOD("transport_groups", "records"), &LAFieldDriver::transport_groups);
+	ClassDB::bind_static_method("LAFieldDriver", D_METHOD("transport_group_count", "records"), &LAFieldDriver::transport_group_count);
+	ClassDB::bind_method(D_METHOD("transport_blocks", "step"), &LAFieldDriver::transport_blocks);
+	ClassDB::bind_method(D_METHOD("plan_reduce", "plan"), &LAFieldDriver::plan_reduce);
+	ClassDB::bind_method(D_METHOD("run_reduce", "rows"), &LAFieldDriver::run_reduce);
+	ClassDB::bind_method(D_METHOD("reduce_plan"), &LAFieldDriver::reduce_plan);
+
 	ClassDB::bind_static_method("LAFieldDriver", D_METHOD("on", "rd"), &LAFieldDriver::on);
 	ClassDB::bind_static_method("LAFieldDriver", D_METHOD("rig_wait_usec", "usec"), &LAFieldDriver::rig_wait_usec);
 	ClassDB::bind_method(D_METHOD("aborted"), &LAFieldDriver::aborted);
@@ -855,7 +864,7 @@ void LAFieldDriver::_bind_methods() {
 			&LAFieldDriver::run_transport);
 	ClassDB::bind_method(D_METHOD("build_levels", "group", "pc_rows", "levels"),
 			&LAFieldDriver::build_levels);
-	ClassDB::bind_method(D_METHOD("fold_reduce", "partials", "folds", "keys", "groups"),
+	ClassDB::bind_method(D_METHOD("fold_reduce", "partials"),
 			&LAFieldDriver::fold_reduce);
 	ClassDB::bind_method(D_METHOD("ledger"), &LAFieldDriver::ledger);
 	ClassDB::bind_static_method("LAFieldDriver", D_METHOD("dispatched_block", "pc", "stride", "phase"),

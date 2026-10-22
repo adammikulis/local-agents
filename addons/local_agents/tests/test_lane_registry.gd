@@ -5,6 +5,7 @@ class_name LocalAgentTestLaneRegistry
 
 const DETERMINISTIC_TESTS: Array[String] = [
 	"res://addons/local_agents/tests/test_smoke_agent.gd",
+	"res://addons/local_agents/tests/test_creature_absence.gd",
 	"res://addons/local_agents/tests/test_agent_utilities.gd",
 	"res://addons/local_agents/tests/test_synth_dsp.gd",
 	"res://addons/local_agents/tests/test_audio_music.gd",

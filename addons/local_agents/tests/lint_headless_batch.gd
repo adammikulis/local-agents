@@ -12,6 +12,7 @@ const RUNNERS: Array = [
 	["reaction_rate_units", "res://scripts/check_reaction_rate_units.gd"],
 	["reaction_energy", "res://scripts/check_reaction_energy.gd"],
 	["faint_young_sun", "res://scripts/check_faint_young_sun.gd"],
+	["creature_energy", "res://scripts/check_creature_energy.gd"],
 	["seed_decisions", "res://scripts/check_seed_decisions.gd"],
 	["voxel_grid", "res://addons/local_agents/tests/gate_voxel_grid.gd"],
 	["condensed_moduli", "res://addons/local_agents/tests/gate_condensed_moduli.gd"],
@@ -23,6 +24,7 @@ const RUNNERS: Array = [
 	["parse_all", "res://scripts/parse_all_scripts.gd"],
 	["hypsometry", "res://scripts/check_hypsometry.gd"],
 	["ablate_modules", "res://addons/local_agents/tests/gate_ablate_modules.gd"],
+	["group_index", "res://addons/local_agents/tests/gate_group_index.gd"],
 	["llm_request_ownership", "res://addons/local_agents/tests/test_llm_request_ownership.gd"],
 	["llm_http_stream", "res://addons/local_agents/tests/check_llm_http_stream.gd"],
 ]

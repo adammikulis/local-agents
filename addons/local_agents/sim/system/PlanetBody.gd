@@ -39,11 +39,12 @@ func seed_row() -> Dictionary:
 	return LABodySeeds.of(_seed_key)
 
 
-## THE MASS THE MATTER ADDS UP TO. Negative until the field has seeded, which a caller reads as unmeasured
-## and refuses to size anything with; a body's mass is never a number somebody typed.
+## THE MASS THE MATTER ADDS UP TO; in a box cut from the body, the declared body's, which is the pull outside
+## the box. Negative until the field has seeded, which a caller reads as unmeasured and refuses to size
+## anything with; a body's mass is never a number somebody typed.
 func mass() -> float:
 	var m: LABodyMeasure = _measure()
-	return -1.0 if m == null else m.mass_kg
+	return -1.0 if m == null else m.body_mass_kg()
 
 
 func _measure() -> LABodyMeasure:

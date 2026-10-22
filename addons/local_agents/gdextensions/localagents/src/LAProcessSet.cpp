@@ -47,7 +47,7 @@ const char *const GRAVITY_REDUCE[] = { "energy_pv_solid", "energy_pv_fluid",
 	"solid_cells", "carbonate_cells",
 	"snow_cells", "ice_cells", "crust_latch", "crust_moved", "nonfinite_cells", "nonfinite_*",
 	"derive_unconverged_cells",
-	"bodyf_*",
+	"bodyf_*", "tidal_work",
 	"open_temp_*", "all_temp_max", "ground_cells", "temp_ground_sum", "hot_cells",
 	"geo_grad_*", "air_grad_*", "clim_ground_*", "clim_air_*", "clim_lat*", "clim_alt*",
 	"rock_*", "sea_ice_*", "open_sea_*",
@@ -65,7 +65,7 @@ const char *const HYDRO_REDUCE[] = { "pressure_*", nullptr };
 
 // A column at rest stays at rest only where there is momentum to move it, so the rest gate is this
 // rung's and not the one below's.
-const char *const ACOUSTIC_GATES[] = { "check_rung_acoustic.sh", "check_atmosphere_at_rest.sh",
+const char *const ACOUSTIC_GATES[] = { "check_active_rows.sh", "check_rung_acoustic.sh", "check_atmosphere_at_rest.sh",
 	"check_stack_balance.sh", "check_momentum_orphans.sh", "check_boundary_momentum_book.sh", "check_bench_shock_tube.sh",
 	nullptr };
 const char *const ACOUSTIC_PASSES[] = { "FluxPass.gd", nullptr };
@@ -81,7 +81,7 @@ const char *const CONDUCTION_GATES[] = { "check_rung_conduction.sh", "check_benc
 const char *const CONDUCTION_TRANSPORT[] = { "heat_conduct", "heat_conduct_lith", nullptr };
 const char *const CONDUCTION_REDUCE[] = { "radiogenic", nullptr };
 
-const char *const ADVECT_GATES[] = { "check_rung_advect.sh", "check_boundary_books.sh", "check_active_rows.sh", "check_bench_darcy.sh",
+const char *const ADVECT_GATES[] = { "check_rung_advect.sh", "check_boundary_books.sh", "check_bench_darcy.sh",
 	nullptr };
 const char *const ADVECT_TRANSPORT[] = { "h2o_surface", "h2o_groundwater", "silicate_melt_film",
 	"silicate_susp_water", "silicate_susp_air", "silicate_bed",
@@ -390,6 +390,15 @@ void LAProcessSet::declare_records(const PackedStringArray &p_ids) {
 	g_reduce_cache() = Array();
 	g_booked_cached = false;
 	g_booked_cache() = PackedStringArray();
+}
+
+void LAProcessSet::declare_world(int p_node) {
+	const PackedStringArray ids = records_from_args();
+	if (ids.is_empty()) {
+		declare(resolve(p_node));
+	} else {
+		declare_records(ids);
+	}
 }
 
 int LAProcessSet::active() {
@@ -790,6 +799,7 @@ void LAProcessSet::_bind_methods() {
 	ClassDB::bind_static_method("LAProcessSet", D_METHOD("playable"), &playable);
 	ClassDB::bind_static_method("LAProcessSet", D_METHOD("declare", "rung"), &declare);
 	ClassDB::bind_static_method("LAProcessSet", D_METHOD("declare_records", "ids"), &declare_records);
+	ClassDB::bind_static_method("LAProcessSet", D_METHOD("declare_world", "node"), &declare_world);
 	ClassDB::bind_static_method("LAProcessSet", D_METHOD("active"), &active);
 	ClassDB::bind_static_method("LAProcessSet", D_METHOD("custom"), &custom);
 	ClassDB::bind_static_method("LAProcessSet", D_METHOD("name_of", "rung"), &name_of);

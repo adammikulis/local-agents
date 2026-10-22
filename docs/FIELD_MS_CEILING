@@ -1,0 +1,4 @@
+# Milliseconds of the worst field step in the lint's shared slice arm, off its own field_ms gauge.
+# scripts/check_field_budget.sh reads it; scripts/write_ceilings.sh banks it.
+# May fall, may not rise. Fix the step, never the ceiling.
+0

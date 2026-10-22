@@ -17,16 +17,26 @@ const Q_HI: float = 0.98
 const Q_STEPS: int = 25
 
 
-func _init() -> void:
+## Standalone: the tree takes its root in once the loop has started, so the terrain waits for a frame.
+func _initialize() -> void:
+	await process_frame
+	quit(_measure(root))
+
+
+## The lint batch's entry: its own tree, so the terrain stands inside one.
+func run_test(host: SceneTree) -> void:
+	_measure(host.root)
+
+
+func _measure(tree_root: Window) -> int:
 	var svc: RefCounted = load("res://addons/local_agents/sim/terrain/VoxelTerrainService.gd").new()
 	var r: float = LABodySeeds.seed_radius_m("planet")
 	if not (r > 0.0):
 		printerr("HYPSOMETRY: the body record states no mass, so it has no radius to shape.")
-		quit(2)
-		return
-	var root: Node3D = Node3D.new()
-	get_root().add_child(root)
-	svc.build_planet(root, {"radius": r, "seed": 1337, "caves_enabled": true})
+		return 2
+	var stage: Node3D = Node3D.new()
+	tree_root.add_child(stage)
+	svc.build_planet(stage, {"radius": r, "seed": 1337, "caves_enabled": true})
 	var sea: float = svc.sea_radius()
 	var hs: Array[float] = []
 	for d: Vector3 in LAPlanetShape.directions(SAMPLES):
@@ -37,8 +47,8 @@ func _init() -> void:
 	var n: int = hs.size()
 	if n < Q_STEPS:
 		printerr("HYPSOMETRY: the sweep solved %d surface radii, so nothing was compared." % n)
-		quit(2)
-		return
+		stage.queue_free()
+		return 2
 
 	var bad: int = 0
 	var compared: int = 0
@@ -71,4 +81,5 @@ func _init() -> void:
 	compared += 2
 	print('HYPSOMETRY={"compared":%d,"violations":%d,"land_fraction":%.4f,"deepest":%.0f,"highest":%.0f}'
 		% [compared, bad, land, hs[0], hs[n - 1]])
-	quit(0)
+	stage.queue_free()
+	return 0

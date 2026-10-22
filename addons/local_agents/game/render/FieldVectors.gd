@@ -12,6 +12,8 @@ const SOURCE_UNSET: String = "unset"
 const SOURCE_OFF: String = "off"
 const SOURCE_WIND: String = "wind"
 const SOURCE_GRAVITY: String = "gravity"
+## The tide alone: the total field less the body's own, which is what the other declared bodies raise.
+const SOURCE_TIDE: String = "tide"
 
 ## The process record each source reads off. No record, no field, no glyph.
 const GRAVITY_PASS: String = "GravityPass.gd"
@@ -91,6 +93,9 @@ func set_source(want: String) -> void:
 static func has_source(want: String) -> bool:
 	if want == SOURCE_GRAVITY:
 		return LAProcessSet.has_record("pass", GRAVITY_PASS)
+	if want == SOURCE_TIDE:
+		# A tide needs a second body to raise it, and the pull that answers where the first one is.
+		return LAProcessSet.has_record("pass", GRAVITY_PASS) and LABodySeeds.rows().size() > 1
 	if want == SOURCE_WIND:
 		return LAProcessSet.has_record("transport", MOMENTUM_TRANSPORT)
 	return false
@@ -111,7 +116,8 @@ func reference() -> float:
 
 ## The source's unit, for the legend.
 func unit() -> String:
-	return "m/s" if source == SOURCE_WIND else ("m/s²" if source == SOURCE_GRAVITY else "")
+	return "m/s" if source == SOURCE_WIND \
+		else ("m/s²" if source == SOURCE_GRAVITY or source == SOURCE_TIDE else "")
 
 
 ## Glyphs standing in the last built frame. LAVoxelHarness publishes it beside the shot.
@@ -182,7 +188,7 @@ func _rebuild(cam_pos: Vector3, _radial: Vector3) -> void:
 				if c < 0 or seen.has(c) or solid[c] != 0:
 					continue
 				seen[c] = true
-				var v: Vector3 = _vector_at(c, wind)
+				var v: Vector3 = _vector_at(c, wind, centres)
 				var mag: float = v.length()
 				if mag <= 0.0:
 					continue           # nothing to aim a glyph along; an arrow there would be invented
@@ -224,10 +230,16 @@ func _rebuild(cam_pos: Vector3, _radial: Vector3) -> void:
 	_mm.visible_instance_count = _drawn
 
 
-func _vector_at(c: int, wind: bool) -> Vector3:
+func _vector_at(c: int, wind: bool, centres: PackedVector3Array) -> Vector3:
 	if wind:
 		return _f._mirrors.vec3("vel_x", "vel_y", "vel_z", c)
-	return _f._gravity.g_vec_at(c) if _f._gravity != null else Vector3.ZERO
+	if _f._gravity == null:
+		return Vector3.ZERO
+	# The glyphs are laid in the grid's own frame, so the tide comes back through the same map. The
+	# gravity source draws the WHOLE pull a mass here falls under; the tide source draws only the part
+	# the other bodies raise, which saturates its own ramp instead of the whole field's.
+	var tide: Vector3 = _f.dir_to_field(LABallistics.tidal_at(_f.field_to_point(centres[c])))
+	return tide if source == SOURCE_TIDE else _f._gravity.g_vec_at(c) + tide
 
 
 ## A basis whose +Z runs along `v`, girth `w`, length `l`. Only a cell with flow reaches here.

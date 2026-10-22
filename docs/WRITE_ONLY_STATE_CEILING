@@ -1,0 +1,2 @@
+# Class-scope vars the tree writes and never reads (scripts/check_write_only_state.sh). May fall, may not rise.
+16

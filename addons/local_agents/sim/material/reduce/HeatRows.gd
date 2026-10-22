@@ -5,6 +5,8 @@ const Rec: GDScript = preload("res://addons/local_agents/sim/material/ReduceReco
 
 static func rows() -> Array:
 	return [
+		{"key": "tidal_work", "source": "tidal_work", "op": Rec.Op.SUM, "mask": Rec.Mask.ALL,
+			"weight": true, "energy_book": 1.0},
 		{"key": "open_temp_max", "source": "temp", "op": Rec.Op.MAX, "mask": Rec.Mask.OPEN},
 		{"key": "open_temp_min", "source": "temp", "op": Rec.Op.MIN, "mask": Rec.Mask.OPEN},
 		# Unweighted: over the open-cell count this is a mean over CELLS, not volume. all_temp_max is the

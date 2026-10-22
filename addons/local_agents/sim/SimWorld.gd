@@ -128,7 +128,8 @@ func spawn_world() -> void:
 		push_error("LocalAgentSimWorld: flat_cell_size must be greater than 0, because the flat build divides the extent by it. Got %s." % str(flat_cell_size))
 		return
 	_built = true
-	_declare_processes()
+	# WHICH PROCESSES THIS WORLD CONTAINS, settled before anything is built.
+	LAProcessSet.declare_world(LAProcessSet.UNSET)
 	var ok: bool = false
 	if world_type == WorldType.SPHERE:
 		ok = _build_sphere()
@@ -146,16 +147,6 @@ func spawn_world() -> void:
 		_ecology.set_material_field(_material)
 	_wire_loop()
 	world_built.emit()
-
-
-## WHICH PROCESSES THIS WORLD CONTAINS, settled before anything is built. An explicit set outranks a rung,
-## and the rung is `--rung=N`, the project setting, LA_RUNG or docs/PLAYABLE_RUNG, in that order.
-func _declare_processes() -> void:
-	var ids: PackedStringArray = LAProcessSet.records_from_args()
-	if not ids.is_empty():
-		LAProcessSet.declare_records(ids)
-		return
-	LAProcessSet.declare(LAProcessSet.resolve(LAProcessSet.UNSET))
 
 
 ## THE ONE DRIVER, as the game's. A SPHERE world holds simulated time while its field seeds, then each

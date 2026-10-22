@@ -61,6 +61,11 @@ layout(set = 0, binding = LA_BIND_KE_J_M3, std430) restrict writeonly buffer Kin
 // The energy of POSITION, J/m^3: this cell's mass in the potential `g_rest` is the gradient of.
 layout(set = 0, binding = LA_BIND_GRAV_PHI, std430) restrict readonly buffer GravPhi { float grav_phi[]; };   // deviation from grav_ref
 layout(set = 0, binding = LA_BIND_GRAV_REF, std430) restrict readonly buffer GravRef { float grav_ref[]; };   // J/kg, the monopole reference  // J/kg
+// EVERY OTHER DECLARED BODY, in the grid's own frame: slot 0 how many rows follow, then four floats
+// each — the offset from this body's centre, then GM. LABallistics.tide_table refills it every step.
+layout(set = 0, binding = LA_BIND_TIDAL_ACCEL, std430) restrict writeonly buffer TideAccel { float tidal_accel[]; };
+layout(set = 0, binding = LA_BIND_TIDAL_WORK, std430) restrict writeonly buffer TideWork { float tidal_work[]; };
+layout(set = 0, binding = LA_BIND_TIDE_BODIES, std430) restrict readonly buffer TideBodies { float tide_body[]; };
 layout(set = 0, binding = LA_BIND_PE_J_M3, std430) restrict writeonly buffer PotBuf { float pe_j_m3[]; };
 // The cell's condensed matter other than water: volume fraction and kg/m^3, every lithic channel summed.
 layout(set = 0, binding = LA_BIND_LITHIC_FRAC, std430) restrict writeonly buffer LithicFrac { float lithic_frac[]; };
@@ -239,6 +244,36 @@ const int TH_ANCHOR_PHASE = 49;    // 0 solid, 1 liquid, 2 gas at the standard s
 const int TH_ANCHOR_T = 50;        // C
 const int TH_LINE_PREF = 51;       // Pa below which the melting line has not begun
 const int TH_PR_KAPPA = 52;        // Peng-Robinson kappa; NaN where the table gives no acentric factor
+
+// THE TIDE at `s` from this body's centre: another body's pull there less its pull at the centre, the
+// uniform part being this body's own free fall (Murray & Dermott 1999 section 4.2), with 1 - S and
+// 1 - S^3 factored out: the bare difference of two pulls cancels away in binary32 at a star's distance.
+vec3 tide_accel(vec3 s) {
+	vec3 a = vec3(0.0);
+	float sl = length(s);
+	if (!(sl > 0.0)) {
+		return a;
+	}
+	int rows = int(tide_body[0]);
+	for (int i = 1; i <= rows; ++i) {
+		vec3 off = vec3(tide_body[i * 4], tide_body[i * 4 + 1], tide_body[i * 4 + 2]);
+		float body_mu = tide_body[i * 4 + 3];
+		float c = length(off);
+		if (!(body_mu > 0.0) || !(c > 0.0)) {
+			continue;
+		}
+		vec3 bh = off / c;
+		float alpha = sl / c;
+		float mu = dot(s / sl, bh);
+		float S = sqrt(max(1.0 - 2.0 * alpha * mu + alpha * alpha, 0.0));
+		if (!(S > 0.0)) {
+			continue;
+		}
+		a += -(body_mu * alpha / (c * c * S * S * S))
+			* (s / sl - bh * ((2.0 * mu - alpha) * (1.0 + S + S * S) / (1.0 + S)));
+	}
+	return a;
+}
 
 float rad_w_kg(int group) {
 	if (group == 1) { return params.rad_w_kg_1; }
@@ -750,11 +785,16 @@ void main() {
 	float w_len = length(omega);
 	// WHAT MATTER AT REST IN THIS FRAME IS PULLED BY: gravitation and the spin's centrifugal term. Read
 	// as geometry, before any matter is, so every balance stands against the one field.
+	vec3 tide = tide_accel(r_vec);
 	vec3 g_eff = vec3(g_field[g * 3u], g_field[g * 3u + 1u], g_field[g * 3u + 2u])
-		- cross(omega, cross(omega, r_vec));
+		- cross(omega, cross(omega, r_vec)) + tide;
 	float nf = 0.0;
 	// GEOMETRY AND THE PER-STEP BOOKS: neither moves inside a step.
 	if (params.restate == 0u) {
+		tidal_work[g] = 0.0;
+		tidal_accel[g * 3u] = tide.x;
+		tidal_accel[g * 3u + 1u] = tide.y;
+		tidal_accel[g * 3u + 2u] = tide.z;
 		alt[g] = (params.sea_radius_m > 0.0) ? r_len - params.sea_radius_m
 			: uintBitsToFloat(0x7FC00000u);
 		r_frac[g] = (params.sea_radius_m > 0.0) ? r_len / params.sea_radius_m

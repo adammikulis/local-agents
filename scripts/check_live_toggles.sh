@@ -9,6 +9,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh"
 . "$ROOT/scripts/lib_godot.sh"
 . "$ROOT/scripts/lib_capture.sh"
+. "$ROOT/scripts/lib_seal_key.sh"
 la_examined "$(basename "$0")" || exit $?
 require_tool python3
 
@@ -31,6 +32,9 @@ export LA_ABLATE=gravity@2
 la_godot --headless --path "$ROOT" -s "res://$PROBE_REL" > "$PROBE" 2>&1
 probe_rc=$?
 unset LA_ABLATE
+
+# A switch is thrown on a step after the seed, so the three worlds below walk it once and read it back.
+la_seal_key world=slice rung=1 "box=$BOX"
 
 # ARM 2 - the rung-1 world with gravity switched off from its first step: nothing falls.
 LA_SLICE_BOX="$BOX" LA_RUN_TIMEOUT="${LA_LIVE_TOGGLE_TIMEOUT:-110}" \

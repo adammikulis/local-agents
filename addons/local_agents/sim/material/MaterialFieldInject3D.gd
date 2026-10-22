@@ -30,13 +30,6 @@ func setup(field) -> void:
 	LASimReport.register(crater_report)
 
 
-## True when this field is running on a driver that can apply the queue's sparse device edits (the cubed-sphere
-## GPU driver). The box/CPU field has no such driver and nothing flushes the queue there, so its injectors must
-## not park ops that would accumulate forever.
-func _device_ready() -> bool:
-	return _f != null and _f._gpu != null and _f._gpu.has_method("queue_sparse")
-
-
 # --- Local field injection (add_heat_energy) -----------------------------------------
 
 func add_heat_energy(world_pos: Vector3, joules: float, radius: float = 0.0) -> float:
@@ -65,12 +58,6 @@ func _inject_energy(cells: PackedInt32Array, joules: float) -> float:
 
 
 func _apply_h(cells: PackedInt32Array, dh: float) -> void:
-	if not _device_ready():
-		# The box/CPU reference field has no device and nothing flushes the queue there, so the mirror IS the
-		# field.
-		for c in cells:
-			_f._mirrors.add_at("e_j_m3", c, dh)
-		return
 	var deltas: PackedFloat32Array = PackedFloat32Array()
 	deltas.resize(cells.size())
 	deltas.fill(dh)
@@ -81,7 +68,7 @@ func _apply_h(cells: PackedInt32Array, dh: float) -> void:
 ## Impact ejecta landing: debris the parcel carried out of `src_cell` arrives at `world_pos`. One conserving
 ## move of one channel between two cells — the flight is latency, not a source of matter.
 func land_ejecta(src_cell: int, world_pos: Vector3, mass: float) -> void:
-	if mass <= 0.0 or src_cell < 0 or src_cell >= _f._cell_count or not _device_ready():
+	if mass <= 0.0 or src_cell < 0 or src_cell >= _f._cell_count:
 		return
 	var dst: int = _f.world_to_cell(world_pos)
 	if dst < 0 or dst >= _f._cell_count:
@@ -145,7 +132,7 @@ func _cells_within(world_pos: Vector3, radius: float) -> PackedInt32Array:
 ## Flood pool-fill: add water only where the ground is at/below the centre column's ground, so a surge
 ## fills the basin and runs downhill (never climbs a hillside). 3D analogue of the 2.5D add_water_pooled.
 func add_water_pooled(center: Vector3, amount: float, radius: float) -> void:
-	if amount <= 0.0 or not _device_ready():
+	if amount <= 0.0:
 		return
 	var center_r: float = (center - _f.centre()).length()
 	var cells: PackedInt32Array = _cells_within(center, radius)
@@ -191,14 +178,6 @@ func resample_terrain(world_pos: Vector3, radius: float) -> void:
 		return
 	var cells: PackedInt32Array = _cells_within(world_pos, radius)
 	if cells.size() == 0:
-		return
-	# NO DEVICE (the box/CPU field, the headless reference oracle). Nothing evolves on a GPU to be
-	# authoritative there and nothing flushes the queue, so `_solid` IS the mask.
-	if not _device_ready():
-		var mask: PackedByteArray = _f._solid
-		for c in cells:
-			mask[c] = 1 if _f._terrain.is_solid(_f.cell_world_pos_linear(c)) else 0
-		_f._solid = mask
 		return
 	var solid: PackedByteArray = _f._solid
 	var src: PackedInt32Array = PackedInt32Array()

@@ -41,6 +41,8 @@ public:
 
 	static void declare(int p_rung);
 	static void declare_records(const PackedStringArray &p_ids);
+	// A world's declaration: the explicit set the command line names, else the rung `p_node` resolves to.
+	static void declare_world(int p_node);
 	static int active();
 	static PackedStringArray custom();
 	static String name_of(int p_rung);

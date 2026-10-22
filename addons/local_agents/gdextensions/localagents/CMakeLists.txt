@@ -52,6 +52,7 @@ set(SRC
     src/LAGridGeometry.cpp
     src/LAGravitySolve.cpp
     src/LAFieldDriver.cpp
+    src/LAFieldPlans.cpp
     src/LAFieldLedger.cpp
     src/LAFieldMirrors.cpp
     src/LAThreadClock.cpp
@@ -59,7 +60,9 @@ set(SRC
     src/LAFieldStateCache.cpp
     src/LAFieldHydrosphereSeed.cpp
     src/LAFieldLithostaticSeed.cpp
+    src/LAFieldFill.cpp
     src/LASubstances.cpp
+    src/LASubstanceRow.cpp
     src/LASubstanceOptics.cpp
     src/LAWaterCurves.cpp
     src/NetworkGraph.cpp

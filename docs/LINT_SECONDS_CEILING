@@ -1,0 +1,5 @@
+# Capture and gate wall durations in one full slice lint, added
+# up, less their recorded machine-lock waits. scripts/check_lint_budget.sh
+# reads it; scripts/write_ceilings.sh banks it. The landing loop is one lint per landing.
+# May fall, may not rise. Never raise it to turn a light green: cut a launch or cut an arm's frames.
+0

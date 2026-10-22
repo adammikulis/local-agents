@@ -93,10 +93,16 @@ class LABodyMeasure : public RefCounted {
 	double mass_kg = -1.0;
 	double surface_r_m = -1.0;
 	double inertia_kg_m2 = -1.0;
+	// A window's body, never its own sum: the relaxed body the box's monopole gravity is the field of.
+	double declared_mass_kg = -1.0;
 	Dictionary mass_by_channel;
 
 public:
 	double get_mass_kg() const { return mass_kg; }
+	double get_declared_mass_kg() const { return declared_mass_kg; }
+	// The mass of the body this reads: its own sum, else the declared body a window is cut from.
+	// Negative is unmeasured.
+	double body_mass_kg() const { return mass_kg > 0.0 ? mass_kg : declared_mass_kg; }
 	double get_surface_r_m() const { return surface_r_m; }
 	double get_inertia_kg_m2() const { return inertia_kg_m2; }
 	// Channel -> kilograms it holds. WHAT THE BODY IS MADE OF: a total nobody can decompose cannot say

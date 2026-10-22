@@ -29,6 +29,7 @@ const STYLE_TOAST_TEXT: StringName = &"ToastText"
 
 var _rung_readout: LAProcessRungReadout = null
 var _test_mass_readout: LATestMassReadout = null
+var _tide_readout: LATideReadout = null
 
 var _progression: LAGameProgression = null
 var _connected: bool = false
@@ -56,6 +57,15 @@ func set_test_masses(probes: Node, drop: Callable) -> void:
 	_test_mass_readout.setup(probes)
 	_test_mass_readout.drop_requested.connect(drop)
 	_summary_col.add_child(_test_mass_readout)
+
+
+## The tide readout, built only for a world with a second body to raise one.
+func set_tide(eye: Node3D) -> void:
+	if eye == null or not LATideReadout.active():
+		return
+	_tide_readout = LATideReadout.new()
+	_tide_readout.setup(eye)
+	_summary_col.add_child(_tide_readout)
 
 
 ## Show/hide the whole gamified overlay; the H hotkey flips both HUDs through this name.
@@ -108,6 +118,8 @@ func _refresh() -> void:
 	_connect_progression()
 	_refresh_objective()
 	_refresh_summary()
+	if _tide_readout != null:
+		_tide_readout.refresh()
 
 
 func _refresh_objective() -> void:

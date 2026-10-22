@@ -20,10 +20,6 @@ var _terrain = null
 ## The terrain definition PlanetBody.setup() was given; the solid-mask cache's key.
 var _terrain_opts: Dictionary = {}
 var _cell_size: float = 5.0
-var _origin: Vector3 = Vector3.ZERO       # world position of cell (0,0,0) centre
-var _dim_x: int = 0
-var _dim_y: int = 0
-var _dim_z: int = 0
 var _cell_count: int = 0
 
 var _solid: PackedByteArray = PackedByteArray()          # 1 = rock (holds no fluid), 0 = void (air/water)
@@ -180,11 +176,7 @@ func setup_box(origin: Vector3, dims: Vector3i, cell_size: float, terrain = null
 ## ONE lifecycle.
 func _adopt(grid: LAVoxelGrid) -> void:
 	_grid = grid
-	_dim_x = grid.nx
-	_dim_y = grid.ny
-	_dim_z = grid.nz
 	_cell_size = grid.cell_size
-	_origin = grid.origin
 	_cell_count = grid.cell_count
 	_alloc_channels()
 	_gravity = GravityScript.new()

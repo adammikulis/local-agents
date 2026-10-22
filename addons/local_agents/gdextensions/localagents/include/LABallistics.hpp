@@ -2,6 +2,7 @@
 #define LOCAL_AGENTS_LA_BALLISTICS_HPP
 
 #include <godot_cpp/classes/ref_counted.hpp>
+#include <godot_cpp/classes/rendering_device.hpp>
 #include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/basis.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
@@ -10,6 +11,7 @@
 #include <godot_cpp/variant/vector3.hpp>
 
 namespace godot {
+class LAFieldDriver;
 
 // EVERY FREE BODY, ONE INTEGRATOR. A meteor, an ejecta parcel and a dropped test mass are the same thing:
 // mass at a position with a velocity, coasting under g. Nothing here knows which is which.
@@ -38,6 +40,23 @@ public:
 	// pull on itself).
 	static Vector3 acceleration_at(const Vector3 &p_at, int p_exclude);
 
+	// THE TIDE. What every body but the frame's pulls at this point, LESS what it pulls at the frame
+	// body's own centre: the uniform part is that body's free fall and moves nothing standing on it.
+	// Murray & Dermott 1999, Solar System Dynamics, section 4.2.
+	static Vector3 tidal_at(const Vector3 &p_at);
+	// The tide at the sub-body point of the strongest raiser, over its own leading term 2 G M R / d^3.
+	// Above 1 and, by section 4.2's next order, under 1 + 3R/d. NAN with no frame body or no radius.
+	static double tide_peak_ratio();
+	// The potential the acceleration above is minus the gradient of, J/kg. Same section 4.2.
+	static double tidal_potential_at(const Vector3 &p_at);
+	// How many bodies can raise a tide here: every one LABodySeeds declares but the one the grid rides.
+	static int tide_rows();
+	// The rows for a kernel, in the FIELD's own frame: slot 0 how many rows follow, then 4 floats per
+	// body from slot 4 on — the offset from the frame body's centre, then GM. Sized for tide_rows().
+	static PackedFloat32Array tide_table();
+	// That table into a device buffer. A world whose gravity is switched off uploads a table of no rows.
+	static bool upload_tide(RenderingDevice *p_rd, const RID &p_buffer, int p_elements, LAFieldDriver *p_driver);
+
 	// The field's own state, republished when it re-solves: the grid, the drained gravity mirror
 	// (flat cell*3, m/s^2), the solid mask (1 = rock), the field's LAFieldMirrors with
 	// LAFieldCellMass3D.mass_channels() for the medium's mass density, read at the cell asked, and the
@@ -65,6 +84,9 @@ public:
 	// {position, velocity, speed, landed, fall_time_s, drag_heat_j, sub_steps, cell, from, g_release,
 	// height_m}. Empty for an unknown id.
 	static Dictionary state(int p_id);
+	// Opt-in presentation history; points follow the current body frame, times are simulated seconds.
+	static void track_trajectory(int p_id);
+	static Dictionary trajectory(int p_id);
 	static int live_count();
 	// Advance every live body by p_dt_s and return the rows that landed this step:
 	// {id, position, speed, time, cell, sub_steps}. A landed body stays readable until released.

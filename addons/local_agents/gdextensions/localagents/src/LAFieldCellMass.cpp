@@ -8,6 +8,7 @@
 #include "LAScriptCall.hpp"
 #include "LASubstances.hpp"
 #include "LAMixtureEnthalpy.hpp"
+#include "LASubstanceRow.hpp"
 #include "LAPhaseEos.hpp"
 #include "LAPhysicalRead.hpp"
 
@@ -284,8 +285,8 @@ void LAFieldCellMass3D::seed_enthalpy(Object *p_field, const PackedFloat32Array 
 	const Dictionary table = LASubstances::table();
 	const char *MATTER_GD = "res://addons/local_agents/sim/material/MatterChannels.gd";
 	// Every matter channel once: its mirror, substance, molar mass, entry, and which reservoir holds it.
-	struct Chan { PackedFloat32Array arr; String sub; double molar; int entry; bool gas; bool lattice; bool lithic;
-		bool solute; double full; };
+	struct Chan { PackedFloat32Array arr; String sub; const LASubstanceRow *row; double molar; int entry; bool gas;
+		bool lattice; bool lithic; bool solute; double full; };
 	std::vector<Chan> chans;
 	const Array names = rows.keys();
 	for (int i = 0; i < names.size(); i++) {
@@ -301,6 +302,7 @@ void LAFieldCellMass3D::seed_enthalpy(Object *p_field, const PackedFloat32Array 
 			continue;
 		}
 		ch.sub = sub;
+		ch.row = &la_substance::row(sub);
 		ch.molar = double(Dictionary(table.get(sub, Dictionary())).get("molar_mass", 0.0));
 		Array a1;
 		a1.append(sub);
@@ -369,9 +371,9 @@ void LAFieldCellMass3D::seed_enthalpy(Object *p_field, const PackedFloat32Array 
 			}
 			const double m = a * ch.molar * cell_m3;
 			if (ch.lithic) {
-				h_l += m * LAMixtureEnthalpy::specific_enthalpy(ch.sub, t_rock, p_rock, m, 0.0);
+				h_l += m * LAMixtureEnthalpy::specific_enthalpy_of(*ch.row, t_rock, p_rock, m, 0.0);
 			} else {
-				h_f += m * LAMixtureEnthalpy::specific_enthalpy(ch.sub,
+				h_f += m * LAMixtureEnthalpy::specific_enthalpy_of(*ch.row,
 						ch.gas ? t_gas : p_t_surface_c, p_pa, m, room);
 			}
 		}

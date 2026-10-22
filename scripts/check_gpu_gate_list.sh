@@ -21,37 +21,45 @@ declared="$(printf '%s\n' "$LIST" | awk -F'\t' '$2 == "gpu" { print $1 }' | sort
 [ -n "$declared" ] || { echo "check_gpu_gate_list: gates.toml declares no gpu gate." >&2; exit 2; }
 
 # A gate that runs a HELPER that launches a sim needs a GPU exactly as much as one that launches it
-# itself, so the set of launching scripts is grown to a fixed point before the gates are asked.
+# itself, so the set of launching scripts is grown to a fixed point before the gates are asked. One scan
+# of every script per round, not one process per script.
 LAUNCH="run_sim_offscreen|sim_run"
 while :; do
 	grown=0
-	for f in "$ROOT"/scripts/*.sh; do
+	hits="$(rg -l -e "(^|[[:space:]]|\()\"\\\$[A-Za-z_][A-Za-z_0-9]*[^\"]*/($LAUNCH)\\.sh\"" "$ROOT"/scripts/*.sh 2>/dev/null)"
+	for f in $hits; do
 		b="${f##*/}"; b="${b%.sh}"
 		case "$b" in lib_*) continue ;; esac   # a library is SOURCED; which of its functions run decides
 		case "|$LAUNCH|" in *"|$b|"*) continue ;; esac
-		if rg -q -e "\"\\\$[A-Za-z_][A-Za-z_0-9]*[^\"]*/($LAUNCH)\\.sh\"" "$f"; then
-			LAUNCH="$LAUNCH|$b"
-			grown=1
-		fi
+		LAUNCH="$LAUNCH|$b"
+		grown=1
 	done
 	[ "$grown" -eq 1 ] || break
 done
 
 # A gate needs a GPU when it EXECUTES a run — a quoted \$var path to a launching script, the native sim
-# binary, or a lib function that starts either — or when it READS the shared arm lint_capture.sh records,
-# which only a GPU could produce.
-actual=""
+# binary, or a lib function that starts either — when it READS the shared arm lint_capture.sh records,
+# which only a GPU could produce, or when the run it MEASURES is the device lint itself.
+CAP_READ='report|report_raw|marker|cap_state|cap_front|cap_report|body_report|cap_life_log|cap_life|rig|shot_arm'
+files=()
 for b in $in_lint; do
 	f="$ROOT/scripts/$b.sh"
 	[ -f "$f" ] || continue
 	[ "$b" = "check_gpu_gate_list" ] && continue   # this scan names the patterns it looks for
-	if rg -q -e "\"\\\$[A-Za-z_][A-Za-z_0-9]*[^\"]*/($LAUNCH)\\.sh\"" "$f" \
-		|| rg -q -e '[$][(]la_(report|report_raw|marker|cap_state|cap_front)\b' "$f" \
-		|| rg -q -e '/bin/lasim"' "$f" \
-		|| rg -q -e '\bla_lasim(_oracle_run)?\b' "$f"; then
-		actual="$actual $b"
-	fi
+	files+=("$f")
 done
+actual=""
+if [ "${#files[@]}" -gt 0 ]; then
+	hits="$(rg -l -e "(^|[[:space:]]|\()\"\\\$[A-Za-z_][A-Za-z_0-9]*[^\"]*/($LAUNCH)\\.sh\"" \
+		-e "[\$][(]la_($CAP_READ)\b" \
+		-e '\bLA_LINT_TIMING_LOG\b' \
+		-e '/bin/lasim"' \
+		-e '\bla_lasim(_oracle_run)?\b' "${files[@]}" 2>/dev/null)"
+	for f in $hits; do
+		b="${f##*/}"
+		actual="$actual ${b%.sh}"
+	done
+fi
 [ -n "$actual" ] || { echo "check_gpu_gate_list: no lint gate launches a run — scan found nothing." >&2; exit 2; }
 
 fail=0

@@ -60,6 +60,14 @@ if [ "$PRINT_KEY" = "true" ]; then
 	exit 0
 fi
 
+# ONE BUILD AT A TIME PER TREE: two cmake runs over one build directory corrupt each other, and the lint runs
+# a gate that builds beside the gpu queue. The lock lives outside the tree so it is never a file in it.
+. "${NATIVE_DIR}/../../../scripts/lib_godot_lock.sh"
+BUILD_LOCK="${TMPDIR:-/tmp}/la_native_build.$(printf '%s' "${NATIVE_DIR}" | la_md5_stdin).lock"
+la_dir_lock "${BUILD_LOCK}" "${LA_BUILD_LOCK_TIMEOUT:-1800}" 1 \
+	|| { echo "Error: timed out waiting for the native build lock ${BUILD_LOCK}." >&2; exit 1; }
+trap 'set +e; rm -rf "${BUILD_LOCK}"; la_dir_unqueue "${BUILD_LOCK}"' EXIT
+
 DEPS_DIR="${CACHE_ROOT}/${DEPS_KEY}"
 [ "$CLEAN_DEPS" = "true" ] && rm -rf "${DEPS_DIR}"
 [ "$CLEAN_BUILD" = "true" ] && rm -rf "${BUILD_DIR}"

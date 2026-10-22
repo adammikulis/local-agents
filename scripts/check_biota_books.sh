@@ -7,17 +7,26 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh"
+. "$ROOT/scripts/lib_capture.sh"
 require_tool python3
 
 SCENE="addons/local_agents/examples/LifeDemo.tscn"
 [ -f "$ROOT/$SCENE" ] || { echo "check_biota_books: no scene at $SCENE" >&2; exit 2; }
 FRAMES="${LA_BIOTA_FRAMES:-300}"
 
-LOG="${LA_BIOTA_LOG:-$(mktemp "${TMPDIR:-/tmp}/la_biota_books.XXXXXX")}"
-[ -n "${LA_BIOTA_LOG:-}" ] || trap 'rm -f "$LOG"' EXIT INT TERM
-LA_RUN_TIMEOUT="${LA_BIOTA_TIMEOUT:-110}" "$ROOT/scripts/run_sim_offscreen.sh" --path "$ROOT" \
-	"$SCENE" --fixed-fps 60 -- --sandbox "--run-frames=$FRAMES" > "$LOG" 2>&1
-rc=$?
+# ONE LIFE RUN PER LINT. The shared arm records it; this gate only reads what its books did.
+LOG="$(la_cap_life_log)"
+case $? in
+	0) rc="$(la_cap_life rc)" ;;
+	2) exit 2 ;;
+	*)
+		LOG="${LA_BIOTA_LOG:-$(mktemp "${TMPDIR:-/tmp}/la_biota_books.XXXXXX")}"
+		[ -n "${LA_BIOTA_LOG:-}" ] || trap 'rm -f "$LOG"' EXIT INT TERM
+		LA_RUN_TIMEOUT="${LA_BIOTA_TIMEOUT:-110}" LA_EVO_FAST= "$ROOT/scripts/run_sim_offscreen.sh" \
+			--path "$ROOT" "$SCENE" --fixed-fps 60 -- --sandbox "--run-frames=$FRAMES" > "$LOG" 2>&1
+		rc=$?
+		;;
+esac
 
 python3 - "$LOG" "$rc" <<'PY'
 import json, re, sys

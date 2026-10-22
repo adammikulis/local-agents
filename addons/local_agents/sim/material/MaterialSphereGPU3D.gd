@@ -35,10 +35,10 @@ var _grid: RefCounted = null
 var _cc: int = 0
 var _ng: int = 0                    # ghost tail cells appended past _cc; 0 = every wall shut
 var _face_count: int = 0            # faces over interior plus ghost tail: LAVoxelGrid.neighbours
-var _bnd_keys: PackedStringArray = PackedStringArray()   # per-step boundary books, cleared before each step
 var _step_index: int = 0            # LASimLoop's step this field step runs at, published as ctx["step_index"]
 var _seed_totals: Dictionary = {}   # per channel: the total the last whole-mirror seed declared
 var _groups: int = 0
+var _tide_elements: int = 0
 var _bufs: Dictionary = {}          # channel/buffer name → its one RID
 var _passes: Array = []
 var _pass_names: PackedStringArray = []   # parallel to _passes — short label per pass, for GPU per-pass timing
@@ -168,7 +168,6 @@ func setup(field) -> void:
 	# The boundary books are per-step rates: cleared before every step, summed by their reduce rows after.
 	for key in _bufs:
 		if String(key).begins_with("bnd_"):
-			_bnd_keys.append(String(key))
 			_bnd_rids.append(_bufs[key])
 	# Every name a drain can ask for is a channel or a derived buffer, so this many slots cannot overflow.
 	_staging_slots = LAChannels.channels().size() + LAChannels.derived_buffers().size()
@@ -200,6 +199,9 @@ func _allocate_declared(p: RefCounted, label: String) -> void:
 		_bufs[name] = _rd.storage_buffer_create(n * 4, _zeros(n),
 			RenderingDevice.STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT if indirect else 0)
 		_buf_owner[name] = label
+		if name == "tide_bodies":
+			_tide_elements = n
+			LABallistics.upload_tide(_rd, _bufs[name], n, _driver)
 
 
 func begin_frame() -> void:
@@ -209,6 +211,8 @@ func begin_frame() -> void:
 	# inter-frame CPU work) and land its channels in the mirrors. Must happen before the uploads below,
 	# which write the same live buffers the step wrote. This is the CPU↔GPU overlap that hides the field step cost.
 	_drain_pending()
+	if not LABallistics.upload_tide(_rd, _bufs.get("tide_bodies", RID()), _tide_elements, _driver):
+		return
 	# The only CPU writer of _h is injection (meteors / lava / geotherm), which marks it dirty.
 	if _h_dirty:
 		_upload_mirror("e_j_m3")
@@ -357,6 +361,8 @@ func _drain_pending() -> void:
 	LASimReport.gauge("field_sync_ms", float(t_sync - t0) / 1000.0)
 	LASimReport.gauge("field_readback_ms", float(Time.get_ticks_usec() - t_sync) / 1000.0)
 	_drain_passes()
+	if _field._inject != null:
+		_field._inject.queue.land()
 
 
 ## The seeded field's derived state and its maxima, before any time passes. `sealing` marks the LAST
@@ -366,6 +372,7 @@ func derive_seeded(sealing: bool = false) -> void:
 	_ctx["cell_size"] = _grid.cell_size
 	_ctx["cell_size_min"] = _grid.cell_size * pow(0.5, float(_grid.max_level))
 	_ctx["seeding"] = not sealing
+	_ctx["dt_s"] = 0.0
 	_driver.restart()
 	for i in _passes.size():
 		if not (_pass_names[i] in ["StateDerivePass", "ReducePass"]): continue

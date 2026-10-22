@@ -41,7 +41,7 @@ Commands:
   single <f> [a] Run one test via scripts/run_single_test.sh <f> [--timeout=120].
   smoke         Boot the main scene headless briefly; fail on script/parse errors.
   demo [args]   Run example scenes BARE HEADLESS via scripts/run_demo.sh (~1s each).
-                e.g. demo --list | demo --all [frames] | demo BoxFieldDemo [frames]
+                e.g. demo --list | demo --all [frames] | demo CoreCreatureSmoke [frames]
   extension     Validate the GDExtension via scripts/check_extension.gd.
   dropin        Prove the addon works as a drop-in: stage a consumer project holding only
                 addons/local_agents/, author a scene with no script in it, and run it.
@@ -62,9 +62,12 @@ Commands:
                 comparison runs for determinism and observer independence, so it is minutes.
                 e.g. agent_harness.sh score --frames 300
   lint [args]   Run every structural gate listed in scripts/gates.toml, through
-                scripts/gate_runner.py. Text gates run in a worker pool, engine-touching ones alone.
+                scripts/gate_runner.py. A worker pool runs every gate that needs no device beside one
+                in-order queue of gpu gates. A gate whose declared `inputs` are byte-identical to its
+                last pass is reported LINT_CACHED and not run; an integration run and CI read no cache.
                 CI runs this exact command, so a green here is a green there.
-                Args reach the runner: --only NAME, --mutate NAME, --timing, --json OUT, --jobs N.
+                Args reach the runner: --only NAME (repeatable), --mutate NAME, --timing, --json OUT,
+                --jobs N, --no-cache.
                 Exit 0 clean · 1 a gate reported a violation · 2 a gate COULD NOT RUN.
   -h | --help   Show this help and exit 0.
 
@@ -85,11 +88,18 @@ if [[ -z "$cmd" || "$cmd" == "-h" || "$cmd" == "--help" ]]; then
 fi
 shift || true
 
-# EVERY ENGINE LAUNCH THIS LINT MAKES, one line each: lib_godot.sh appends, check_launch_count.sh counts.
+# WHAT THIS LINT DID, one line each, for the gates that measure the lint they sit in.
+# Launches: lib_godot.sh appends, gate_runner.py folds each gate's in, check_launch_count.sh counts.
+# Seconds: gate_runner.py appends per finished gate. Lock waits: lib_godot_lock.sh appends per wait.
 if [[ "$cmd" == "lint" && -z "${LA_LAUNCH_LOG:-}" ]]; then
   mkdir -p "$LOG_DIR" 2>/dev/null || true
   export LA_LAUNCH_LOG="$LOG_DIR/launches_$$.log"
+  export LA_LINT_LAUNCHES="$LA_LAUNCH_LOG"
+  export LA_LINT_TIMING_LOG="$LOG_DIR/gate_seconds_$$.log"
+  export LA_LOCK_WAIT_LOG="$LOG_DIR/lock_waits_$$.log"
   : > "$LA_LAUNCH_LOG"
+  : > "$LA_LINT_TIMING_LOG"
+  : > "$LA_LOCK_WAIT_LOG"
 fi
 
 # --- A LINKED WORKTREE REPAIRS ITSELF HERE, BEFORE ANY COMMAND RUNS ----------------------------------

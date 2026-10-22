@@ -330,14 +330,22 @@ before it is laid down, and `field_cell_size_m()` is the root cell edge in metre
 
 `addons/local_agents/sim/material/FieldBox.gd`, extends `Node3D`.
 
-The material field in box mode as a node. It owns a material field as a child rather than extending it, so the inspector surface lives
-out here and the field hub stays untouched. Instance `LAFieldBoxSliceView` under it to draw a plane of its cells. The box is laid
-once, when the node starts, axis-aligned and centred on the node's global position in X and Z with its floor at the node's height.
-Moving the node later does not move the box.
+A sealed box of the planet's surface air as a node. It owns a material field as a child rather than extending it, so the inspector
+surface lives out here and the field hub stays untouched. Instance `LAFieldBoxSliceView` under it to draw a plane of its cells. The box
+is laid once, when the node starts, axis-aligned and centred on the node's global position in X and Z with its floor at the node's
+height. Moving the node later does not move the box.
 
-The box holds no matter. Nothing seeds, activates or steps a box-mode field, so `add_heat_energy()` adds nothing and returns 0, and
-`temp_at()` reads NAN in every cell. Pair the node with a `LocalAgentDemoHarness` whose `report_source` is this node for the standard
-`-- --run-frames=N` report line.
+The node is a world of its own. When it starts it declares its process set, lays the planet's seeded air
+(`LAFieldLithostaticSeed.seeded_air_mole_fractions()`) in every cell at `LABodySeeds.surface_pressure_pa()` and
+`LABodySeeds.surface_temp_c()`, shuts every face, and steps the field on its own `LASimLoop`: held while the field seeds, every creation
+declared to the seal, then one step per physics tick. Nothing lies under the box, so no body pulls on it; at a rung with the gravity
+pass the only pull is its own air's. The field steps on a compute device, so the node needs a RenderingDevice: without one, which is
+every `--headless` run, it logs `GPU_REQUIRED` and builds nothing. Pair the node with a `LocalAgentDemoHarness` whose `report_source`
+is this node for the standard `-- --run-frames=N` report line, counted in simulated steps.
+
+#### Exports, group World
+- `rung` (int, default `LAProcessSet.UNSET`). The rung this box runs at, and so which processes it contains. UNSET defers to
+  `--rung=N`, the project setting, `LA_RUNG` and `docs/PLAYABLE_RUNG`, in that order; `--processes=` on the command line outranks it.
 
 #### Exports, group Volume
 Every property in this group is read once when the node starts. Changing one later does not resize a running field.
@@ -350,22 +358,24 @@ Every property in this group is read once when the node starts. Changing one lat
 #### Exports, group Heat source
 - `heat_enabled` (bool, default `true`). Off leaves the volume to whatever you drive through `field()`.
 - `heat_source_w` (float, default `2000.0`, range 0.0 to 1e6, suffix W). Power per source cell.
-- `heat_burst_s` (float, default `10.0`, range 0.0 to 6000.0, suffix s). Seconds of the physics clock the source runs before
-  switching off. 0 never stops.
+- `heat_burst_s` (float, default `10.0`, range 0.0 to 6000.0, suffix s). Simulated seconds the source runs from the seal. 0 never
+  stops.
 - `heat_source_cells` (Vector3i, default `Vector3i(3, 1, 3)`). Source footprint in cells, centred on the floor.
 
-Each physics tick the source asks `add_heat_energy()` for `heat_source_w` times the tick's length in every source cell.
+On every simulated step after the box seals the source asks `add_heat_energy()` for `heat_source_w` times the part of the step's
+`LASimLoop.step_seconds()` inside the burst, in every source cell. The field books those joules as heat handed in from outside.
 
 #### Methods
 ```gdscript
 func field() -> Node
 func dims() -> Vector3i
+func seed_temp_c() -> float
 func cell_point(ix: int, iy: int, iz: int) -> Vector3
 func demo_report() -> Dictionary
 ```
 
-`field()` returns the material field this node owns, and `dims()` its cells along X, Y and Z, zero before the field is built. The
-field takes world positions:
+`field()` returns the material field this node owns, `dims()` its cells along X, Y and Z, zero before the field is built, and
+`seed_temp_c()` the temperature every cell was seeded at. The field takes world positions:
 
 ```gdscript
 func add_heat_energy(world_pos: Vector3, joules: float, radius: float = 0.0) -> float
@@ -375,9 +385,11 @@ func temp_at(pos: Vector3) -> float
 `cell_point(ix, iy, iz)` is the world centre of a cell straight from the field, so `temp_at()` or `add_heat_energy()` at that point
 lands on exactly that cell. The field's own `world_to_cell(pos) -> int` gives the linear index of a position.
 
-`demo_report()` returns `frames`, `cells`, `dims` (a `"WxHxD"` string), `top_start`, `top_now`, `bottom_now` and `flowed` (true when
-the top is more than 0.5 degrees above where it started). Temperatures are snapped to two decimals. Before the field exists the report
-carries `frames` and `cells` only. This node has no configuration warnings.
+`demo_report()` returns `steps`, `cells`, `dims` (a `"WxHxD"` string) and `seed_c`, and once the field is built the seal's
+`world_sealed`, `world_created` and `creation_after_seal`, `inject_energy_j`, the conservation block (`conservation`,
+`conservation_allowed_rel`, `conservation_worst`, `conservation_unmeasured`), the declared `fill`, `source_c` and `top_c` (the
+temperature at the floor cell under the source's centre and at the top cell over it), `top_pa`, and `nonfinite`, the channels holding
+a cell that is not finite. `scripts/check_field_box.sh` holds the box to it. This node has no configuration warnings.
 
 ## Views
 
@@ -409,7 +421,7 @@ frame it aims `Sun` the way the star's light travels, star to body. A FLAT world
 `addons/local_agents/game/render/FieldBoxSliceView.gd`, extends `MultiMeshInstance3D`, `@tool`. Instance
 `game/render/FieldBoxSliceView.tscn`, which authors the MultiMesh, its cube and the unshaded vertex-colour material.
 
-One plane of a `LocalAgentFieldBox`'s cells, a cube per cell tinted by its temperature above `LABodySeeds.surface_temp_c()`, in one
+One plane of a `LocalAgentFieldBox`'s cells, a cube per cell tinted by its temperature above the box's `seed_temp_c()`, in one
 draw call however many cells it covers. It lays each cube on the field's own cell centre in its own frame and lays out again when it
 moves. Hide the node to stop it reading the field.
 
@@ -424,8 +436,8 @@ moves. Hide the node to stop it reading the field.
   touch.
 
 #### Exports, group Colour
-- `color_span` (float, default `60.0`, range 1.0 to 400.0, suffix C). Degrees above ambient that reach `hot_color`.
-- `cold_color` (Color, default `Color(0.15, 0.2, 0.5)`). A cell at ambient.
+- `color_span` (float, default `60.0`, range 1.0 to 400.0, suffix C). Degrees above the seed that reach `hot_color`.
+- `cold_color` (Color, default `Color(0.15, 0.2, 0.5)`). A cell at the seed temperature.
 - `hot_color` (Color, default `Color(1.0, 0.35, 0.1)`). A cell `color_span` degrees above ambient, or hotter.
 
 #### Configuration warnings

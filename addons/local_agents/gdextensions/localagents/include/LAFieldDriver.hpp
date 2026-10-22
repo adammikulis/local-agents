@@ -72,6 +72,7 @@ public:
 	static void rig_wait_usec(double p_usec);
 	// The dispatch whose refusal aborted the step, or empty. Once aborted, nothing more is recorded.
 	String aborted() const;
+	void fail(const String &p_reason);
 
 	void open();
 	void close();
@@ -91,13 +92,19 @@ public:
 	// own live lithify step.
 	bool moves_state(const Array &p_passes) const;
 
+	static Array transport_groups(const Array &p_records);
+	static int transport_group_count(const Array &p_records);
 	void setup_transport(const Dictionary &p_plan);
+	Dictionary transport_blocks(const Dictionary &p_step);
+	PackedByteArray peak_block(int p_row, int p_group, const Dictionary &p_step);
+	void plan_reduce(const Dictionary &p_plan);
+	void run_reduce(const PackedInt32Array &p_rows);
+	Dictionary reduce_plan() const;
 	void run_transport(const PackedInt32Array &p_peaks, const Array &p_pc_rows, const Array &p_pc_grain,
 			const Array &p_pc_lists, int p_seed_workgroups, int p_list_workgroups, const Dictionary &p_restate);
 	void build_levels(int p_group, const Array &p_pc_rows, int p_levels);
 
-	Dictionary fold_reduce(const RID &p_partials, const PackedInt32Array &p_folds,
-			const PackedStringArray &p_keys, int p_groups);
+	Dictionary fold_reduce(const RID &p_partials);
 
 	// Submits and the dispatches and classes they carried (indirect ones apart), the counts read back,
 	// refusals, submits planned past their target, the longest submit and the last one that carried work
@@ -110,6 +117,29 @@ protected:
 	static void _bind_methods();
 
 private:
+
+	struct Row {
+		PackedByteArray block;
+		uint32_t slots = 0;
+		int group = 0;
+	};
+	struct Offsets {
+		int pass = 0, dt = 0, sun = 0, xuv = 0, level = 0, k = 0, n = 0, act_group = 0, phi = 0;
+	};
+	std::vector<Row> _transport_rows;
+	Row _grain;
+	std::vector<Row> _lists;
+	Offsets _off;
+	RID _reduce_pipe;
+	Array _reduce_sets, _reduce_pc;
+	PackedInt32Array _folds;
+	PackedStringArray _keys, _reduce_costs;
+	int _reduce_groups = 0;
+	void _encode_transport(const Dictionary &p_plan);
+	void _encode(Row &p_dst, const Dictionary &p_row, int p_cc, int p_total, int p_bands, int p_group);
+	void _stamp_one(Row &p_row, float p_dt, const Vector3 &p_sun, float p_xuv, float p_phi);
+	void _stamp_step(const Dictionary &p_step);
+	Array _table(const Row &p_row) const;
 	// One dispatch's measured cost: its latency floor, the least a lone single-workgroup submit of it took,
 	// and the last submit that carried it alone.
 	struct Cost {
@@ -148,8 +178,6 @@ private:
 
 	RID _pipe;
 	Array _row_sets;
-	PackedInt32Array _row_group;
-	PackedInt32Array _row_radiate;
 	Array _rows;                  // the transport records this plan walks, in dispatch order
 	PackedInt32Array _row_live;   // 0 = this record's switch is off; it moves nothing this step
 	std::vector<std::string> _slot_keys;   // per owner (row, grain, list) and slot: its cost key

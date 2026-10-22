@@ -2,10 +2,14 @@
 
 #include <godot_cpp/classes/dir_access.hpp>
 #include <godot_cpp/classes/file_access.hpp>
+#include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
 #include <godot_cpp/variant/packed_string_array.hpp>
+
+#include <atomic>
+#include <cstring>
 
 using namespace godot;
 
@@ -13,6 +17,9 @@ namespace {
 
 const char *MASK_DIR = "user://la_solid_cache";
 const char *STATE_DIR = "user://la_field_cache";
+const char *PURE_DIR = "user://la_pure_cache";
+const char *CONSTANTS_GD = "res://addons/local_agents/sim/material/PhysicalConstants.gd";
+std::atomic<int> g_pure_hits{ 0 };
 
 String entry_path(const char *p_dir, const String &p_key) {
 	return String(p_dir) + "/" + p_key + ".bin";
@@ -22,7 +29,105 @@ void ensure_dir(const char *p_dir) {
 	DirAccess::make_dir_recursive_absolute(ProjectSettings::get_singleton()->globalize_path(p_dir));
 }
 
+// What every pure native function here is a function of besides its arguments. Empty where either file
+// cannot be read, and an empty basis addresses nothing.
+const String &pure_basis() {
+	static const String basis = []() -> String {
+		Ref<FileAccess> hf = FileAccess::open(
+				"res://addons/local_agents/gdextensions/localagents/bin/SOURCE_HASH", FileAccess::READ);
+		Ref<FileAccess> pc = FileAccess::open(CONSTANTS_GD, FileAccess::READ);
+		if (hf.is_null() || pc.is_null()) {
+			return String();
+		}
+		return hf->get_as_text() + String("\n") + pc->get_as_text().sha256_text();
+	}();
+	return basis;
+}
+
+String pure_path(const String &p_name, const PackedFloat64Array &p_in) {
+	const String &basis = pure_basis();
+	if (basis.is_empty()) {
+		return String();
+	}
+	PackedStringArray parts;
+	parts.append(p_name);
+	parts.append(basis);
+	for (int i = 0; i < p_in.size(); i++) {
+		const double v = p_in[i];
+		uint64_t bits = 0;
+		std::memcpy(&bits, &v, sizeof(bits));
+		parts.append(String::num_uint64(bits, 16));
+	}
+	return entry_path(PURE_DIR, String("\n").join(parts).sha256_text());
+}
+
+bool same_bits(const PackedFloat64Array &p_a, const PackedFloat64Array &p_b) {
+	return p_a.size() == p_b.size()
+			&& (p_a.is_empty() || std::memcmp(p_a.ptr(), p_b.ptr(), size_t(p_a.size()) * sizeof(double)) == 0);
+}
+
 } // namespace
+
+PackedFloat64Array LAFieldStateCache::pure_load(const String &p_name, const PackedFloat64Array &p_in) {
+	const String path = pure_path(p_name, p_in);
+	if (path.is_empty()) {
+		return PackedFloat64Array();
+	}
+	Ref<FileAccess> f = FileAccess::open(path, FileAccess::READ);
+	if (f.is_null()) {
+		return PackedFloat64Array();
+	}
+	const Variant raw = f->get_var();
+	if (raw.get_type() != Variant::DICTIONARY) {
+		return PackedFloat64Array();
+	}
+	const Dictionary data = raw;
+	// The file names its own arguments, so a file that is not this call's is not served as one.
+	if (!same_bits(data.get("in", PackedFloat64Array()), p_in)) {
+		return PackedFloat64Array();
+	}
+	const PackedFloat64Array out = data.get("out", PackedFloat64Array());
+	if (!out.is_empty()) {
+		g_pure_hits.fetch_add(1);
+	}
+	return out;
+}
+
+void LAFieldStateCache::pure_store(const String &p_name, const PackedFloat64Array &p_in,
+		const PackedFloat64Array &p_out) {
+	const String path = pure_path(p_name, p_in);
+	if (path.is_empty() || p_out.is_empty()) {
+		return;
+	}
+	ensure_dir(PURE_DIR);
+	// Written whole under another name and renamed, so a reader in another process never sees half a file.
+	const String staging = path + String(".") + itos(OS::get_singleton()->get_process_id()) + String(".tmp");
+	Ref<FileAccess> f = FileAccess::open(staging, FileAccess::WRITE);
+	if (f.is_null()) {
+		return;
+	}
+	Dictionary data;
+	data["in"] = p_in;
+	data["out"] = p_out;
+	f->store_var(data);
+	f->close();
+	DirAccess::rename_absolute(ProjectSettings::get_singleton()->globalize_path(staging),
+			ProjectSettings::get_singleton()->globalize_path(path));
+}
+
+int LAFieldStateCache::pure_hits() {
+	return g_pure_hits.load();
+}
+
+void LAFieldStateCache::pure_clear() {
+	Ref<DirAccess> dir = DirAccess::open(PURE_DIR);
+	if (dir.is_null()) {
+		return;
+	}
+	for (const String &name : dir->get_files()) {
+		dir->remove(name);
+	}
+}
 
 String LAFieldStateCache::mask_key(const Dictionary &p_opts, int p_nx, int p_ny, int p_nz, double p_cell,
 		const Vector3 &p_origin, const PackedStringArray &p_sources) {
@@ -134,4 +239,6 @@ void LAFieldStateCache::_bind_methods() {
 			&LAFieldStateCache::load_state);
 	ClassDB::bind_static_method("LAFieldStateCache", D_METHOD("save_state", "key", "data"),
 			&LAFieldStateCache::save_state);
+	ClassDB::bind_static_method("LAFieldStateCache", D_METHOD("pure_hits"), &LAFieldStateCache::pure_hits);
+	ClassDB::bind_static_method("LAFieldStateCache", D_METHOD("pure_clear"), &LAFieldStateCache::pure_clear);
 }

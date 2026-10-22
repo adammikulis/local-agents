@@ -7,6 +7,8 @@
 #include <godot_cpp/variant/packed_float64_array.hpp>
 #include <godot_cpp/variant/string.hpp>
 
+#include "LASubstanceRow.hpp"
+
 namespace godot {
 
 // A CELL IS NOT A SUBSTANCE. Rock, water and air sit in one cell at ONE temperature; LASubstances answers
@@ -23,6 +25,9 @@ public:
 	static double vapour_fraction(const String &p_id, double p_t_c, double p_p_pa, double p_m_kg,
 			double p_room_m3);
 	static double specific_enthalpy(const String &p_id, double p_t_c, double p_p_pa, double p_m_kg,
+			double p_room_m3);
+	// The same read for a row a caller already holds, so a walk looks each substance up once.
+	static double specific_enthalpy_of(const LASubstanceRow &p_row, double p_t_c, double p_p_pa, double p_m_kg,
 			double p_room_m3);
 	static double enthalpy_at(const Dictionary &p_masses, double p_room_m3, double p_t_c, double p_p_pa);
 	static PackedFloat64Array breakpoints(const Dictionary &p_masses, double p_p_pa);

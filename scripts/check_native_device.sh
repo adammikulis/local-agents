@@ -7,6 +7,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh"
 . "$ROOT/scripts/lib_godot_lock.sh"
+. "$ROOT/scripts/lib_native_build.sh"
 require_tool cmake
 
 NATIVE="$ROOT/addons/local_agents/native"
@@ -14,13 +15,10 @@ LASIM="$NATIVE/bin/lasim"
 BLOB="$NATIVE/bin/kernels.blob"
 [ -x "$NATIVE/build.sh" ] || { echo "check_native_device: MISSING native/build.sh" >&2; exit 2; }
 
-if ! "$NATIVE/build.sh" >/tmp/check_native_build.$$ 2>&1; then
+if ! la_native_build; then
 	echo "check_native_device: the native build failed; lasim could not be produced." >&2
-	tail -30 /tmp/check_native_build.$$ >&2
-	rm -f /tmp/check_native_build.$$
 	exit 2
 fi
-rm -f /tmp/check_native_build.$$
 [ -x "$LASIM" ] || { echo "check_native_device: the build produced no $LASIM" >&2; exit 2; }
 [ -f "$BLOB" ] || { echo "check_native_device: the build produced no $BLOB" >&2; exit 2; }
 
@@ -54,8 +52,15 @@ cp "$BLOB" "$SCRATCH/kernels.blob"
 size="$(wc -c < "$SCRATCH/kernels.blob" | tr -d '[:space:]')"
 printf '\xff' | dd of="$SCRATCH/kernels.blob" bs=1 seek="$(( size / 2 ))" count=1 conv=notrunc \
 	status=none
-if "$LASIM" --kernels "$SCRATCH/kernels.blob" --selftest-device >/dev/null 2>&1; then
+if refused="$("$LASIM" --kernels "$SCRATCH/kernels.blob" --selftest-device 2>&1)"; then
 	echo "check_native_device: a corrupted kernel blob was loaded and dispatched from." >&2
 	exit 1
 fi
+# Refused for its hash, not for any other fault the flipped byte happened to cause.
+case "$refused" in
+	*"does not hash to what it was written with"*) ;;
+	*) echo "check_native_device: a corrupted kernel blob failed, but not on its hash:" >&2
+	   printf '%s\n' "$refused" | tail -5 >&2
+	   exit 1 ;;
+esac
 echo "check_native_device: OK (both selftests green; a corrupted blob is refused)"

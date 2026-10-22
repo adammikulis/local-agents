@@ -101,9 +101,7 @@ func _arm(wait_usec: float, n: int) -> Dictionary:
 	for s in STEPS:
 		rig.step(_ctx(s))
 		steps.append({"bufs": _bufs(rig, PackedStringArray()), "rows": reduce._drain(rig.rd)})
-	var blocks: Array = []
-	for row: Dictionary in reduce._rows:
-		blocks.append(reduce._pc(int(rig.cell_count), row, 0))
+	var blocks: Array = rig.driver.reduce_plan()["pc"]
 	var out: Dictionary = {"steps": steps, "ledger": rig.driver.ledger(), "blocks": blocks}
 	rig.close()
 	return out
@@ -189,7 +187,7 @@ func _kinds(split: Dictionary) -> void:
 		kinds[k.hex_encode()] = true
 	var measured: int = 0
 	for key in (split["ledger"]["floors"] as Dictionary):
-		measured += 1 if String(key).begins_with("ReducePass/") else 0
+		measured += 1 if String(key).begins_with("reduce/") else 0
 	if kinds.size() < 2:
 		_say("the reduce rows are all one kind, so no kind was priced apart from another.")
 	if measured != kinds.size():

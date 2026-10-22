@@ -9,6 +9,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh"
 . "$ROOT/scripts/lib_godot.sh"
 . "$ROOT/scripts/lib_capture.sh"
+. "$ROOT/scripts/lib_seal_key.sh"
 la_examined "$(basename "$0")" || exit $?
 require_tool python3
 
@@ -25,13 +26,16 @@ FELL="$(mktemp "${TMPDIR:-/tmp}/la_test_mass_fell.XXXXXX")"
 DRY="$(mktemp "${TMPDIR:-/tmp}/la_test_mass_dry.XXXXXX")"
 trap 'rm -rf "$SHOTS" "$FELL" "$DRY"' EXIT INT TERM
 
-# ARM 1 - the rung-1 demo, photographed so the run also publishes what the glyph renderer drew.
+# ARM 1 - the rung-1 demo, photographed so the run also publishes what the glyph renderer drew. Its box
+# is BOX, so it reads the seed the rung-1 worlds of check_live_toggles walked.
+la_seal_key world=slice rung=1 "box=$BOX"
 LA_RUN_TIMEOUT="${LA_TEST_MASS_TIMEOUT:-110}" "$ROOT/scripts/run_sim_offscreen.sh" --path "$ROOT" \
 	"$RUNG1" -- --sandbox "--shoot=$SHOTS/shot.png" "--shots=200:-15:0" \
 	--shoot-frames=150 --shoot-size=640x400 > "$FELL" 2>&1
 fell_rc=$?
 
 # ARM 2 - the same box at the rung below, asking for the same probe and the same glyphs.
+unset LA_SEAL_KEY
 LA_SLICE_BOX="$BOX" LA_RUN_TIMEOUT="${LA_TEST_MASS_TIMEOUT:-110}" \
 	"$ROOT/scripts/run_sim_offscreen.sh" --path "$ROOT" "$RUNG0" -- --sandbox --ui --rung=0 \
 	--vectors=gravity --planet-only --run-frames=30 > "$DRY" 2>&1

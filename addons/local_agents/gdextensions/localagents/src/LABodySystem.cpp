@@ -1,6 +1,7 @@
 #include "LABodySystem.hpp"
 
 #include "LAColumnRadiation.hpp"
+#include "LAFieldStateCache.hpp"
 #include "LAFieldCellMass.hpp"
 #include "LAFieldLithostaticSeed.hpp"
 #include "LAPhysicalRead.hpp"
@@ -42,7 +43,7 @@ constexpr double BAR_PA = 1.0e5;
 // silicate Earth's nitrogen budget holds the atmosphere inside that bound over the Hadean too
 // (Marty 2012, EPSL 313:56), and today's 0.78 bar stands inside it.
 constexpr double ARCHEAN_PN2_LOW_BAR = 0.5;
-constexpr double ARCHEAN_PN2_HIGH_BAR = 1.1;
+constexpr double ARCHEAN_PN2_HIGH_BAR = 1.1;  // Marty et al. 2013
 constexpr double ARCHEAN_PN2_BAR = 0.5 * (ARCHEAN_PN2_LOW_BAR + ARCHEAN_PN2_HIGH_BAR);
 
 // Obliquity of the planet's spin, degrees: the mean obliquity of the ecliptic at J2000, 23 deg 26 min
@@ -116,6 +117,15 @@ const PlanetSeed &planet_seed() {
 		return s;
 	}
 	solved = true;
+	// A function of the constants alone, so it is read back when this content has been solved before.
+	const PackedFloat64Array none;
+	const PackedFloat64Array stored = LAFieldStateCache::pure_load("planet_seed", none);
+	if (stored.size() == 3) {
+		s.t_c = stored[0];
+		s.r_m = stored[1];
+		s.p_surface_pa = stored[2];
+		return s;
+	}
 	const Dictionary x = LAFieldLithostaticSeed::seeded_air_mole_fractions();
 	const double x_n2 = double(x.get("n2", 0.0));
 	if (!(x_n2 > 0.0)) {
@@ -158,6 +168,11 @@ const PlanetSeed &planet_seed() {
 	}
 	s.t_c = t_c;
 	s.r_m = r;
+	PackedFloat64Array answer;
+	answer.push_back(s.t_c);
+	answer.push_back(s.r_m);
+	answer.push_back(s.p_surface_pa);
+	LAFieldStateCache::pure_store("planet_seed", none, answer);
 	return s;
 }
 
@@ -422,6 +437,19 @@ void LABodySeeds::_bind_methods() {
 
 // --- LABodyMeasure -----------------------------------------------------------------------------------
 
+namespace {
+
+// The relaxed body whose monopole is the box's gravity, at the radius the declared body stands.
+double declared_body_mass_kg(Object *p_field) {
+	Object *body = Object::cast_to<Object>(p_field->get("_body"));
+	if (!body || !body->has_method("radius")) {
+		return -1.0;
+	}
+	return LAPlanetComposition::profile_mass_kg(double(body->call("radius")), LABodySeeds::surface_temp_c());
+}
+
+} // namespace
+
 bool LABodyMeasure::measured() const {
 	return mass_kg > 0.0 && surface_r_m > 0.0;
 }
@@ -430,6 +458,7 @@ void LABodyMeasure::measure(Object *p_field, const Vector3 &p_spin_axis) {
 	mass_kg = -1.0;
 	surface_r_m = -1.0;
 	inertia_kg_m2 = -1.0;
+	declared_mass_kg = -1.0;
 	mass_by_channel = Dictionary();
 	if (!p_field) {
 		return;
@@ -481,14 +510,17 @@ void LABodyMeasure::measure(Object *p_field, const Vector3 &p_spin_axis) {
 	if (m_acc <= 0.0 || v_rock <= 0.0) {
 		return;
 	}
-	mass_kg = m_acc;
 	for (int k = 0; k < names.size(); k++) {
 		mass_by_channel[names[k]] = per[k];
 	}
 	// A WINDOW ON A BODY IS NOT THE BODY. A slice holds a slab of it, so the mass it sums carries no
-	// moment about the body's axis and no crust volume the body's radius could come out of: both stay
-	// UNMEASURED rather than reading as the slab's own.
+	// moment about the body's axis, no crust volume the body's radius could come out of and none of the
+	// pull the rest of the body exerts outside the box: all three stay UNMEASURED rather than reading as
+	// the slab's own. The pull outside is the declared body's, the one the box's own gravity is the field of.
 	const bool whole = p_field->get("_slice").get_type() == Variant::NIL;
+	mass_kg = whole ? m_acc : -1.0;
+	// LA_APPROX: slice_monopole_gravity
+	declared_mass_kg = whole ? -1.0 : declared_body_mass_kg(p_field);
 	// THE VOLUMETRIC MEAN RADIUS of the crust, the radius published for a planet: the sphere holding the
 	// solid volume that was seeded. A peak is not a radius, and gravity is the solve's field, not GM/r^2.
 	surface_r_m = whole ? std::cbrt(3.0 * v_rock / (4.0 * Math::PI)) : -1.0;
@@ -501,6 +533,7 @@ double LABodyMeasure::angular_velocity_rad_s(double p_spin_l_kg_m2_s) const {
 
 void LABodyMeasure::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("measured"), &LABodyMeasure::measured);
+	ClassDB::bind_method(D_METHOD("body_mass_kg"), &LABodyMeasure::body_mass_kg);
 	ClassDB::bind_method(D_METHOD("measure", "field", "spin_axis"), &LABodyMeasure::measure);
 	ClassDB::bind_method(D_METHOD("angular_velocity_rad_s", "spin_l_kg_m2_s"),
 			&LABodyMeasure::angular_velocity_rad_s);
@@ -508,6 +541,7 @@ void LABodyMeasure::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_" #m), &LABodyMeasure::get_##m);        \
 	ADD_PROPERTY(PropertyInfo(t, #m), "", "get_" #m)
 	LA_MEASURE_READING(mass_kg, Variant::FLOAT);
+	LA_MEASURE_READING(declared_mass_kg, Variant::FLOAT);
 	LA_MEASURE_READING(surface_r_m, Variant::FLOAT);
 	LA_MEASURE_READING(inertia_kg_m2, Variant::FLOAT);
 	LA_MEASURE_READING(mass_by_channel, Variant::DICTIONARY);

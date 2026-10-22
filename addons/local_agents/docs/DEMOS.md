@@ -28,7 +28,7 @@ text. Change the `.tres` for content, or the generator for wording.
 
 `scripts/run_demo.sh <name>` runs an example scene with no window in about a second and prints a
 `RUN_DEMO={...}` line carrying the exit code. It only accepts a scene that builds a
-`LocalAgentDemoHarness` and needs no window, and 4 of the 15 entries are one. An example scene
+`LocalAgentDemoHarness` and needs no window, and 3 of the 15 entries are one. An example scene
 without that harness ignores `--run-frames` and never exits, so it gets `--quit-after` instead. Each
 demo below carries the command that applies to it.
 
@@ -127,11 +127,11 @@ A few creatures wandering a plain floor on their fast brain, with an optional Lo
 
 ## 10. Box-field heat sandbox
 
-The simulation substrate in a bare box: inject heat at the floor, watch it diffuse and buoy upward through a tinted slice. One field, no planet wrapped around it.
+A sealed box of the planet's surface air at rung 0: matter, energy and phase, and nothing that moves them. A hotplate on the floor hands its watts to the cells over it on the box's own clock; they warm by what their own heat capacity says, and every other cell stays at the seed temperature, because nothing at this rung carries heat from one cell to another.
 
 - Scene: `res://addons/local_agents/examples/BoxFieldDemo.tscn`
 - Requires: nothing, it opens with no model installed
-- Run headless: `scripts/run_demo.sh BoxFieldDemo`, or `scripts/run_demo.sh BoxFieldDemo 200` for more than the default 40 frames.
+- Run: `scripts/run_sim_offscreen.sh --path . addons/local_agents/examples/BoxFieldDemo.tscn -- --run-frames=200`. Headless has no compute device for the field, so the wrapper gives it a real window placed off-screen.
 
 ## 11. A whole planet from one node
 
@@ -139,7 +139,7 @@ LocalAgentSimWorld in SPHERE mode: a planet turning under its star, the material
 
 - Scene: `res://addons/local_agents/examples/SimWorldPlanetDemo.tscn`
 - Requires: the godot_voxel GDExtension (addons/zylann.voxel/)
-- Run: `scripts/run_sim_offscreen.sh --path . addons/local_agents/examples/SimWorldPlanetDemo.tscn -- --run-frames=200`. Headless has no compute device for the planet's field, so the wrapper gives it a real window placed off-screen.
+- Run: `scripts/run_sim_offscreen.sh --path . addons/local_agents/examples/SimWorldPlanetDemo.tscn -- --run-frames=200`. Headless has no compute device for the field, so the wrapper gives it a real window placed off-screen.
 
 ## 12. Play the planet
 
@@ -147,7 +147,7 @@ The whole game shell around the planet: herds, emergent disasters, a HUD and a l
 
 - Scene: `res://addons/local_agents/game/VoxelWorld.tscn`
 - Requires: the godot_voxel GDExtension (addons/zylann.voxel/)
-- Run: `scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn -- --run-frames=200`. Headless has no compute device for the planet's field, so the wrapper gives it a real window placed off-screen.
+- Run: `scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn -- --run-frames=200`. Headless has no compute device for the field, so the wrapper gives it a real window placed off-screen.
 
 ## 13. Slice, rung 0: state
 
@@ -155,15 +155,15 @@ One box of the planet, laid on the real terrain and stepped by the bottom rung a
 
 - Scene: `res://addons/local_agents/examples/SliceRung0Demo.tscn`
 - Requires: the godot_voxel GDExtension (addons/zylann.voxel/)
-- Run: `scripts/run_sim_offscreen.sh --path . addons/local_agents/examples/SliceRung0Demo.tscn -- --run-frames=200`. Headless has no compute device for the planet's field, so the wrapper gives it a real window placed off-screen.
+- Run: `scripts/run_sim_offscreen.sh --path . addons/local_agents/examples/SliceRung0Demo.tscn -- --run-frames=200`. Headless has no compute device for the field, so the wrapper gives it a real window placed off-screen.
 
 ## 14. Slice, rung 1: gravity
 
-The same box as rung 0 with one process added: the potential of the mass that is there, solved on the device. Arrows over every open cell draw that field, and the key beside them gives the magnitude they saturate at. A test mass released two kilometres over the ground falls under the same field and stops on the rock; the readout carries the local g at the probe, its speed and how long it fell, and G drops another wherever you are standing. The solve is also what gives the seed a vertical, so the water the body was given soaks into the rock under it; this box stands on the body's pole, where no basin holds a free surface. Nothing else moves: no wind, no flow, no heat spreading.
+The same box as rung 0 with one process added: the potential of the mass that is there, solved on the device, and the tide every other declared body raises on it. Arrows over every open cell draw the whole pull a mass here falls under, and the key beside them gives the magnitude they saturate at; run it with --vectors=tide and the arrows draw the tidal part alone, two lobes that stand toward the Moon and away from it and sweep past as the body turns under them. A test mass released two kilometres over the ground falls under the same field and stops on the rock; the readout carries the local g at the probe, its speed and how long it fell, and G drops another wherever you are standing. Beside it the tide readout gives the height water standing on the total equipotential reaches at this site and the angle of the body raising it from overhead: both run through a full cycle twice in each of the body's days. Hold R to charge a throw and let go to lob an orb along your look direction ([ and ] halve and double the speed): it leaves the hand with the ground's own rotation and bends into the same field from the moment it is let go, drawing the path it took. The solve is also what gives the seed a vertical, so the water the body was given soaks into the rock under it. Nothing else moves: no wind, no flow, no heat spreading.
 
 - Scene: `res://addons/local_agents/examples/SliceRung1Demo.tscn`
 - Requires: the godot_voxel GDExtension (addons/zylann.voxel/)
-- Run: `scripts/run_sim_offscreen.sh --path . addons/local_agents/examples/SliceRung1Demo.tscn -- --run-frames=200`. Headless has no compute device for the planet's field, so the wrapper gives it a real window placed off-screen.
+- Run: `scripts/run_sim_offscreen.sh --path . addons/local_agents/examples/SliceRung1Demo.tscn -- --run-frames=200`. Headless has no compute device for the field, so the wrapper gives it a real window placed off-screen.
 
 ## 15. Life on the planet, backdrop faked
 
@@ -171,4 +171,4 @@ The same coastal box the rung-0 demo lays down, run at the highest rung the ladd
 
 - Scene: `res://addons/local_agents/examples/LifeDemo.tscn`
 - Requires: the godot_voxel GDExtension (addons/zylann.voxel/)
-- Run: `scripts/run_sim_offscreen.sh --path . addons/local_agents/examples/LifeDemo.tscn -- --run-frames=200`. Headless has no compute device for the planet's field, so the wrapper gives it a real window placed off-screen.
+- Run: `scripts/run_sim_offscreen.sh --path . addons/local_agents/examples/LifeDemo.tscn -- --run-frames=200`. Headless has no compute device for the field, so the wrapper gives it a real window placed off-screen.

@@ -20,7 +20,6 @@ var owner_family: int = -1
 var in_tree: bool = false
 
 var _young: int = 0
-var _age: float = 0.0                     # total lifetime, only ever grows
 var _idle: float = 0.0                    # seconds since the last touch()
 var _dead: bool = false
 
@@ -334,7 +333,6 @@ func _physics_process(delta: float) -> void:
 	if _dead:
 		return
 
-	_age += delta
 	_idle += delta
 
 	if _idle >= IDLE_TIMEOUT:

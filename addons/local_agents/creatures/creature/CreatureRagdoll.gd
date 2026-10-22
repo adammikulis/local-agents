@@ -4,18 +4,18 @@ extends RefCounted
 
 const MICROBE_SEED: float = 0.2           # suppressed microbe load at death; blooms as the body is consumed
 const DECOMP_RATE_PER_SEC: float = 0.35   # fraction of biomass the full bloom converts per second at warm+wet
-const COLD_STALL_C: float = -2.0          # at/below this the bloom stalls to MUMMIFY_FLOOR (frozen preservation)
+const COLD_STALL_C: float = -2.0          # frozen preservation
 const WARM_OPT_C: float = 28.0            # at/above this warmth is optimal (rate factor 1.0)
-const MUMMIFY_FLOOR: float = 0.06         # slowest warmth factor — a frozen carcass lingers ~16x longer
 const DRY_MOISTURE: float = 0.6           # moisture factor for a dry-land carcass (a wet/submerged one = 1.0)
 const DETRITUS_YIELD: float = 1.0         # detritus deposited into the field per unit biomass consumed
 const SHRINK_FRACTION: float = 0.25       # over the final quarter of decomposition the body shrinks away
-const MAX_CARCASSES: int = 80             # GENEROUS safety backstop only — decomposition self-bounds the count
 
-# World-wide carcass registry, in creation order. Decomposition already self-bounds the count (bodies rot back
-# into soil), so this is only a backstop against a pathological pileup (e.g. a mass die-off in permafrost where
-# everything mummifies): if the count ever exceeds MAX_CARCASSES, the OLDEST body (front) is despawned.
 static var _carcasses: Array = []
+
+
+## No body kept, as a fresh process holds it.
+static func forget() -> void:
+	_carcasses.clear()
 
 
 # The creature is flung: a free body under the field's own gravity that stops on the field's own ground,
@@ -116,8 +116,6 @@ static func _become_carcass(c) -> void:
 	_register_carcass(c)
 
 
-# Track this new carcass and keep the world-wide carcass count within MAX_CARCASSES. Prunes entries that
-# already rotted away (freed nodes) then, while still over budget, evicts the OLDEST carcass first.
 static func _register_carcass(c) -> void:
 	_carcasses.append(c)
 	var i: int = _carcasses.size() - 1
@@ -125,26 +123,13 @@ static func _register_carcass(c) -> void:
 		if not is_instance_valid(_carcasses[i]):
 			_carcasses.remove_at(i)
 		i -= 1
-	while _carcasses.size() > MAX_CARCASSES:
-		var oldest: Node = _carcasses.pop_front()
-		_despawn_carcass(oldest)
 	LASimReport.gauge("carcasses", float(_carcasses.size()))
 
 
 # Drop a carcass from the registry once it has fully decomposed away (keeps the count telemetry honest).
 static func _forget_carcass(c) -> void:
 	_carcasses.erase(c)
-	LASimReport.gauge("carcasses", float(_carcasses.size()))   # telemetry: live carcass count (bounded by the cap)
-
-
-static func _despawn_carcass(c) -> void:
-	if not is_instance_valid(c):
-		return
-	if c._carrion > 0.0 and c._material != null and c._material.has_method("deposit_detritus"):
-		c._material.deposit_detritus(c.global_position, c._carrion)
-	c._carrion = 0.0
-	_release_fall(c)
-	c.queue_free()
+	LASimReport.gauge("carcasses", float(_carcasses.size()))
 
 
 static func decay_tick(c, delta: float) -> void:
@@ -159,7 +144,8 @@ static func decay_tick(c, delta: float) -> void:
 	var consumed_frac: float = clampf(1.0 - c._carrion / initial, 0.0, 1.0)
 	# Autocatalytic microbe bloom: a suppressed seed at death that grows toward full as the body is converted.
 	var microbes: float = MICROBE_SEED + consumed_frac * (1.0 - MICROBE_SEED)
-	var consumed: float = minf(initial * DECOMP_RATE_PER_SEC * microbes * _decomp_env(c) * delta, c._carrion)
+	var env: float = _decomp_env(c)
+	var consumed: float = 0.0 if is_nan(env) else minf(initial * DECOMP_RATE_PER_SEC * microbes * env * delta, c._carrion)
 	if consumed > 0.0:
 		c._carrion -= consumed
 		if c._material != null and c._material.has_method("deposit_detritus"):
@@ -178,11 +164,13 @@ static func decay_tick(c, delta: float) -> void:
 
 static func _decomp_env(c) -> float:
 	if c._material == null:
-		return DRY_MOISTURE
+		return NAN
 	var pos: Vector3 = c.global_position
 	# The microbes work at the carcass's own temperature, which follows the medium it lies in.
 	var t_c: float = float(c.body_temp)
-	var warmth: float = clampf((t_c - COLD_STALL_C) / (WARM_OPT_C - COLD_STALL_C), MUMMIFY_FLOOR, 1.0)
+	if not is_finite(t_c):
+		return NAN
+	var warmth: float = clampf((t_c - COLD_STALL_C) / (WARM_OPT_C - COLD_STALL_C), 0.0, 1.0)
 	var moisture: float = DRY_MOISTURE
 	if c._material.has_method("snow_depth_at") and c._material.snow_depth_at(pos) > 0.01:
 		moisture *= 0.5                        # frozen under snow: driest + coldest ⇒ slowest (permafrost)

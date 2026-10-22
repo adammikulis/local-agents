@@ -2,7 +2,7 @@
 class_name LAFieldBoxSliceView
 extends MultiMeshInstance3D
 
-## One plane of a LocalAgentFieldBox's cells, a cube per cell tinted by its temperature above ambient.
+## One plane of a LocalAgentFieldBox's cells, a cube per cell tinted by its temperature above the box's seed.
 
 const AXES: PackedStringArray = ["X", "Y", "Z"]
 
@@ -32,11 +32,11 @@ const AXES: PackedStringArray = ["X", "Y", "Z"]
 		_laid_out = false
 
 @export_group("Colour")
-## Degrees C above ambient that reach hot_color. Smaller = a more sensitive display.
+## Degrees C above the box's seed temperature that reach hot_color. Smaller = a more sensitive display.
 @export_range(1.0, 400.0, 1.0, "suffix:C") var color_span: float = 60.0
-## Colour of a cell at ambient temperature.
+## Colour of a cell at the box's seed temperature.
 @export_color_no_alpha var cold_color: Color = Color(0.15, 0.2, 0.5)
-## Colour of a cell color_span degrees above ambient, and of anything hotter.
+## Colour of a cell color_span degrees above the seed, and of anything hotter.
 @export_color_no_alpha var hot_color: Color = Color(1.0, 0.35, 0.1)
 
 var _points: PackedVector3Array = PackedVector3Array()   # world sample point per instance
@@ -62,7 +62,7 @@ func _process(_delta: float) -> void:
 	var field: Node = field_box.field()
 	if not _laid_out:
 		_lay_out(field)
-	var ambient: float = LABodySeeds.surface_temp_c()
+	var ambient: float = field_box.seed_temp_c()
 	for i in range(_points.size()):
 		var f: float = clampf((field.temp_at(_points[i]) - ambient) / color_span, 0.0, 1.0)
 		multimesh.set_instance_color(i, cold_color.lerp(hot_color, f))

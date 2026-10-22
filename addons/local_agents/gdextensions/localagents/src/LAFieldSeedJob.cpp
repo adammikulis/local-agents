@@ -155,7 +155,9 @@ bool LAFieldSeedJob3D::finish_restore(Object *p_field, bool p_gravity) {
 	gpu->call("derive_seeded", true);
 	if (bool(gpu->call("refused", "the seed"))) { return false; }
 	Object *measure = p_field->get("_body_measure");
-	measure->call("measure", p_field, LABodySeeds::spin_axis_of(p_field->get("_body_key")));
+	if (measure != nullptr) {
+		measure->call("measure", p_field, LABodySeeds::spin_axis_of(p_field->get("_body_key")));
+	}
 	return true;
 }
 
@@ -176,7 +178,9 @@ bool LAFieldSeedJob3D::complete(Object *p_field, bool p_gravity) {
 	switch (activation_stage++) {
 		case 0: {
 			Object *measure = p_field->get("_body_measure");
-			measure->call("measure", p_field, LABodySeeds::spin_axis_of(p_field->get("_body_key")));
+			if (measure != nullptr) {
+				measure->call("measure", p_field, LABodySeeds::spin_axis_of(p_field->get("_body_key")));
+			}
 			gpu->call("_seed_regolith");
 			return false;
 		}

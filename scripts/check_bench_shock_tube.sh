@@ -219,8 +219,8 @@ if LA_BENCH_SELFTEST=broken python3 "$JUDGE" >/dev/null 2>&1; then
   exit 2
 fi
 
-out="$(LA_DONE_RE='^BENCH_RAW_SHOCK_TUBE=' "$REPO_ROOT/scripts/run_sim_offscreen.sh" \
-  --path "$REPO_ROOT" -s "res://$PROBE" 2>&1)"
+# THE RIG RIDES THE SHARED DEVICE BATCH: one launch holds every rig that only needs a device.
+out="$(la_rig bench_shock_tube '^BENCH_RAW_SHOCK_TUBE=' "res://$PROBE")" || { rig_result=$?; printf '%s\n' "$out" >&2; exit "$rig_result"; }
 raw="$(printf '%s\n' "$out" | grep -m1 '^BENCH_RAW_SHOCK_TUBE=')"
 if [ -z "$raw" ]; then
   echo "ERROR: the rig published no BENCH_RAW_SHOCK_TUBE line." >&2

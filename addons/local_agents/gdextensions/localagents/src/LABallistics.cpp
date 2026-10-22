@@ -1,4 +1,5 @@
 #include "LABallistics.hpp"
+#include "LAFieldDriver.hpp"
 
 #include "LABodySystem.hpp"
 #include "LAFieldCellMass.hpp"
@@ -10,6 +11,8 @@
 
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
+#include <godot_cpp/variant/packed_vector3_array.hpp>
+#include <godot_cpp/variant/packed_float64_array.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -32,6 +35,7 @@ struct Dvec {
 	Dvec operator-(const Dvec &o) const { return Dvec(x - o.x, y - o.y, z - o.z); }
 	Dvec operator*(double s) const { return Dvec(x * s, y * s, z * s); }
 	double len() const { return std::sqrt(x * x + y * y + z * z); }
+	double dot(const Dvec &o) const { return x * o.x + y * o.y + z * o.z; }
 };
 
 struct SystemBody {
@@ -39,6 +43,11 @@ struct SystemBody {
 	double mu = 0.0;
 	double radius = -1.0;
 	bool frame = false;
+};
+
+struct TrajectorySample {
+	double time;
+	Dvec point;
 };
 
 struct FreeBody {
@@ -53,8 +62,10 @@ struct FreeBody {
 	bool armed = false;
 	bool landed = false;
 	double land_speed = 0.0;
-	Dvec rest_field;
-	Dvec from_field;
+	Dvec rest_body;
+	Dvec release_body;
+	bool track = false;
+	std::vector<TrajectorySample> trajectory;
 	double g_release = 0.0;
 };
 
@@ -115,6 +126,12 @@ Dvec pull(double p_mu, double p_r_body, const Dvec &p_from, const Dvec &p_at) {
 		return dir * (p_mu * len / (p_r_body * p_r_body * p_r_body));
 	}
 	return dir * (p_mu / (len * len));
+}
+
+// A pull exists where the world contains the gravity process and it is switched on; a rung below it, or a
+// world with it off, has no pull anywhere and no tide either.
+bool gravity_on() {
+	return LAProcessSet::is_active("pass", "GravityPass.gd", LAProcessSet::ANY);
 }
 
 int frame_index() {
@@ -250,7 +267,7 @@ void advance(FreeBody &b, double p_h, std::unordered_map<int, CellHeat> &p_heat)
 			}
 		}
 		b.pos = path(hi);
-		b.rest_field = to_field(b.pos);
+		b.rest_body = to_field(b.pos) - tb().frame.pivot;
 		b.vel = v0 + a0 * (hi * p_h);
 		b.fall_time_s += p_h * hi;
 		b.land_speed = b.vel.len();
@@ -301,6 +318,22 @@ void LABallistics::set_system(const Array &p_bodies) {
 		b.frame = bool(row.get("frame", false));
 		tb().system.push_back(b);
 	}
+}
+
+bool LABallistics::upload_tide(RenderingDevice *p_rd, const RID &p_buffer, int p_elements, LAFieldDriver *p_driver) {
+	const PackedByteArray bytes = tide_table().to_byte_array();
+	String error;
+	if (!p_rd || !p_buffer.is_valid() || !p_driver) {
+		error = "tide/buffer_absent";
+	} else if (bytes.size() > int64_t(p_elements) * 4) {
+		error = "tide/buffer_capacity";
+	} else if (p_rd->buffer_update(p_buffer, 0, bytes.size(), bytes) != OK) {
+		error = "tide/buffer_update";
+	}
+	if (error.is_empty()) { return true; }
+	if (p_driver) { p_driver->fail(error); }
+	else { UtilityFunctions::push_error(error); }
+	return false;
 }
 
 int LABallistics::system_size() {
@@ -376,6 +409,110 @@ Vector3 LABallistics::acceleration_at(const Vector3 &p_at, int p_exclude) {
 	return a.v3();
 }
 
+Vector3 LABallistics::tidal_at(const Vector3 &p_at) {
+	const int fr = frame_index();
+	if (fr < 0 || !gravity_on()) {
+		return Vector3();
+	}
+	const Dvec at(p_at);
+	const Dvec c = tb().system[fr].centre;
+	Dvec a;
+	for (size_t i = 0; i < tb().system.size(); i++) {
+		if (int(i) == fr) {
+			continue;
+		}
+		const SystemBody &b = tb().system[i];
+		a = a + pull(b.mu, b.radius, b.centre, at) - pull(b.mu, b.radius, b.centre, c);
+	}
+	return a.v3();
+}
+
+double LABallistics::tide_peak_ratio() {
+	const int fr = frame_index();
+	if (fr < 0 || !gravity_on() || !(tb().system[fr].radius > 0.0)) {
+		return NAN;
+	}
+	const double r = tb().system[fr].radius;
+	const Dvec c = tb().system[fr].centre;
+	Dvec toward;
+	double lead = 0.0;
+	for (size_t i = 0; i < tb().system.size(); i++) {
+		if (int(i) == fr) {
+			continue;
+		}
+		const Dvec off = tb().system[i].centre - c;
+		const double d = off.len();
+		if (!(d > 0.0)) {
+			continue;
+		}
+		const double a = 2.0 * tb().system[i].mu * r / (d * d * d);
+		if (a > lead) {
+			lead = a;
+			toward = off * (1.0 / d);
+		}
+	}
+	if (!(lead > 0.0)) {
+		return NAN;
+	}
+	return Dvec(tidal_at((c + toward * r).v3())).len() / lead;
+}
+
+double LABallistics::tidal_potential_at(const Vector3 &p_at) {
+	const int fr = frame_index();
+	if (fr < 0 || !gravity_on()) {
+		return 0.0;
+	}
+	const Dvec c = tb().system[fr].centre;
+	const Dvec s = Dvec(p_at) - c;
+	double phi = 0.0;
+	for (size_t i = 0; i < tb().system.size(); i++) {
+		if (int(i) == fr) {
+			continue;
+		}
+		const SystemBody &b = tb().system[i];
+		const Dvec off = b.centre - c;
+		const double cl = off.len();
+		const double dl = (s - off).len();
+		if (!(cl > 0.0) || !(dl > 0.0)) {
+			continue;
+		}
+		phi += -b.mu * (1.0 / dl - 1.0 / cl - s.dot(off) / (cl * cl * cl));
+	}
+	return phi;
+}
+
+int LABallistics::tide_rows() {
+	return int(tb().system.size()) - (frame_index() >= 0 ? 1 : 0);
+}
+
+PackedFloat32Array LABallistics::tide_table() {
+	const int p_rows = tide_rows();
+	PackedFloat32Array out;
+	// Slot 0 is how many rows follow; each row is four floats from slot 4 on.
+	out.resize((p_rows + 1) * 4);
+	out.fill(0.0f);
+	const int fr = frame_index();
+	if (fr < 0 || !gravity_on()) {
+		return out;
+	}
+	const Dvec c = tb().system[fr].centre;
+	int k = 0;
+	for (size_t i = 0; i < tb().system.size(); i++) {
+		if (int(i) == fr) {
+			continue;
+		}
+		// The kernel reads the grid's own coordinates, so the offset turns with the body the grid rides.
+		const Dvec off = rot(tb().frame.mi, tb().system[i].centre - c);
+		k++;
+		out[k * 4] = float(off.x);
+		out[k * 4 + 1] = float(off.y);
+		out[k * 4 + 2] = float(off.z);
+		out[k * 4 + 3] = float(tb().system[i].mu);
+	}
+	out[0] = float(k);
+	return out;
+}
+
 void LABallistics::set_field(Object *p_grid, const PackedFloat32Array &p_gravity,
 		const PackedByteArray &p_solid, Object *p_mass_mirrors, const Array &p_mass_channels,
 		const Basis &p_frame, const Vector3 &p_pivot) {
@@ -395,7 +532,7 @@ void LABallistics::set_field(Object *p_grid, const PackedFloat32Array &p_gravity
 	// A body that has landed lies on the ground, and the ground turns with the body it is part of.
 	for (FreeBody &b : tb().bodies) {
 		if (b.landed) {
-			b.pos = from_field(b.rest_field);
+			b.pos = from_field(b.rest_body + tb().frame.pivot);
 		}
 	}
 	if (p_grid) {
@@ -422,9 +559,7 @@ bool LABallistics::rock_at(const Vector3 &p_at) {
 }
 
 Vector3 LABallistics::g_at(const Vector3 &p_at) {
-	// The gravity switch, not the gravity record: a world that never solves a potential still has the
-	// system's point masses, but a world whose gravity is switched OFF has no pull anywhere.
-	if (!LAProcessSet::is_switched_on("pass", "GravityPass.gd")) {
+	if (!gravity_on()) {
 		return Vector3();
 	}
 	if (tb().grid && tb().gravity.size() > 0) {
@@ -470,7 +605,7 @@ Vector3 LABallistics::g_at(const Vector3 &p_at) {
 				}
 				acc = acc + mirror_g(pc) * w;
 			}
-			return rot(tb().frame.m, acc).v3();
+			return (rot(tb().frame.m, acc) + Dvec(tidal_at(p_at))).v3();
 		}
 	}
 	return acceleration_at(p_at, -1);
@@ -495,12 +630,13 @@ double LABallistics::read_check(int p_samples) {
 	const int stride = MAX(cc / p_samples, 1);
 	double worst = NAN;
 	for (int c = 0; c < cc; c += stride) {
-		const Dvec want = rot(tb().frame.m, mirror_g(c));
+		const Vector3 world = from_field(Dvec(tb().centres[c])).v3();
+		const Dvec want = rot(tb().frame.m, mirror_g(c)) + Dvec(tidal_at(world));
 		const double mag = want.len();
 		if (!(mag > 0.0)) {
 			continue;
 		}
-		const double rel = (Dvec(g_at(from_field(Dvec(tb().centres[c])).v3())) - want).len() / mag;
+		const double rel = (Dvec(g_at(world)) - want).len() / mag;
 		worst = std::isnan(worst) ? rel : MAX(worst, rel);
 	}
 	return worst;
@@ -515,7 +651,7 @@ int LABallistics::drop(const Vector3 &p_pos, const Vector3 &p_vel, double p_mass
 	b.radius_m = (std::isfinite(p_radius_m) && p_radius_m > 0.0) ? p_radius_m : 0.0;
 	// A body launched out of rock is not landed in it: it arms once it has reached open ground.
 	b.armed = !occupied(b.pos);
-	b.from_field = to_field(b.pos);
+	b.release_body = to_field(b.pos) - tb().frame.pivot;
 	b.g_release = Dvec(g_at(p_pos)).len();
 	tb().index[b.id] = tb().bodies.size();
 	tb().bodies.push_back(b);
@@ -554,10 +690,35 @@ Dictionary LABallistics::state(int p_id) {
 	out["mass_kg"] = b.mass_kg;
 	out["cell"] = cell_of(b.pos);
 	// The release point, carried in the grid's frame: the ground it was let go of turns under it.
-	const Dvec from = from_field(b.from_field);
+	const Dvec from = from_field(b.release_body + tb().frame.pivot);
 	out["from"] = from.v3();
 	out["g_release"] = b.g_release;
 	out["height_m"] = (from - pivot()).len() - (b.pos - pivot()).len();
+	return out;
+}
+
+void LABallistics::track_trajectory(int p_id) {
+	const auto it = tb().index.find(p_id);
+	if (it == tb().index.end()) { return; }
+	FreeBody &b = tb().bodies[it->second];
+	if (b.track) { return; }
+	b.track = true;
+	b.trajectory.push_back({b.fall_time_s, to_field(b.pos) - tb().frame.pivot});
+}
+
+Dictionary LABallistics::trajectory(int p_id) {
+	Dictionary out;
+	const auto it = tb().index.find(p_id);
+	if (it == tb().index.end()) { return out; }
+	const auto &samples = tb().bodies[it->second].trajectory;
+	PackedVector3Array points;
+	PackedFloat64Array times;
+	for (const TrajectorySample &sample : samples) {
+		points.append(from_field(sample.point + tb().frame.pivot).v3());
+		times.append(sample.time);
+	}
+	out["points"] = points;
+	out["times"] = times;
 	return out;
 }
 
@@ -590,6 +751,17 @@ Array LABallistics::step(double p_dt_s) {
 		while (left > 0.0 && !b.landed) {
 			const double h = sub_step_h(b, left);
 			advance(b, h, heat);
+			if (b.track) {
+				// Presentation history only: decimate old samples, preserving release and landing.
+				if (b.trajectory.size() == 96) {
+					size_t kept = 0;
+					for (size_t i = 0; i < b.trajectory.size(); i += 2) {
+						b.trajectory[kept++] = b.trajectory[i];
+					}
+					b.trajectory.resize(kept);
+				}
+				b.trajectory.push_back({b.fall_time_s, to_field(b.pos) - tb().frame.pivot});
+			}
 			left -= h;
 			n++;
 		}
@@ -615,7 +787,7 @@ Array LABallistics::step(double p_dt_s) {
 			row["sub_steps"] = b.sub_steps;
 			// The RADIAL drop: a radius is the same in either frame, and between release and landing the
 			// ground under the body has turned a long way east.
-			row["height_m"] = (from_field(b.from_field) - pivot()).len() - (b.pos - pivot()).len();
+			row["height_m"] = (from_field(b.release_body + tb().frame.pivot) - pivot()).len() - (b.pos - pivot()).len();
 			tb().landed_rows.push_back(row);
 		}
 	}
@@ -643,6 +815,15 @@ void LABallistics::_bind_methods() {
 	ClassDB::bind_static_method("LABallistics", D_METHOD("circular_speed", "at"), &LABallistics::circular_speed);
 	ClassDB::bind_static_method("LABallistics", D_METHOD("acceleration_at", "at", "exclude"),
 			&LABallistics::acceleration_at, DEFVAL(-1));
+	ClassDB::bind_static_method("LABallistics", D_METHOD("tidal_at", "at"), &LABallistics::tidal_at);
+	ClassDB::bind_static_method("LABallistics", D_METHOD("tide_peak_ratio"),
+			&LABallistics::tide_peak_ratio);
+	ClassDB::bind_static_method("LABallistics", D_METHOD("tidal_potential_at", "at"),
+			&LABallistics::tidal_potential_at);
+	ClassDB::bind_static_method("LABallistics", D_METHOD("tide_rows"), &LABallistics::tide_rows);
+	ClassDB::bind_static_method("LABallistics", D_METHOD("tide_table"), &LABallistics::tide_table);
+	ClassDB::bind_static_method("LABallistics", D_METHOD("upload_tide", "rd", "buffer", "elements", "driver"),
+			&LABallistics::upload_tide);
 	ClassDB::bind_static_method("LABallistics",
 			D_METHOD("set_field", "grid", "gravity", "solid", "mass_mirrors", "mass_channels", "frame", "pivot"),
 			&LABallistics::set_field);
@@ -658,6 +839,8 @@ void LABallistics::_bind_methods() {
 			&LABallistics::drop, DEFVAL(Vector3()), DEFVAL(0.0), DEFVAL(0.0));
 	ClassDB::bind_static_method("LABallistics", D_METHOD("release", "id"), &LABallistics::release);
 	ClassDB::bind_static_method("LABallistics", D_METHOD("state", "id"), &LABallistics::state);
+	ClassDB::bind_static_method("LABallistics", D_METHOD("track_trajectory", "id"), &LABallistics::track_trajectory);
+	ClassDB::bind_static_method("LABallistics", D_METHOD("trajectory", "id"), &LABallistics::trajectory);
 	ClassDB::bind_static_method("LABallistics", D_METHOD("live_count"), &LABallistics::live_count);
 	ClassDB::bind_static_method("LABallistics", D_METHOD("step", "dt_s"), &LABallistics::step);
 	ClassDB::bind_static_method("LABallistics", D_METHOD("drag_work"), &LABallistics::drag_work);

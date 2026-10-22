@@ -4,6 +4,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -21,6 +22,7 @@ constexpr double kU = 5.9604645e-8;
 // sparse_edit.glsl's own op tags.
 constexpr int32_t kAdd = 0;
 constexpr int32_t kMove = 1;
+constexpr int32_t kAddSigned = 2;
 
 struct Push {
 	uint32_t base;
@@ -269,6 +271,59 @@ bool prop_chunk_never_wraps(Case &c) {
 	return c.examined > 0;
 }
 
+// A SIGNED STOCK HAS NO ZERO: internal energy, momentum and charge take a credit whole, whatever their
+// sign, and the device reports what landed. A floor at zero there hands a negative stock its magnitude.
+bool prop_signed_credit_is_exact(Case &c) {
+	std::string err;
+	Rig rig(c.dev, "sparse_edit", kWords, err);
+	if (!rig.ok()) {
+		c.why = err;
+		return false;
+	}
+	Rng rng(c.seed);
+	rng.stream(84);
+	uint32_t below_zero = 0;
+	for (uint32_t d = 0; d < kDraws; ++d) {
+		Edit e = draw(rng);
+		for (uint32_t k = 0; k < kCells; ++k) {
+			e.src[k] *= rng.sign();
+		}
+		for (uint32_t i = 0; i < kEntries; ++i) {
+			e.idx[i * 3u + 2u] = kAddSigned;
+			e.val[i * 2u + 1u] = std::numeric_limits<float>::infinity();
+		}
+		load(rig, e);
+		Push p{ 0u, kEntries, kCells, e.same };
+		rig.run(&p, sizeof(p), kEntries);
+		const std::vector<float> src = rig.get(LA_BIND_INJECT_SRC, kCells);
+		const std::vector<float> applied = rig.get(LA_BIND_INJECT_APPLIED, kEntries);
+		for (uint32_t i = 0; i < kEntries; ++i) {
+			const uint32_t s = uint32_t(e.idx[i * 3u]);
+			const float want = e.src[s] + e.val[i * 2u];
+			below_zero += want < 0.0f && e.val[i * 2u] > 0.0f ? 1u : 0u;
+			c.examined += 1;
+			if (shifted(src[s], c.mutate) != want) {
+				char buf[200];
+				std::snprintf(buf, sizeof(buf),
+						"draw %u entry %u: a credit of %.9g to a stock of %.9g left %.9g", d, i,
+						double(e.val[i * 2u]), double(e.src[s]), double(src[s]));
+				c.why = buf;
+				return false;
+			}
+			c.examined += 1;
+			if (applied[i] != src[s] - e.src[s]) {
+				c.why = "the device reported applying something other than what the stock gained";
+				return false;
+			}
+		}
+	}
+	if (below_zero == 0) {
+		c.why = "no credit left a stock below zero, so a floor there could not show";
+		return false;
+	}
+	return c.examined > 0;
+}
+
 } // namespace
 
 void add_sparse_properties(std::vector<Property> &out) {
@@ -277,6 +332,7 @@ void add_sparse_properties(std::vector<Property> &out) {
 	out.push_back({ "sparse_edit.glsl", "sparse_edit_stays_inside_the_stock",
 			prop_edits_stay_inside_the_stock });
 	out.push_back({ "sparse_edit.glsl", "sparse_edit_chunk_never_wraps", prop_chunk_never_wraps });
+	out.push_back({ "sparse_edit.glsl", "sparse_edit_signed_credit_is_exact", prop_signed_credit_is_exact });
 }
 
 } // namespace lasim

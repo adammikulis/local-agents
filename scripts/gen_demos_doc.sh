@@ -134,7 +134,7 @@ run_line() {
   local name
   name="$(basename "$scene_rel" .tscn)"
   if demo_needs_window "$ROOT" "$scene_rel"; then
-    printf '`%s --path . %s -- --run-frames=200`. Headless has no compute device for the planet'"'"'s field, so the wrapper gives it a real window placed off-screen.\n' \
+    printf '`%s --path . %s -- --run-frames=200`. Headless has no compute device for the field, so the wrapper gives it a real window placed off-screen.\n' \
       "$WINDOWED_RUNNER" "$scene_rel"
   elif scene_has_harness "$name"; then
     printf '`scripts/run_demo.sh %s`, or `scripts/run_demo.sh %s 200` for more than the default %s frames.\n' \

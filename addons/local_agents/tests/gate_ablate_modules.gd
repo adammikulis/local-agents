@@ -10,6 +10,7 @@ class LateAlways extends Node:
 		process_mode = Node.PROCESS_MODE_ALWAYS
 
 class Body extends Node3D:
+	var _body_basis: Basis = Basis.IDENTITY
 	func center() -> Vector3: return Vector3.ZERO
 	func angular_velocity_rad_s() -> float: return 0.0
 	func spin_axis() -> Vector3: return Vector3.UP
