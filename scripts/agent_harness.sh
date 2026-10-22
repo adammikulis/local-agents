@@ -62,9 +62,12 @@ Commands:
                 comparison runs for determinism and observer independence, so it is minutes.
                 e.g. agent_harness.sh score --frames 300
   lint [args]   Run every structural gate listed in scripts/gates.toml, through
-                scripts/gate_runner.py. Text gates run in a worker pool, engine-touching ones alone.
+                scripts/gate_runner.py. A worker pool runs every gate that needs no device beside one
+                in-order queue of gpu gates. A gate whose declared `inputs` are byte-identical to its
+                last pass is reported LINT_CACHED and not run; an integration run and CI read no cache.
                 CI runs this exact command, so a green here is a green there.
-                Args reach the runner: --only NAME, --mutate NAME, --timing, --json OUT, --jobs N.
+                Args reach the runner: --only NAME (repeatable), --mutate NAME, --timing, --json OUT,
+                --jobs N, --no-cache.
                 Exit 0 clean · 1 a gate reported a violation · 2 a gate COULD NOT RUN.
   -h | --help   Show this help and exit 0.
 

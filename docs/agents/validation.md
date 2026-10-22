@@ -6,6 +6,11 @@
   PID or a pattern anchored on your own worktree. Never remove a lock by hand.
 - A lane runs `LA_NO_GPU=1 scripts/agent_harness.sh lint` plus its own gates; the full lint is
   `scripts/integrate.sh`'s.
+- A gate row may declare `inputs` in `scripts/gates.toml`: globs of every file its verdict reads. While those
+  bytes, its script and libs, its row and the LA_* environment are unchanged it prints `LINT_CACHED` instead of
+  running. Integration and CI read no cache; `--no-cache` runs every gate. Declare `inputs` only for a verdict
+  that is a function of file bytes, never for one that reads the index, history, a clock or the launch ledger;
+  `check_gate_inputs` and `check_gate_cache` hold the rule.
 - A launch that shows a window is a bug: `la_godot` is the only launcher (`scripts/check_godot_launcher.sh`,
   `scripts/check_no_focus_theft.sh`). Player-facing behaviour still needs a real launched window.
 - Iterate fast: short runs while iterating; fast-forward slow-emergent phenomena; the cheapest run that proves

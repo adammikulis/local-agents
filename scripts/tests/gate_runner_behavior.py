@@ -1,12 +1,14 @@
 import contextlib, io, os, runpy, tempfile, sys, threading
 from pathlib import Path
 source_root=Path(sys.argv[1])
+sys.dont_write_bytecode=True
+sys.path.insert(0,str(source_root/"scripts"))
 r=runpy.run_path(str(source_root/"scripts/gate_runner.py"))
 with tempfile.TemporaryDirectory(prefix='la_runner_proposal.') as directory:
  root=Path(directory);cap=root/'capture';cap.mkdir();scripts=root/'scripts';scripts.mkdir();ledger=root/'all.launch';ledger.write_text('')
  def gate(name, body, shell=False, **flags):
   path=scripts/name;path.write_text(('#!/bin/sh\n' if shell else '#!/usr/bin/env python3\n')+body);path.chmod(0o755)
-  return dict(name=name,label=name,script='scripts/'+name,kind='headless',marker='OK',mutations=[],args=[],env={},needs=[],launches=False,capture_reader=False,last=False,timeout_s=5,**flags)
+  return dict(name=name,label=name,script='scripts/'+name,kind='headless',marker='OK',mutations=[],args=[],env={},needs=[],launches=False,capture_reader=False,last=False,exclusive=False,inputs=None,raw={},timeout_s=5,**flags)
  def reader(name, other):
   g=gate(name, '''import os,time
 from pathlib import Path
@@ -27,22 +29,36 @@ else:
   os.close(descriptor);marker.unlink()
 print('OK')
 '''.replace('STARTED_NAME',name).replace('STARTED_OTHER',other))
-  g['capture_reader']=True;return g
+  g['capture_reader']=True;g['kind']='gpu';return g
  rows=[reader('first','second'),reader('second','first')]
  last=gate('last', '''from pathlib import Path
 assert len(Path('all.launch').read_text().splitlines())==2
 print('OK')
 ''');last['last']=True
- os.environ['LA_LINT_CAPTURE']=str(cap)
- records=[]
- with contextlib.redirect_stdout(io.StringIO()):r['drain'](rows,str(root),2,str(root),str(ledger),False,lambda *x:records.append(x),pooled=True)
- assert all(row[1]==0 and row[-1]==0 for row in records),records
- os.environ.pop('LA_LINT_CAPTURE')
- records=[]
- with contextlib.redirect_stdout(io.StringIO()):r['drain'](rows+[last],str(root),2,str(root),str(ledger),False,lambda *x:records.append(x),pooled=False)
- assert [row[1] for row in records]==[0,0,0] and [row[-1] for row in records]==[1,1,0],records
+ def drained(gates,capture):
+  lint=r['Lint'](gates,str(root),2,str(root),str(ledger),False,None,set(range(len(gates))),None)
+  records=[]
+  lint.start();lint.release(capture)
+  with contextlib.redirect_stdout(io.StringIO()):lint.replay(records.append)
+  lint.finish()
+  return [(job.rc,job.launches) for job in records]
+ os.environ.pop('LA_LINT_CAPTURE',None)
+ records=drained(rows,str(cap))
+ assert records==[(0,0),(0,0)],records
+ records=drained(rows+[last],None)
+ assert [row[0] for row in records]==[0,0,0] and [row[1] for row in records]==[1,1,0],records
+ timing=root/'seconds.log';timing.write_text('');os.environ['LA_LINT_TIMING_LOG']=str(timing)
+ quick=[gate('quick_a',"print('OK')\n"),gate('quick_b',"print('OK')\n")]
+ seen=gate('seen', '''import os
+from pathlib import Path
+assert len(Path(os.environ['LA_LINT_TIMING_LOG']).read_text().splitlines())==2
+print('OK')
+''');seen['last']=True
+ records=drained(quick+[seen],None)
+ assert [row[0] for row in records]==[0,0,0] and len(timing.read_text().splitlines())==2,(records,timing.read_text())
+ os.environ.pop('LA_LINT_TIMING_LOG')
  strict=gate('strict', "import os\nwith open(os.environ['LA_LAUNCH_LOG'],'a') as out: out.write('engine\\n')\nprint('OK')\n")
- assert r['run_gate'](strict,str(root),str(root/'strict.launch'),False)[0]==1
+ assert r['run_gate'](strict,str(root),str(root/'strict.launch'))[0]==1
  missing=cap/'absent';missing.mkdir();os.environ['LA_LINT_CAPTURE']=str(missing)
  fallback=rows[0]
  assert not r['effective_launcher'](fallback,True)
@@ -61,21 +77,22 @@ print('OK')
                    ('printing',"printf 'PROGRESS_PAYLOAD\\n'; exec sleep 20\n"),
                    ('partial',"printf PARTIAL_PAYLOAD; exec sleep 20\n")]:
   serial=gate(name,body,shell=True);serial['timeout_s']=5
-  with contextlib.redirect_stdout(io.StringIO()): result=r['run_gate'](serial,str(root),str(root/(name+'.launch')),True)
+  streamed=[];result=r['run_gate'](serial,str(root),str(root/(name+'.launch')),streamed.append)
+  assert 'printed no verdict' in ''.join(streamed),(name,'the deadline message never reached the sink',streamed)
   assert result[0]==2,(name,'serial deadline was not enforced',result)
-  if name=='printing': assert 'PROGRESS_PAYLOAD' in result[1], 'output control never reached its marker'
+  if name=='printing': assert 'PROGRESS_PAYLOAD' in result[1] and 'PROGRESS_PAYLOAD' in ''.join(streamed), 'output control never reached its marker'
   if name=='partial': assert 'PARTIAL_PAYLOAD' in result[1], 'partial-line control never reached its write'
   assert not any(thread.name.startswith('gate-output-') for thread in threading.enumerate()),'output reader survived deadline'
  descendants=gate('descendants', "sleep 20 &\n",shell=True)
  descendants['timeout_s']=5
- with contextlib.redirect_stdout(io.StringIO()):result=r['run_gate'](descendants,str(root),str(root/'descendants.launch'),True)
+ result=r['run_gate'](descendants,str(root),str(root/'descendants.launch'),lambda line:None)
  assert result[0]==2 and not any(thread.name.startswith('gate-output-') for thread in threading.enumerate()),result
  timeout_gate=gate('timeout', "exec sleep 20\n",shell=True)
  timeout_gate['timeout_s']=5
- assert r['run_gate'](timeout_gate,str(root),str(root/'timeout.launch'),False)[0]==2
+ assert r['run_gate'](timeout_gate,str(root),str(root/'timeout.launch'))[0]==2
  launch_timeout=gate('launch_timeout', 'printf "engine\\n" >> "$LA_LAUNCH_LOG"; exec sleep 20\n',shell=True)
  launch_timeout['timeout_s']=5
- result=r['run_gate'](launch_timeout,str(root),str(root/'timeout-launch.launch'),False)
+ result=r['run_gate'](launch_timeout,str(root),str(root/'timeout-launch.launch'))
  assert result[0]==2 and 'despite its no-launch declaration' in result[1],result
  import shutil
  globals_['stage_scratch']=lambda scratch:shutil.copytree(scripts,Path(scratch)/'scripts',dirs_exist_ok=True)
@@ -84,7 +101,7 @@ print('OK')
  mutable=gate('mutable', "printf 'OK\\n'\n",shell=True)
  mutable['timeout_s']=5
  mutation="python3 -c \"from pathlib import Path; Path('scripts/mutable').write_text('#!/bin/sh\\nexec sleep 20\\n')\""
- baseline = r['run_gate'](dict(mutable, timeout_s=5),str(root),str(root/'mutable-baseline.launch'),False)
+ baseline = r['run_gate'](dict(mutable, timeout_s=5),str(root),str(root/'mutable-baseline.launch'))
  assert baseline[0]==0, ('mutable baseline did not run', baseline)
  output=io.StringIO()
  with contextlib.redirect_stdout(output): result=r['mutate_one'](mutable,r['mutation_of']('mutable',mutation))
@@ -149,15 +166,25 @@ print('budget bootstrap and complete-run banking controls passed')
 
 from types import SimpleNamespace
 with tempfile.TemporaryDirectory(prefix='la_launch_unavailable.') as directory:
+    subprocess.run(['git','-C',directory,'init','-q'],check=True)
     glob=r['cmd_lint'].__globals__
     glob['ROOT']=directory
-    unavailable=dict(name='strict',label='strict',script='strict',kind='text',marker='OK',launches=False,capture_reader=False,last=False)
-    glob['load_gates']=lambda:[unavailable]
+    row=dict(name='strict',label='strict',script='strict',kind='text',marker='OK',launches=False,capture_reader=False,last=False,exclusive=False,inputs=None,raw={},needs=[],timeout_s=5)
+    glob['load_doc']=lambda:([row],{})
     glob['make_capture']=lambda **kwargs:(directory,'')
-    glob['drain']=lambda *args,**kwargs:args[6](unavailable,2,'no completed verdict',1.0,1)
     glob['note_seconds']=lambda *args:None
-    output=io.StringIO()
-    with contextlib.redirect_stdout(output):
-        status=r['cmd_lint'](SimpleNamespace(only=None,body=False,jobs=1,timing=False,json=None))
-    assert status==2 and 'LINT_UNRUNNABLE: strict' in output.getvalue() and 'LINT_FAIL:' not in output.getvalue(),output.getvalue()
+    def lint_once(rc,out):
+        def fake(g,root,ledger,sink=None,extra_env=None):
+            with open(ledger,'a') as engine: engine.write('engine\n')
+            return rc,out,1.0
+        glob['run_gate']=fake
+        output=io.StringIO()
+        with contextlib.redirect_stdout(output):
+            status=r['cmd_lint'](SimpleNamespace(only=None,body=False,jobs=1,timing=False,json=None,no_cache=True))
+        os.environ.pop('LA_LAUNCH_LOG',None)
+        return status,output.getvalue()
+    status,text=lint_once(2,'no completed verdict')
+    assert status==2 and 'LINT_UNRUNNABLE: strict' in text and 'LINT_FAIL:' not in text,text
+    status,text=lint_once(0,'OK')
+    assert status==1 and 'LINT_FAIL: strict' in text,text
 print('unavailable launch violations stay unexamined')
