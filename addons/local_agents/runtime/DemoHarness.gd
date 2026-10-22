@@ -47,6 +47,10 @@ const DEFAULT_SHOOT_SIZE: Vector2i = Vector2i(1280, 800)
 ## `get_tree().quit()`. Keeps the addon usable in projects that do not register that autoload.
 @export var use_app_exit: bool = true
 
+## A host that builds more than one world in a process owns the exit: it is told the run ended, nothing quits.
+signal finished(code: int)
+var host_owned: bool = false
+
 var _frame: int = 0          # run length, in SIM STEPS when a LASimLoop is running; physics ticks otherwise.
 var _render_frame: int = 0   # render frames only; drives shoot_frames
 var _shot_timed_out: bool = false
@@ -372,6 +376,9 @@ func shot_viewport() -> Viewport:
 func _quit(code: int) -> void:
 	var tree: SceneTree = get_tree()
 	if tree == null:
+		return
+	if host_owned:
+		finished.emit(code)
 		return
 	print_complete(code)
 	if use_app_exit:

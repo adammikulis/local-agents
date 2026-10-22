@@ -23,6 +23,11 @@ static func mint_label() -> int:
 	return _seq
 
 
+## No band minted yet, as a fresh process holds it.
+static func forget() -> void:
+	_seq = 0
+
+
 const STAGGER_SLOTS: int = 16
 
 static func setup(c) -> void:

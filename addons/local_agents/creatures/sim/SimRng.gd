@@ -114,6 +114,13 @@ static var _world_seed: int = DEFAULT_SEED
 static var _domains: Dictionary = {}
 
 
+## Every stream as a fresh process holds it, unseeded and undrawn.
+static func forget() -> void:
+	_shared = null
+	_world_seed = DEFAULT_SEED
+	_domains.clear()
+
+
 # FNV-1a over the domain name, mixed with the world seed.
 static func derive(seed: int, domain: String) -> int:
 	var h: int = 1469598103934665603

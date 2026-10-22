@@ -39,7 +39,7 @@ const char *REAL = "real";
 
 // Constructed on first use, never at load: a Variant built by a dylib static initializer runs before
 // the engine has handed the binding its interface pointers.
-Dictionary &g_nodes() {  // module name -> the node that IS that system
+Dictionary &g_nodes() {  // module name -> the instance id of the node that IS that system, never the node
 	static Dictionary v;
 	return v;
 }
@@ -144,19 +144,22 @@ String entry_state(const Dictionary &p_entry, const String &p_name) {
 	return bool(p_entry["on"]) ? LAAblate::default_state(p_name) : String(OFF);
 }
 
-Node *node_of(const String &p_name) {
-	if (!g_nodes().has(p_name)) {
-		return nullptr;
-	}
-	Object *obj = Object::cast_to<Object>(g_nodes()[p_name]);
-	if (obj == nullptr || !UtilityFunctions::is_instance_id_valid(obj->get_instance_id())) {
-		return nullptr;
-	}
-	return Object::cast_to<Node>(obj);
-}
-
 Node *node_by_id(const Variant &p_id) {
 	return Object::cast_to<Node>(ObjectDB::get_instance((uint64_t)(int64_t)p_id));
+}
+
+Node *node_of(const String &p_name) {
+	return g_nodes().has(p_name) ? node_by_id(g_nodes()[p_name]) : nullptr;
+}
+
+// A module whose node was freed is no module: its world is gone and the name is free to adopt again.
+void drop_freed() {
+	const Array names = g_nodes().keys();
+	for (int i = 0; i < names.size(); ++i) {
+		if (node_of(names[i]) == nullptr) {
+			g_nodes().erase(names[i]);
+		}
+	}
 }
 
 // A node whose `visible` no ancestor inside the module decides.
@@ -389,6 +392,7 @@ bool LAAblate::off(const String &p_name) {
 
 // Every per-frame module answers to ONE name here. Off = no processing, no timers, not drawn.
 void LAAblate::adopt(const String &p_name, Node *p_node) {
+	drop_freed();
 	if (p_node == nullptr) {
 		return;
 	}
@@ -401,7 +405,7 @@ void LAAblate::adopt(const String &p_name, Node *p_node) {
 		ERR_FAIL_MSG(String("LAAblate.adopt(\"") + p_name + "\"): the node shares a subtree with \"" + other
 				+ "\", so one node would answer to two switches.");
 	}
-	g_nodes()[p_name] = p_node;
+	g_nodes()[p_name] = (int64_t)p_node->get_instance_id();
 	if (g_held().has(p_name)) {
 		hold(p_name, p_node);
 		return;
@@ -426,6 +430,7 @@ String LAAblate::state_real() {
 
 // Every stand-in answers to ONE name here, beside the processes and the modules.
 void LAAblate::adopt_fake(const String &p_name, int p_rung) {
+	drop_freed();
 	if (is_process(p_name) || g_nodes().has(p_name)) {
 		ERR_FAIL_MSG(String("LAAblate.adopt_fake(\"") + p_name + "\"): a process or module already "
 				+ "answers to that name, so one switch would answer for two things.");
@@ -498,6 +503,7 @@ Dictionary LAAblate::fake_states() {
 
 // Throw one switch, stand-in, module or process. A name none of the three holds is refused, out loud.
 void LAAblate::set_on(const String &p_name, bool p_on) {
+	drop_freed();
 	if (g_fakes().has(p_name)) {
 		set_state(p_name, p_on ? default_state(p_name) : String(OFF));
 		return;
@@ -524,6 +530,7 @@ void LAAblate::set_on(const String &p_name, bool p_on) {
 }
 
 bool LAAblate::is_on(const String &p_name) {
+	drop_freed();
 	if (g_fakes().has(p_name)) {
 		return state_of(p_name) != String(OFF);
 	}
@@ -534,6 +541,7 @@ bool LAAblate::is_on(const String &p_name) {
 }
 
 String LAAblate::kind_of(const String &p_name) {
+	drop_freed();
 	if (g_nodes().has(p_name)) {
 		return String("module");
 	}
@@ -544,6 +552,7 @@ String LAAblate::kind_of(const String &p_name) {
 }
 
 PackedStringArray LAAblate::names() {
+	drop_freed();
 	PackedStringArray out = LAProcessSet::process_names(LAProcessSet::ANY);
 	PackedStringArray mods;
 	const Array keys = g_nodes().keys();
@@ -563,6 +572,7 @@ PackedStringArray LAAblate::names() {
 }
 
 PackedStringArray LAAblate::panels() {
+	drop_freed();
 	PackedStringArray out;
 	const Array keys = g_nodes().keys();
 	for (int i = 0; i < keys.size(); ++i) {
@@ -663,13 +673,13 @@ double LAAblate::evo_fast() {
 	return g_evo;
 }
 
+// A world's end: every switch it held and every spec it parsed. The stand-ins stay declared.
 void LAAblate::release() {
 	const Array held = g_held().keys();
 	for (int i = 0; i < held.size(); ++i) { restore(held[i]); }
 	g_nodes().clear();
 	g_want().clear();
 	g_applied().clear();
-	g_fakes().clear();
 	g_state().clear();
 	g_parsed = false;
 	g_life() = String();
@@ -702,4 +712,5 @@ void LAAblate::_bind_methods() {
 	ClassDB::bind_static_method("LAAblate", D_METHOD("fauna_off"), &fauna_off);
 	ClassDB::bind_static_method("LAAblate", D_METHOD("flora_off"), &flora_off);
 	ClassDB::bind_static_method("LAAblate", D_METHOD("evo_fast"), &evo_fast);
+	ClassDB::bind_static_method("LAAblate", D_METHOD("release"), &release);
 }

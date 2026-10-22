@@ -164,6 +164,12 @@ static var _measured_vp: RID = RID()
 static var _last_cpu_us: int = -1
 
 
+## No frame timed yet, as a fresh process holds it.
+static func forget() -> void:
+	_measured_vp = RID()
+	_last_cpu_us = -1
+
+
 ## The frame's own cost in ms, from the frame after life is placed: the larger of the main thread's CPU
 ## time over one main-loop iteration and the viewport's GPU time. GPU time is absent where the driver
 ## writes no timestamps (Metal), and then only the CPU side is measured.

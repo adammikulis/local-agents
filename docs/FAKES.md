@@ -10,8 +10,9 @@ the switch panel sets one mid-run.
 
 `LAFakes.RECORDS` is the list the code reads and this page is the list a person reads;
 `scripts/check_fakes.sh` holds them to each other and fails when a record whose rung is green has no real
-seam to hand the world to. `scripts/check_fakes_states.sh` runs the life demo per record in `real` and in
-`off` and holds the census to what the physics says.
+seam to hand the world to. `scripts/check_fakes_states.sh` runs the life demo in one process, once in the
+defaults and once per record `off`, and reads every record in all three states at the seam. The world reads a
+stand-in through `LAFakes.stands_in` alone, so a run in `real` is the run in `off`.
 
 A fake makes matter. `LAFakes.report()` says how much, per fake, in the run's own report, and
 `fake_states` there says which state every record is in.

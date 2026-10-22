@@ -5,6 +5,11 @@ extends RefCounted
 ## The farthest any creature has been set up to hear, m: the reach a call is relayed over.
 static var max_hearing_range: float = 0.0
 
+
+## No creature set up yet, as a fresh process holds it.
+static func forget() -> void:
+	max_hearing_range = 0.0
+
 # Per-individual jitter on maturity and lifespan, so a generation does not mature, breed and die in lockstep.
 const MATURITY_VARIANCE: float = 0.45    # ±fraction on per-individual maturity_age
 const LIFESPAN_VARIANCE: float = 0.45    # ±fraction on per-individual max_age

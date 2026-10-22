@@ -18,6 +18,12 @@ var _actors_root: Node3D = null
 var _camera: Camera3D = null
 
 
+## Neither refused nor arrived, as a fresh process holds it.
+static func forget() -> void:
+	_refused = false
+	_arrived = 0
+
+
 ## Whether a rock may arrive at all. A world without the gravity that brings it down, the conduction that
 ## carries its impact heat away or the transport that moves the rock it throws cannot receive one, and
 ## says which is absent rather than dropping it anyway.
