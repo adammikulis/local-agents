@@ -9,9 +9,11 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import tomllib
 
@@ -56,6 +58,9 @@ def load_gates(path=GATES_TOML):
         needs = g.get("needs", [] if g["kind"] == "text" else ["import", "capture"])
         if not isinstance(needs, list) or any(n not in NEEDS for n in needs):
             raise ValueError("%s: needs must be a list drawn from %s, not %r" % (name, ", ".join(NEEDS), needs))
+        for flag in ("launches", "capture_reader", "last"):
+            if flag in g and not isinstance(g[flag], bool):
+                raise ValueError("%s: %s must be a boolean" % (name, flag))
         gates.append({
             "name": name,
             "label": g.get("label", name + ".sh"),
@@ -67,11 +72,32 @@ def load_gates(path=GATES_TOML):
             "args": list(g.get("args", [])),
             "env": dict(g.get("env", {})),
             "needs": needs,
+            # A gate that starts no engine takes no device and waits on no machine lock, so it runs
+            # beside the others whatever kind it is. Declared, and the launch ledger holds it to it.
+            "launches": bool(g.get("launches", g["kind"] != "text")),
+            # Reads the whole run's ledgers, so it runs after every other gate has finished.
+            "last": bool(g.get("last", False)),
+            "capture_reader": g.get("capture_reader", False),
             "timeout_s": int(g.get("timeout_s", defaults.get("timeout_s", 900))),
         })
     if not gates:
         raise ValueError("gates.toml lists no gate")
+    tail = [i for i, g in enumerate(gates) if g["last"]]
+    if tail and tail != list(range(len(gates) - len(tail), len(gates))):
+        raise ValueError("a gate declaring last = true must be among the final rows: %s"
+                         % ", ".join(gates[i]["name"] for i in tail))
     return gates
+
+
+def effective_launcher(g, capture):
+    return g["launches"] or (g["capture_reader"] and not capture)
+
+
+def launch_count(ledger):
+    if not ledger or not os.path.isfile(ledger):
+        return 0
+    with open(ledger) as source:
+        return sum(bool(line.strip()) for line in source)
 
 
 def run_gate(g, root, ledger, stream):
@@ -84,28 +110,76 @@ def run_gate(g, root, ledger, stream):
     if ledger:
         env["LA_LAUNCH_LOG"] = ledger
         open(ledger, "a").close()
+    launches_before = launch_count(ledger)
     started = time.monotonic()
     try:
         proc = subprocess.Popen([path] + g["args"], cwd=root, env=env, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, text=True, errors="replace")
+                                stderr=subprocess.STDOUT, text=True, errors="replace",
+                                start_new_session=(os.name == "posix"))
     except OSError as exc:
         return 2, "%s could not be started: %s\n" % (g["script"], exc), 0.0
-    chunks = []
-    try:
-        if stream:
+    chunks, read_errors = [], []
+    def read_output():
+        try:
             for line in proc.stdout:
                 chunks.append(line)
-                sys.stdout.write(line)
-                sys.stdout.flush()
-            rc = proc.wait(timeout=g["timeout_s"])
-        else:
-            chunks.append(proc.communicate(timeout=g["timeout_s"])[0])
-            rc = proc.returncode
+                if stream:
+                    sys.stdout.write(line)
+                    sys.stdout.flush()
+        except (OSError, ValueError) as error:
+            read_errors.append(str(error))
+    reader = threading.Thread(target=read_output, daemon=True, name="gate-output-%s" % proc.pid)
+    reader.start()
+    deadline = started + g["timeout_s"]
+    try:
+        rc = proc.wait(timeout=max(0, deadline - time.monotonic()))
+        reader.join(timeout=max(0, deadline - time.monotonic()))
+        if reader.is_alive():
+            raise subprocess.TimeoutExpired(proc.args, g["timeout_s"])
     except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait()
+        if os.name == "posix":
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            except PermissionError as error:
+                read_errors.append("owned process group termination was refused: %s" % error)
+            reader.join(timeout=1)
+            if proc.poll() is None or reader.is_alive():
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                except PermissionError as error:
+                    read_errors.append("owned process group cleanup was refused: %s" % error)
+                    if proc.poll() is None:
+                        try:
+                            proc.kill()
+                        except (ProcessLookupError, PermissionError) as direct_error:
+                            read_errors.append("owned process cleanup failed: %s" % direct_error)
+        else:
+            try:
+                proc.kill()
+            except (ProcessLookupError, PermissionError) as error:
+                read_errors.append("owned process cleanup failed: %s" % error)
+        try:
+            proc.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            read_errors.append("owned process survived the cleanup deadline")
+        reader.join(timeout=1)
         chunks.append("%s printed no verdict inside %ds.\n" % (g["label"], g["timeout_s"]))
-        rc = 124
+        rc = 2
+    if reader.is_alive():
+        chunks.append("%s output reader did not stop during owned-process cleanup.\n" % g["label"])
+        rc = 2
+    if read_errors:
+        chunks.append("%s output could not be read: %s\n" % (g["label"], "; ".join(read_errors)))
+        rc = 2
+    capture = os.path.isdir(env.get("LA_LINT_CAPTURE", ""))
+    if launch_count(ledger) > launches_before and not effective_launcher(g, capture):
+        chunks.append("%s launched an engine despite its no-launch declaration.\n" % g["label"])
+        if rc in (0, 1):
+            rc = 1
     return rc, "".join(chunks), time.monotonic() - started
 
 
@@ -143,6 +217,15 @@ def merge_ledger(shared, ledger):
     return len([ln for ln in text.splitlines() if ln.strip()])
 
 
+def note_seconds(label, secs):
+    """One line per finished gate, so a gate declaring last = true can add up the run it sits in."""
+    path = os.environ.get("LA_LINT_TIMING_LOG")
+    if not path:
+        return
+    with open(path, "a") as fh:
+        fh.write("%.3f\t%s\n" % (secs, label.replace("\t", " ")))
+
+
 def pool_size():
     n = os.environ.get("LA_LINT_JOBS")
     if n and n.isdigit():
@@ -150,13 +233,16 @@ def pool_size():
     return min(8, os.cpu_count() or 4)
 
 
-def drain(gates, root, jobs, ledger_dir, shared_ledger, no_gpu, on_result):
-    """Pool the text gates, run the rest in place, replay every verdict in definition order."""
+def drain(gates, root, jobs, ledger_dir, shared_ledger, no_gpu, on_result, pooled=True):
+    """Pool every gate that starts no engine, run the launchers in place, replay in definition order."""
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=jobs)
     ledger_of = {i: os.path.join(ledger_dir, "%d.launch" % i) for i in range(len(gates))}
+    # LA_NO_GPU=1 SKIPS A gpu ROW, and a pool that submitted it would run the very gate the arm excludes.
+    def in_pool(g):
+        return pooled and not effective_launcher(g, pooled) and not g["last"] and not (no_gpu and g["kind"] == "gpu")
+
     futures = {i: pool.submit(run_gate, g, root, ledger_of[i], False)
-               for i, g in enumerate(gates) if g["kind"] == "text"}
-    # An engine gate times frames on this machine: none starts while the pool still holds a core.
+               for i, g in enumerate(gates) if in_pool(g)}
     concurrent.futures.wait(futures.values())
     try:
         for i, g in enumerate(gates):
@@ -209,7 +295,18 @@ def cmd_lint(args):
     timing, records = [], []
     ledger_dir = tempfile.mkdtemp(prefix="la_gate_ledger.")
 
+    # WHICH TREE THIS LINT WEIGHED. LOG_DIR is machine-wide, so a reader of "the newest lint log" would
+    # otherwise bank another worktree's numbers into this one's ceilings.
+    print("LINT_TREE=%s" % ROOT)
+    print("LINT_SCOPE=" + json.dumps({"full": not bool(args.only), "gpu": not no_gpu,
+                                    "arm": "body" if args.body else "slice"}, sort_keys=True))
+    for name in ("LA_LINT_TIMING_LOG", "LA_LOCK_WAIT_LOG"):
+        if os.environ.get(name):
+            open(os.environ[name], "w").close()
+    capture_started = time.monotonic()
     cap, cap_err = make_capture(arm="body" if args.body else "slice")
+    capture_seconds = time.monotonic() - capture_started
+    note_seconds("lint_capture.sh", capture_seconds)
     if cap_err:
         sys.stdout.write(cap_err)
     if cap:
@@ -221,13 +318,15 @@ def cmd_lint(args):
 
     def on_result(g, rc, out, secs, launches):
         timing.append((secs, g["label"]))
+        if not g["last"]:
+            note_seconds(g["label"], secs)
         records.append({"name": g["name"], "label": g["label"], "kind": g["kind"],
                         "rc": rc, "seconds": round(secs, 3), "launches": launches})
         if rc is None:
             tally["skipped"] += 1
-        elif g["kind"] == "text" and launches:
-            print("LINT_FAIL: %s (1) — declared kind=text in gates.toml and launched the engine %d "
-                  "time(s). A gate that starts one runs alone: declare it kind=headless."
+        elif rc in (0, 1) and not effective_launcher(g, bool(cap)) and launches:
+            print("LINT_FAIL: %s (1) — declared launches = false in gates.toml and started the engine "
+                  "%d time(s). A gate that starts one runs alone: drop the declaration."
                   % (g["label"], launches))
             tally["failed"] += 1
         elif silent_pass(g, rc, out):
@@ -244,8 +343,10 @@ def cmd_lint(args):
             tally["unrunnable"] += 1
 
     try:
+        # A gate declares launches = false because the capture answers instead. With no capture every
+        # one of them falls through to its own launch, so nothing is pooled and none of them races.
         drain(gates, ROOT, args.jobs or pool_size(), ledger_dir,
-              os.environ.get("LA_LAUNCH_LOG"), no_gpu, on_result)
+              os.environ.get("LA_LAUNCH_LOG"), no_gpu, on_result, pooled=bool(cap))
     finally:
         shutil.rmtree(ledger_dir, ignore_errors=True)
 
@@ -256,7 +357,10 @@ def cmd_lint(args):
     if args.json:
         with open(args.json, "w") as fh:
             json.dump({"gates": records, "summary": tally}, fh, indent=2, sort_keys=True)
-    return summarise(tally)
+    result = summarise(tally)
+    if result == 0 and not args.only and not no_gpu and not args.body and cap:
+        print("LINT_BANKABLE=1")
+    return result
 
 
 def git(root, *argv, check=True):
@@ -285,6 +389,17 @@ def stage_scratch(scratch):
             shutil.copy2(src, dst)
 
 
+def arm_ledgers(scratch):
+    """The ledgers a lint keeps, for a gate that reads the run around it. Both arms get the same ones."""
+    os.environ["LA_LINT_LAUNCHES"] = os.path.join(scratch, "mutate_launches.log")
+    os.environ["LA_LINT_TIMING_LOG"] = os.path.join(scratch, "mutate_seconds.log")
+    os.environ["LA_LOCK_WAIT_LOG"] = os.path.join(scratch, "mutate_lock_waits.log")
+    open(os.environ["LA_LINT_LAUNCHES"], "w").close()
+    open(os.environ["LA_LOCK_WAIT_LOG"], "w").close()
+    with open(os.environ["LA_LINT_TIMING_LOG"], "w") as fh:
+        fh.write("0.100\tcheck_mutate_arm_a.sh\n0.100\tcheck_mutate_arm_b.sh\n")
+
+
 EXT_REL = "addons/local_agents/gdextensions/localagents"
 
 
@@ -297,18 +412,23 @@ def build_scratch(scratch):
                           cwd=scratch, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
 
 
-def arm_scratch(g, scratch):
+def arm_scratch(g, scratch, first=False):
     """Give the scratch tree what the gate declares it needs. A mutation may break either, on purpose.
     False when the tree's own extension does not build, which leaves nothing to run the gate on."""
     if "build" in g["needs"] and not build_scratch(scratch):
         return False
     if "import" in g["needs"]:
-        subprocess.run([os.path.join(scratch, "scripts/ensure_worktree_ready.sh")], cwd=scratch)
+        if subprocess.run([os.path.join(scratch, "scripts/ensure_worktree_ready.sh")], cwd=scratch).returncode != 0:
+            return False
     os.environ.pop("LA_LINT_CAPTURE", None)
     if "capture" in g["needs"]:
         cap, _ = make_capture(scratch, arm="body" if "body" in g["needs"] else "slice")
-        if cap:
-            os.environ["LA_LINT_CAPTURE"] = cap
+        if not cap:
+            return False
+        os.environ["LA_LINT_CAPTURE"] = cap
+    # ONCE, BEFORE EITHER ARM: a mutation that writes into the ledger must survive the re-arming.
+    if g["last"] and first:
+        arm_ledgers(scratch)
     return True
 
 
@@ -334,7 +454,7 @@ def mutate_one(g, m):
     os.environ["LA_LAUNCH_LOG"] = ledger
     try:
         stage_scratch(scratch)
-        if not arm_scratch(g, scratch):
+        if not arm_scratch(g, scratch, first=True):
             print("MUTATION_UNRUNNABLE: %s — the unmutated scratch tree's extension did not build." % g["name"])
             return 2
         rc0, out0, _ = run_gate(g, scratch, ledger, False)
@@ -359,7 +479,7 @@ def mutate_one(g, m):
                   % (g["name"], rc1, mutation, m["exit"], m["says"]))
             return 1
         # A gate that could not run under the mutation reported no violation, so it caught nothing.
-        if rc1 == 2:
+        if rc1 not in (0, 1):
             print("MUTATION_UNRUNNABLE: %s could not run under `%s`, which proves nothing." % (g["name"], mutation))
             return 2
         if rc1 == 0:

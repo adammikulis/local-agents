@@ -14,9 +14,11 @@ case "$CEIL" in
 	"" | *[!0-9]*) echo "check_launch_count: the ceiling carries no number." >&2; exit 2 ;;
 esac
 
-LOG="${LA_LAUNCH_LOG:-}"
+# THE RUN'S LEDGER, NOT THIS GATE'S. gate_runner.py hands every gate its own LA_LAUNCH_LOG for
+# attribution and folds each into the run's; reading its own would count nothing but itself, for ever.
+LOG="${LA_LINT_LAUNCHES:-}"
 if [ -z "$LOG" ] || [ ! -f "$LOG" ]; then
-	echo "check_launch_count: no LA_LAUNCH_LOG, so no launch was counted and this examined nothing." >&2
+	echo "check_launch_count: no LA_LINT_LAUNCHES, so no launch was counted and this examined nothing." >&2
 	echo "                    Run it through scripts/agent_harness.sh lint, which opens one." >&2
 	exit 2
 fi

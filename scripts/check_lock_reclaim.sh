@@ -48,13 +48,15 @@ if [ "$GOT" != "slow fast" ]; then
   fail=1
 fi
 
-# --- NO OVERTAKING: a newcomer may not claim a number under a lane already waiting --------------------
-# Ticket 0 is held and then released while `waiting` sits on ticket 1: a newcomer must queue above it.
+# --- NO OVERTAKING: a newcomer may not claim a ticket number an earlier waiter has already passed ------
+# A number freed when its holder leaves is not free for a NEWCOMER: taking it sorts the newcomer ahead of
+# everyone still waiting, and a lane behind a busy queue then waits for ever.
 : > "$ORDER"
 ln -s "$$" "$T/g"
-mkdir -p "$T/g.q/p" "$T/g.q/n"
-ln -s "$$" "$T/g.q/n/0"
-overtake() {  # overtake <name>
+QG="$T/g.q"
+mkdir -p "$QG/p" "$QG/n"
+ln -s "$$" "$QG/n/0"            # a live waiter holding the lowest number
+overtaker() {  # overtaker <name>
   bash -c '
     . "'"$ROOT"'/scripts/lib_godot_lock.sh"
     la_dir_lock "'"$T"'/g" 40 1 || exit 1
@@ -63,16 +65,26 @@ overtake() {  # overtake <name>
     la_dir_unqueue "'"$T"'/g"
   ' _ "$1" &
 }
-overtake waiting
+overtaker early
 sleep 2
-rm -f "$T/g.q/n/0"
-overtake newcomer
+rm -f "$QG/n/0"                 # the lowest number is freed while `early` is still waiting
+sleep 1
+overtaker late
 sleep 2
 rm -rf "$T/g"
+la_dir_unqueue "$T/g"
 wait
 GOT="$(tr '\n' ' ' < "$ORDER" | sed 's/ *$//')"
-if [ "$GOT" != "waiting newcomer" ]; then
-  echo "the lock was handed out \"$GOT\": a newcomer took a freed number under a waiting lane" >&2
+if [ "$GOT" != "early late" ]; then
+  echo "a newcomer took a freed ticket number and overtook a waiter already in the queue:" >&2
+  echo "  served \"$GOT\", not arrival order \"early late\"" >&2
+  fail=1
+fi
+
+# --- SCOPE: only explicitly CPU-only validation bypasses GPU serialization ---------------------------
+IMPORTER="$ROOT/scripts/lib_godot.sh"
+if ! grep -Fq 'if [ "$headless" -eq 0 ] || [ "${LA_CPU_VALIDATION:-0}" != "1" ]; then' "$IMPORTER"; then
+  echo "la_godot must serialize default headless runs because native inference may own a GPU." >&2
   fail=1
 fi
 

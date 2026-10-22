@@ -85,11 +85,18 @@ if [[ -z "$cmd" || "$cmd" == "-h" || "$cmd" == "--help" ]]; then
 fi
 shift || true
 
-# EVERY ENGINE LAUNCH THIS LINT MAKES, one line each: lib_godot.sh appends, check_launch_count.sh counts.
+# WHAT THIS LINT DID, one line each, for the gates that measure the lint they sit in.
+# Launches: lib_godot.sh appends, gate_runner.py folds each gate's in, check_launch_count.sh counts.
+# Seconds: gate_runner.py appends per finished gate. Lock waits: lib_godot_lock.sh appends per wait.
 if [[ "$cmd" == "lint" && -z "${LA_LAUNCH_LOG:-}" ]]; then
   mkdir -p "$LOG_DIR" 2>/dev/null || true
   export LA_LAUNCH_LOG="$LOG_DIR/launches_$$.log"
+  export LA_LINT_LAUNCHES="$LA_LAUNCH_LOG"
+  export LA_LINT_TIMING_LOG="$LOG_DIR/gate_seconds_$$.log"
+  export LA_LOCK_WAIT_LOG="$LOG_DIR/lock_waits_$$.log"
   : > "$LA_LAUNCH_LOG"
+  : > "$LA_LINT_TIMING_LOG"
+  : > "$LA_LOCK_WAIT_LOG"
 fi
 
 # --- A LINKED WORKTREE REPAIRS ITSELF HERE, BEFORE ANY COMMAND RUNS ----------------------------------

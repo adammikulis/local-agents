@@ -1,10 +1,15 @@
 # THE ONE GATE LIST. scripts/gate_runner.py runs it; agent_harness.sh lint is a thin call into
 # that; check_gpu_gate_list.sh reads the "gpu" rows back. A second list drifts from the first.
 #
-# kind = "text"     no engine, runs in the worker pool. A text gate that launches one is a
-#                   violation the runner reports: each gate gets its own launch ledger.
-# kind = "headless" can start an engine or reads this run's ledger; runs alone, in order.
+# kind = "text"     no engine, no device.
+# kind = "headless" may start an engine or reads this run's ledger.
 # kind = "gpu"      needs a real device; LA_NO_GPU=1 skips exactly these.
+# launches          whether the gate starts an engine. Default: kind != "text". A gate that starts
+#                   none takes no device and waits on no machine lock, so it runs in the worker pool
+#                   whatever its kind; the launch ledger holds every row to its declaration.
+# capture_reader    a no-launch row reads shared capture; without one it starts its own engine.
+# last              the gate reads the ledgers of the whole run, so it runs after every other one.
+#                   Only the final rows may declare it.
 # marker            the verdict line a passing gate must print, so silence is not a pass.
 # mutation          a shell command, or a list of them, each of which must turn the gate red; a table
 #                   {cmd, exit, says} must end it on that exit, printing a line matching `says`.
@@ -54,7 +59,7 @@ name = "check_lock_reclaim"
 script = "scripts/check_lock_reclaim.sh"
 kind = "text"
 marker = "^check_lock_reclaim: OK"
-mutation = "perl -0pi -e 's/\\[ -z \"\\$ahead\" \\] && //' scripts/lib_godot_lock.sh"
+mutation = "python3 -c \"import pathlib; p = pathlib.Path('scripts/lib_godot_lock.sh'); s = p.read_text(); i = s.index('la_dir_next() {'); j = s.index(chr(10) + '}' + chr(10), i) + 3; p.write_text(s[:i] + 'la_dir_next() {' + chr(10) + '\\tlocal n=0' + chr(10) + '\\twhile [ -e \\\"$1/$n\\\" ] || [ -L \\\"$1/$n\\\" ]; do n=$((n + 1)); done' + chr(10) + '\\tprintf %s \\\"$n\\\"' + chr(10) + '}' + chr(10) + s[j:])\""
 
 [[gate]]
 name = "check_gate_shapes"
@@ -176,6 +181,13 @@ kind = "gpu"
 marker = "^check_biota_books: OK"
 mutation = "perl -0pi -e 's/LAFakes\\.draw\\(\"founding_stock\", mass\\)/mass/' addons/local_agents/sim/material/MaterialFieldBiota3D.gd"
 needs = ["import"]
+
+[[gate]]
+name = "check_seed_readiness"
+script = "scripts/check_seed_readiness.sh"
+kind = "text"
+marker = "^check_seed_readiness: OK"
+mutation = "python3 -c \"import pathlib; p = pathlib.Path('addons/local_agents/game/world/VoxelSpawnController.gd'); s = p.read_text(); s = s.replace('var _spawned_initial: bool = false', 'var _spawned_initial: bool = false' + chr(10) + 'var _ready_wait_ticks: int = 0', 1); s = s.replace(chr(9) + 'if not _world_ready():' + chr(10) + chr(9) + chr(9) + 'return' + chr(10), chr(9) + '_ready_wait_ticks += 1' + chr(10) + chr(9) + 'if _ready_wait_ticks <= 6:' + chr(10) + chr(9) + chr(9) + 'return' + chr(10), 1); p.write_text(s)\""
 
 [[gate]]
 name = "check_life_demo"
@@ -365,6 +377,8 @@ marker = "^check_bench_phase_change: OK"
 name = "check_cell_budget"
 script = "scripts/check_cell_budget.sh"
 kind = "gpu"
+launches = false
+capture_reader = true
 marker = "^check_cell_budget: OK"
 mutation = "printf '0\\n' > docs/CELL_BUDGET"
 
@@ -429,12 +443,16 @@ marker = "^check_process_ui: OK"
 name = "check_alt_bands"
 script = "scripts/check_alt_bands.sh"
 kind = "gpu"
+launches = false
+capture_reader = true
 marker = "^check_alt_bands: OK"
 
 [[gate]]
 name = "check_gas_in_rock"
 script = "scripts/check_gas_in_rock.sh"
 kind = "gpu"
+launches = false
+capture_reader = true
 marker = "^check_gas_in_rock: OK"
 
 [[gate]]
@@ -849,7 +867,15 @@ name = "check_mutate_scratch_build"
 script = "scripts/check_mutate_scratch_build.sh"
 kind = "text"
 marker = "^check_mutate_scratch_build: OK"
-mutation = "perl -0pi -e 's/shutil\\.copytree\\(os\\.path\\.join\\(ROOT, BIN_REL\\)[^\\n]*/pass/' scripts/gate_runner.py"
+mutation = [
+  "perl -0pi -e 's/shutil\\.copytree\\(os\\.path\\.join\\(ROOT, BIN_REL\\)[^\\n]*/pass/' scripts/gate_runner.py",
+  '''python3 -c 'from pathlib import Path; p=Path('"'"'scripts/gate_runner.py'"'"'); s=p.read_text(); old='"'"'return g["launches"] or (g["capture_reader"] and not capture)'"'"'; assert old in s; p.write_text(s.replace(old,'"'"'return g["launches"]'"'"'))'''',
+  '''python3 -c 'from pathlib import Path; p=Path('"'"'scripts/gate_runner.py'"'"'); s=p.read_text(); old='"'"'if rc1 not in (0, 1):'"'"'; assert old in s; p.write_text(s.replace(old,'"'"'if rc1 == 2:'"'"'))'''',
+  '''python3 -c 'from pathlib import Path; p=Path("scripts/gate_runner.py"); s=p.read_text(); old='"'"'        chunks.append("%s printed no verdict inside %ds.\\n" % (g["label"], g["timeout_s"]))\n        rc = 2'"'"'; assert old in s; p.write_text(s.replace(old,'"'"'        chunks.append("%s printed no verdict inside %ds.\\n" % (g["label"], g["timeout_s"]))\n        rc = 124'"'"'))'''',
+  '''python3 -c 'from pathlib import Path; p=Path('"'"'scripts/write_ceilings.sh'"'"'); s=p.read_text(); old='"'"'\t\tgrep -Fxq "LINT_BANKABLE=1" "$log" 2>/dev/null || continue'"'"'; assert old in s; p.write_text(s.replace(old,'"'"'\t\t:'"'"'))'''',
+  '''python3 -c 'from pathlib import Path; p=Path('"'"'scripts/lib_capture.sh'"'"'); s=p.read_text(); old='"'"'case "$result" in 0|1|2) return "$result" ;; *) return 2 ;; esac'"'"'; assert old in s; p.write_text(s.replace(old,'"'"'return 0'"'"'))'''',
+  '''python3 -c 'from pathlib import Path; p=Path("scripts/gate_runner.py"); s=p.read_text(); old="        if rc in (0, 1):\n            rc = 1"; assert old in s; p.write_text(s.replace(old,"        rc = 1"))'''',
+]
 
 [[gate]]
 name = "check_sky_air"
@@ -893,6 +919,8 @@ marker = "^check_lifeless_planet: OK"
 name = "check_body_measured"
 script = "scripts/check_body_measured.sh"
 kind = "gpu"
+launches = false
+capture_reader = true
 needs = ["import", "capture", "body"]
 mutation = "python3 -c \"import pathlib; p = pathlib.Path('scripts/check_body_measured.sh'); p.write_text(p.read_text().replace('LA_BODY_MASS_TOL:-0.02', 'LA_BODY_MASS_TOL:-0'))\""
 marker = "^check_body_measured: OK"
@@ -989,6 +1017,8 @@ mutation = [
 name = "check_shot_look"
 script = "scripts/check_shot_look.sh"
 kind = "gpu"
+launches = false
+capture_reader = true
 marker = "^check_shot_look: OK"
 mutation = "python3 -c \"p='addons/local_agents/game/render/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); s=s.replace('ALBEDO = col;','ALBEDO = vec3(0.0);'); open(p,'w').write(s.replace('EMISSION = max(glow, vec3(0.0));','EMISSION = vec3(0.35);'))\""
 
@@ -1042,6 +1072,8 @@ mutation = "python3 -c \"p='addons/local_agents/sim/material/MaterialEjecta3D.gd
 name = "check_shot_protocol"
 script = "scripts/check_shot_protocol.sh"
 kind = "gpu"
+launches = false
+capture_reader = true
 marker = "^check_shot_protocol: OK"
 mutation = [
 	"python3 -c \"p='addons/local_agents/runtime/DemoHarness.gd'; s=open(p).read(); open(p,'w').write(s.replace('_poses[_pose_index].x, _poses[_pose_index].y,\\n\\t\\t\\t_poses[_pose_index].z', '_poses[0].x, _poses[0].y, _poses[0].z'))\"",
@@ -1096,14 +1128,6 @@ kind = "text"
 marker = "^check_cache_invalidation: OK"
 
 [[gate]]
-name = "check_launch_count"
-script = "scripts/check_launch_count.sh"
-kind = "headless"
-marker = "^check_launch_count: OK"
-mutation = "printf '0\\n' > docs/LAUNCH_CEILING; printf 'la_godot --headless --path .\\n' >> \"$LA_LAUNCH_LOG\""
-
-
-[[gate]]
 name = "check_snapshot_roundtrip"
 script = "scripts/check_snapshot_roundtrip.sh"
 kind = "gpu"
@@ -1114,6 +1138,8 @@ mutation = "python3 -c \"p='addons/local_agents/sim/material/MaterialFieldSnapsh
 name = "check_atmosphere_mass"
 script = "scripts/check_atmosphere_mass.sh"
 kind = "gpu"
+launches = false
+capture_reader = true
 needs = ["import"]
 marker = "^check_atmosphere_mass: OK"
 mutation = "python3 -c \"p='scripts/check_atmosphere_mass.sh'; s=open(p).read(); open(p,'w').write(s.replace('k = m * mm;', 'k = 4 * m * mm;'))\""
@@ -1249,3 +1275,34 @@ mutation = [
   "python3 -c \"from pathlib import Path; p=Path('addons/local_agents/gdextensions/localagents/include/LAParallel.hpp'); p.write_text(p.read_text().replace('LASeedCancellation cancellation(token);', 'LASeedCancellation cancellation(nullptr);'))\"",
   "python3 -c \"from pathlib import Path; p=Path('addons/local_agents/gdextensions/localagents/include/LAParallel.hpp'); p.write_text(p.read_text().replace('if (failure) { std::rethrow_exception(failure); }', ''))\"",
 ]
+
+# THE LAST ROWS. Each reads the ledgers of the whole run around it, so it runs after every other gate
+# has finished; gate_runner.py refuses a `last` row that is not among the final ones.
+
+[[gate]]
+name = "check_field_budget"
+script = "scripts/check_field_budget.sh"
+kind = "gpu"
+launches = false
+marker = "^check_field_budget: OK"
+mutation = "printf '# c\\n0\\n' > docs/FIELD_MS_CEILING"
+
+[[gate]]
+name = "check_launch_count"
+script = "scripts/check_launch_count.sh"
+needs = []
+kind = "headless"
+launches = false
+last = true
+marker = "^check_launch_count: OK"
+mutation = "printf '0\\n' > docs/LAUNCH_CEILING; printf 'la_godot --headless --path .\\n' >> \"$LA_LINT_LAUNCHES\""
+
+[[gate]]
+name = "check_lint_budget"
+script = "scripts/check_lint_budget.sh"
+needs = []
+kind = "gpu"
+launches = false
+last = true
+marker = "^check_lint_budget: OK"
+mutation = "printf '9999.0\\tcheck_mutant_sleep.sh\\n' >> \"$LA_LINT_TIMING_LOG\""

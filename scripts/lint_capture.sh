@@ -29,9 +29,16 @@ mkdir -p "$CAP/headless" || { echo "lint_capture: cannot write $CAP." >&2; exit 
 
 FRAMES="${LA_CAPTURE_FRAMES:-20}"
 SEED="${LA_CAPTURE_SEED:-4242}"
+LIFE_FRAMES="${LA_LIFE_FRAMES:-300}"
+LIFE_FPS="${LA_LIFE_FPS:-60}"
 PLAYABLE="$(rg -N -o '^[0-9]+$' "$ROOT/docs/PLAYABLE_RUNG" 2>/dev/null | head -1)"
 CAP_RUNG="${LA_CAPTURE_RUNG:-${PLAYABLE:-0}}"
+# A CLASS EVICTS ONLY ITS OWN. Every lane lints LA_NO_GPU=1 and the integrator lints with a device; one
+# shared shelf meant four lane captures pushed the device capture out, so the full lint re-ran the sim
+# every landing. The shelf is per class, and a class holds the newest few trees.
 CACHE_ROOT="${LA_CAPTURE_CACHE:-$HOME/.cache/local-agents/capture}"
+CACHE_CLASS="$ARM.gpu${LA_NO_GPU:-0}.r$CAP_RUNG"
+CACHE_SHELF="$CACHE_ROOT/$CACHE_CLASS"
 KEEP_ENTRIES=4
 
 "$SCRIPT_DIR/godot_import.sh" "$ROOT" >/dev/null 2>&1 || true
@@ -41,9 +48,9 @@ KEEP_ENTRIES=4
 # sim, because nothing the run reads has moved.
 KEY="$("$SCRIPT_DIR/cache_key.sh" capture --path "$ROOT" \
 	"seed=$SEED" "rung=$CAP_RUNG" "frames=$FRAMES" "arm=$ARM" "gpu=${LA_NO_GPU:-0}" \
-	"stream_fixture=$(la_md5_stdin < "$ROOT/addons/local_agents/tests/support/chat_stream_server.py")" 2>/dev/null || echo "")"
-if [ -n "$KEY" ] && [ -f "$CACHE_ROOT/$KEY/COMPLETE" ]; then
-	if cp -Rp "$CACHE_ROOT/$KEY/." "$CAP/" 2>/dev/null; then
+	"life=$LIFE_FRAMES@$LIFE_FPS" "stream_fixture=$(la_md5_stdin < "$ROOT/addons/local_agents/tests/support/chat_stream_server.py")" 2>/dev/null || echo "")"
+if [ -n "$KEY" ] && [ -f "$CACHE_SHELF/$KEY/COMPLETE" ]; then
+	if cp -Rp "$CACHE_SHELF/$KEY/." "$CAP/" 2>/dev/null; then
 		rm -f "$CAP/COMPLETE"
 		[ -s "$CAP/arm" ] && cat "$CAP/arm" >&2
 		printf '%s\n' "$CAP"
@@ -81,6 +88,11 @@ printf '%s\n' "$CAP_RUNG" > "$CAP/rung"
 "$SCRIPT_DIR/sim_run.sh" --path "$ROOT" --body --frames "$FRAMES" --seed "$SEED" --rung "$CAP_RUNG" \
 	--slice-capture "$CAP/slice_state.json" --keep --raw > "$CAP/body.raw" 2> "$CAP/body.err"
 SIM_RC=$?
+# THE BODY'S OWN NUMBERS, KEPT. This run happens on every lint whichever arm the acceptance report comes
+# from, so a gate that can only weigh the whole planet reads it instead of taking a second body run.
+if [ "$SIM_RC" -eq 0 ] && [ -s "$CAP/body.raw" ] && head -c 1 "$CAP/body.raw" | grep -q '{'; then
+	cp "$CAP/body.raw" "$CAP/body_report.json"
+fi
 if [ "$ARM" = "body" ]; then
 	mv -f "$CAP/body.raw" "$CAP/report.raw"
 	mv -f "$CAP/body.err" "$CAP/sim_run.err"
@@ -104,6 +116,26 @@ if [ -s "$CAP/report.raw" ] && head -c 1 "$CAP/report.raw" | grep -q '{'; then
 	mv "$CAP/report.raw" "$CAP/report.json"
 else
 	rm -f "$CAP/report.raw"
+fi
+
+# THE LIFE ARM, ONCE. Three gates read this same run: what its books did, what it looks like, and what
+# its bodies burned. LA_EVO_FAST is set empty so simulated seconds are frames over fps whatever the
+# caller's environment holds.
+LIFE_SCENE="addons/local_agents/examples/LifeDemo.tscn"
+if [ -f "$ROOT/$LIFE_SCENE" ]; then
+	LA_RUN_TIMEOUT="${LA_LIFE_TIMEOUT:-110}" LA_EVO_FAST= "$SCRIPT_DIR/run_sim_offscreen.sh" \
+		--path "$ROOT" "$LIFE_SCENE" --fixed-fps "$LIFE_FPS" -- --sandbox "--run-frames=$LIFE_FRAMES" \
+		> "$CAP/life_demo.log" 2>&1
+	printf '{"frames":%s,"fps":%s,"rc":%s}\n' "$LIFE_FRAMES" "$LIFE_FPS" "$?" > "$CAP/life_demo.arm"
+fi
+
+# THE RIGS THAT ONLY NEED A DEVICE, IN ONE LAUNCH. Every launch is a trip through the machine GPU lock,
+# so a rig that boots an engine to dispatch one pass shares this one.
+DEVICE_REL="addons/local_agents/tests/lint_device_batch.gd"
+if [ -f "$ROOT/$DEVICE_REL" ]; then
+	LA_CAPTURE_RUNG="$CAP_RUNG" LA_DONE_RE='^LA_DEVICE_BATCH_DONE=' \
+		LA_RUN_TIMEOUT="${LA_DEVICE_BATCH_TIMEOUT:-120}" "$SCRIPT_DIR/run_sim_offscreen.sh" \
+		--path "$ROOT" -s "res://$DEVICE_REL" > "$CAP/device_batch.log" 2>&1
 fi
 fi
 printf '%s\n' "$SIM_RC" > "$CAP/sim_run.rc"
@@ -131,29 +163,34 @@ LA_CPU_VALIDATION=1 LA_GODOT_TIMEOUT="${LA_BATCH_TIMEOUT:-120}" la_godot --headl
 la_stream_fixture_stop
 [ -s "$BATCH_LOG" ] || cp "$CAP/headless/batch.stdout" "$BATCH_LOG"
 
-awk -v dir="$CAP/headless" '
-	/^LA_BATCH_BEGIN=/ { name = substr($0, index($0, "=") + 1); out = dir "/" name ".log"; printf "" > out; next }
-	/^LA_BATCH_END=/   { out = ""; next }
-	out != "" { print >> out }
-' "$BATCH_LOG"
+split_fenced() {
+	[ -s "$1" ] || return 0
+	awk -v dir="$CAP/headless" '
+		/^LA_BATCH_BEGIN=/ { name = substr($0, index($0, "=") + 1); out = dir "/" name ".log"; printf "" > out; next }
+		/^LA_BATCH_END=/   { out = ""; next }
+		out != "" { print >> out }
+	' "$1"
+}
+split_fenced "$BATCH_LOG"
+split_fenced "$CAP/device_batch.log"
 
 # A FAILED CAPTURE IS NOT RECORDED. The arm that logged engine errors publishes no report, and a gate
 # reading a cached absence would read it as a measurement.
 publishable=0
 if [ -s "$BATCH_LOG" ]; then
 	if [ "${LA_NO_GPU:-0}" = "1" ]; then publishable=1
-	elif [ "$SIM_RC" -eq 0 ] && [ -f "$CAP/report.json" ]; then publishable=1
+	elif [ "$SIM_RC" -eq 0 ] && [ -f "$CAP/report.json" ] && [ -s "$CAP/life_demo.log" ]; then publishable=1
 	fi
 fi
-if [ -n "$KEY" ] && [ "$publishable" -eq 1 ] && [ ! -d "$CACHE_ROOT/$KEY" ]; then
-	mkdir -p "$CACHE_ROOT/$KEY.tmp"
-	if cp -Rp "$CAP/." "$CACHE_ROOT/$KEY.tmp/" 2>/dev/null; then
-		: > "$CACHE_ROOT/$KEY.tmp/COMPLETE"
-		mv "$CACHE_ROOT/$KEY.tmp" "$CACHE_ROOT/$KEY" 2>/dev/null || rm -rf "$CACHE_ROOT/$KEY.tmp"
+if [ -n "$KEY" ] && [ "$publishable" -eq 1 ] && [ ! -d "$CACHE_SHELF/$KEY" ]; then
+	mkdir -p "$CACHE_SHELF/$KEY.tmp"
+	if cp -Rp "$CAP/." "$CACHE_SHELF/$KEY.tmp/" 2>/dev/null; then
+		: > "$CACHE_SHELF/$KEY.tmp/COMPLETE"
+		mv "$CACHE_SHELF/$KEY.tmp" "$CACHE_SHELF/$KEY" 2>/dev/null || rm -rf "$CACHE_SHELF/$KEY.tmp"
 	else
-		rm -rf "$CACHE_ROOT/$KEY.tmp"
+		rm -rf "$CACHE_SHELF/$KEY.tmp"
 	fi
-	ls -dt "$CACHE_ROOT"/*/ 2>/dev/null | tail -n +$((KEEP_ENTRIES + 1)) | while IFS= read -r old; do
+	ls -dt "$CACHE_SHELF"/*/ 2>/dev/null | tail -n +$((KEEP_ENTRIES + 1)) | while IFS= read -r old; do
 		rm -rf "$old"
 	done
 fi

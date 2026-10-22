@@ -42,6 +42,40 @@ lower() {  # lower <ceiling file> <measured>
 	echo "write_ceilings: $1 $cur -> $have" >&2
 }
 
+# THE COST RATCHETS COME OFF A LINT, and a lint is what runs AFTER this. So they are banked from the
+# newest lint log that carries the line: one landing behind, and a ratchet only ever falls.
+# $1 ceiling file · $2 marker · $3 json key · $4 scale to whole units
+bank_from_lint() {
+	local dir line val log
+	dir="${LOG_DIR:-${TMPDIR:-/tmp}/local-agents-harness-logs}"
+	line=""
+	# THIS TREE'S OWN LINT. LOG_DIR is machine-wide and every lane writes into it.
+	while IFS= read -r log; do
+		grep -Fxq "LINT_TREE=$TREE" "$log" 2>/dev/null || continue
+		grep -Fxq "LINT_BANKABLE=1" "$log" 2>/dev/null || continue
+		line="$(rg -N -m1 -e "^$2=" "$log" 2>/dev/null || true)"
+		[ -n "$line" ] && break
+	done < <(ls -t "$dir"/agent_harness_lint_*.log 2>/dev/null)
+	if [ -z "$line" ]; then
+		echo "write_ceilings: no lint of $TREE carries $2, so docs/$1 stands." >&2
+		return 0
+	fi
+	val="$(printf '%s\n' "$line" | rg -N -o "\"$3\":[0-9.]+" | rg -N -o '[0-9.]+' | head -1)"
+	[ -n "$val" ] || { echo "write_ceilings: $2 carries no $3." >&2; return 0; }
+	local have
+	have="$(awk -v v="$val" -v s="$4" 'BEGIN{printf "%d", int(v * s) + (v * s > int(v * s))}')"
+	# 0 IS UNBANKED, NOT A CEILING OF ZERO: the first full lint sets it, and every one after only lowers.
+	if [ "$(rg -N -e '^[0-9]+$' "$TREE/docs/$1" | head -1)" = "0" ]; then
+		perl -0pi -e "s/^0\$/$have/m" "$TREE/docs/$1"
+		echo "write_ceilings: $1 banked at $have" >&2
+		return 0
+	fi
+	lower "$1" "$have"
+}
+
+bank_from_lint LINT_SECONDS_CEILING LINT_BUDGET own_s 1
+bank_from_lint FIELD_MS_CEILING FIELD_BUDGET worst_ms 1
+
 SIM="$TREE/addons/local_agents/sim"
 [ -d "$SIM" ] || { echo "write_ceilings: no $SIM" >&2; exit 2; }
 lines="$(gdscript_code_lines "$SIM")"

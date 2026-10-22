@@ -46,7 +46,8 @@ import hashlib, os, subprocess, sys
 
 proj, kind = sys.argv[1], sys.argv[2]
 extra = sys.argv[3:]
-paths = ["addons", "project.godot"]
+# scripts/ decides which run a capture is; an import or a scan is the engine reading the project.
+paths = ["addons", "project.godot"] + (["scripts"] if kind == "capture" else [])
 
 def git(*args):
 	return subprocess.run(["git", "-C", proj, *args], capture_output=True).stdout

@@ -28,12 +28,7 @@ static func emit_population_trace(w, frame: int) -> void:
 	if LAAblate.fauna_off():
 		return
 	var tree: SceneTree = w.get_tree()
-	var counts: Dictionary = {}
-	for sp in ["rabbit", "fox", "bird", "villager", "vulture", "fish"]:
-		counts[sp] = tree.get_node_count_in_group("species_%s" % sp)
-	counts["creatures"] = tree.get_node_count_in_group("creature")
-	counts["plants"] = tree.get_node_count_in_group("plant")
-	counts["trees"] = tree.get_node_count_in_group("tree")
+	var counts: Dictionary = _census(tree)
 	_emit_in_box(w, tree)
 	var deaths: Dictionary = {}
 	var snap: Dictionary = LASimReport.snapshot(true)
@@ -117,10 +112,10 @@ static func emit_population_trace(w, frame: int) -> void:
 
 ## WHERE THE LIVING THINGS ARE, against where the field steps matter. A body in no cell reads no
 ## temperature and no food at its feet, so what the substrate does never reaches it.
-static func _emit_in_box(w, tree: SceneTree) -> void:
+static func _in_box(w, tree: SceneTree) -> Dictionary:
 	var mat = w._material if "_material" in w else null
 	if mat == null or not mat.has_method("world_to_cell"):
-		return
+		return {}
 	var inside: int = 0
 	var outside: int = 0
 	for grp in ["creature", "plant", "tree"]:
@@ -131,7 +126,32 @@ static func _emit_in_box(w, tree: SceneTree) -> void:
 				inside += 1
 			else:
 				outside += 1
-	print('LIFE_IN_BOX={"in":%d,"out":%d}' % [inside, outside])
+	return {"in": inside, "out": outside}
+
+
+static func _emit_in_box(w, tree: SceneTree) -> void:
+	var box: Dictionary = _in_box(w, tree)
+	if not box.is_empty():
+		print('LIFE_IN_BOX={"in":%d,"out":%d}' % [int(box["in"]), int(box["out"])])
+
+
+static func _census(tree: SceneTree) -> Dictionary:
+	var counts: Dictionary = {}
+	for sp in ["rabbit", "fox", "bird", "villager", "vulture", "fish"]:
+		counts[sp] = tree.get_node_count_in_group("species_%s" % sp)
+	counts["creatures"] = tree.get_node_count_in_group("creature")
+	counts["plants"] = tree.get_node_count_in_group("plant")
+	counts["trees"] = tree.get_node_count_in_group("tree")
+	return counts
+
+
+## THE FOUNDING CENSUS, PUBLISHED WHERE IT IS MADE. A periodic sample says what stood on the world when
+## the clock happened to tick, which is what was seeded only if the seeding beat the tick.
+static func emit_founding(w) -> void:
+	var tree: SceneTree = w.get_tree()
+	var box: Dictionary = _in_box(w, tree)
+	print('LIFE_SEEDED={"counts":%s,"in":%d,"out":%d}'
+		% [JSON.stringify(_census(tree)), int(box.get("in", -1)), int(box.get("out", -1))])
 
 
 ## A reading the run never published is NAN, never zero.

@@ -58,6 +58,17 @@ la_marker() {
 	printf '%s\n' "$line"
 }
 
+# The shared arm's own SIM_REPORT, as a file, for a gate that reads a gauge rather than a key.
+la_cap_report() {
+	local cap
+	cap="$(la_cap_dir)" || return 1
+	if [ ! -s "$cap/report.json" ]; then
+		echo "la_cap_report: the shared arm published no SIM_REPORT." >&2
+		return 2
+	fi
+	printf '%s' "$cap/report.json"
+}
+
 # The face-state capture the shared arm recorded.
 la_cap_state() {
 	local cap
@@ -75,6 +86,24 @@ la_cap_arm() {
 	cap="$(la_cap_dir)" || return 1
 	[ -s "$cap/arm" ] || return 1
 	cat "$cap/arm"
+}
+
+# THE WHOLE BODY'S OWN REPORT. The shared arm takes a body run on every lint to record the slice's
+# exterior, so a gate that can only weigh a planet reads its numbers rather than taking a second one.
+# $1 comma-separated SIM_REPORT keys; the rest go to sim_run.sh when there is no capture.
+la_body_report() {
+	local keys="$1"
+	shift
+	local cap
+	if cap="$(la_cap_dir)"; then
+		if [ ! -s "$cap/body_report.json" ]; then
+			echo "la_body_report: the shared arm published no body SIM_REPORT." >&2
+			return 2
+		fi
+		REPORT_KEYS="$keys" RAW=0 python3 "$LA_CAP_SCRIPTS/lib_report.py" "$cap/body_report.json"
+		return $?
+	fi
+	"$LA_CAP_SCRIPTS/sim_run.sh" --body --report "$keys" "$@" 2>&1
 }
 
 # A GATE THAT COMPARES A RUN TO THE WHOLE BODY'S DECLARED RECORD CANNOT READ A BOX. On a slice capture
@@ -127,6 +156,25 @@ la_examined() {
 	return 0
 }
 
+# The one LifeDemo run the shared arm recorded: its log, and the frames/fps it ran at.
+la_cap_life_log() {
+	local cap
+	cap="$(la_cap_dir)" || return 1
+	if [ ! -s "$cap/life_demo.log" ] || [ ! -s "$cap/life_demo.arm" ]; then
+		echo "la_cap_life_log: the shared arm recorded no life run." >&2
+		return 2
+	fi
+	printf '%s' "$cap/life_demo.log"
+}
+
+# $1 "frames" or "fps".
+la_cap_life() {
+	local cap
+	cap="$(la_cap_dir)" || return 1
+	[ -s "$cap/life_demo.arm" ] || return 2
+	sed -n "s/.*\"$1\":\([0-9][0-9]*\).*/\1/p" "$cap/life_demo.arm" | head -1
+}
+
 la_headless() {
 	local cap
 	cap="$(la_cap_dir)" || return 1
@@ -135,4 +183,19 @@ la_headless() {
 		return 2
 	fi
 	cat "$cap/headless/$1.log"
+}
+
+# ONE RIG'S OUTPUT. From the shared device batch when there is one, else its own launch, which is what a
+# hand-run gate needs. $1 the batch name, $2 the completion marker, $3 the probe's res:// path.
+la_rig() {
+	local cap out result
+	if cap="$(la_cap_dir)"; then
+		la_headless "$1"
+		return $?
+	fi
+	out="$(LA_DONE_RE="$2" "$LA_CAP_SCRIPTS/run_sim_offscreen.sh" --path "$LA_CAP_SCRIPTS/.." \
+		-s "$3" 2>&1)"
+	result=$?
+	printf '%s\n' "$out"
+	case "$result" in 0|1|2) return "$result" ;; *) return 2 ;; esac
 }
