@@ -1,0 +1,15 @@
+# What scripts/cache_key.sh bake leaves out of the capture key. One rule per line: <class> <git glob>, relative to the root.
+#   sourcehash  a compiled extension source: bin/SOURCE_HASH keys it (check_bake_key holds that by flipping a byte of each)
+#   unread      no process that seeds a world reads it (check_bake_key holds that no reader names it)
+#   keep        put back into the key: a file outside the excluded set reads it
+# Anything not listed is in the key. The extension's scripts/ builds the binary, which SOURCE_HASH does not see, so it stays in.
+sourcehash addons/local_agents/gdextensions/localagents/CMakeLists.txt
+sourcehash addons/local_agents/gdextensions/localagents/cmake/**
+sourcehash addons/local_agents/gdextensions/localagents/include/**
+sourcehash addons/local_agents/gdextensions/localagents/src/**
+unread addons/local_agents/gdextensions/localagents/tests/**
+unread addons/local_agents/native/**
+unread addons/local_agents/tests/**
+unread addons/**/*.md
+keep addons/local_agents/docs/INSTALL.md
+keep addons/local_agents/docs/USAGE.md

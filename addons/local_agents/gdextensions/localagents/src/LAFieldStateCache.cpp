@@ -8,8 +8,12 @@
 #include <godot_cpp/variant/packed_float32_array.hpp>
 #include <godot_cpp/variant/packed_string_array.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <cstring>
+#include <filesystem>
+#include <system_error>
+#include <vector>
 
 using namespace godot;
 
@@ -17,6 +21,7 @@ namespace {
 
 const char *MASK_DIR = "user://la_solid_cache";
 const char *STATE_DIR = "user://la_field_cache";
+const char *BOUND_PATH = "res://docs/FIELD_CACHE_BYTES";
 const char *CONSTANTS_GD = "res://addons/local_agents/sim/material/PhysicalConstants.gd";
 std::atomic<int> g_pure_hits{ 0 };
 
@@ -32,6 +37,58 @@ void ensure_dir(const String &p_dir) {
 String pure_dir() {
 	const String named = OS::get_singleton()->get_environment("LA_PURE_CACHE_DIR");
 	return named.is_empty() ? String("user://la_pure_cache") : named;
+}
+
+std::filesystem::path native_path(const String &p_path) {
+	return std::filesystem::u8path(ProjectSettings::get_singleton()->globalize_path(p_path).utf8().get_data());
+}
+
+// Recency of use is the entry's mtime: a hit sets it to now.
+void touch(const String &p_path) {
+	std::error_code ec;
+	std::filesystem::last_write_time(native_path(p_path), std::filesystem::file_time_type::clock::now(), ec);
+}
+
+// Entries of p_dir, least recently used first, removed until the directory holds at most p_max_bytes.
+int evict(const String &p_dir, int64_t p_max_bytes, const String &p_keep_file) {
+	namespace fs = std::filesystem;
+	struct Entry {
+		fs::file_time_type mtime;
+		uintmax_t size;
+		fs::path path;
+	};
+	std::vector<Entry> entries;
+	uintmax_t total = 0;
+	std::error_code ec;
+	for (fs::directory_iterator it(native_path(p_dir), ec); !ec && it != fs::directory_iterator(); it.increment(ec)) {
+		std::error_code stat_ec;
+		if (!it->is_regular_file(stat_ec) || it->path().extension() != ".bin") {
+			continue;
+		}
+		const Entry e{ it->last_write_time(stat_ec), it->file_size(stat_ec), it->path() };
+		if (!stat_ec) {
+			total += e.size;
+			entries.push_back(e);
+		}
+	}
+	std::sort(entries.begin(), entries.end(), [](const Entry &a, const Entry &b) {
+		return a.mtime != b.mtime ? a.mtime < b.mtime : a.path < b.path;
+	});
+	const fs::path keep = fs::u8path(p_keep_file.utf8().get_data());
+	int removed = 0;
+	for (const Entry &e : entries) {
+		if (total <= uintmax_t(p_max_bytes)) {
+			break;
+		}
+		if (e.path.filename() == keep) {
+			continue;
+		}
+		std::error_code rm_ec;
+		fs::remove(e.path, rm_ec);
+		total -= e.size;
+		removed++;
+	}
+	return removed;
 }
 
 // What every pure native function here is a function of besides its arguments. Empty where either file
@@ -182,53 +239,91 @@ String LAFieldStateCache::state_key(const String &p_tree_key, int p_nx, int p_ny
 	return String("\n").join(parts).sha256_text();
 }
 
-Dictionary LAFieldStateCache::load_state(const String &p_key, int p_cell_count) {
-	Dictionary empty;
-	if (p_key.is_empty()) {
-		return empty;
-	}
-	Ref<FileAccess> f = FileAccess::open(entry_path(STATE_DIR, p_key), FileAccess::READ);
+namespace {
+
+Dictionary read_entry(const String &p_path) {
+	Ref<FileAccess> f = FileAccess::open(p_path, FileAccess::READ);
 	if (f.is_null()) {
-		return empty;
+		return Dictionary();
 	}
 	const Variant raw = f->get_var();
-	if (raw.get_type() != Variant::DICTIONARY) {
-		return empty;
+	return raw.get_type() == Variant::DICTIONARY ? Dictionary(raw) : Dictionary();
+}
+
+} // namespace
+
+Dictionary LAFieldStateCache::load_state(const String &p_key, int p_cell_count) {
+	if (p_key.is_empty()) {
+		return Dictionary();
 	}
-	const Dictionary data = raw;
-	if (int(data.get("cell_count", -1)) != p_cell_count) {
-		return empty;
-	}
+	const String path = entry_path(STATE_DIR, p_key);
+	const Dictionary data = read_entry(path);
 	const PackedByteArray snapshot = data.get("snapshot", PackedByteArray());
-	return snapshot.is_empty() ? empty : data;
+	if (int(data.get("cell_count", -1)) != p_cell_count || snapshot.is_empty()) {
+		return Dictionary();
+	}
+	touch(path);
+	return data;
+}
+
+Dictionary LAFieldStateCache::load_from(const String &p_dir, const String &p_key) {
+	if (p_key.is_empty()) {
+		return Dictionary();
+	}
+	const String path = entry_path(p_dir, p_key);
+	const Dictionary data = read_entry(path);
+	if (!data.is_empty()) {
+		touch(path);
+	}
+	return data;
 }
 
 Dictionary LAFieldStateCache::load_blob(const String &p_key) {
-	Dictionary empty;
-	if (p_key.is_empty()) {
-		return empty;
-	}
-	Ref<FileAccess> f = FileAccess::open(entry_path(STATE_DIR, p_key), FileAccess::READ);
-	if (f.is_null()) {
-		return empty;
-	}
-	const Variant raw = f->get_var();
-	return raw.get_type() == Variant::DICTIONARY ? Dictionary(raw) : empty;
+	return load_from(STATE_DIR, p_key);
 }
 
 void LAFieldStateCache::save_blob(const String &p_key, const Dictionary &p_data) {
 	save_state(p_key, p_data);
 }
 
-void LAFieldStateCache::save_state(const String &p_key, const Dictionary &p_data) {
-	if (p_key.is_empty() || p_data.is_empty()) {
-		return;
+int64_t LAFieldStateCache::declared_bound() {
+	Ref<FileAccess> f = FileAccess::open(BOUND_PATH, FileAccess::READ);
+	if (f.is_null()) {
+		return -1;
 	}
-	ensure_dir(STATE_DIR);
-	Ref<FileAccess> f = FileAccess::open(entry_path(STATE_DIR, p_key), FileAccess::WRITE);
-	if (f.is_valid()) {
+	while (!f->eof_reached()) {
+		const String line = f->get_line().strip_edges();
+		if (line.is_valid_int()) {
+			return line.to_int();
+		}
+	}
+	return -1;
+}
+
+int LAFieldStateCache::save_into(const String &p_dir, const String &p_key, const Dictionary &p_data,
+		int64_t p_max_bytes) {
+	if (p_key.is_empty() || p_data.is_empty()) {
+		return 0;
+	}
+	ensure_dir(p_dir);
+	{
+		Ref<FileAccess> f = FileAccess::open(entry_path(p_dir, p_key), FileAccess::WRITE);
+		if (f.is_null()) {
+			return 0;
+		}
 		f->store_var(p_data);
 	}
+	return evict(p_dir, p_max_bytes, p_key + String(".bin"));
+}
+
+// A store with no declared bound grows without one, so it writes nothing and names the absence.
+void LAFieldStateCache::save_state(const String &p_key, const Dictionary &p_data) {
+	const int64_t bound = declared_bound();
+	if (bound < 0) {
+		ERR_PRINT("FIELD_CACHE_BOUND_ABSENT: docs/FIELD_CACHE_BYTES declares no bound, so nothing is stored.");
+		return;
+	}
+	save_into(STATE_DIR, p_key, p_data, bound);
 }
 
 void LAFieldStateCache::_bind_methods() {
@@ -244,6 +339,11 @@ void LAFieldStateCache::_bind_methods() {
 			&LAFieldStateCache::load_state);
 	ClassDB::bind_static_method("LAFieldStateCache", D_METHOD("save_state", "key", "data"),
 			&LAFieldStateCache::save_state);
+	ClassDB::bind_static_method("LAFieldStateCache", D_METHOD("save_into", "dir", "key", "data", "max_bytes"),
+			&LAFieldStateCache::save_into);
+	ClassDB::bind_static_method("LAFieldStateCache", D_METHOD("load_from", "dir", "key"),
+			&LAFieldStateCache::load_from);
+	ClassDB::bind_static_method("LAFieldStateCache", D_METHOD("declared_bound"), &LAFieldStateCache::declared_bound);
 	ClassDB::bind_static_method("LAFieldStateCache", D_METHOD("pure_hits"), &LAFieldStateCache::pure_hits);
 	ClassDB::bind_static_method("LAFieldStateCache", D_METHOD("pure_clear"), &LAFieldStateCache::pure_clear);
 }

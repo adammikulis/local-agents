@@ -127,7 +127,7 @@ ARGS=(--sandbox "--run-frames=${FRAMES}" "--seed=${SEED}")
 # on purpose, so every arm over one world shares one bake.
 # A CALLER THAT NAMED ITS OWN BAKE KEEPS IT: the key it set names the world it means to compare.
 if [ "$FROM_SEAL" -eq 1 ] && [ -z "${LA_SEAL_KEY:-}" ]; then
-  SEAL_KEY="$("$SCRIPT_DIR/cache_key.sh" capture --path "$PROJ" "seed=$SEED" "rung=${RUNG:-default}" \
+  SEAL_KEY="$("$SCRIPT_DIR/cache_key.sh" bake --path "$PROJ" "seed=$SEED" "rung=${RUNG:-default}" \
     "playable=$(md5 -q "$PROJ/docs/PLAYABLE_RUNG" 2>/dev/null || echo none)" "env_rung=${LA_RUNG:-}" \
     "extra=${EXTRA[*]-}" "full=$FULL" "fauna=$FAUNA" "slice=$SLICE" \
     "box=$(if [ "$SLICE" -eq 1 ]; then printf '%s' "$SLICE_BOX"; fi)" \

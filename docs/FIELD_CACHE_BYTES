@@ -1,0 +1,3 @@
+# Bytes the bake store user://la_field_cache may hold. A DECISION about what this machine affords, never a law:
+# past it the least recently used entries (oldest mtime; a hit touches its entry) are removed, never the entry just written.
+8589934592

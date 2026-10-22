@@ -116,9 +116,7 @@ Mac. Do not treat the failed original run as a pass or apply a speculative vendo
   with and without `--reseed`; `gravity_solves` and the temperature and vapour gauges disagree between
   the two reports. Carry the solved potential in the bake and take the solve out of the restore.
   Reading: `finish_restore` solves gravity once where `prepare_gravity` and `complete` solve once each.
-- The bake store never evicts: `du -sh "$HOME/Library/Application Support/Godot/app_userdata/LocalAgents/la_field_cache"`.
-  Keep the newest entry per arm.
-  Reading: `save_state` writes and no caller deletes.
-- One edit to any file under `addons` re-seeds every arm: `scripts/cache_key.sh capture` moves on a test
-  or doc edit. Key the bake on the files a seed reads.
-  Reading: `paths` in `scripts/cache_key.sh` names `addons` whole.
+- `scripts/check_enthalpy_ssot.sh` is red at the base and blocks the commit hook: `scripts/check_enthalpy_ssot.sh`.
+  Reading: the gate reads `enthalpy_to_state` out of `LASubstances.cpp`, and `LASubstanceRow.cpp` holds it now.
+- `scripts/check_model_parameters.sh` is red at the base and blocks the commit hook: `scripts/check_model_parameters.sh`.
+  Reading: `kPi` in `LASubstanceRow.cpp` is bound to no `LAPhysical` constant.
