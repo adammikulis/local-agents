@@ -6,6 +6,9 @@
 - Verify branch state with git arithmetic before planning against it: `git cherry` both directions and
   `git merge-base --is-ancestor main <dev>`. Reconcile at a handful of commits, never a hundred.
 
+## Commit and push
+- Commit and push the dev branch after every finished change, unprompted (`git push origin <dev>`). Never `main`.
+
 ## Worktrees
 - Every subagent that edits files gets its own worktree: pass `isolation: "worktree"`, no threshold.
   Work you delegate is still your change. Read-only agents may share the tree and cite identifiers, not line numbers.

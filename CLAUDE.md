@@ -100,6 +100,7 @@ creatures and cognition. Broader requirements live in `docs/PHYSICS_TODO.md` and
 
 # STANDING PRACTICE (details in the linked docs; read the one that matches your task)
 
+- Commit and push the dev branch after every finished change, unprompted; never `main`.
 - Delegate edits to Opus lanes, each in its own worktree (`isolation: "worktree"`); integrate only with
   `scripts/integrate.sh <branch>`; prune every worktree you made. → `docs/agents/workflow.md`
 - Lint before landing: `LA_NO_GPU=1 scripts/agent_harness.sh lint`; one sim at a time; runs answer inside
