@@ -1,0 +1,3 @@
+# Slow-tier gates listed in docs/SLOW_GATES_WITHOUT_INPUTS, counted by scripts/check_gate_tiers.sh. A gate listed
+# runs on every integration. May fall as a row declares inputs; may not rise.
+8

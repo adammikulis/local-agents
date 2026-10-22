@@ -10,15 +10,16 @@ G="$ROOT/addons/local_agents/sim/material/kernels3d/enthalpy.glsli"
 P="$ROOT/addons/local_agents/sim/material/PhysicalConstants.gd"
 S="$ROOT/addons/local_agents/gdextensions/localagents/src/LASubstances.cpp"
 SH="$ROOT/addons/local_agents/gdextensions/localagents/include/LASubstances.hpp"
+SR="$ROOT/addons/local_agents/gdextensions/localagents/src/LASubstanceRow.cpp"
 GM="$ROOT/addons/local_agents/sim/material/kernels3d/mixture_enthalpy.glsli"
 SM="$ROOT/addons/local_agents/gdextensions/localagents/src/LAMixtureEnthalpy.cpp"
 SW="$ROOT/addons/local_agents/gdextensions/localagents/src/LAWaterCurves.cpp"
 SE="$ROOT/addons/local_agents/gdextensions/localagents/src/LAPhaseEos.cpp"
-for f in "$G" "$P" "$S" "$SH" "$GM" "$SM" "$SW" "$SE"; do
+for f in "$G" "$P" "$S" "$SH" "$GM" "$SM" "$SW" "$SE" "$SR"; do
   [ -f "$f" ] || { echo "check_enthalpy_ssot: MISSING $f" >&2; exit 2; }
 done
 
-python3 - "$G" "$P" "$S" "$SH" "$GM" "$SM" "$SW" "$SE" <<'PY'
+python3 - "$G" "$P" "$S" "$SH" "$GM" "$SM" "$SW" "$SE" "$SR" <<'PY'
 import re, sys
 glsl = open(sys.argv[1]).read()
 gd = open(sys.argv[2]).read()
@@ -31,6 +32,8 @@ sub_mix = open(sys.argv[6]).read()
 sub_water = open(sys.argv[7]).read()
 # So does the melting rule both phases read.
 sub_eos = open(sys.argv[8]).read()
+# The per-row phase ladder lives in LASubstanceRow.cpp; LASubstances.cpp forwards to it.
+sub_row = open(sys.argv[9]).read()
 
 # --- the authority ----------------------------------------------------------------------------------------
 # A literal `const X: float = 4184.0` is comparable. A const whose value is an EXPRESSION is not, and a GLSL
@@ -157,7 +160,7 @@ def boundaries(txt, label, steps):
 
 
 g_body = body(glsl, "vec4 la_enthalpy_to_state(")
-d_body = body(sub, "Dictionary LASubstances::enthalpy_to_state(")
+d_body = body(sub_row, "Dictionary la_substance::enthalpy_to_state(")
 if not g_body or not d_body:
     print("check_enthalpy_ssot: could not find la_enthalpy_to_state / LASubstances::enthalpy_to_state — "
           "the gate has no subject.", file=sys.stderr)
@@ -212,7 +215,7 @@ def reachable(root, funcs):
     return seen
 
 
-g_funcs, d_funcs = bodies_of(glsl, "glsl"), bodies_of(sub + "\n" + sub_water + "\n" + sub_eos, "cpp")
+g_funcs, d_funcs = bodies_of(glsl, "glsl"), bodies_of(sub + "\n" + sub_row + "\n" + sub_water + "\n" + sub_eos, "cpp")
 gm_funcs, sm_funcs = bodies_of(glsl_mix, "glsl"), bodies_of(sub_mix, "cpp")
 if "la_mix_state" not in gm_funcs or "state" not in sm_funcs:
     print("check_enthalpy_ssot: could not find la_mix_state / LAMixtureEnthalpy::state — the mixture "

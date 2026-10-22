@@ -1,0 +1,4 @@
+# Wall seconds of every fast-tier gate in one `scripts/agent_harness.sh lint`, added up, from a run reading no
+# cache. scripts/check_lint_fast_budget.sh reads it. Every commit pays this. May fall, may not rise.
+# Never raise it to turn a light green: make the gate cheaper or give it a slow-tier row.
+170

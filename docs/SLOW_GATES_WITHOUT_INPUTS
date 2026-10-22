@@ -1,0 +1,10 @@
+# Slow-tier gate rows that declare no `inputs`, so every integration runs them whatever the diff. One gate name
+# per line. A new slow row declares inputs; this list only falls, held by docs/SLOW_GATES_WITHOUT_INPUTS_CEILING.
+check_api_version
+check_field_box
+check_field_budget
+check_lob
+check_plan_refusal
+check_probe_history
+check_pure_cache
+check_tides

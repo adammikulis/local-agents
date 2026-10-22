@@ -76,6 +76,18 @@ bank_from_lint() {
 bank_from_lint LINT_SECONDS_CEILING LINT_BUDGET own_s 1
 bank_from_lint FIELD_MS_CEILING FIELD_BUDGET worst_ms 1
 
+bank_gate_seconds() {  # the newest passing lint of this tree lowers docs/GATE_SECONDS, which only falls
+	local dir log
+	dir="${LOG_DIR:-${TMPDIR:-/tmp}/local-agents-harness-logs}"
+	while IFS= read -r log; do
+		grep -Fxq "LINT_TREE=$TREE" "$log" 2>/dev/null || continue
+		grep -Eq '^All [a-z]+-tier lint gates passed' "$log" 2>/dev/null || continue
+		python3 "$TREE/scripts/gate_runner.py" --bank-seconds "$log" >&2 && return 0
+	done < <(ls -t "$dir"/agent_harness_lint_*.log 2>/dev/null)
+	echo "write_ceilings: no passing lint of $TREE, so docs/GATE_SECONDS stands." >&2
+}
+bank_gate_seconds
+
 SIM="$TREE/addons/local_agents/sim"
 [ -d "$SIM" ] || { echo "write_ceilings: no $SIM" >&2; exit 2; }
 lines="$(gdscript_code_lines "$SIM")"
@@ -108,6 +120,10 @@ lower DUPLICATE_FRAGMENT_CEILING "$(field "$dup" fragment_copies)"
 claims="$(cd "$TREE" && bash scripts/check_comment_claims.sh 2>&1 | rg -N '^COMMENT_CLAIMS=' || true)"
 [ -n "$claims" ] || { echo "write_ceilings: check_comment_claims.sh printed no COMMENT_CLAIMS= line." >&2; exit 2; }
 lower COMMENT_CLAIMS_CEILING "$(field "$claims" count)"
+
+tiers="$(cd "$TREE" && bash scripts/check_gate_tiers.sh 2>&1 | rg -N '^SLOW_GATES_WITHOUT_INPUTS=' || true)"
+[ -n "$tiers" ] || { echo "write_ceilings: check_gate_tiers.sh printed no SLOW_GATES_WITHOUT_INPUTS= line." >&2; exit 2; }
+lower SLOW_GATES_WITHOUT_INPUTS_CEILING "$(field "$tiers" count)"
 
 hist="$(cd "$TREE" && bash scripts/check_comment_history.sh 2>&1 | rg -N '^COMMENT_HISTORY=' || true)"
 [ -n "$hist" ] || { echo "write_ceilings: check_comment_history.sh printed no COMMENT_HISTORY= line." >&2; exit 2; }

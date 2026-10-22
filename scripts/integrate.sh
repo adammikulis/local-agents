@@ -147,9 +147,13 @@ LANE_LINT="$LANE_WT/scripts/agent_harness.sh"
 # A VIOLATION refuses the landing. A gate that COULD NOT RUN examined nothing, and while the substrate is
 # declaredly unstable every GPU gate is in that state, so that count is ratcheted instead: it may fall and
 # may not rise, and it reaches zero when docs/PHYSICS_TODO.md E does.
+# THE FAST TIER IN FULL, PLUS EXACTLY THE SLOW GATES THIS DIFF REACHES: a slow gate runs when a path it declares
+# in `inputs`, its script, a lib it names or its own row changed since $DEV, or when it declares no inputs, and
+# it never reads the pass cache. A diff no slow gate reads (docs, tests, scripts) starts no engine.
 LINT_OUT="$(cd "$LANE_WT" && LA_CEILING_STRICT=1 LA_LOCK_PRIORITY=1 LA_INTEGRATE_BRANCH="$BRANCH" LA_INTEGRATE_SOURCE="$BRANCH" \
-	"$LANE_LINT" lint 2>&1)"
+	"$LANE_LINT" lint --all --affected-by "$DEV" 2>&1)"
 LINT_RC=$?
+printf '%s\n' "$LINT_OUT" | rg -N -e '^LINT_SELECTED:' -e '^LINT_AFFECTED=' -e '^LINT_UNAFFECTED:' | sed 's/^/           /' >&2
 if [ "$LINT_RC" -ne 0 ]; then
 	SUMMARY="$(printf '%s\n' "$LINT_OUT" | rg -N -o -e 'LINT_SUMMARY: ([0-9]+) gate\(s\) COULD NOT RUN, ([0-9]+) violation' -r '$1 $2' | head -1)"
 	CANNOT="${SUMMARY%% *}"
@@ -159,7 +163,7 @@ if [ "$LINT_RC" -ne 0 ]; then
 		echo "integrate: LINT FAILED. $DEV is untouched." >&2
 		printf '%s\n' "$LINT_OUT" | rg -N -e '^LINT_FAIL:|^LINT_UNRUNNABLE:|^LAUNCH_COUNT=' | sed 's/^/           /' >&2
 		[ -n "$SUMMARY" ] && echo "           $CANNOT could not run (ceiling $UNRUN_CEIL), $VIOL violation(s)." >&2
-		echo "           Reproduce with: cd $LANE_WT && scripts/agent_harness.sh lint" >&2
+		echo "           Reproduce with: cd $LANE_WT && scripts/agent_harness.sh lint --all --affected-by $DEV" >&2
 		exit 1
 	fi
 	echo "integrate: landing with $CANNOT gate(s) that COULD NOT RUN (ceiling $UNRUN_CEIL), 0 violations." >&2

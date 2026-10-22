@@ -82,4 +82,4 @@ jobs:
         env:
           LA_NO_GPU: "1"
         run: |
-          scripts/agent_harness.sh lint
+          scripts/agent_harness.sh lint --all

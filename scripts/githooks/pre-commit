@@ -29,10 +29,10 @@ if [ -x "$ROOT/scripts/check_comment_ratio.sh" ] && ! "$ROOT/scripts/check_comme
   echo "COMMIT BLOCKED: more comment than code."
   exit 1
 fi
-# LA_NO_GPU: every kind=gpu row of scripts/gates.toml launches a REAL Godot holding the machine-wide
-# GPU lock. A commit may not wait on that. A commit may not do that. They run in scripts/integrate.sh, which
-# lints the staged merge before anything reaches the dev branch, and in CI.
-out="$(LA_NO_GPU=1 "$ROOT/scripts/agent_harness.sh" lint 2>&1)"
+# A BARE lint IS THE FAST TIER: no gate in it starts an engine. The slow tier launches a real Godot holding the
+# machine-wide GPU lock, which a commit may not wait on; scripts/integrate.sh runs the slow gates a landing
+# affects, and CI runs `lint --all`.
+out="$("$ROOT/scripts/agent_harness.sh" lint 2>&1)"
 rc=$?
 if [ "$rc" -ne 0 ]; then
   printf '%s\n' "$out" | grep -E "LINT_FAIL|^FAIL |ERROR:" | head -12

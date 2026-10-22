@@ -79,15 +79,15 @@ if rg -q 'cp -f "\$real" "\$exe" \|\| \{ echo "\$real"' "$LIB"; then
 	launcher_fail=1
 fi
 
-# A COMMIT MAY NOT LAUNCH A SIM. The GPU gates each open a real window and take focus; they belong to
-# integrate.sh and CI, which lint the staged merge before anything lands.
+# A COMMIT MAY NOT LAUNCH A SIM. The slow tier opens real windows and takes focus; it belongs to integrate.sh
+# and CI, so the hook runs the fast tier, which is what a bare `lint` is.
 HOOK="$ROOT/scripts/githooks/pre-commit"
 if [ -f "$HOOK" ] && rg -q 'agent_harness\.sh" lint' "$HOOK"; then
-	rg -q 'LA_NO_GPU=1 "\$ROOT/scripts/agent_harness\.sh" lint' "$HOOK" || {
-		echo "FAIL  $HOOK runs lint without LA_NO_GPU=1, so every commit launches the GPU gates and" >&2
-		echo "      pops a Godot window onto the user's monitor." >&2
+	if rg -q 'agent_harness\.sh" lint[^|]*--(slow|all)' "$HOOK"; then
+		echo "FAIL  $HOOK runs the slow tier, so every commit launches the engine and pops a Godot window" >&2
+		echo "      onto the user's monitor. A commit runs the fast tier: a bare \`lint\`." >&2
 		launcher_fail=1
-	}
+	fi
 fi
 
 # A LANE MAY NOT KILL ANOTHER LANE'S RUN. Every lane's sim is the same binary, so pkill/killall by

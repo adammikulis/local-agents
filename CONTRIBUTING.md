@@ -39,7 +39,7 @@ the worktree workflow. `AGENTS.md` points here too. If you change behaviour or c
 Run the gates rather than opening scenes by hand — CI runs the same `lint` command:
 
 ```bash
-scripts/agent_harness.sh lint       # every structural gate, off one shared engine capture
+scripts/agent_harness.sh lint       # the fast gates (no engine); lint --slow the engine gates; lint --all both
 scripts/agent_harness.sh fast       # deterministic + integration suites
 scripts/run_demo.sh <Demo>          # a harnessed examples/*.tscn that needs no window, ~1s each
 ```

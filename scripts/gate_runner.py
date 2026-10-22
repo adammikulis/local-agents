@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-# ONE RUNNER FOR EVERY STRUCTURAL GATE, driven by scripts/gates.toml. A worker pool runs every gate that needs
-# no device beside one in-order queue of gpu gates; `exclusive` rows run with the pool idle, `last` rows after
-# every other gate; a gate whose `inputs` are unchanged since its last pass is not run (lib_gate_cache.py).
+# ONE RUNNER FOR EVERY STRUCTURAL GATE, driven by scripts/gates.toml. A gate is `fast` (starts no engine) or `slow`;
+# a run takes the fast tier, `--slow` the slow tier, `--all` both, `--affected-by REF` only the slow gates a diff
+# reaches. A pool runs the gates that need no device beside one in-order queue of gpu gates; `exclusive` rows run
+# with it idle, `last` rows after the rest; a gate whose `inputs` are unchanged since its last pass is not run.
 # Output replays in definition order. EXIT 0 clean · 1 a gate reported a violation · 2 a gate COULD NOT RUN.
 import argparse
 import concurrent.futures
 import contextlib
 import json
+import math
 import os
 import re
 import shutil
@@ -30,6 +32,12 @@ ROOT = os.path.dirname(SCRIPTS)
 GATES_TOML = os.path.join(SCRIPTS, "gates.toml")
 KINDS = ("text", "headless", "gpu")
 NEEDS = ("import", "capture", "body", "build")
+TIERS = ("fast", "slow")
+GATE_SECONDS_REL = "docs/GATE_SECONDS"
+DEFAULT_SECONDS = {"fast": 30, "slow": 300}
+BUDGET_FLOOR, BUDGET_FACTOR = 10, 5
+SLOW_LIST_REL = "docs/SLOW_GATES_WITHOUT_INPUTS"
+SLOW_CEILING_REL = "docs/SLOW_GATES_WITHOUT_INPUTS_CEILING"
 
 
 def mutation_of(name, m):
@@ -42,11 +50,54 @@ def mutation_of(name, m):
     return {"cmd": m["cmd"], "exit": m["exit"], "says": m["says"]}
 
 
+def tier_of(name, kind, launches, capture_reader, declared):
+    """`slow` for a row that starts an engine, reads the capture one made, or needs a device; else `fast`. A
+    declared tier may only say what the row is not already derived to be, and never `fast` over an engine."""
+    engine = launches or capture_reader or kind == "gpu"
+    derived = "slow" if engine else "fast"
+    if declared is None:
+        return derived
+    if declared not in TIERS:
+        raise ValueError("%s: tier must be one of %s, not %r" % (name, ", ".join(TIERS), declared))
+    if declared == "fast" and engine:
+        raise ValueError("%s: tier = fast, but the row launches an engine, reads the capture or needs a device"
+                         % name)
+    if declared == derived:
+        raise ValueError("%s: tier = %s restates what kind, launches and capture_reader already derive" % (name, declared))
+    return declared
+
+
+def read_seconds(root):
+    """{gate: seconds} from docs/GATE_SECONDS, one `<gate> <seconds>` per line."""
+    path = os.path.join(root, GATE_SECONDS_REL)
+    entries = {}
+    if not os.path.isfile(path):
+        return entries
+    with open(path) as fh:
+        for n, line in enumerate(fh, 1):
+            words = line.split("#", 1)[0].split()
+            if not words:
+                continue
+            if len(words) != 2 or not words[1].isdigit():
+                raise ValueError("%s:%d: expected `<gate> <seconds>`" % (GATE_SECONDS_REL, n))
+            entries[words[0]] = int(words[1])
+    return entries
+
+
+def budget_of(name, tier, entries):
+    """Seconds a gate may take: five times its entry, never under the floor; a gate with none has its tier's."""
+    if name in entries:
+        return max(BUDGET_FLOOR, BUDGET_FACTOR * entries[name])
+    return DEFAULT_SECONDS[tier]
+
+
 def load_doc(path=GATES_TOML):
     """The gate rows and the named input sets of gates.toml."""
     with open(path, "rb") as fh:
-        doc = tomllib.load(fh)
-    defaults = doc.get("defaults", {})
+        return parse_doc(tomllib.load(fh), read_seconds(ROOT))
+
+
+def parse_doc(doc, entries):
     sets = doc.get("sets", {})
     for set_name, globs in sets.items():
         if not isinstance(globs, list) or not all(isinstance(x, str) and not x.startswith("@") for x in globs):
@@ -78,11 +129,14 @@ def load_doc(path=GATES_TOML):
                 raise ValueError("%s: a `last` row reads the whole run's ledger, so a pass is never reusable; "
                                  "it declares no inputs" % name)
             gate_cache.expand_inputs(inputs, sets)
+        launches = bool(g.get("launches", g["kind"] != "text"))
+        tier = tier_of(name, g["kind"], launches, bool(g.get("capture_reader", False)), g.get("tier"))
         gates.append({
             "name": name,
             "label": g.get("label", name + ".sh"),
             "script": g["script"],
             "kind": g["kind"],
+            "tier": tier,
             "marker": g["marker"],
             "mutations": [mutation_of(name, m) for m in ([g["mutation"]] if isinstance(g.get("mutation"), str)
                                                         else g.get("mutation", [])) if m],
@@ -90,11 +144,11 @@ def load_doc(path=GATES_TOML):
             "env": dict(g.get("env", {})),
             "needs": needs,
             "inputs": inputs,
-            "launches": bool(g.get("launches", g["kind"] != "text")),
+            "launches": launches,
             "last": bool(g.get("last", False)),
             "capture_reader": g.get("capture_reader", False),
             "exclusive": bool(g.get("exclusive", False)),
-            "timeout_s": int(g.get("timeout_s", defaults.get("timeout_s", 900))),
+            "timeout_s": budget_of(name, tier, entries),
             "raw": g,
         })
     if not gates:
@@ -193,8 +247,8 @@ def run_gate(g, root, ledger, sink=None, extra_env=None):
         except subprocess.TimeoutExpired:
             read_errors.append("owned process survived the cleanup deadline")
         reader.join(timeout=1)
-        note("%s printed no verdict inside %ds.\n" % (g["label"], g["timeout_s"]))
-        rc = 2
+        note("LINT_SLOW: %s ran %.0fs against %ds.\n" % (g["name"], time.monotonic() - started, g["timeout_s"]))
+        rc = 1
     if reader.is_alive():
         note("%s output reader did not stop during owned-process cleanup.\n" % g["label"])
         rc = 2
@@ -244,13 +298,14 @@ def make_capture(tree=ROOT, arm=None):
     return proc.stdout.strip(), proc.stderr
 
 
-def note_seconds(label, secs):
-    """One line per finished gate, so a gate declaring last = true can add up the run it sits in."""
+def note_seconds(label, secs, tier):
+    """One line per finished gate, seconds then label then tier, so a gate declaring last = true can add up
+    the tier of the run it sits in."""
     path = os.environ.get("LA_LINT_TIMING_LOG")
     if not path:
         return
     with open(path, "a") as fh:
-        fh.write("%.3f\t%s\n" % (secs, label.replace("\t", " ")))
+        fh.write("%.3f\t%s\t%s\n" % (secs, label.replace("\t", " "), tier))
 
 
 def pool_size():
@@ -341,7 +396,7 @@ class Lint:
 
     def record(self, job, rc, secs, launches, verdict_, lines=None):
         if not job.gate["last"]:
-            note_seconds(job.gate["label"], secs)
+            note_seconds(job.gate["label"], secs, job.gate["tier"])
         with self.cv:
             if lines is not None:
                 job.lines = lines
@@ -477,7 +532,7 @@ class Lint:
         self.driver.join()
 
 
-def summarise(t):
+def summarise(t, tier):
     if t["unrunnable"] > 0:
         print("LINT_SUMMARY: %d gate(s) COULD NOT RUN, %d violation(s). Every gate ran;"
               % (t["unrunnable"], t["failed"]))
@@ -492,8 +547,8 @@ def summarise(t):
         print("LINT_SUMMARY: passed, with %d GPU gate(s) SKIPPED and %d NOT EXAMINED by this arm — "
               "this run did not examine them." % (t["skipped"], t["not_examined"]))
         return 0
-    print("All lint gates passed (file length gates at soft 1300 / hard 1500; policy markers are "
-          "advisory).")
+    print("All %s-tier lint gates passed (file length gates at soft 1300 / hard 1500; policy markers are "
+          "advisory)." % tier)
     return 0
 
 
@@ -514,6 +569,80 @@ def plan_keys(gates, sets, no_gpu, tree, ambient, capture, indexes):
         return {}
 
 
+def changed_paths(ref):
+    """(merge base with HEAD, every path this tree differs from it in, a deleted or renamed one included)."""
+    base = git(ROOT, "merge-base", ref, "HEAD").stdout.strip()
+    names = set()
+    for argv in (("diff", "--name-only", "--no-renames", "-z", base),
+                 ("ls-files", "-z", "--others", "--exclude-standard")):
+        names |= {n for n in git(ROOT, *argv).stdout.split("\0") if n}
+    return base, sorted(names)
+
+
+def declaration(raw, sets):
+    inputs = raw.get("inputs")
+    return json.dumps([raw, gate_cache.expand_inputs(inputs, sets) if inputs is not None else None], sort_keys=True)
+
+
+def moved_rows(base_text, gates, sets):
+    """Names of the rows whose declaration, expanded inputs included, differs from the base's gates.toml."""
+    old = tomllib.loads(base_text)
+    before = {g["name"]: declaration(g, old.get("sets", {})) for g in old.get("gate", [])}
+    return {g["name"] for g in gates if before.get(g["name"]) != declaration(g["raw"], sets)}
+
+
+def reaches(g, sets, tree, changed, moved):
+    """Why a slow gate must run for this diff: the first changed path among its inputs, its script and the libs
+    that script names, or its own row; None when it reads none of them."""
+    if g["inputs"] is None:
+        return "declares no inputs"
+    if g["name"] in moved:
+        return "its row in scripts/gates.toml changed"
+    patterns = gate_cache.expand_inputs(g["inputs"], sets)
+    code = set(tree.code(g["script"], gate_cache.helpers(patterns)))
+    rx = [gate_cache.glob_regex(pat) for pat in patterns]
+    for path in changed:
+        if path in code or any(r.match(path) for r in rx):
+            return path
+    return None
+
+
+def select_slow(gates, sets, tree, changed, moved):
+    """{name: why} for each slow gate the diff reaches. A `last` row weighs the run around it, so it is
+    selected only beside another slow gate."""
+    why = {}
+    for g in gates:
+        if g["tier"] == "slow" and not g["last"]:
+            found = reaches(g, sets, tree, changed, moved)
+            if found:
+                why[g["name"]] = found
+    if why:
+        for g in gates:
+            if g["tier"] == "slow" and g["last"]:
+                why[g["name"]] = "it weighs the slow gates selected beside it"
+    return why
+
+
+def narrow_to_diff(gates, sets, ref):
+    """The fast gates and the slow ones `ref`..HEAD reaches, with what was selected and skipped printed."""
+    tree = gate_cache.Tree(ROOT)
+    base, changed = changed_paths(ref)
+    moved = set()
+    if "scripts/gates.toml" in changed:
+        moved = moved_rows(git(ROOT, "show", "%s:scripts/gates.toml" % base).stdout, gates, sets)
+    why = select_slow(gates, sets, tree, changed, moved)
+    slow = [g for g in gates if g["tier"] == "slow"]
+    for g in slow:
+        if g["name"] in why:
+            print("LINT_SELECTED: %s (%s)" % (g["label"], why[g["name"]]))
+    print('LINT_AFFECTED={"changed":%d,"selected":%d,"skipped":%d}'
+          % (len(changed), len(why), len(slow) - len(why)))
+    skipped = [g["label"] for g in slow if g["name"] not in why]
+    if skipped:
+        print("LINT_UNAFFECTED: %s" % ", ".join(skipped))
+    return [g for g in gates if g["tier"] == "fast" or g["name"] in why]
+
+
 def cmd_lint(args):
     gates, sets = load_doc()
     if args.only:
@@ -523,6 +652,10 @@ def cmd_lint(args):
             print("gate_runner: no gate named '%s' in gates.toml." % absent[0], file=sys.stderr)
             return 2
         gates = [g for g in gates if g["name"] in args.only or g["label"] in args.only]
+    else:
+        gates = [g for g in gates if args.tier == "all" or g["tier"] == args.tier]
+        if args.affected_by:
+            gates = narrow_to_diff(gates, sets, args.affected_by)
     no_gpu = os.environ.get("LA_NO_GPU", "0") == "1"
     tally = {"failed": 0, "unrunnable": 0, "skipped": 0, "not_examined": 0, "cached": 0}
     timing, records = [], []
@@ -535,8 +668,10 @@ def cmd_lint(args):
 
     # WHICH TREE THIS LINT WEIGHED: LOG_DIR is machine-wide.
     print("LINT_TREE=%s" % ROOT)
-    print("LINT_SCOPE=" + json.dumps({"full": not bool(args.only), "gpu": not no_gpu,
-                                    "arm": "body" if args.body else "slice"}, sort_keys=True))
+    print("LINT_SCOPE=" + json.dumps({"full": not args.only and args.tier == "all" and not args.affected_by,
+                                    "tier": "named" if args.only else args.tier, "gpu": not no_gpu,
+                                    "affected_by": args.affected_by, "arm": "body" if args.body else "slice"},
+                                   sort_keys=True))
     for name in ("LA_LINT_TIMING_LOG", "LA_LOCK_WAIT_LOG"):
         if os.environ.get(name):
             open(os.environ[name], "w").close()
@@ -544,6 +679,7 @@ def cmd_lint(args):
     cache, read_cache = open_cache(args)
     tree, ambient = gate_cache.Tree(ROOT), gate_cache.Ambient(ROOT)
     waits = {i for i, g in enumerate(gates) if gate_cache.reads_capture(g, tree)}
+    wanted = any(gates[i]["tier"] == "slow" and not (no_gpu and gates[i]["kind"] == "gpu") for i in waits)
     lint = Lint(gates, ROOT, args.jobs or pool_size(), ledger_dir, shared, no_gpu, cache, waits, tree)
     keys = {}
     if cache:
@@ -553,14 +689,14 @@ def cmd_lint(args):
     def on_result(job):
         g, v = job.gate, job.verdict
         timing.append((job.seconds, g["label"]))
-        records.append({"name": g["name"], "label": g["label"], "kind": g["kind"], "rc": job.rc,
+        records.append({"name": g["name"], "label": g["label"], "kind": g["kind"], "tier": g["tier"], "rc": job.rc,
                         "seconds": round(job.seconds, 3), "launches": job.launches, "cached": v == "cached"})
         if v in ("skipped", "cached", "not_examined"):
             tally[v] += 1
         elif v == "undeclared_launch":
-            print("LINT_FAIL: %s (1) — declared launches = false in gates.toml and started the engine "
-                  "%d time(s). A gate that starts one is a launcher: drop the declaration."
-                  % (g["label"], job.launches))
+            print("LINT_FAIL: %s (1) — a %s-tier gate declaring launches = false started the engine %d "
+                  "time(s). A gate that starts one is a launcher and slow: drop the declaration."
+                  % (g["label"], g["tier"], job.launches))
             tally["failed"] += 1
         elif v == "silent":
             print("LINT_UNRUNNABLE: %s (2) — exited 0 without printing the verdict line its "
@@ -575,16 +711,18 @@ def cmd_lint(args):
 
     lint.start()
     try:
-        capture_started = time.monotonic()
-        cap, cap_err = make_capture(arm="body" if args.body else "slice")
-        note_seconds("lint_capture.sh", time.monotonic() - capture_started)
-        if cap_err:
-            sys.stdout.write(cap_err)
-        if cap:
-            print("LINT_CAPTURE=%s" % cap)
-        else:
-            print("LINT_UNRUNNABLE: lint_capture.sh (2)")
-            tally["unrunnable"] += 1
+        cap = None
+        if wanted:
+            capture_started = time.monotonic()
+            cap, cap_err = make_capture(arm="body" if args.body else "slice")
+            note_seconds("lint_capture.sh", time.monotonic() - capture_started, "slow")
+            if cap_err:
+                sys.stdout.write(cap_err)
+            if cap:
+                print("LINT_CAPTURE=%s" % cap)
+            else:
+                print("LINT_UNRUNNABLE: lint_capture.sh (2)")
+                tally["unrunnable"] += 1
         if cache:
             late = plan_keys(gates, sets, no_gpu, tree, ambient, cap, sorted(waits))
             keys.update(late)
@@ -604,8 +742,9 @@ def cmd_lint(args):
     if args.json:
         with open(args.json, "w") as fh:
             json.dump({"gates": records, "summary": tally}, fh, indent=2, sort_keys=True)
-    result = summarise(tally)
-    if result == 0 and not args.only and not no_gpu and not args.body and cap and not tally["cached"]:
+    result = summarise(tally, "named" if args.only else args.tier)
+    if result == 0 and args.tier == "all" and not args.only and not args.affected_by and not no_gpu \
+            and not args.body and cap and not tally["cached"]:
         print("LINT_BANKABLE=1")
     return result
 
@@ -623,6 +762,74 @@ def cmd_check_inputs():
         return 1
     print("check_gate_inputs: OK (%d row(s) declare inputs; each glob matches, each moves the key when its "
           "bytes change, and a file no row reads does not)" % len(rows))
+    return 0
+
+
+def cmd_bank_seconds(log):
+    """Lower docs/GATE_SECONDS to the per-gate seconds of one passing lint; an entry never rises, a cached
+    gate (0 s) is not measured."""
+    gates, _ = load_doc()
+    by_label = {g["label"]: g["name"] for g in gates}
+    with open(log) as fh:
+        text = fh.read()
+    timing = re.search(r"^LINT_TIMING=(\{.*\})$", text, re.M)
+    if not re.search(r"^All \S+-tier lint gates passed", text, re.M) or not timing:
+        print("gate_runner: %s is not a passing lint, so %s stands." % (log, GATE_SECONDS_REL))
+        return 0
+    entries = read_seconds(ROOT)
+    for label, secs in json.loads(timing.group(1)).items():
+        name = by_label.get(label)
+        if name and secs > 0:
+            entries[name] = min(entries.get(name, math.inf), max(1, math.ceil(secs)))
+    with open(os.path.join(ROOT, GATE_SECONDS_REL), "w") as fh:
+        fh.write("# Seconds each gate is expected to take, `<gate> <seconds>`. gate_runner.py fails a gate past max(10, 5x its\n"
+                 "# entry); a gate with none has 30 s fast, 300 s slow. May fall, may not rise: scripts/write_ceilings.sh\n"
+                 "# writes it from a passing lint.\n")
+        fh.writelines("%s %d\n" % (name, entries[name]) for name in sorted(entries))
+    return 0
+
+
+def number_in(path):
+    with open(path) as fh:
+        for line in fh:
+            if re.fullmatch(r"[0-9]+", line.strip()):
+                return int(line.strip())
+    return None
+
+
+def cmd_check_tiers():
+    """A slow gate without `inputs` cannot be skipped by a diff, so each is on a named list that may not grow."""
+    gates, _ = load_doc()
+    try:
+        with open(os.path.join(ROOT, SLOW_LIST_REL)) as fh:
+            listed = [ln.strip() for ln in fh if ln.strip() and not ln.lstrip().startswith("#")]
+        ceiling = number_in(os.path.join(ROOT, SLOW_CEILING_REL))
+    except OSError as exc:
+        print("check_gate_tiers: %s" % exc, file=sys.stderr)
+        return 2
+    if ceiling is None:
+        print("check_gate_tiers: %s carries no number." % SLOW_CEILING_REL, file=sys.stderr)
+        return 2
+    by_name = {g["name"]: g for g in gates}
+    bare = {g["name"] for g in gates if g["tier"] == "slow" and not g["last"] and g["inputs"] is None}
+    problems = ["%s is slow and declares no inputs: declare them, so a diff can skip it" % n
+                for n in sorted(bare - set(listed))]
+    for name in sorted(set(listed)):
+        if name not in by_name:
+            problems.append("%s names no gate in %s; delete the line" % (name, SLOW_LIST_REL))
+        elif name not in bare:
+            problems.append("%s is on the list but declares inputs, is fast or is a `last` row; delete the line" % name)
+    problems += ["%s is listed twice" % n for n in sorted({n for n in listed if listed.count(n) > 1})]
+    if len(listed) > ceiling:
+        problems.append("%d gates are listed against a ceiling of %d, which may fall and may not rise"
+                        % (len(listed), ceiling))
+    print('SLOW_GATES_WITHOUT_INPUTS={"count":%d,"ceiling":%d}' % (len(listed), ceiling))
+    for problem in problems:
+        print("FAIL  " + problem, file=sys.stderr)
+    if problems:
+        return 1
+    print("check_gate_tiers: OK (%d slow gate(s) without inputs, ceiling %d; every other slow row declares "
+          "them)" % (len(listed), ceiling))
     return 0
 
 
@@ -660,7 +867,8 @@ def arm_ledgers(scratch):
     open(os.environ["LA_LINT_LAUNCHES"], "w").close()
     open(os.environ["LA_LOCK_WAIT_LOG"], "w").close()
     with open(os.environ["LA_LINT_TIMING_LOG"], "w") as fh:
-        fh.write("0.100\tcheck_mutate_arm_a.sh\n0.100\tcheck_mutate_arm_b.sh\n")
+        for name, tier in (("a", "fast"), ("b", "fast"), ("c", "slow"), ("d", "slow")):
+            fh.write("0.100\tcheck_mutate_arm_%s.sh\t%s\n" % (name, tier))
 
 
 EXT_REL = "addons/local_agents/gdextensions/localagents"
@@ -734,6 +942,9 @@ def mutate_one(g, m):
             return 2
         rc1, out1, _ = run_gate(g, scratch, ledger)
         sys.stdout.write(out1)
+        if "LINT_SLOW:" in out1:
+            print("MUTATION_UNRUNNABLE: %s ran past its time budget under `%s`, which proves nothing." % (g["name"], mutation))
+            return 2
         if m["exit"] is not None:
             if rc1 == m["exit"] and re.search(m["says"], out1, re.M):
                 print("MUTATION_KILLED: %s went %d under `%s`, the arm it declares." % (g["name"], rc1, mutation))
@@ -758,7 +969,7 @@ def mutate_one(g, m):
 
 def cmd_list():
     for g in load_gates():
-        print("%s\t%s\t%s\t%s" % (g["name"], g["kind"], g["label"], g["script"]))
+        print("%s\t%s\t%s\t%s\t%s" % (g["name"], g["kind"], g["label"], g["script"], g["tier"]))
     return 0
 
 
@@ -766,9 +977,21 @@ def main(argv):
     p = argparse.ArgumentParser(description="Run the structural gates in scripts/gates.toml.")
     p.add_argument("--only", metavar="NAME", action="append", help="run this gate by name; repeat for more")
     p.add_argument("--mutate", metavar="NAME", help="prove one gate can fail, in a scratch worktree")
-    p.add_argument("--list", action="store_true", help="print name/kind/label/script, one per line")
+    p.add_argument("--list", action="store_true", help="print name/kind/label/script/tier, one per line")
+    tiers = p.add_mutually_exclusive_group()
+    tiers.add_argument("--fast", dest="tier", action="store_const", const="fast",
+                       help="run the fast tier, which starts no engine (the default)")
+    tiers.add_argument("--slow", dest="tier", action="store_const", const="slow",
+                       help="run the slow tier: every gate that launches an engine or needs a device")
+    tiers.add_argument("--all", dest="tier", action="store_const", const="all", help="run both tiers")
+    p.set_defaults(tier="fast")
+    p.add_argument("--affected-by", metavar="REF",
+                   help="keep only the slow gates that read a path this tree changed since REF, or declare no inputs")
     p.add_argument("--check-inputs", action="store_true",
                    help="prove every `inputs` row names real files and moves its key with their bytes")
+    p.add_argument("--check-tiers", action="store_true",
+                   help="prove every slow gate without `inputs` is on docs/SLOW_GATES_WITHOUT_INPUTS, which may not grow")
+    p.add_argument("--bank-seconds", metavar="LOG", help="lower docs/GATE_SECONDS to a passing lint's log")
     p.add_argument("--no-cache", action="store_true", help="run every gate; reuse no earlier pass")
     p.add_argument("--timing", action="store_true", help="also print the slowest gates to stderr")
     p.add_argument("--json", metavar="OUT", help="write per-gate results to a JSON file")
@@ -781,6 +1004,10 @@ def main(argv):
             return cmd_list()
         if args.check_inputs:
             return cmd_check_inputs()
+        if args.check_tiers:
+            return cmd_check_tiers()
+        if args.bank_seconds:
+            return cmd_bank_seconds(args.bank_seconds)
         if args.mutate:
             return cmd_mutate(args)
         return cmd_lint(args)

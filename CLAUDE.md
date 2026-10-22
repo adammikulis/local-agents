@@ -104,7 +104,8 @@ creatures and cognition. Broader requirements live in `docs/PHYSICS_TODO.md` and
   your own branch if you are a lane on one (`git push -u origin <branch>`); never `main`.
 - Delegate edits to Opus lanes, each in its own worktree (`isolation: "worktree"`); integrate only with
   `scripts/integrate.sh <branch>`; prune every worktree you made. → `docs/agents/workflow.md`
-- Lint before landing: `LA_NO_GPU=1 scripts/agent_harness.sh lint`; one sim at a time; runs answer inside
+- Lint before committing: `scripts/agent_harness.sh lint` (the fast tier: no engine, seconds); landing runs the fast
+  tier plus the slow gates its diff reaches; `lint --all` is CI's; one sim at a time; runs answer inside
   `docs/RUN_TIMEOUT_CEILING`; launch only via `la_godot`. → `docs/agents/validation.md`
 - Physics is built one rung at a time; acceptance is a slice; a rung is built only after the maintainer
   approves the demo below it; named phenomena are detectors, never causes. → `docs/agents/physics-ladder.md`

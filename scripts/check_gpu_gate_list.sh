@@ -39,7 +39,7 @@ done
 
 # A gate needs a GPU when it EXECUTES a run — a quoted \$var path to a launching script, the native sim
 # binary, or a lib function that starts either — when it READS the shared arm lint_capture.sh records,
-# which only a GPU could produce, or when the run it MEASURES is the device lint itself.
+# which only a GPU could produce, or when it weighs the slow tier's timings (`$3 == "slow"`).
 CAP_READ='report|report_raw|marker|cap_state|cap_front|cap_report|body_report|cap_life_log|cap_life|rig|shot_arm'
 files=()
 for b in $in_lint; do
@@ -52,7 +52,7 @@ actual=""
 if [ "${#files[@]}" -gt 0 ]; then
 	hits="$(rg -l -e "(^|[[:space:]]|\()\"\\\$[A-Za-z_][A-Za-z_0-9]*[^\"]*/($LAUNCH)\\.sh\"" \
 		-e "[\$][(]la_($CAP_READ)\b" \
-		-e '\bLA_LINT_TIMING_LOG\b' \
+		-e '[$]3 == "slow"' \
 		-e '/bin/lasim"' \
 		-e '\bla_lasim(_oracle_run)?\b' "${files[@]}" 2>/dev/null)"
 	for f in $hits; do
