@@ -47,6 +47,9 @@ import hashlib, os, subprocess, sys
 proj, kind = sys.argv[1], sys.argv[2]
 extra = sys.argv[3:]
 paths = ["addons", "project.godot"]
+# A run, unlike an import or a scan, also opens the two declared data files.
+if kind == "capture":
+	paths += ["docs/CELL_BUDGET", "docs/PLAYABLE_RUNG"]
 
 def git(*args):
 	return subprocess.run(["git", "-C", proj, *args], capture_output=True).stdout

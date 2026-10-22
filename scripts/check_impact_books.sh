@@ -14,7 +14,7 @@ PROBE_REL="addons/local_agents/tests/gate_impact_books.gd"
 [ -f "$ROOT/$PROBE_REL" ] || {
 	echo "check_impact_books: MISSING $PROBE_REL — there is no partition to run." >&2; exit 2; }
 
-probe="$(la_godot --headless --path "$ROOT" -s "res://$PROBE_REL" 2>&1)"
+probe="$(LA_CPU_VALIDATION=1 la_godot --headless --path "$ROOT" -s "res://$PROBE_REL" 2>&1)"
 line="$(printf '%s\n' "$probe" | grep -m1 '^IMPACT_BOOKS=')"
 if [ -z "$line" ]; then
 	echo "check_impact_books: the probe published no IMPACT_BOOKS line, so nothing was measured." >&2
