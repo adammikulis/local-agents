@@ -109,3 +109,16 @@ An earlier seed run printed a missing voxel worker callback and hung during shut
 canonical seed runs and a minimal project with both installed extensions have since closed cleanly.
 The cause remains unconfirmed; preserve the reproduction evidence and verify clean close on the active
 Mac. Do not treat the failed original run as a pass or apply a speculative vendor patch.
+
+## 5. CUT WHAT A RESTORED WORLD STILL PAYS
+
+- A restored world differs from a seeded one: run `scripts/sim_run.sh --body --frames 6 --rung 2 --raw`
+  with and without `--reseed`; `gravity_solves` and the temperature and vapour gauges disagree between
+  the two reports. Carry the solved potential in the bake and take the solve out of the restore.
+  Reading: `finish_restore` solves gravity once where `prepare_gravity` and `complete` solve once each.
+- The bake store never evicts: `du -sh "$HOME/Library/Application Support/Godot/app_userdata/LocalAgents/la_field_cache"`.
+  Keep the newest entry per arm.
+  Reading: `save_state` writes and no caller deletes.
+- One edit to any file under `addons` re-seeds every arm: `scripts/cache_key.sh capture` moves on a test
+  or doc edit. Key the bake on the files a seed reads.
+  Reading: `paths` in `scripts/cache_key.sh` names `addons` whole.

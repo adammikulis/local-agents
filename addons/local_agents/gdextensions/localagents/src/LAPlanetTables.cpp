@@ -3,6 +3,7 @@
 #include "LAPlanetTables.hpp"
 
 #include "LAFieldMirrors.hpp"
+#include "LAFieldStateCache.hpp"
 
 #include <godot_cpp/variant/utility_functions.hpp>
 #include "LAScriptCall.hpp"
@@ -10,6 +11,9 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <map>
+#include <mutex>
+#include <utility>
 #include <vector>
 
 #include "LAPhysicalRead.hpp"
@@ -409,6 +413,45 @@ struct RadialProfile {
 	double mass = 0.0;
 };
 
+// A solved profile as one flat array of doubles, exact: the nine scalars, then the three per-shell columns.
+static PackedFloat64Array pack_profile(const RadialProfile &p_prof) {
+	PackedFloat64Array out;
+	const double scalars[9] = { double(p_prof.n), double(p_prof.i_core), p_prof.lid_m, p_prof.t_surface_k,
+		p_prof.q_surf, p_prof.a_w_m3, p_prof.k_m, p_prof.dr, p_prof.mass };
+	for (double v : scalars) {
+		out.push_back(v);
+	}
+	for (const std::vector<double> *col : { &p_prof.p_at, &p_prof.t_at, &p_prof.m_in }) {
+		for (double v : *col) {
+			out.push_back(v);
+		}
+	}
+	return out;
+}
+
+static bool unpack_profile(const PackedFloat64Array &p_in, RadialProfile &r_prof) {
+	if (p_in.size() < 9) {
+		return false;
+	}
+	const int n = int(p_in[0]);
+	if (n <= 0 || p_in.size() != 9 + 3 * n) {
+		return false;
+	}
+	r_prof.n = n;
+	r_prof.i_core = int(p_in[1]);
+	r_prof.lid_m = p_in[2];
+	r_prof.t_surface_k = p_in[3];
+	r_prof.q_surf = p_in[4];
+	r_prof.a_w_m3 = p_in[5];
+	r_prof.k_m = p_in[6];
+	r_prof.dr = p_in[7];
+	r_prof.mass = p_in[8];
+	r_prof.p_at.assign(p_in.ptr() + 9, p_in.ptr() + 9 + n);
+	r_prof.t_at.assign(p_in.ptr() + 9 + n, p_in.ptr() + 9 + 2 * n);
+	r_prof.m_in.assign(p_in.ptr() + 9 + 2 * n, p_in.ptr() + 9 + 3 * n);
+	return true;
+}
+
 // W/m^2 crossing the surface of a body of radius R: what the rock above its core makes by decay, over
 // the area that heat has to cross.
 static double radiogenic_flux(double p_h_w_kg, double p_m_rock, double p_radius_m) {
@@ -590,7 +633,7 @@ static RadialProfile with_geotherm(RadialProfile p_prof, double p_t_c) {
 
 // The profile whose surface stands at `p_radius_m`: bisection on the central pressure, the geotherm
 // re-solved on each converged shot until the radius holds.
-static RadialProfile radial_profile(double p_radius_m, double p_t_c) {
+static RadialProfile solve_radial_profile(double p_radius_m, double p_t_c) {
 	RadialProfile last;
 	if (!(p_radius_m > 0.0)) {
 		return last;
@@ -618,6 +661,36 @@ static RadialProfile radial_profile(double p_radius_m, double p_t_c) {
 		last = with_geotherm(best, p_t_c);
 	}
 	return last;
+}
+
+// THE PROFILE IS A FUNCTION OF THE RADIUS, THE SURFACE TEMPERATURE AND THE CONSTANTS, so it is solved once
+// per process and once per content on disk, never once per caller.
+static RadialProfile radial_profile(double p_radius_m, double p_t_c) {
+	static std::mutex lock;
+	static std::map<std::pair<double, double>, RadialProfile> solved;
+	const std::pair<double, double> key(p_radius_m, p_t_c);
+	{
+		std::lock_guard<std::mutex> hold(lock);
+		const auto hit = solved.find(key);
+		if (hit != solved.end()) {
+			return hit->second;
+		}
+	}
+	PackedFloat64Array args;
+	args.push_back(p_radius_m);
+	args.push_back(p_t_c);
+	RadialProfile out;
+	if (!unpack_profile(LAFieldStateCache::pure_load("radial_profile", args), out)) {
+		out = solve_radial_profile(p_radius_m, p_t_c);
+		if (out.n > 0) {
+			LAFieldStateCache::pure_store("radial_profile", args, pack_profile(out));
+		}
+	}
+	if (out.n > 0) {
+		std::lock_guard<std::mutex> hold(lock);
+		solved.emplace(key, out);
+	}
+	return out;
 }
 
 // T at depth z below the local ground, kelvin: the lid's conductive geotherm above its base, and below it the shells' own
@@ -817,7 +890,7 @@ double LAPlanetComposition::surface_heat_flux_w_m2(double p_mass_kg, double p_ra
 
 // THE RADIUS IS AN OUTPUT. A body is given a mass and a composition; how big it is follows from how far
 // that much matter spreads once its own weight has squeezed it. Bisection, because mass rises with radius.
-double LAPlanetComposition::radius_for_mass(double p_mass_kg, double p_t_c) {
+static double solve_radius_for_mass(double p_mass_kg, double p_t_c) {
 	if (!(p_mass_kg > 0.0)) {
 		return 0.0;
 	}
@@ -848,6 +921,40 @@ double LAPlanetComposition::radius_for_mass(double p_mass_kg, double p_t_c) {
 		last.mass = p_mass_kg;
 	}
 	return r_out;
+}
+
+// Solved once per process and once per content on disk, like the profile it is built from.
+double LAPlanetComposition::radius_for_mass(double p_mass_kg, double p_t_c) {
+	static std::mutex lock;
+	static std::map<std::pair<double, double>, double> solved;
+	const std::pair<double, double> key(p_mass_kg, p_t_c);
+	{
+		std::lock_guard<std::mutex> hold(lock);
+		const auto hit = solved.find(key);
+		if (hit != solved.end()) {
+			return hit->second;
+		}
+	}
+	PackedFloat64Array args;
+	args.push_back(p_mass_kg);
+	args.push_back(p_t_c);
+	const PackedFloat64Array stored = LAFieldStateCache::pure_load("radius_for_mass", args);
+	double r = 0.0;
+	if (stored.size() == 1) {
+		r = stored[0];
+	} else {
+		r = solve_radius_for_mass(p_mass_kg, p_t_c);
+		if (r > 0.0) {
+			PackedFloat64Array out;
+			out.push_back(r);
+			LAFieldStateCache::pure_store("radius_for_mass", args, out);
+		}
+	}
+	if (r > 0.0) {
+		std::lock_guard<std::mutex> hold(lock);
+		solved.emplace(key, r);
+	}
+	return r;
 }
 
 // Fill the field's mineral mirrors: a differentiated body — metal core, one silicate shell of the

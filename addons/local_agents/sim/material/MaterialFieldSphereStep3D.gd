@@ -105,11 +105,10 @@ func seed_tick() -> bool:
 		if _f._terrain == null or not _f._terrain.has_method("is_solid"):
 			LASimLoop.active().fail("SEED_MATTER_ABSENT")
 			return false
-		_f.sample_solidity()
 	elif not LAFieldFill.lay_gas(_f, fill["mole_fractions"], LABodySeeds.surface_temp_c(), fill["pressure_pa"]):
 		LASimLoop.active().fail("SEED_GAS_FILL_FAILED")
 		return false
-	# The gas fill and the terrain walk both feed the same asynchronous seed job.
+	# The gas fill and the terrain both feed the same asynchronous seed job.
 	_f.activate()                 # builds the GPU driver, which owns the solve the walks below read
 	var g: LAVoxelGrid = _f._grid
 	var bake: String = LAFieldStateCache.state_key(OS.get_environment("LA_SEAL_KEY"),
