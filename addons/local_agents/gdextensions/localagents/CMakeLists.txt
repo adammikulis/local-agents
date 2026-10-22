@@ -60,6 +60,7 @@ set(SRC
     src/LAFieldHydrosphereSeed.cpp
     src/LAFieldLithostaticSeed.cpp
     src/LASubstances.cpp
+    src/LASubstanceRow.cpp
     src/LASubstanceOptics.cpp
     src/LAWaterCurves.cpp
     src/NetworkGraph.cpp

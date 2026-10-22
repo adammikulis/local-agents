@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <mutex>
 
 using namespace godot;
 
@@ -263,6 +264,8 @@ Dictionary phase_dict(const LAPhaseEos &p_e) {
 
 const LACondensedEos &LAPhaseEosFn::condensed(const String &p_id) {
 	static HashMap<String, LACondensedEos> cache;
+	static std::mutex lock;
+	const std::lock_guard<std::mutex> guard(lock);
 	if (!cache.has(p_id)) {
 		cache.insert(p_id, build_condensed(p_id));
 	}
@@ -295,6 +298,8 @@ double LAPhaseEosFn::vapour_z(const LAFluidEos &p_f, double p_t_k, double p_p_pa
 
 const LAFluidEos &LAPhaseEosFn::fluid(const String &p_id) {
 	static HashMap<String, LAFluidEos> cache;
+	static std::mutex lock;
+	const std::lock_guard<std::mutex> guard(lock);
 	if (!cache.has(p_id)) {
 		cache.insert(p_id, build_fluid(p_id));
 	}
@@ -303,6 +308,8 @@ const LAFluidEos &LAPhaseEosFn::fluid(const String &p_id) {
 
 const LAAnchor &LAPhaseEosFn::anchor(const String &p_id) {
 	static HashMap<String, LAAnchor> cache;
+	static std::mutex lock;
+	const std::lock_guard<std::mutex> guard(lock);
 	if (!cache.has(p_id)) {
 		LAAnchor a;
 		a.t_c = pc("STANDARD_STATE_T_C");
