@@ -8,6 +8,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh"
 . "$ROOT/scripts/lib_ceiling.sh" 2>/dev/null || true
 . "$ROOT/scripts/lib_godot_lock.sh"
+. "$ROOT/scripts/lib_native_build.sh"
 require_tool cmake
 
 NATIVE="$ROOT/addons/local_agents/native"
@@ -25,13 +26,10 @@ SEED=20260904
 CEIL="$(grep -E '^[0-9]+$' "$CEIL_FILE" | head -1)"
 case "$CEIL" in "" | *[!0-9]*) echo "check_kernel_properties: the ceiling carries no number." >&2; exit 2 ;; esac
 
-if ! "$NATIVE/build.sh" >/tmp/check_kernel_properties_build.$$ 2>&1; then
+if ! la_native_build; then
 	echo "check_kernel_properties: the native build failed; lasim could not be produced." >&2
-	tail -30 /tmp/check_kernel_properties_build.$$ >&2
-	rm -f /tmp/check_kernel_properties_build.$$
 	exit 2
 fi
-rm -f /tmp/check_kernel_properties_build.$$
 [ -x "$LASIM" ] || { echo "check_kernel_properties: the build produced no $LASIM" >&2; exit 2; }
 [ -x "$LAKC" ] || { echo "check_kernel_properties: the build produced no $LAKC" >&2; exit 2; }
 
