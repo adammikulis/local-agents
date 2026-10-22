@@ -7,7 +7,8 @@
   `git merge-base --is-ancestor main <dev>`. Reconcile at a handful of commits, never a hundred.
 
 ## Commit and push
-- Commit and push the dev branch after every finished change, unprompted (`git push origin <dev>`). Never `main`.
+- Commit and push after every finished change, unprompted; nothing sits only local. On the dev branch:
+  `git push origin <dev>`. A lane in a worktree pushes its own branch: `git push -u origin <branch>`. Never `main`.
 
 ## Worktrees
 - Every subagent that edits files gets its own worktree: pass `isolation: "worktree"`, no threshold.
