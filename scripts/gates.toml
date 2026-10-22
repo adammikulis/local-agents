@@ -166,7 +166,12 @@ name = "check_fakes_states"
 script = "scripts/check_fakes_states.sh"
 kind = "gpu"
 marker = "^check_fakes_states: OK"
-mutation = "perl -0pi -e 's/return LAAblate\\.state_of\\(name\\) == LAAblate\\.state_fake\\(\\)/return true/' addons/local_agents/sim/LAFakes.gd"
+mutation = [
+	"perl -0pi -e 's/return LAAblate\\.state_of\\(name\\) == LAAblate\\.state_fake\\(\\)/return true/' addons/local_agents/sim/LAFakes.gd",
+	"perl -0pi -e 's/return LAAblate\\.state_of\\(name\\) == LAAblate\\.state_fake\\(\\)/return LAAblate.state_of(name) != LAAblate.state_off()/' addons/local_agents/sim/LAFakes.gd",
+	"perl -0pi -e 's/if LAFakes\\.stands_in\\(\"drinking_water\"\\) or c\\._material\\.is_water_at\\(pos\\):/if LAFakes.stands_in(\"drinking_water\") or LAAblate.state_of(\"drinking_water\") == LAAblate.state_real() or c._material.is_water_at(pos):/' addons/local_agents/creatures/creature/CreatureThirst.gd",
+	"perl -0pi -e 's/\\tLAGroupIndex\\.forget\\(\\)\\n//' addons/local_agents/runtime/WorldEnd.gd",
+]
 needs = ["import"]
 
 [[gate]]

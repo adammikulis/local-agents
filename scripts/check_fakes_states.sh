@@ -1,122 +1,125 @@
 #!/usr/bin/env bash
-# EVERY STAND-IN'S THREE STATES ARE REAL STATES. Per LAFakes record the life demo runs in `real` and in
-# `off` against one run in the defaults: the switch reaches the world, neither state hands out anything
-# of the stand-in's own, and a run below the record's rung leaves the same life standing in both,
-# because the field's answer to a process it does not contain is the absence.
+# EVERY STAND-IN'S THREE STATES ARE REAL STATES. The life demo runs in the defaults and with each record
+# `off`, arms dealt over PARTS processes that share one bake; each record is read in all three states at the
+# seam. The world reads a stand-in through LAFakes.stands_in alone, so `real` is the run `off` already makes.
 # EXIT 0 the states are the states * 1 one is not * 2 the gate could not run.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh"
-. "$ROOT/scripts/lib_godot.sh"
 require_tool python3
+require_tool rg
 
-SCENE="addons/local_agents/examples/LifeDemo.tscn"
-FAKES_GD="addons/local_agents/sim/LAFakes.gd"
-for f in "$SCENE" "$FAKES_GD"; do
-	[ -f "$ROOT/$f" ] || { echo "check_fakes_states: no $f" >&2; exit 2; }
-done
+HOST="addons/local_agents/tests/gate_fakes_states.gd"
+[ -f "$ROOT/$HOST" ] || { echo "check_fakes_states: no $HOST" >&2; exit 2; }
 FRAMES="${LA_FAKE_STATE_FRAMES:-120}"
+PARTS=2
 
-NAMES="$(python3 - "$ROOT/$FAKES_GD" <<'PY'
-import re, sys
-src = open(sys.argv[1], errors="replace").read()
-body = src.split("const RECORDS", 1)[-1].split("\n]", 1)[0]
-for b in re.findall(r"\{(.*?)\},", body, re.S):
-    m = re.search(r'"name":\s*"([a-z0-9_]+)"', b)
-    if m:
-        print(m.group(1))
-PY
-)"
-[ -n "$NAMES" ] || { echo "check_fakes_states: LAFakes declares no record." >&2; exit 2; }
+READERS="$(rg -n -e 'state_real\(\)|state_off\(\)|LAAblate\.state_of\(|LAFakes\.states\(\)' "$ROOT/addons/local_agents" \
+	--glob '*.gd' --glob '!**/tests/**' --glob '!**/LAFakes.gd' --glob '!**/EcologyService.gd' \
+	--glob '!**/AblationSweep.gd' --glob '!**/SwitchPanel.gd' || true)"
+if [ -n "$READERS" ]; then
+	echo "$READERS" >&2
+	echo "check_fakes_states: the world reads a stand-in's state without LAFakes.stands_in, so it can tell" >&2
+	echo "                    real from off, and real is no longer the run off already makes." >&2
+	exit 1
+fi
 
 OUT="$(mktemp -d "${TMPDIR:-/tmp}/la_fake_states.XXXXXX")"
-trap 'rm -rf "$OUT"' EXIT INT TERM
-
-run_arm() {  # $1 log basename, $2... extra user args
-	local name="$1"; shift
-	LA_RUN_TIMEOUT="${LA_FAKE_STATE_TIMEOUT:-110}" "$ROOT/scripts/run_sim_offscreen.sh" --path "$ROOT" \
-		"$SCENE" --fixed-fps 60 -- --sandbox "--run-frames=$FRAMES" "$@" > "$OUT/$name.log" 2>&1
-	echo "$?" > "$OUT/$name.rc"
+cleanup() {
+	local f
+	while IFS= read -r f; do
+		case "$f" in */la_field_cache/*.bin) rm -f -- "$f" ;; esac
+	done < <(rg -IN -o -r '$1' -e '^FAKE_STATES_BAKE=(.*)$' "$OUT" --glob 'run*.log' 2>/dev/null | sort -u)
+	rm -rf "$OUT"
 }
+trap cleanup EXIT INT TERM
 
-run_arm defaults
-for n in $NAMES; do
-	run_arm "$n.real" "--ablate=$n:real"
-	run_arm "$n.off" "--ablate=$n:off"
+export LA_SEAL_KEY="gate_fakes_states_$$_$(date +%s)"
+for i in $(seq 0 $((PARTS - 1))); do
+	LA_RUN_TIMEOUT="${LA_FAKE_STATE_TIMEOUT:-120}" "$ROOT/scripts/run_sim_offscreen.sh" --path "$ROOT" \
+		-s "res://$HOST" --fixed-fps 60 -- --sandbox "--run-frames=$FRAMES" "--part=$i/$PARTS" > "$OUT/run$i.log" 2>&1
+	echo "$?" > "$OUT/run$i.rc"
+	rg -q '^LA_RUN_COMPLETE=' "$OUT/run$i.log" || break
 done
 
-python3 - "$OUT" "$ROOT/$FAKES_GD" "$NAMES" <<'PY'
+python3 - "$OUT" "$FRAMES" "$PARTS" <<'PY'
 import json, os, re, sys
 
-out_dir, fakes_gd, names = sys.argv[1], sys.argv[2], sys.argv[3].split()
-src = open(fakes_gd, errors="replace").read()
-body = src.split("const RECORDS", 1)[-1].split("\n]", 1)[0]
-rungs = {}
-for b in re.findall(r"\{(.*?)\},", body, re.S):
-    m = re.search(r'"name":\s*"([a-z0-9_]+)"', b)
-    r = re.search(r'"rung":\s*LAProcessSet\.([A-Z_]+)', b)
-    if m:
-        rungs[m.group(1)] = r.group(1) if r else None
-
+out_dir, frames, parts = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
 fails = []
+logs = []
+
+
+def unrun(why, part=None):
+    lines, rc = logs[part] if part is not None and part < len(logs) else ([], 0)
+    print("check_fakes_states: %s (exit %d)." % (why, rc), file=sys.stderr)
+    print("\n".join(lines[-25:]), file=sys.stderr)
+    sys.exit(2)
+
+
+def marker(line, prefix):
+    return json.loads(re.sub(r"(?<![\w.])-?(nan|inf)(?![\w.])", "null", line[len(prefix):]))
+
+
+for i in range(parts):
+    path = os.path.join(out_dir, "run%d.log" % i)
+    if not os.path.isfile(path):
+        unrun("part %d of %d never ran" % (i, parts))
+    logs.append((open(path, errors="replace").read().splitlines(),
+                 int(open(os.path.join(out_dir, "run%d.rc" % i)).read().strip() or 1)))
+
+plan, seams, arms = [], None, {}
+for part, (lines, _) in enumerate(logs):
+    if not any(ln.startswith("LA_RUN_COMPLETE=") for ln in lines):
+        unrun("part %d never completed" % part, part)
+    cur = None
+    for ln in lines:
+        if ln.startswith("FAKE_STATES_PLAN="):
+            plan += marker(ln, "FAKE_STATES_PLAN=")
+        elif ln.startswith("FAKE_STATES_ARM="):
+            cur = marker(ln, "FAKE_STATES_ARM=")["arm"]
+            arms[cur] = {"lines": [], "code": None}
+            continue
+        elif ln.startswith("FAKE_STATES_SEAMS="):
+            seams, cur = marker(ln, "FAKE_STATES_SEAMS="), None
+        elif cur is not None and ln.startswith("FAKE_STATES_END="):
+            arms[cur]["code"] = marker(ln, "FAKE_STATES_END=")["code"]
+        if cur is not None:
+            arms[cur]["lines"].append(ln)
+
+if "defaults" not in plan or len(plan) < 2:
+    unrun("LAFakes declares no record, so no arm was planned", 0)
+if seams is None:
+    unrun("the run read no state at the seam", parts - 1)
+names = [a[:-len(".off")] for a in plan if a != "defaults"]
 
 
 def read(arm):
-    log = os.path.join(out_dir, arm + ".log")
-    if not os.path.isfile(log):
-        print("check_fakes_states: the %s arm never ran." % arm, file=sys.stderr)
-        sys.exit(2)
-    text = open(log, errors="replace").read()
-    rc = int(open(os.path.join(out_dir, arm + ".rc")).read().strip() or 1)
-    reports = [l for l in text.splitlines() if l.startswith("SIM_REPORT=")]
+    got = arms.get(arm)
+    if got is None or got["code"] is None:
+        unrun("the %s arm never ended" % arm)
+    reports = [l for l in got["lines"] if l.startswith("SIM_REPORT=")]
     if not reports:
-        print("check_fakes_states: the %s arm published no SIM_REPORT (exit %d), so nothing was "
-              "measured." % (arm, rc), file=sys.stderr)
-        print("\n".join(text.splitlines()[-25:]), file=sys.stderr)
-        sys.exit(2)
-    line = re.sub(r"(?<![\w.])-?(nan|inf)(?![\w.])", "null", reports[-1][len("SIM_REPORT="):])
+        unrun("the %s arm published no SIM_REPORT, so nothing was measured" % arm)
     try:
-        snap = json.loads(line)
+        snap = marker(reports[-1], "SIM_REPORT=")
     except ValueError as e:
-        print("check_fakes_states: the %s arm's SIM_REPORT is not readable: %s" % (arm, e),
-              file=sys.stderr)
-        sys.exit(2)
-    pops = [l[len("POP_TRACE="):] for l in text.splitlines() if l.startswith("POP_TRACE=")]
-    counts = {}
-    if pops:
-        clean = re.sub(r"(?<![\w.])-?(nan|inf)(?![\w.])", "null", pops[-1])
-        counts = (json.loads(clean).get("counts") or {})
-    errs = [l for l in text.splitlines() if "SCRIPT ERROR" in l]
-    return {"snap": snap, "counts": counts, "rc": rc, "errors": errs, "text": text}
-
-
-def census(arm):
-    # What the world ended up holding: every living kind, and the ledgers a stand-in feeds.
-    snap = arm["snap"]
-    out = {("count/" + k): int(v) for k, v in arm["counts"].items()}
-    for key in ("veg_food_drawn", "veg_food_held", "veg_seed_cost", "biota_graze_taken",
-                "biota_water_in", "biota_detritus_out", "biota_co2_out"):
-        if key in snap:
-            out[key] = snap[key]
-    events = snap.get("events", {})
-    for key in sorted(events):
-        if key.startswith("death"):
-            out["event/" + key] = int(events[key])
-    return out
-
-
-def kinds_alive(arm):
-    # Which kinds are still standing. A count is a run's own arithmetic; which kinds SURVIVED is the
-    # claim, and it does not move with a death landing one frame either side.
-    return sorted(k for k, v in arm["counts"].items() if int(v) > 0)
+        unrun("the %s arm's SIM_REPORT is not readable: %s" % (arm, e))
+    text = "\n".join(got["lines"])
+    verdicts = re.findall(r"^(CONSERVATION_VIOLATION|CONSERVATION_UNMEASURED|PRESSURE_BROKEN)=", text, re.M)
+    return {"snap": snap, "text": text, "code": got["code"], "verdicts": verdicts,
+            "errors": [l for l in got["lines"] if "SCRIPT ERROR" in l]}
 
 
 base = read("defaults")
+for arm in plan:
+    steps = int(read(arm)["snap"].get("sim_steps", -1))
+    if steps != frames:
+        fails.append("the %s arm ran %d steps, not the %d it was given, so it was not one fresh world"
+                     % (arm, steps, frames))
 base_states = base["snap"].get("fake_states")
 if not isinstance(base_states, dict) or not base_states:
-    print("check_fakes_states: the run publishes no fake_states, so no state can be read back.",
-          file=sys.stderr)
-    sys.exit(2)
+    unrun("the run publishes no fake_states, so no state can be read back")
 for n in names:
     if base_states.get(n) != "fake":
         fails.append("in the defaults '%s' reads %r, not the stand-in this rung has no field for"
@@ -124,43 +127,32 @@ for n in names:
 
 rows = []
 for n in names:
-    arms = {state: read("%s.%s" % (n, state)) for state in ("real", "off")}
-    for state, arm in arms.items():
-        got = (arm["snap"].get("fake_states") or {}).get(n)
-        if got != state:
-            fails.append("--ablate=%s:%s left '%s' reading %r" % (n, state, n, got))
-        # THE STAND-IN'S OWN SUPPLY IS GONE. Its book is written only while it is standing in.
-        if n in (arm["snap"].get("fakes") or {}):
-            fails.append("'%s' switched to %s still keeps a stand-in's book" % (n, state))
-        if arm["errors"]:
-            fails.append("'%s' switched to %s threw %d script error(s), first: %s"
-                         % (n, state, len(arm["errors"]), arm["errors"][0].strip()))
-        if not arm["snap"].get("world_sealed") and "WORLD_SEALED=" not in arm["text"]:
-            fails.append("'%s' switched to %s never sealed its world" % (n, state))
-        if arm["rc"] != 0:
-            fails.append("'%s' switched to %s exited %d" % (n, state, arm["rc"]))
-
-    # A RUNG THE WORLD DOES NOT CONTAIN ANSWERS NOTHING, so `real` leaves the same life standing as
-    # `off`: the field's own query is what both of them read.
-    real_k, off_k = kinds_alive(arms["real"]), kinds_alive(arms["off"])
-    same = real_k == off_k
-    if not same:
-        fails.append("'%s' leaves %s alive in real and %s in off, but this run holds no %s process for "
-                     "real to read" % (n, real_k or "nothing", off_k or "nothing",
-                                       rungs.get(n) or "0.5"))
-
+    arm = read("%s.off" % n)
+    got = (arm["snap"].get("fake_states") or {}).get(n)
+    if got != "off":
+        fails.append("%s:off left '%s' reading %r" % (n, n, got))
+    if n in (arm["snap"].get("fakes") or {}):
+        fails.append("'%s' switched to off still keeps a stand-in's book" % n)
+    if arm["errors"]:
+        fails.append("'%s' switched to off threw %d script error(s), first: %s"
+                     % (n, len(arm["errors"]), arm["errors"][0].strip()))
+    if not arm["snap"].get("world_sealed") and "WORLD_SEALED=" not in arm["text"]:
+        fails.append("'%s' switched to off never sealed its world" % n)
+    if arm["code"] != 0 or arm["verdicts"]:
+        fails.append("'%s' switched to off ended %d%s" % (n, arm["code"],
+                     " with " + ", ".join(sorted(set(arm["verdicts"]))) if arm["verdicts"] else ""))
+    for state, wrong in sorted((seams.get(n) or {}).items()):
+        for w in wrong:
+            fails.append("'%s' switched to %s at the seam: %s" % (n, state, w))
+    if sorted((seams.get(n) or {})) != ["fake", "off", "real"]:
+        fails.append("'%s' was not read in all three states at the seam" % n)
     book = (base["snap"].get("fakes") or {}).get(n) or {}
-    drew = int(book.get("draws", 0))
-    base_c, off_c = census(base), census(arms["off"])
-    moved = sorted(k for k in set(base_c) | set(off_c) if base_c.get(k) != off_c.get(k))
-    rows.append({"fake": n, "draws": drew, "changed": len(moved), "real_is_off": same})
+    rows.append({"fake": n, "drew": int(book.get("draws", 0)) > 0})
 
 # THE POSITIVE CONTROL. A run in which no stand-in was ever drawn on measured nothing: the books the
-# other two arms must not carry were never written in the first place.
-if not [r for r in rows if r["draws"] > 0]:
-    print("check_fakes_states: no stand-in handed anything out in the defaults, so the arms that must "
-          "hand out nothing prove nothing.", file=sys.stderr)
-    sys.exit(2)
+# arms that switch one off must not carry were never written in the first place.
+if not [r for r in rows if r["drew"]]:
+    unrun("no stand-in handed anything out in the defaults, so the arms that must hand out nothing prove nothing")
 
 print("FAKE_STATES=" + json.dumps(rows))
 if fails:

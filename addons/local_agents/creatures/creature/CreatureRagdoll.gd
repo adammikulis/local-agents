@@ -18,6 +18,11 @@ const MAX_CARCASSES: int = 80             # GENEROUS safety backstop only — de
 static var _carcasses: Array = []
 
 
+## No body kept, as a fresh process holds it.
+static func forget() -> void:
+	_carcasses.clear()
+
+
 # The creature is flung: a free body under the field's own gravity that stops on the field's own ground,
 # the same wherever the viewer is. `impulse` is the velocity change it is given, m/s. `lethal` marks a
 # death, so the body stays and decays where it lands. A near-zero push still topples it.

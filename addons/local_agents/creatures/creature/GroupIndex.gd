@@ -22,6 +22,13 @@ static func shared() -> LAGroupIndex:
 	return _shared
 
 
+## The index as a fresh process holds it: no group, no member.
+static func forget() -> void:
+	_shared = null
+	checked = 0
+	missed = 0
+
+
 # group -> { Vector3i -> Array[Node3D] }
 var _buckets: Dictionary = {}
 # group -> { Node3D -> Vector3i }
