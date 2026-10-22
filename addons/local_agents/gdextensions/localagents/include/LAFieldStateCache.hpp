@@ -31,6 +31,14 @@ public:
 	static void save_blob(const String &p_key, const Dictionary &p_data);
 	static void save_state(const String &p_key, const Dictionary &p_data);
 
+	// THE STORE'S BOUND: a dictionary under a key in p_dir, then the directory held to p_max_bytes by
+	// removing the least recently used entries (oldest mtime). The entry just written is never removed.
+	// Returns the entries removed. A hit touches its entry, so mtime is recency of use.
+	static int save_into(const String &p_dir, const String &p_key, const Dictionary &p_data, int64_t p_max_bytes);
+	static Dictionary load_from(const String &p_dir, const String &p_key);
+	// Bytes docs/FIELD_CACHE_BYTES declares for the state store; -1 where it declares none.
+	static int64_t declared_bound();
+
 	// A PURE NATIVE FUNCTION'S ANSWER, under the content it is a function of: its arguments, the compiled
 	// sources and the constants file la_physical reads. Empty on a miss.
 	static PackedFloat64Array pure_load(const String &p_name, const PackedFloat64Array &p_in);

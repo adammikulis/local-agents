@@ -45,7 +45,7 @@ arm() {  # arm <name>
 SEED_SRC="$ROOT/addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd"
 [ -f "$SEED_SRC" ] || { echo "check_seal_cache: MISSING ${SEED_SRC#"$ROOT"/}" >&2; exit 2; }
 key_now() {
-	"$SCRIPT_DIR/cache_key.sh" capture --path "$ROOT" "seed=$SEED" "rung=$RUNG" \
+	"$SCRIPT_DIR/cache_key.sh" bake --path "$ROOT" "seed=$SEED" "rung=$RUNG" \
 		"full=0" "fauna=0" "slice=0" "box=" 2>/dev/null
 }
 cp "$SEED_SRC" "$WORK/seed_src.orig" || { echo "check_seal_cache: cannot copy the seed source." >&2; exit 2; }

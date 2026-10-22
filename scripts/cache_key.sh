@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # THE ONE CONTENT ADDRESS every cache in this tree is keyed by. An mtime answers "when"; the question a
 # cache asks is always "what".
-#   scripts/cache_key.sh <kind> [--path DIR] [name=value ...]   kinds: import | scan | capture
+#   scripts/cache_key.sh <kind> [--path DIR] [name=value ...]   kinds: import | scan | capture | bake (capture less docs/BAKE_KEY_EXCLUDED)
 # A caller making many keys may pass engine=<hash> itself rather than pay the engine hash each time.
 # Prints one hex digest. EXIT 0 · 2 no key, and a caller without one takes the miss.
 set -uo pipefail
@@ -12,7 +12,7 @@ require_tool git
 require_tool python3
 
 KIND="${1:-}"
-[ -n "$KIND" ] || { echo "cache_key: no kind. Try import | scan | capture." >&2; exit 2; }
+[ -n "$KIND" ] || { echo "cache_key: no kind. Try import | scan | capture | bake." >&2; exit 2; }
 shift
 PROJ="$ROOT"
 EXTRA=()
@@ -26,7 +26,7 @@ done
 
 case "$KIND" in
 	import) ;;
-	scan|capture)
+	scan|capture|bake)
 		SH_FILE="$PROJ/addons/local_agents/gdextensions/localagents/bin/SOURCE_HASH"
 		EXTRA+=("extension=$(cat "$SH_FILE" 2>/dev/null || echo absent)")
 		;;
@@ -49,11 +49,27 @@ extra = sys.argv[3:]
 # scripts/ decides which run a capture is; an import or a scan is the engine reading the project.
 # A run, unlike an import or a scan, also opens the two declared data files.
 paths = ["addons", "project.godot"]
-if kind == "capture":
+if kind in ("capture", "bake"):
 	paths += ["scripts", "docs/CELL_BUDGET", "docs/PLAYABLE_RUNG"]
+excluded, kept = [], []
+if kind == "bake":
+	rules_path = os.path.join(proj, "docs", "BAKE_KEY_EXCLUDED")
+	if not os.path.isfile(rules_path):
+		print("cache_key: no docs/BAKE_KEY_EXCLUDED, so no key says what a seed reads.", file=sys.stderr)
+		sys.exit(2)
+	for line in open(rules_path):
+		line = line.split("#", 1)[0].strip()
+		if line:
+			cls, glob = line.split(None, 1)
+			(kept if cls == "keep" else excluded).append((":(glob)" if cls == "keep" else ":(exclude,glob)") + glob)
 
 def git(*args):
 	return subprocess.run(["git", "-C", proj, *args], capture_output=True).stdout
+
+# A rule that keeps a file puts it back after the exclusions took it out.
+def listed(*args):
+	out = git(*args, "--", *paths, *excluded)
+	return out + git(*args, "--", *kept) if kept else out
 
 h = hashlib.md5()
 h.update(kind.encode())
@@ -62,11 +78,11 @@ for e in sorted(extra):
 
 # The index's blob ids are the content of every tracked file, already computed.
 h.update(b"\0tracked\0")
-h.update(git("ls-files", "-s", "--", *paths))
+h.update(listed("ls-files", "-s"))
 
 # Anything the index does not describe is read. Ignored files are not inputs: bin/ and thirdparty/ are
 # build artifacts, and what the extension contributes arrives above as its SOURCE_HASH.
-records = git("status", "--porcelain=v1", "-z", "--untracked-files=all", "--", *paths).split(b"\0")
+records = listed("status", "--porcelain=v1", "-z", "--untracked-files=all").split(b"\0")
 i, dirty = 0, []
 while i < len(records):
 	rec = records[i]
