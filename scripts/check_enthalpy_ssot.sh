@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Phase-from-energy has one definition per side of the GPU boundary: kernels3d/enthalpy.glsli against
-# LASubstances::enthalpy_to_state, and mixture_enthalpy.glsli against LAMixtureEnthalpy::state. This holds
+# la_substance::enthalpy_to_state (LASubstanceRow.cpp), and mixture_enthalpy.glsli against LAMixtureEnthalpy::state. This holds
 # each pair equal on VALUES and on the FORMULA. Every value in the GLSL carries a trailing `// CONST_NAME`
 # naming its authority; every boundary of the ladder must be built from the same expression on both sides.
 # EXIT CODES. 0 pass · 1 the two sides diverged · 2 the gate could not run, never a silent pass.
@@ -9,16 +9,17 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 G="$ROOT/addons/local_agents/sim/material/kernels3d/enthalpy.glsli"
 P="$ROOT/addons/local_agents/sim/material/PhysicalConstants.gd"
 S="$ROOT/addons/local_agents/gdextensions/localagents/src/LASubstances.cpp"
+SR="$ROOT/addons/local_agents/gdextensions/localagents/src/LASubstanceRow.cpp"
 SH="$ROOT/addons/local_agents/gdextensions/localagents/include/LASubstances.hpp"
 GM="$ROOT/addons/local_agents/sim/material/kernels3d/mixture_enthalpy.glsli"
 SM="$ROOT/addons/local_agents/gdextensions/localagents/src/LAMixtureEnthalpy.cpp"
 SW="$ROOT/addons/local_agents/gdextensions/localagents/src/LAWaterCurves.cpp"
 SE="$ROOT/addons/local_agents/gdextensions/localagents/src/LAPhaseEos.cpp"
-for f in "$G" "$P" "$S" "$SH" "$GM" "$SM" "$SW" "$SE"; do
+for f in "$G" "$P" "$S" "$SR" "$SH" "$GM" "$SM" "$SW" "$SE"; do
   [ -f "$f" ] || { echo "check_enthalpy_ssot: MISSING $f" >&2; exit 2; }
 done
 
-python3 - "$G" "$P" "$S" "$SH" "$GM" "$SM" "$SW" "$SE" <<'PY'
+python3 - "$G" "$P" "$S" "$SH" "$GM" "$SM" "$SW" "$SE" "$SR" <<'PY'
 import re, sys
 glsl = open(sys.argv[1]).read()
 gd = open(sys.argv[2]).read()
@@ -26,11 +27,15 @@ sub = open(sys.argv[3]).read()
 sub_hdr = open(sys.argv[4]).read()
 glsl_mix = open(sys.argv[5]).read()
 sub_mix = open(sys.argv[6]).read()
-# Water's phase boundaries live beside LASubstances, not in it: the ladder calls them, so the rung check
-# has to see both files as one native side.
+# Water's phase boundaries live beside the ladder, not in it: the ladder calls them, so the rung check
+# has to see these files as one native side; the row file comes last so its definitions win over the
+# id-keyed wrappers of the same name in LASubstances.cpp.
 sub_water = open(sys.argv[7]).read()
 # So does the melting rule both phases read.
 sub_eos = open(sys.argv[8]).read()
+# The phase ladder and its helpers live in LASubstanceRow.cpp; LASubstances.cpp holds the constants and the
+# id-keyed wrappers.
+sub_row = open(sys.argv[9]).read()
 
 # --- the authority ----------------------------------------------------------------------------------------
 # A literal `const X: float = 4184.0` is comparable. A const whose value is an EXPRESSION is not, and a GLSL
@@ -157,15 +162,15 @@ def boundaries(txt, label, steps):
 
 
 g_body = body(glsl, "vec4 la_enthalpy_to_state(")
-d_body = body(sub, "Dictionary LASubstances::enthalpy_to_state(")
+d_body = body(sub_row, "Dictionary la_substance::enthalpy_to_state(")
 if not g_body or not d_body:
-    print("check_enthalpy_ssot: could not find la_enthalpy_to_state / LASubstances::enthalpy_to_state — "
+    print("check_enthalpy_ssot: could not find la_enthalpy_to_state / la_substance::enthalpy_to_state — "
           "the gate has no subject.", file=sys.stderr)
     sys.exit(2)
 
 for steps in (STEPS, SUB_STEPS):
     gb = boundaries(g_body, "enthalpy.glsli", steps)
-    db = boundaries(d_body, "LASubstances.cpp", steps)
+    db = boundaries(d_body, "LASubstanceRow.cpp", steps)
     diff = [(k, gb[k], db[k]) for k in steps if gb[k] != db[k]]
     if diff:
         print("check_enthalpy_ssot: FAILED — the two definitions build the ladder from different "
@@ -212,7 +217,7 @@ def reachable(root, funcs):
     return seen
 
 
-g_funcs, d_funcs = bodies_of(glsl, "glsl"), bodies_of(sub + "\n" + sub_water + "\n" + sub_eos, "cpp")
+g_funcs, d_funcs = bodies_of(glsl, "glsl"), bodies_of(sub + "\n" + sub_water + "\n" + sub_eos + "\n" + sub_row, "cpp")
 gm_funcs, sm_funcs = bodies_of(glsl_mix, "glsl"), bodies_of(sub_mix, "cpp")
 if "la_mix_state" not in gm_funcs or "state" not in sm_funcs:
     print("check_enthalpy_ssot: could not find la_mix_state / LAMixtureEnthalpy::state — the mixture "
@@ -226,7 +231,7 @@ sm_reach = reachable("state", sm_funcs)
 missing = []
 for label, gsym, dsym, where in RUNGS:
     for sym, funcs, reach, fname in ((gsym, g_funcs, g_reach, "enthalpy.glsli"),
-                                     (dsym, d_funcs, d_reach, "LASubstances.cpp")):
+                                     (dsym, d_funcs, d_reach, "LASubstanceRow.cpp")):
         if sym not in funcs:
             missing.append((label, fname, "%s is not defined" % sym))
         elif where == "ladder" and sym not in reach:

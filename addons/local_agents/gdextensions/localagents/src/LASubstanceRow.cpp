@@ -5,6 +5,7 @@
 #include "LASubstances.hpp"
 #include "LAWaterCurves.hpp"
 
+#include <godot_cpp/core/math.hpp>
 #include <godot_cpp/templates/hash_map.hpp>
 #include <godot_cpp/variant/array.hpp>
 
@@ -18,7 +19,6 @@ using namespace godot;
 namespace {
 
 constexpr double kInf = std::numeric_limits<double>::infinity();
-constexpr double kPi = 3.14159265358979323846;
 
 double pc(const char *p_name) {
 	return la_physical(p_name);
@@ -257,12 +257,14 @@ const Rows &rows() {
 const LASubstanceRow &unlisted(const String &p_id) {
 	static std::mutex lock;
 	static Rows *held = new Rows();
+	// The table may start building here, and building it asks for rows again: read it before the lock.
+	const Dictionary entry = Dictionary(LASubstances::table().get(p_id, Dictionary()));
 	std::lock_guard<std::mutex> guard(lock);
 	const LASubstanceRow *const *at = held->by_id.getptr(p_id);
 	if (at != nullptr) {
 		return **at;
 	}
-	return held->add(p_id, Dictionary(LASubstances::table().get(p_id, Dictionary())));
+	return held->add(p_id, entry);
 }
 
 } // namespace
@@ -512,7 +514,7 @@ double la_substance::ionised_fraction(const LASubstanceRow &p_r, double p_t_k, d
 	const double n_m3 = (p_p_pa > 1.0 ? p_p_pa : 1.0) / (boltzmann * p_t_k);
 	const double kt = boltzmann * p_t_k;
 	// The thermal de Broglie factor, (2 pi m_e k T / h^2)^(3/2).
-	const double lam = std::pow(2.0 * kPi * pc("ELECTRON_MASS_KG") * kt / (planck * planck), 1.5);
+	const double lam = std::pow(2.0 * Math::PI * pc("ELECTRON_MASS_KG") * kt / (planck * planck), 1.5);
 	double ion_atoms = 0.0;
 	for (const LASubstanceRow::Ion &ion : p_r.ions) {
 		const double big = ion.ratio * lam * std::exp(-ion.chi_j / kt) / (n_m3 > 1.0 ? n_m3 : 1.0);

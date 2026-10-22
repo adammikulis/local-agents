@@ -3,7 +3,7 @@ extends SceneTree
 ## The pure-function store, from outside a run. `--clear` empties it, `--read` prints what the seed's
 ## solved body comes out as and how many answers came off disk, `--corrupt` changes the stored planet seed.
 
-const STORE: String = "user://la_pure_cache"
+var STORE: String = OS.get_environment("LA_PURE_CACHE_DIR") if OS.get_environment("LA_PURE_CACHE_DIR") != "" else "user://la_pure_cache"
 
 
 func _init() -> void:

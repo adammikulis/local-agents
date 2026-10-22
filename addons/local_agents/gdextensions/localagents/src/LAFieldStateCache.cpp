@@ -17,16 +17,21 @@ namespace {
 
 const char *MASK_DIR = "user://la_solid_cache";
 const char *STATE_DIR = "user://la_field_cache";
-const char *PURE_DIR = "user://la_pure_cache";
 const char *CONSTANTS_GD = "res://addons/local_agents/sim/material/PhysicalConstants.gd";
 std::atomic<int> g_pure_hits{ 0 };
 
-String entry_path(const char *p_dir, const String &p_key) {
-	return String(p_dir) + "/" + p_key + ".bin";
+String entry_path(const String &p_dir, const String &p_key) {
+	return p_dir + String("/") + p_key + String(".bin");
 }
 
-void ensure_dir(const char *p_dir) {
+void ensure_dir(const String &p_dir) {
 	DirAccess::make_dir_recursive_absolute(ProjectSettings::get_singleton()->globalize_path(p_dir));
+}
+
+// The pure-function store: the user directory, or the directory a gate names so it never shares one.
+String pure_dir() {
+	const String named = OS::get_singleton()->get_environment("LA_PURE_CACHE_DIR");
+	return named.is_empty() ? String("user://la_pure_cache") : named;
 }
 
 // What every pure native function here is a function of besides its arguments. Empty where either file
@@ -58,7 +63,7 @@ String pure_path(const String &p_name, const PackedFloat64Array &p_in) {
 		std::memcpy(&bits, &v, sizeof(bits));
 		parts.append(String::num_uint64(bits, 16));
 	}
-	return entry_path(PURE_DIR, String("\n").join(parts).sha256_text());
+	return entry_path(pure_dir(), String("\n").join(parts).sha256_text());
 }
 
 bool same_bits(const PackedFloat64Array &p_a, const PackedFloat64Array &p_b) {
@@ -99,7 +104,7 @@ void LAFieldStateCache::pure_store(const String &p_name, const PackedFloat64Arra
 	if (path.is_empty() || p_out.is_empty()) {
 		return;
 	}
-	ensure_dir(PURE_DIR);
+	ensure_dir(pure_dir());
 	// Written whole under another name and renamed, so a reader in another process never sees half a file.
 	const String staging = path + String(".") + itos(OS::get_singleton()->get_process_id()) + String(".tmp");
 	Ref<FileAccess> f = FileAccess::open(staging, FileAccess::WRITE);
@@ -120,7 +125,7 @@ int LAFieldStateCache::pure_hits() {
 }
 
 void LAFieldStateCache::pure_clear() {
-	Ref<DirAccess> dir = DirAccess::open(PURE_DIR);
+	Ref<DirAccess> dir = DirAccess::open(pure_dir());
 	if (dir.is_null()) {
 		return;
 	}

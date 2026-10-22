@@ -102,8 +102,10 @@ creatures and cognition. Broader requirements live in `docs/PHYSICS_TODO.md` and
 
 - Commit and push after every finished change, unprompted, never leaving work only local: the dev branch, or
   your own branch if you are a lane on one (`git push -u origin <branch>`); never `main`.
-- Delegate edits to Opus lanes, each in its own worktree (`isolation: "worktree"`); integrate only with
+- Delegate edits to Sonnet lanes at high effort, xhigh only for a task that needs it (Opus only after Sonnet has failed the task; never Fable), each in its own worktree (`isolation: "worktree"`); integrate only with
   `scripts/integrate.sh <branch>`; prune every worktree you made. → `docs/agents/workflow.md`
+- Slow is a defect. A run over 3x its known time is a hang until sampled: `sample <pid>`, read the stack and fix
+  the cause that turn; never report a duration and move on, never wait on it.
 - Lint before landing: `LA_NO_GPU=1 scripts/agent_harness.sh lint`; one sim at a time; runs answer inside
   `docs/RUN_TIMEOUT_CEILING`; launch only via `la_godot`. → `docs/agents/validation.md`
 - Physics is built one rung at a time; acceptance is a slice; a rung is built only after the maintainer

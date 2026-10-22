@@ -19,7 +19,7 @@ restore() { cp "$WORK/constants.orig" "$CONSTANTS"; rm -rf "$WORK"; }
 trap restore EXIT
 
 probe() {  # probe <mode> <out>
-	LA_CPU_VALIDATION=1 LA_GODOT_TIMEOUT=120 la_godot --headless --path "$ROOT" \
+	LA_PURE_CACHE_DIR="$WORK/store" LA_CPU_VALIDATION=1 LA_GODOT_TIMEOUT=120 la_godot --headless --path "$ROOT" \
 		-s "res://scripts/pure_cache_probe.gd" -- "$1" > "$WORK/$2.log" 2>&1
 }
 
