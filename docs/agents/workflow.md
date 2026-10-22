@@ -17,6 +17,9 @@
   kernels and scans. Without the import the GPU field is silently dead and the report looks fine. `bin/` is
   copied per worktree; a lane that changes extension sources rebuilds (`la_godot` refuses a `bin/` whose
   `SOURCE_HASH` does not match).
+- No branch sits more than `docs/BRANCH_DRIFT_LIMIT` commits behind the dev branch: `check_branch_drift.sh` fails
+  lint on it, and `scripts/githooks/post-merge` runs `scripts/sync_lanes.sh` after each landing to merge the dev
+  branch into every clean lane. Merge it, land it or delete it.
 - Whoever made a worktree prunes it in the turn it stops being used. A session may not end with a tree it did
   not start with. Nothing is kept "in case".
 - Skip the worktree only for a trivial single-file doc edit when you are the sole writer.

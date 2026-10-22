@@ -119,4 +119,8 @@ kernels="$(rg --files -g '*.glsl' "$TREE/addons/local_agents/sim/material/kernel
 [ "$kernels" -gt 0 ] || { echo "write_ceilings: found no .glsl kernels to floor." >&2; exit 2; }
 track SHADER_FLOOR "$kernels"
 
+stale="$(cd "$TREE" && bash scripts/check_branch_drift.sh 2>/dev/null | rg -N -o -e '^STALE_BRANCHES: [0-9]+' | rg -N -o -e '[0-9]+' || true)"
+[ -n "$stale" ] || { echo "write_ceilings: check_branch_drift.sh printed no STALE_BRANCHES line." >&2; exit 2; }
+lower STALE_BRANCH_CEILING "$stale"
+
 [ "$fail" -eq 0 ] || exit 1

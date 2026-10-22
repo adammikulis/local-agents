@@ -1225,3 +1225,10 @@ mutation = [
   "python3 -c \"from pathlib import Path; p=Path('addons/local_agents/gdextensions/localagents/include/LAParallel.hpp'); p.write_text(p.read_text().replace('LASeedCancellation cancellation(token);', 'LASeedCancellation cancellation(nullptr);'))\"",
   "python3 -c \"from pathlib import Path; p=Path('addons/local_agents/gdextensions/localagents/include/LAParallel.hpp'); p.write_text(p.read_text().replace('if (failure) { std::rethrow_exception(failure); }', ''))\"",
 ]
+
+[[gate]]
+name = "check_branch_drift"
+script = "scripts/check_branch_drift.sh"
+kind = "text"
+marker = "^check_branch_drift: OK"
+mutation = "printf '0\\n' > docs/BRANCH_DRIFT_LIMIT; printf '0\\n' > docs/STALE_BRANCH_CEILING"

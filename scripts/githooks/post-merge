@@ -1,3 +1,7 @@
 #!/usr/bin/env bash
-# Generated .uid files of resources the new tree deleted.
-exec "$(git rev-parse --show-toplevel)/scripts/prune_orphan_uid.sh"
+# Generated .uid files of resources the new tree deleted; then the dev branch's new commits go to every lane.
+ROOT="$(git rev-parse --show-toplevel)"
+"$ROOT/scripts/prune_orphan_uid.sh"
+. "$ROOT/scripts/lib_dev_branch.sh"
+[ "$(git symbolic-ref -q --short HEAD)" = "$(dev_branch "$ROOT")" ] && "$ROOT/scripts/sync_lanes.sh"
+exit 0
