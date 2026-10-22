@@ -55,7 +55,7 @@ const SLOT: Dictionary = {
 	"reaction_defs": 160,
 	# the selftest probes
 	# water_rho is kg/m^3 the cell's own liquid water stands at
-	"stack_probe": 161, "enthalpy_probe": 162, "water_rho": 173, "tide_bodies": 174, "tidal_accel": 175, "tidal_work": 176
+	"stack_probe": 161, "enthalpy_probe": 162, "water_rho": 173, "tide_bodies": 177, "tidal_accel": 178, "tidal_work": 179
 }
 
 ## The slots each kernel's translation unit declares, its includes with it. A pass binds this

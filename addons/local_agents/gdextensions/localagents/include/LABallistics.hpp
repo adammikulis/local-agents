@@ -84,6 +84,9 @@ public:
 	// {position, velocity, speed, landed, fall_time_s, drag_heat_j, sub_steps, cell, from, g_release,
 	// height_m}. Empty for an unknown id.
 	static Dictionary state(int p_id);
+	// Opt-in presentation history; points follow the current body frame, times are simulated seconds.
+	static void track_trajectory(int p_id);
+	static Dictionary trajectory(int p_id);
 	static int live_count();
 	// Advance every live body by p_dt_s and return the rows that landed this step:
 	// {id, position, speed, time, cell, sub_steps}. A landed body stays readable until released.

@@ -933,7 +933,21 @@ double LAGridGeometry::weighted(const PackedFloat32Array &p_arr, const PackedFlo
 	return t;
 }
 
+Vector3 LAGridGeometry::radial_box_exit(const Vector3 &p_direction, const Vector3 &p_half_extents) {
+	const Vector3 up = p_direction.normalized();
+	double distance = INFINITY;
+	ERR_FAIL_COND_V(!up.is_finite() || up.length_squared() == 0.0, Vector3(NAN, NAN, NAN));
+	for (int axis = 0; axis < 3; ++axis) {
+		ERR_FAIL_COND_V(!std::isfinite(p_half_extents[axis]) || p_half_extents[axis] <= 0.0, Vector3(NAN, NAN, NAN));
+		if (up[axis] != 0.0) {
+			distance = std::min(distance, double(p_half_extents[axis]) / std::fabs(double(up[axis])));
+		}
+	}
+	return up * float(distance);
+}
+
 void LAGridGeometry::_bind_methods() {
+	ClassDB::bind_static_method("LAGridGeometry", D_METHOD("radial_box_exit", "direction", "half_extents"), &LAGridGeometry::radial_box_exit);
 	BIND_CONSTANT(MAX_LEVEL);
 	ClassDB::bind_static_method("LAGridGeometry", D_METHOD("edges", "grid"), &LAGridGeometry::edges);
 	ClassDB::bind_static_method("LAGridGeometry", D_METHOD("volumes", "grid"), &LAGridGeometry::volumes);

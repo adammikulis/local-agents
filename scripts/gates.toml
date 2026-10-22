@@ -871,6 +871,14 @@ mutation = [
 ]
 
 [[gate]]
+name = "check_lob"
+script = "scripts/check_lob.sh"
+kind = "gpu"
+needs = ["import"]
+marker = "^check_lob: OK"
+mutation = "perl -0pi -e 's/GRAVITATIONAL_CONSTANT: float = [0-9.e-]+/GRAVITATIONAL_CONSTANT: float = 0.0/' addons/local_agents/sim/material/PhysicalConstants.gd"
+
+[[gate]]
 name = "check_mutate_scratch_build"
 script = "scripts/check_mutate_scratch_build.sh"
 kind = "text"
@@ -1291,6 +1299,18 @@ kind = "gpu"
 needs = ["import", "build"]
 marker = "^check_plan_refusal: OK"
 mutation = '''python3 -c 'from pathlib import Path; p=Path("addons/local_agents/gdextensions/localagents/src/LAFieldPlans.cpp"); s=p.read_text(); old="if (!std::isfinite(cap) || cap < 0.0) {"; assert old in s; p.write_text(s.replace(old,"if (false) {"))' '''
+
+[[gate]]
+name = "check_probe_history"
+script = "scripts/check_probe_history.sh"
+kind = "headless"
+needs = ["import", "build"]
+marker = "^check_probe_history: OK"
+mutation = [
+  '''python3 -c 'from pathlib import Path; p=Path("addons/local_agents/gdextensions/localagents/src/LABallistics.cpp"); s=p.read_text(); old="if (b.track) {"; assert old in s; p.write_text(s.replace(old, "if (false) {"))' ''',
+  '''python3 -c 'from pathlib import Path; p=Path("addons/local_agents/gdextensions/localagents/src/LABallistics.cpp"); s=p.read_text(); old="points.append(from_field(sample.point + tb().frame.pivot).v3());"; assert old in s; p.write_text(s.replace(old,"points.append(sample.point.v3());"))' ''',
+  '''python3 -c 'from pathlib import Path; p=Path("addons/local_agents/gdextensions/localagents/src/LAGridGeometry.cpp"); s=p.read_text(); old="double(p_half_extents[axis]) / std::fabs(double(up[axis]))"; assert old in s; p.write_text(s.replace(old,"double(p_half_extents[axis])"))' ''',
+]
 
 # THE LAST ROWS. Each reads the ledgers of the whole run around it, so it runs after every other gate
 # has finished; gate_runner.py refuses a `last` row that is not among the final ones.
