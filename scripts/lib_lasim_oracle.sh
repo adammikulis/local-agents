@@ -165,7 +165,7 @@ func _run() -> void:
 			if _bufs.has(String(name)):
 				continue
 			var spec: Variant = want[name]
-			_bufs[String(name)] = _f32(int(spec["n"]) if spec is Dictionary else int(spec))
+			_bufs[String(name)] = _f32(int(spec["n"]) * int(spec.get("stride", 1)) if spec is Dictionary else int(spec))
 	# NO SOLVED GRAVITY IN A BOX WITH NO GRAVITY PASS, so no cell has a vertical neighbour: -1 is the
 	# absence the kernels read, where a zero fill would claim every cell sits on cell 0.
 	var none: PackedInt32Array = PackedInt32Array()
@@ -309,13 +309,20 @@ func _dispatched(derive: RefCounted, reduce: RefCounted, ctx: Dictionary, cc: in
 		"push": LAFieldDriver.dispatched_block(detect, 1, 0)})
 	var rows: Array = reduce._rows
 	var latched: Dictionary = reduce._latch_step
+	var plan: Dictionary = reduce._driver.reduce_plan()
+	var blocks: Array = plan["pc"]
+	if blocks.size() != rows.size():
+		printerr("zz_lasim_parity: the driver built %d reduce block(s) for %d row(s)."
+			% [blocks.size(), rows.size()])
+		_fails += 1
+		return out
 	for r in rows.size():
 		var row: Dictionary = rows[r]
 		if int(row["op"]) == LAReduceRecords.Op.LATCH \
 				and int(latched.get(String(row.get("ref", "")), -1)) != step:
 			continue
-		out.append({"kernel": "reduce", "uset": (reduce._sets as Array)[r], "groups": reduce._groups,
-			"push": LAFieldDriver.dispatched_block(reduce._pc(cc, row, r * reduce._groups), 1, 0)})
+		out.append({"kernel": "reduce", "uset": (reduce._sets as Array)[r],
+			"groups": int(plan["groups"]), "push": LAFieldDriver.dispatched_block(blocks[r], 1, 0)})
 	return out
 
 
@@ -396,10 +403,11 @@ func _write_plan(file: String, buffers: Array, sets: Array, steps: Array, reduce
 		printerr("zz_lasim_parity: cannot write %s/%s" % [_out, file])
 		_fails += 1
 		return
+	var plan: Dictionary = reduce._driver.reduce_plan()
 	f.store_32(0x4C50414C)      # 'LAPL'
 	f.store_32(1)
 	f.store_32(cc)
-	f.store_32(reduce._groups)
+	f.store_32(int(plan["groups"]))
 	f.store_32(buffers.size())
 	for b in buffers:
 		_put_str(f, String(b["name"]))
@@ -423,19 +431,49 @@ func _write_plan(file: String, buffers: Array, sets: Array, steps: Array, reduce
 			var push: PackedByteArray = d["push"]
 			f.store_32(push.size())
 			f.store_buffer(push)
-	var keys: PackedStringArray = reduce._keys
+	var keys: PackedStringArray = plan["keys"]
+	var folds: PackedInt32Array = plan["folds"]
+	if folds.size() != keys.size():
+		printerr("zz_lasim_parity: the driver built %d fold(s) for %d key(s) of %s."
+			% [folds.size(), keys.size(), file])
+		_fails += 1
+		return
 	f.store_32(keys.size())
 	for i in keys.size():
 		_put_str(f, String(keys[i]))
-		f.store_32(int(reduce._folds[i]))
+		f.store_32(int(folds[i]))
 GD
 
+}
+
+LA_ORACLE_FILES="field.lafs plan.lapl plan_derive.lapl plan_reduce.lapl godot_mirrors.lafs godot.log"
+
+# Every file the arms read is present and not empty.
+la_lasim_oracle_complete() {  # <dir>
+	local f
+	for f in $LA_ORACLE_FILES; do
+		[ -s "$1/$f" ] || return 1
+	done
+	return 0
 }
 
 la_lasim_oracle_run() {  # <work> <steps>
 	local WORK="$1"
 	local STEPS="$2"
 	local GODOT_LOG="$WORK/godot.log"
+	# THE ORACLE IS A FUNCTION OF WHAT PRODUCED IT, so three gates asking the same question launch the
+	# engine once between them. cache_key hashes every source under addons/, the compiled extension and
+	# the engine; the probes this library writes are among them.
+	local root="${LA_ORACLE_CACHE:-$HOME/.cache/local-agents/lasim_oracle}"
+	local key
+	key="$("$LA_ORACLE_ROOT/scripts/cache_key.sh" capture --path "$LA_ORACLE_ROOT" \
+		"oracle=lasim" "steps=$STEPS" 2>/dev/null || echo "")"
+	if [ -n "$key" ] && la_lasim_oracle_complete "$root/$key"; then
+		if cp -p "$root/$key"/* "$WORK/" 2>/dev/null && la_lasim_oracle_complete "$WORK"; then
+			grep -E '^GODOT_PARITY=' "$GODOT_LOG" || true
+			return 0
+		fi
+	fi
 	LA_DONE_RE='^GODOT_PARITY=' "$LA_ORACLE_ROOT/scripts/run_sim_offscreen.sh" \
 		--path "$LA_ORACLE_ROOT" -s "res://addons/local_agents/tests/zz_lasim_parity.gd" -- \
 		"--out=$WORK" "--steps=$STEPS" > "$GODOT_LOG" 2>&1
@@ -446,8 +484,19 @@ la_lasim_oracle_run() {  # <work> <steps>
 		return 2
 	}
 	local f
-	for f in field.lafs plan.lapl plan_derive.lapl plan_reduce.lapl godot_mirrors.lafs; do
+	for f in $LA_ORACLE_FILES; do
 		[ -s "$WORK/$f" ] || { echo "lib_lasim_oracle: the oracle wrote no $f." >&2; return 2; }
 	done
+	# A RUN THAT FAILED IS NOT RECORDED: the checks above have passed, so this entry is a whole oracle.
+	if [ -n "$key" ] && [ ! -d "$root/$key" ]; then
+		mkdir -p "$root/$key.tmp"
+		for f in $LA_ORACLE_FILES; do cp -p "$WORK/$f" "$root/$key.tmp/" 2>/dev/null || true; done
+		if la_lasim_oracle_complete "$root/$key.tmp"; then
+			mv "$root/$key.tmp" "$root/$key" 2>/dev/null || rm -rf "$root/$key.tmp"
+		else
+			rm -rf "$root/$key.tmp"
+		fi
+		ls -dt "$root"/*/ 2>/dev/null | tail -n +5 | while IFS= read -r old; do rm -rf "$old"; done
+	fi
 	return 0
 }

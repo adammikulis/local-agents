@@ -61,9 +61,11 @@ if ! la_lasim --load "$WORK/field.lafs" --plan "$WORK/plan.lapl" --passes derive
 fi
 grep -E '^LASIM_RUN=' "$WORK/derive.log" || true
 
-# ARM C: one bit of one recorded push-constant block, which is where a plan's masks and row selectors
-# live. lasim replays the plan, so a fold blind to this is blind to every plan defect.
-python3 - "$WORK/plan_reduce.lapl" "$WORK/plan_mutated.lapl" <<'PY'
+# ARMS C AND E: the plan carries the driver's work in two tables, and a comparison blind to either is
+# blind to half of what the driver decides. C flips one bit of one recorded push-constant block, where a
+# row's masks and partial base live. E turns one publishing row's fold to SKIP, in the row table where
+# the key and the fold shape live.
+python3 - "$WORK/plan_reduce.lapl" "$WORK/plan_mutated.lapl" "$WORK/plan_mutated_fold.lapl" <<'PY'
 import struct, sys
 raw = bytearray(open(sys.argv[1], 'rb').read())
 at = 20
@@ -92,17 +94,40 @@ for _ in range(u32()):
 		skip(n)
 if found is None:
 	sys.exit("no push-constant block to mutate")
-raw[found] ^= 0x01
-open(sys.argv[2], 'wb').write(bytes(raw))
+# The row table: { u32 len, key, u32 fold }. FOLD_SKIP is 3, so a publishing row is any other fold.
+fold_at = None
+for _ in range(u32()):
+	skip(u32())
+	if fold_at is None and struct.unpack_from('<I', raw, at)[0] != 3:
+		fold_at = at
+	skip(4)
+if fold_at is None:
+	sys.exit("every row of the plan already folds to SKIP, so no row publishes")
+if at != len(raw):
+	sys.exit("the plan carries %d bytes past its own end" % (len(raw) - at))
+pc = bytearray(raw)
+pc[found] ^= 0x01
+open(sys.argv[2], 'wb').write(bytes(pc))
+fold = bytearray(raw)
+struct.pack_into('<I', fold, fold_at, 3)
+open(sys.argv[3], 'wb').write(bytes(fold))
 PY
-[ -s "$WORK/plan_mutated.lapl" ] || {
-	echo "check_lasim_parity: the plan could not be mutated, so this gate has no positive control." >&2
-	exit 2
-}
+for mutant in plan_mutated plan_mutated_fold; do
+	[ -s "$WORK/$mutant.lapl" ] || {
+		echo "check_lasim_parity: $mutant carries no plan, so this gate has no positive control." >&2
+		exit 2
+	}
+done
 if ! la_lasim --load "$WORK/godot_mirrors.lafs" --plan "$WORK/plan_mutated.lapl" --passes reduce \
 		--steps 1 --report > "$WORK/mutant.log" 2>&1; then
 	echo "check_lasim_parity: the mutated plan did not run; the control proves nothing." >&2
 	tail -20 "$WORK/mutant.log" >&2
+	exit 2
+fi
+if ! la_lasim --load "$WORK/godot_mirrors.lafs" --plan "$WORK/plan_mutated_fold.lapl" --passes reduce \
+		--steps 1 --report > "$WORK/mutant_fold.log" 2>&1; then
+	echo "check_lasim_parity: the fold-mutated plan did not run; the control proves nothing." >&2
+	tail -20 "$WORK/mutant_fold.log" >&2
 	exit 2
 fi
 
@@ -121,7 +146,8 @@ godot = {k: struct.unpack("<d", bytes.fromhex(v))[0]
 	for k, v in (rows("godot.log", "GODOT_ROWS=") or {}).items()}
 native = rows("fold.log", "SIM_REPORT=")
 mutant = rows("mutant.log", "SIM_REPORT=")
-if native is None or mutant is None:
+mutant_fold = rows("mutant_fold.log", "SIM_REPORT=")
+if native is None or mutant is None or mutant_fold is None:
 	print("check_lasim_parity: an arm published no rows.", file=sys.stderr)
 	sys.exit(2)
 if not godot:
@@ -155,6 +181,12 @@ if bad:
 if not differ(godot, mutant):
 	print("FAIL  a flipped bit in a recorded push-constant block moved no row, so this comparison "
 		"cannot see a plan defect.", file=sys.stderr)
+	fail = True
+
+# ARM E.
+if not differ(godot, mutant_fold):
+	print("FAIL  a publishing row turned to SKIP in the plan's row table still published, so this "
+		"comparison cannot see a fold defect.", file=sys.stderr)
 	fail = True
 
 # ARM B. float32 unit roundoff is 2^-24; Godot's Metal driver compiles with fast math and la::Device with

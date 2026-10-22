@@ -52,6 +52,7 @@ set(SRC
     src/LAGridGeometry.cpp
     src/LAGravitySolve.cpp
     src/LAFieldDriver.cpp
+    src/LAFieldPlans.cpp
     src/LAFieldLedger.cpp
     src/LAFieldMirrors.cpp
     src/LAThreadClock.cpp

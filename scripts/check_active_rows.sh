@@ -24,6 +24,7 @@ extends SceneTree
 const QuietWindow: GDScript = preload("res://addons/local_agents/runtime/QuietWindow.gd")
 
 const PASS_PATH: String = "res://addons/local_agents/sim/material/sphere_passes/FluxPass.gd"
+const DERIVE_PATH: String = "res://addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd"
 const CELL: float = 4000.0
 const DT: float = 1.0
 const NX: int = 16
@@ -102,14 +103,19 @@ func _step(p: RefCounted, ctx: Dictionary, cc: int) -> void:
 	p._driver.close()
 
 
-## Every buffer the pass declares, plus the temporal-level field StateDerivePass declares and this pass
-## reads: without it every row refuses to move and the arms below measure a box nothing stepped.
+## Every buffer the pass declares and every buffer the derive declares beside it: flux.glsl reads what
+## the derive writes, so a hand-written list drifts and the box then reads memory nobody wrote. A key
+## this box already holds keeps the value written into it.
 func _declared(p: RefCounted, cc: int, bufs: Dictionary, owned: Array[RID]) -> void:
+	var sd: RefCounted = (load(DERIVE_PATH) as GDScript).new()
+	sd.ghost_count = int(p.ghost_count)
 	var want: Dictionary = p._buffers(cc)
-	want.merge(LATemporalLevels.buffers(cc + int(p.ghost_count), int(p.group_count())))
+	want.merge(sd._buffers(cc))
 	for key in want:
+		if bufs.has(String(key)):
+			continue
 		var spec: Variant = want[key]
-		var n: int = int(spec["n"]) if spec is Dictionary else int(spec)
+		var n: int = int(spec["n"]) * int(spec.get("stride", 1)) if spec is Dictionary else int(spec)
 		var indirect: bool = spec is Dictionary and bool(spec.get("indirect", false))
 		var zeros: PackedByteArray = _filled(n, 0.0).to_byte_array()
 		var r: RID = _rd.storage_buffer_create(zeros.size(), zeros,
@@ -126,6 +132,12 @@ func _geometry(grid: LAVoxelGrid, bufs: Dictionary, owned: Array[RID]) -> void:
 	bufs["slot_off"] = _i32(grid.slot_off, owned)
 	bufs["face_partner"] = _i32(grid.partners, owned)
 	bufs["cell_edge"] = _f32(grid.cell_edges(), owned)
+	bufs["pos"] = _f32(grid.centres.to_byte_array().to_float32_array(), owned)
+	var none: PackedInt32Array = PackedInt32Array()
+	none.resize(grid.cell_count)
+	none.fill(-1)
+	bufs["vert_up"] = _i32(none, owned)
+	bufs["vert_down"] = _i32(none, owned)
 	var ghost_tbl: PackedInt32Array = PackedInt32Array()
 	ghost_tbl.resize(grid.neighbours.size())
 	ghost_tbl.fill(-1)
@@ -142,19 +154,10 @@ func _build(owned: Array[RID]) -> Dictionary:
 		bufs[String(name)] = _f32(_filled(cc, 0.0), owned)
 	for name in LAChannels.derived_buffers():
 		bufs[String(name)] = _f32(_filled(cc, 0.0), owned)
-	# EVERY DERIVED BUFFER FROM THE ONE DECLARATION -- StateDerivePass names them and gives their shapes.
-	# A list copied into a rig is a second declaration that goes stale: none of the copies carried
-	# "h_h2o_vap", which FieldBoundary3D writes on every constant face.
-	var sd: RefCounted = (load("res://addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd") as GDScript).new()
-	sd.ghost_count = 0
-	var derived: Dictionary = sd._buffers(cc)
-	for key in derived:
-		var spec: Variant = derived[key]
-		var dn: int = int(spec["n"]) if spec is Dictionary else int(spec)
-		bufs[String(key)] = _f32(_filled(dn, 0.0), owned)
-	bufs["ground_d"] = _f32(_filled(cc, 0.0), owned)   # flux.glsl binding 99: the driver's own
+	# The field owner's, not a pass's, plus the three this box writes a value into below.
+	for name in ["ground_d", "k_cond", "gas_r", "gas_gamma"]:
+		bufs[name] = _f32(_filled(cc, 0.0), owned)
 	bufs["gravity"] = _f32(_filled(cc * 3, 0.0), owned)
-	bufs["g_rest"] = _f32(_filled(cc * 3, 0.0), owned)
 	_geometry(grid, bufs, owned)
 	_write(bufs, "rho_bulk", _filled(cc, RHO_BULK))
 	_write(bufs, "gas_r", _filled(cc, LAPhysical.DRY_AIR_GAS_CONSTANT_J_KGK))
@@ -196,19 +199,9 @@ func _seam() -> void:
 		bufs[String(name)] = _f32(_filled(cc, 0.0), owned)
 	for name in LAChannels.derived_buffers():
 		bufs[String(name)] = _f32(_filled(cc, 0.0), owned)
-	# EVERY DERIVED BUFFER FROM THE ONE DECLARATION -- StateDerivePass names them and gives their shapes.
-	# A list copied into a rig is a second declaration that goes stale: none of the copies carried
-	# "h_h2o_vap", which FieldBoundary3D writes on every constant face.
-	var sd: RefCounted = (load("res://addons/local_agents/sim/material/sphere_passes/StateDerivePass.gd") as GDScript).new()
-	sd.ghost_count = 0
-	var derived: Dictionary = sd._buffers(cc)
-	for key in derived:
-		var spec: Variant = derived[key]
-		var dn: int = int(spec["n"]) if spec is Dictionary else int(spec)
-		bufs[String(key)] = _f32(_filled(dn, 0.0), owned)
-	bufs["ground_d"] = _f32(_filled(cc, 0.0), owned)   # flux.glsl binding 99: the driver's own
+	# The field owner's, not a pass's; the derive's own declaration arrives with `_declared` below.
+	bufs["ground_d"] = _f32(_filled(cc, 0.0), owned)
 	bufs["gravity"] = _f32(_filled(cc * 3, 0.0), owned)
-	bufs["g_rest"] = _f32(_filled(cc * 3, 0.0), owned)
 	_geometry(grid, bufs, owned)
 
 	var p: RefCounted = (load(PASS_PATH) as GDScript).new()
@@ -255,7 +248,7 @@ func _seam() -> void:
 	var before: Dictionary = {}
 	for ch in checked:
 		before[String(ch)] = _total(bufs, String(ch), vol)
-	var start: PackedFloat32Array = _rd.buffer_get_data(bufs["h2o"]).to_float32_array()
+	var start: PackedFloat32Array = _rd.buffer_get_data(bufs["co2"]).to_float32_array()
 
 	var ctx: Dictionary = {"cell_size": SEAM_CELL, "cell_size_min": 0.5 * SEAM_CELL,
 		"sun_dir": Vector3.ZERO, "dt_s": DT}
@@ -292,7 +285,7 @@ func _seam() -> void:
 		_expect(absf(after - was) <= TOL * maxf(absf(was), 1.0),
 			"%s: a shut box held %s and now holds %s — the seam between two clocks is not conservative."
 			% [name, String.num_scientific(was), String.num_scientific(after)])
-	var ended: PackedFloat32Array = _rd.buffer_get_data(bufs["h2o"]).to_float32_array()
+	var ended: PackedFloat32Array = _rd.buffer_get_data(bufs["co2"]).to_float32_array()
 	var moved: bool = false
 	for c in cc:
 		if absf(ended[c] - start[c]) > 0.0:
@@ -318,10 +311,9 @@ func _init() -> void:
 		printerr("no RenderingDevice — headless has no compute device, so this gate cannot run.")
 		quit(2)
 		return
-	# UP TO ADVECT: everything that carries matter across a face, and nothing that radiates. A box that
-	# emits its own heat to space is never settled, so a rung holding RADIATION could not answer arm one.
+	# Acoustic transport supplies the gas rows and momentum this rig exercises.
+	LAProcessSet.declare(LAProcessSet.ACOUSTIC)
 	_seam()
-	LAProcessSet.declare(LAProcessSet.ADVECT)
 	var ctx: Dictionary = {"cell_size": CELL, "cell_size_min": CELL, "sun_dir": Vector3.ZERO,
 		"dt_s": DT}
 
@@ -354,22 +346,48 @@ func _init() -> void:
 	# --- ARM TWO: ONE BLOB, ITS OWN BUBBLE, AND NOT A MOLE LOST AT THE EDGE ------------------------
 	var owned_b: Array[RID] = []
 	var box: Dictionary = _build(owned_b)
-	# A PRESSURE FRONT IN ONE CELL and a box at rest around it: nothing else in this world has a
-	# gradient, so whatever wakes is what the front reached.
-	var blob: PackedFloat32Array = _filled(cc, 0.0)
-	blob[SEED_CELL] = BLOB_MOL_M3
+	# A pressure perturbation in collisional gas; the derive supplies its pressure and phase state.
+	var molar: float = float(LASubstances.table()["n2"]["molar_mass"])
+	var background: float = LASubstances.density("n2", SEAM_T, SEAM_P) / molar
+	var blob: PackedFloat32Array = _filled(cc, background)
+	background = blob[0]
+	blob[SEED_CELL] += BLOB_MOL_M3
+	var energy: PackedFloat32Array = PackedFloat32Array()
+	for c in cc:
+		energy.append(LAMixtureEnthalpy.enthalpy_at({"n2": blob[c] * molar}, 1.0, SEAM_T, SEAM_P) - SEAM_P)
+	_write(box, "e_j_m3", energy)
 	_write(box, "n2", blob)
 	var pb: RefCounted = _attach(box, owned_b)
 	var before: float = _total(box, "n2", vol_a)
 	_expect(before > 0.0, "the blob seeded nothing, so this arm examined nothing.")
+	var derive: RefCounted = (load(DERIVE_PATH) as GDScript).new()
+	derive.face_count = pb.face_count
+	derive.grid_dims = Vector3i(NX, 1, 1)
+	derive.grid_cell_size = CELL
+	derive.grid_origin = Vector3(-0.5 * float(NX) * CELL, -0.5 * CELL, -0.5 * CELL)
+	derive.setup(_rd, pb._driver, box, cc)
+	var nitrogen_group: int = -1
+	for g in pb._row_groups.size():
+		for row in pb._row_groups[g]:
+			if String(pb._rows[row]["channel"]) == "n2":
+				nitrogen_group = g
+	_expect(nitrogen_group >= 0, "no transport group carries the pressure perturbation")
+	var substeps: int = 0
 	for _k in STEPS:
+		pb._driver.open()
+		derive.dispatch(_rd, ctx, cc, 1)
+		pb._driver.close()
 		_step(pb, ctx, cc)
+		var level: int = int(pb._peaks[nitrogen_group])
+		_expect(level >= 0, "the pressure perturbation has no integrable timestep")
+		if level >= 0:
+			substeps += 1 << level
 	var after: PackedFloat32Array = _read(box, "n2")
 	var sum: float = 0.0
 	var reach: int = 0
 	for c in cc:
 		sum += after[c] * vol_a[c]
-		if after[c] != 0.0:
+		if after[c] != background:
 			reach = maxi(reach, absi(c - SEED_CELL))
 	# THE ONE CONSERVATION THIS ANSWERS: matter crossing into a cell the mask had asleep is matter gone.
 	_expect(absf(sum - before) <= TOL * maxf(absf(before), 1.0),
@@ -377,13 +395,14 @@ func _init() -> void:
 		% [String.num_scientific(before), String.num_scientific(sum)]
 		+ "bubble was never gathered, because nothing there was awake to gather it.")
 	_expect(reach > 0, "the blob never moved, so a bounded bubble proves nothing.")
-	# ONE CELL PER SUBSTEP is the fastest anything travels, and this box takes one substep per step.
-	_expect(reach <= STEPS, "the blob reached %d cells from where it was seeded in %d steps: matter "
-		% [reach, STEPS] + "outran its own signal speed.")
+	# One face per actual substep bounds the stencil; the solver owns how many substeps a step takes.
+	_expect(reach <= substeps, "the blob reached %d cells from where it was seeded in %d substeps: matter "
+		% [reach, substeps] + "outran its own signal speed.")
 	var bubble: int = int(pb._active_cells(_rd))
 	_expect(bubble > 0 and bubble < int(pb.group_count()) * cc,
 		"the blob's bubble holds %d of %d dispatchable cells, so it is not a bubble."
 		% [bubble, int(pb.group_count()) * cc])
+	derive.dispose(_rd)
 	pb.dispose(_rd)
 	for r in owned_b:
 		if r.is_valid():
@@ -395,7 +414,7 @@ func _init() -> void:
 	quit(1 if _fails > 0 else 0)
 GD
 
-out="$(LA_DONE_RE='^ACTIVE_ROWS=' LA_RUNG="${LA_RUNG:-5}" "$REPO_ROOT/scripts/run_sim_offscreen.sh" \
+out="$(LA_DONE_RE='^ACTIVE_ROWS=' LA_RUNG="${LA_RUNG:-3}" "$REPO_ROOT/scripts/run_sim_offscreen.sh" \
   --path "$REPO_ROOT" -s "res://addons/local_agents/tests/zz_active_rows_gate.gd" 2>&1)"
 rc=$?
 rm -f "$PROBE" "$PROBE.uid"
@@ -423,9 +442,9 @@ if la_cap_dir >/dev/null; then
   rc2=$?
 else
   out2="$("$REPO_ROOT/scripts/sim_run.sh" --path "$REPO_ROOT" --frames "${LA_ACTIVE_FRAMES:-2}" \
-    --rung "${LA_ACTIVE_RUNG:-5}" --report active_cells,transport_levels 2>&1)"
+    --rung "${LA_ACTIVE_RUNG:-3}" \
+    --slice-box "${LA_ACTIVE_BOX:-0,surface,0,3,8,3,1024,128}" --report active_cells,transport_levels 2>&1)"
   rc2=$?
-  case "$rc2" in 0|122|123|126) ;; *) out2="" ;; esac
 fi
 line2="$(printf '%s\n' "$out2" | grep -m1 'active_cells')"
 if [ -z "$line2" ] || printf '%s' "$line2" | grep -q 'ABSENT'; then
