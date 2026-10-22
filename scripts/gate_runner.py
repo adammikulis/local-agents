@@ -223,7 +223,9 @@ def run_gate(g, root, ledger, sink=None, extra_env=None):
             except ProcessLookupError:
                 pass
             except PermissionError as error:
-                read_errors.append("owned process group termination was refused: %s" % error)
+                # macOS refuses a signal to the group of an exited, unreaped leader: nothing is left to stop.
+                if proc.poll() is None:
+                    read_errors.append("owned process group termination was refused: %s" % error)
             reader.join(timeout=1)
             if proc.poll() is None or reader.is_alive():
                 try:
@@ -231,8 +233,8 @@ def run_gate(g, root, ledger, sink=None, extra_env=None):
                 except ProcessLookupError:
                     pass
                 except PermissionError as error:
-                    read_errors.append("owned process group cleanup was refused: %s" % error)
                     if proc.poll() is None:
+                        read_errors.append("owned process group cleanup was refused: %s" % error)
                         try:
                             proc.kill()
                         except (ProcessLookupError, PermissionError) as direct_error:
