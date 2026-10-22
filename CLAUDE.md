@@ -102,7 +102,7 @@ creatures and cognition. Broader requirements live in `docs/PHYSICS_TODO.md` and
 
 - Commit and push after every finished change, unprompted, never leaving work only local: the dev branch, or
   your own branch if you are a lane on one (`git push -u origin <branch>`); never `main`.
-- Delegate edits to Sonnet lanes (Sonnet 5.5 or below only, never Opus or Fable), each in its own worktree (`isolation: "worktree"`); integrate only with
+- Delegate edits to Sonnet lanes at xhigh effort (Opus only after Sonnet has failed the task; never Fable), each in its own worktree (`isolation: "worktree"`); integrate only with
   `scripts/integrate.sh <branch>`; prune every worktree you made. → `docs/agents/workflow.md`
 - Lint before landing: `LA_NO_GPU=1 scripts/agent_harness.sh lint`; one sim at a time; runs answer inside
   `docs/RUN_TIMEOUT_CEILING`; launch only via `la_godot`. → `docs/agents/validation.md`
