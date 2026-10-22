@@ -12,27 +12,20 @@ python3 -c "import PIL.Image" 2>/dev/null || {
 	echo "check_block_seams: python3 cannot open a PNG (no Pillow), so no picture was examined." >&2
 	exit 2
 }
-SCENE="addons/local_agents/examples/SliceRung1Demo.tscn"
-UNDER_M="${LA_SEAM_UNDER_M:-1000}"
-OVER_GROUND="vectors,test_masses,box_outline,water_particles,water_surface"
+. "$ROOT/scripts/lib_shot_arm.sh"
 DIR="$(mktemp -d "${TMPDIR:-/tmp}/la_seams.XXXXXX")"
-LOG="$(mktemp "${TMPDIR:-/tmp}/la_seams_log.XXXXXX")"
-trap 'rm -rf "$DIR" "$LOG"' EXIT
+trap 'rm -rf "$DIR"' EXIT
 
-PROTOCOL="$("$ROOT/scripts/shoot_demo.sh" "$SCENE" --print-shots)" || exit 2
-SHOTS="$(printf '%s' "$PROTOCOL" | tr ';' '\n' | awk -F: -v u="$UNDER_M" 'NF == 3 && $1 + 0 < u' | paste -sd ';' -)"
-require_scanned "$(printf '%s' "$SHOTS" | tr ';' '\n' | grep -c .)" 1 "protocol poses under ${UNDER_M} m"
-
-LA_SHOTS="$SHOTS" "$ROOT/scripts/shoot_demo.sh" "$SCENE" "$DIR" --without=terrain \
-	-- --debug-field=blocks "--ablate=$OVER_GROUND" > "$LOG" 2>&1
-rc=$?
+ARM="$(la_shot_arm blocks "$DIR")" || exit 2
+rc="$(cat "$ARM/rc")"
 if [ "$rc" -ne 0 ]; then
 	echo "check_block_seams: the run exited $rc, so no picture was taken." >&2
-	tail -25 "$LOG" >&2
+	tail -25 "$ARM/run.log" >&2
 	exit 2
 fi
+require_scanned "$(grep -c '^SHOT_SAVED=' "$ARM/run.log")" 2 "frames of the protocol poses under ${LA_ARM_BLOCKS_UNDER_M} m"
 
-python3 - "$LOG" <<'PY'
+python3 - "$ARM/run.log" <<'PY'
 import json, math, sys
 from PIL import Image
 
@@ -136,4 +129,4 @@ sys.exit(fail)
 PY
 rc=$?
 [ "$rc" -eq 0 ] || exit "$rc"
-echo "check_block_seams: OK (no backdrop between two blocks in any pose under ${UNDER_M} m)"
+echo "check_block_seams: OK (no backdrop between two blocks in any pose under ${LA_ARM_BLOCKS_UNDER_M} m)"

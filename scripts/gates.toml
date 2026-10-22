@@ -931,7 +931,12 @@ mutation = "python3 -c \"p='addons/local_agents/sim/material/FieldSlice3D.gd'; s
 name = "check_ground_drawn"
 script = "scripts/check_ground_drawn.sh"
 kind = "gpu"
-marker = "^SHOT_SAVED="
+needs = ["import"]
+marker = "^check_ground_drawn: OK"
+mutation = [
+	'''python3 -c "p='addons/local_agents/game/world/VoxelHarness.gd'; s=open(p).read(); o='\treturn box.size.length() > 0.0 and box.has_point(field.point_to_field(cam.global_position))'; assert o in s, o; open(p,'w').write(s.replace(o, '\treturn false'))"''',
+	'''python3 -c "p='addons/local_agents/game/world/VoxelHarness.gd'; s=open(p).read(); o='\treturn int(vectors.drawn()) if vectors != null else 0'; assert o in s, o; open(p,'w').write(s.replace(o, '\treturn 0'))"''',
+]
 
 [[gate]]
 name = "check_meteor_offer"
@@ -946,7 +951,10 @@ name = "check_slice_site"
 script = "scripts/check_slice_site.sh"
 kind = "gpu"
 marker = "^check_slice_site: OK"
-mutation = "python3 -c \"p='scripts/sim_run.sh'; s=open(p).read(); open(p,'w').write(s.replace('0,site=coast,0','0,surface,0'))\""
+mutation = [
+	"python3 -c \"p='scripts/sim_run.sh'; s=open(p).read(); open(p,'w').write(s.replace('0,site=coast,0','0,surface,0'))\"",
+	'''python3 -c "p='addons/local_agents/sim/material/FieldSlice3D.gd'; s=open(p).read(); o='\t\tcoast = true\n'; assert o in s, o; open(p,'w').write(s.replace(o, '\t\tcoast = false\n'))"''',
+]
 
 [[gate]]
 name = "check_box_outline"
@@ -957,16 +965,9 @@ marker = "^check_box_outline: OK"
 mutation = [
 	"perl -0pi -e 's/1\\.0 - smoothstep\\(0\\.0, 1\\.0, clampf\\(t, 0\\.0, 1\\.0\\)\\)/1.0/' addons/local_agents/game/render/FieldBoxOutline.gd",
 	'''python3 -c "p='addons/local_agents/game/render/FieldBoxOutline.gd'; s=open(p).read(); o='\t\tvar base: Vector3 = _corners[c]\n'; assert o in s, o; open(p,'w').write(s.replace(o, '\t\tif c == 1:\n\t\t\tcontinue\n' + o))"''',
-	{ cmd = '''python3 -c "p='scripts/check_box_outline.sh'; s=open(p).read(); o='off_rc=\"\$(shoot off'; assert o in s, o; open(p,'w').write(s.replace(o, 'STEP=\$((STEP + 1)); off_rc=\"\$(shoot off'))"''', exit = 2, says = "so they are two worlds" },
+	{ cmd = '''python3 -c "p='addons/local_agents/runtime/DemoHarness.gd'; s=open(p).read(); o='\tloop.halt_at(shoot_step)\n\tif loop.step_index() > shoot_step:'; r='\treturn loop.step_index() == shoot_step\n'; assert o in s and r in s, o; s=s.replace(o, '\tvar want: int = shoot_step + (1 if _without_at >= 0 else 0)\n\tloop.halt_at(want)\n\tif loop.step_index() > want:'); open(p,'w').write(s.replace(r, '\treturn loop.step_index() == want\n'))"''', exit = 2, says = "so they are two worlds" },
 	{ cmd = '''python3 -c "p='addons/local_agents/game/world/VoxelHarness.gd'; s=open(p).read(); o='return cam != null and cam.has_method(\"ground_resolved\")'; assert o in s, o; open(p,'w').write(s.replace(o, 'return false and cam != null and cam.has_method(\"ground_resolved\")'))"''', exit = 2, says = "shot before its ground was built" },
 ]
-
-[[gate]]
-name = "check_shot_look"
-script = "scripts/check_shot_look.sh"
-kind = "gpu"
-marker = "^check_shot_look: OK"
-mutation = "python3 -c \"p='addons/local_agents/game/render/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); s=s.replace('ALBEDO = col;','ALBEDO = vec3(0.0);'); open(p,'w').write(s.replace('EMISSION = max(glow, vec3(0.0));','EMISSION = vec3(0.35);'))\""
 
 [[gate]]
 name = "check_block_seams"
@@ -1018,11 +1019,13 @@ mutation = "python3 -c \"p='addons/local_agents/sim/material/MaterialEjecta3D.gd
 name = "check_shot_protocol"
 script = "scripts/check_shot_protocol.sh"
 kind = "gpu"
+needs = ["import"]
 marker = "^check_shot_protocol: OK"
 mutation = [
 	"python3 -c \"p='addons/local_agents/runtime/DemoHarness.gd'; s=open(p).read(); open(p,'w').write(s.replace('_poses[_pose_index].x, _poses[_pose_index].y,\\n\\t\\t\\t_poses[_pose_index].z', '_poses[0].x, _poses[0].y, _poses[0].z'))\"",
 	'''python3 -c "p='addons/local_agents/runtime/DemoHarness.gd'; s=open(p).read(); o='\t\t\tLAAblate.set_on(panel, false)\n\t\t\t_panels_off.append(panel)'; assert o in s, o; open(p,'w').write(s.replace(o, '\t\t\t_panels_off.append(panel)'))"''',
 	'''python3 -c "p='addons/local_agents/game/world/VoxelDebugWiring.gd'; s=open(p).read(); o='\tadd_child(_debug_panel)'; assert o in s, o; open(p,'w').write(s.replace(o, '\tworld.add_child(_debug_panel)'))"''',
+	"python3 -c \"p='addons/local_agents/game/render/shaders/VoxelTerrainTriplanar.gdshader'; s=open(p).read(); s=s.replace('ALBEDO = col;','ALBEDO = vec3(0.0);'); open(p,'w').write(s.replace('EMISSION = max(glow, vec3(0.0));','EMISSION = vec3(0.35);'))\"",
 ]
 
 [[gate]]

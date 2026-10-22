@@ -46,7 +46,7 @@ for b in $in_lint; do
 	[ -f "$f" ] || continue
 	[ "$b" = "check_gpu_gate_list" ] && continue   # this scan names the patterns it looks for
 	if rg -q -e "\"\\\$[A-Za-z_][A-Za-z_0-9]*[^\"]*/($LAUNCH)\\.sh\"" "$f" \
-		|| rg -q -e '[$][(]la_(report|report_raw|marker|cap_state|cap_front)\b' "$f" \
+		|| rg -q -e '[$][(]la_(report|report_raw|marker|cap_state|cap_front|shot_arm)\b' "$f" \
 		|| rg -q -e '/bin/lasim"' "$f" \
 		|| rg -q -e '\bla_lasim(_oracle_run)?\b' "$f"; then
 		actual="$actual $b"

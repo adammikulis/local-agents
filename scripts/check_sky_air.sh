@@ -7,18 +7,15 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/lib_require.sh"
-. "$ROOT/scripts/lib_godot.sh"
-. "$ROOT/scripts/lib_capture.sh"
+. "$ROOT/scripts/lib_shot_arm.sh"
 la_examined "$(basename "$0")" || exit $?
 require_tool python3
 
-SCENE="addons/local_agents/game/VoxelWorld.tscn"
-BOX="${LA_SKY_AIR_BOX:-0,surface,0,3,24,3,5120,10}"
 SUBSTANCES="$ROOT/addons/local_agents/gdextensions/localagents/src/LASubstances.cpp"
 OPTICS="$ROOT/addons/local_agents/gdextensions/localagents/src/LASubstanceOptics.cpp"
 CONSTANTS="$ROOT/addons/local_agents/sim/material/PhysicalConstants.gd"
 SKY="$ROOT/addons/local_agents/game/render/SkyView.gd"
-for f in "$ROOT/$SCENE" "$SUBSTANCES" "$OPTICS" "$CONSTANTS" "$SKY"; do
+for f in "$ROOT/$LA_ARM_SCENE_WORLD" "$ROOT/$LA_ARM_SCENE_R1" "$SUBSTANCES" "$OPTICS" "$CONSTANTS" "$SKY"; do
 	[ -f "$f" ] || { echo "check_sky_air: no file at $f" >&2; exit 2; }
 done
 DIR="$(mktemp -d "${TMPDIR:-/tmp}/la_sky_air.XXXXXX")"
@@ -175,15 +172,10 @@ PY
 # The rows first: a table that misstates a measured cross-section fails before any engine starts.
 python3 "$DIR/check.py" rows "$SUBSTANCES" "$OPTICS" "$CONSTANTS" "$SKY" || exit $?
 
-shoot() {  # <rung> <log>
-	LA_SLICE_BOX="$BOX" LA_RUN_TIMEOUT="${LA_SKY_AIR_TIMEOUT:-110}" "$ROOT/scripts/run_sim_offscreen.sh" \
-		--path "$ROOT" "$SCENE" -- --sandbox --ui "--rung=$1" --planet-only "--shoot=$DIR/shot_$1.png" \
-		"--shots=2000:-89:0" --local-hour=12 --shoot-frames=90 --shoot-size=320x200 > "$2" 2>&1
-	echo $?
-}
-air_rc="$(shoot 2 "$DIR/air.log")"
-none_rc="$(shoot 1 "$DIR/none.log")"
-python3 "$DIR/check.py" runs "$SUBSTANCES" "$OPTICS" "$CONSTANTS" "$SKY" "$DIR/air.log" "$DIR/none.log" "$air_rc" \
-	"$none_rc" \
+# The world with air is rung 2; the world with gravity and no air is the rung-1 slice the outline gate photographs.
+AIR="$(la_shot_arm air "$DIR")" || exit 2
+NONE="$(la_shot_arm outline "$DIR")" || exit 2
+python3 "$DIR/check.py" runs "$SUBSTANCES" "$OPTICS" "$CONSTANTS" "$SKY" "$AIR/run.log" "$NONE/run.log" \
+	"$(cat "$AIR/rc")" "$(cat "$NONE/rc")" \
 	|| exit $?
 echo "check_sky_air: OK"
