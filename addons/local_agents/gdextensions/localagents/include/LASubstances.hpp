@@ -27,6 +27,8 @@ public:
 	};
 
 	static Dictionary table();
+	// True once every row the table will hold is in it; a typed row built before is provisional.
+	static bool table_ready();
 
 	static double fresh_litter_per_carbon(const String &p_element);
 	static Dictionary reaction_terms(const Dictionary &p_rec, const Dictionary &p_slot_substance,
