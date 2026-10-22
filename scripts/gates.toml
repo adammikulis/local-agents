@@ -1090,7 +1090,7 @@ mutation = "python3 -c \"p='addons/local_agents/sim/material/MaterialFieldSnapsh
 name = "check_pure_cache"
 script = "scripts/check_pure_cache.sh"
 kind = "headless"
-needs = ["build"]
+needs = ["build", "import"]
 marker = "^check_pure_cache: OK"
 mutation = "python3 -c \"p='addons/local_agents/gdextensions/localagents/src/LAFieldStateCache.cpp'; s=open(p).read(); open(p,'w').write(s.replace('pc->get_as_text().sha256_text()', 'String()'))\""
 
